@@ -14,6 +14,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from neo4j import AsyncDriver, AsyncGraphDatabase
 from qdrant_client import AsyncQdrantClient
+from temporalio.client import Client
 
 from api.config import Settings, get_settings
 
@@ -104,6 +105,26 @@ async def get_redis(settings: SettingsDep) -> aioredis.Redis:
 
 
 RedisDep = Annotated[aioredis.Redis, Depends(get_redis)]
+
+
+# =============================================================================
+# Temporal — Workflow Orchestration
+# =============================================================================
+
+_temporal_client: Client | None = None
+
+
+async def get_temporal_client(settings: SettingsDep) -> Client:
+    global _temporal_client
+    if _temporal_client is None:
+        _temporal_client = await Client.connect(
+            settings.TEMPORAL_ADDRESS,
+            namespace=settings.TEMPORAL_NAMESPACE,
+        )
+    return _temporal_client
+
+
+TemporalDep = Annotated[Client, Depends(get_temporal_client)]
 
 
 # =============================================================================

@@ -1,5 +1,4 @@
 name: kairos
-version: "3.9"
 
 # =============================================================================
 # KAIROS — Local Development Stack
@@ -143,7 +142,7 @@ services:
     ports:
       - "7233:7233"
     environment:
-      DB: postgresql
+      DB: postgres12
       DB_PORT: 5432
       POSTGRES_USER: temporal
       POSTGRES_PWD: temporal
@@ -279,6 +278,7 @@ services:
       - QDRANT_URL=http://kairos-qdrant:6333
       - ELASTICSEARCH_URL=http://kairos-elasticsearch:9200
       - REDIS_URL=redis://kairos-redis:6379/0
+      - TEMPORAL_ADDRESS=kairos-temporal:7233
     env_file:
       - .env
     depends_on:
@@ -305,6 +305,7 @@ services:
       - QDRANT_URL=http://kairos-qdrant:6333
       - ELASTICSEARCH_URL=http://kairos-elasticsearch:9200
       - REDIS_URL=redis://kairos-redis:6379/0
+      - TEMPORAL_ADDRESS=kairos-temporal:7233
     env_file:
       - .env
     depends_on:

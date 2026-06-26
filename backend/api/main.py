@@ -11,7 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.config import settings
+from api.dependencies import get_es_client, get_qdrant_client
 from api.middleware.telemetry import setup_telemetry
+from api.services.search_engine import SearchEngineService
+from api.services.vector_store import VectorStoreService
 from api.routers import (
     assets,
     auth,
@@ -31,7 +34,16 @@ log = structlog.get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifecycle: startup and shutdown."""
     log.info("kairos.startup", env=settings.APP_ENV, version=settings.APP_VERSION)
-    # Initialise connections, warm caches, etc. (per-service setup)
+    
+    # Initialize connections and ensure collections/indices
+    qdrant_client = await get_qdrant_client(settings)
+    vector_store = VectorStoreService(qdrant_client, settings)
+    await vector_store.ensure_collections()
+
+    es_client = await get_es_client(settings)
+    search_engine = SearchEngineService(es_client, settings)
+    await search_engine.ensure_indices()
+
     yield
     log.info("kairos.shutdown")
 
