@@ -1,0 +1,8 @@
+limit:
+  maxWorkflowRetentionInDays:
+    - value: 30
+      constraints: {}
+  # Raise workflow history size limits for long-running ingestion pipelines
+  history.maximumSizeInBytes:
+    - value: 50000000
+      constraints: {}

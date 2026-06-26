@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # -----------------------------------------------------------------------
+      # Build & Push API Image
+      # -----------------------------------------------------------------------
+      - name: Extract metadata (API)
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}},prefix=api-
+            type=raw,value=api-latest
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # -----------------------------------------------------------------------
+      # Build & Push Go Connector Image
+      # -----------------------------------------------------------------------
+      - name: Extract metadata (Go Connectors)
+        id: meta-go
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}},prefix=go-
+            type=raw,value=go-latest
+
+      - name: Build and push Go image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/connectors
+          file: ./backend/connectors/Dockerfile
+          target: release
+          push: true
+          tags: ${{ steps.meta-go.outputs.tags }}
+          labels: ${{ steps.meta-go.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
