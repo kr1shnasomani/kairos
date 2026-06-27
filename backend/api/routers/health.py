@@ -7,8 +7,7 @@ from fastapi import APIRouter, Response, status
 from pydantic import BaseModel
 
 from api.config import settings
-from api.dependencies import Neo4jDep, QdrantDep, ElasticsearchDep, RedisDep
-from temporalio.client import Client
+from api.dependencies import Neo4jDep, QdrantDep, ElasticsearchDep, RedisDep, TemporalDep
 
 router = APIRouter()
 
@@ -33,6 +32,7 @@ async def detailed_health_check(
     qdrant: QdrantDep,
     es: ElasticsearchDep,
     redis: RedisDep,
+    temporal: TemporalDep,
 ) -> dict:
     """
     Returns 200 when all downstream dependencies are reachable.
@@ -76,10 +76,7 @@ async def detailed_health_check(
 
     async def check_temporal():
         try:
-            await Client.connect(
-                settings.TEMPORAL_ADDRESS,
-                namespace=settings.TEMPORAL_NAMESPACE,
-            )
+            await temporal.service_client.check_health()
             checks["temporal"] = "ok"
         except Exception as e:
             checks["temporal"] = f"error: {str(e)}"

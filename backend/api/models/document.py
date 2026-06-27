@@ -16,10 +16,11 @@ class VaultDocument(BaseModel):
     document_type: str
     authority_level: int = Field(..., ge=1, le=5)
     source_system: str
+    vault_url: Optional[str] = Field(None, description="Authenticated Supabase Storage URL for direct retrieval")
     ingested_at: datetime
     ingested_by: str
     status: str = Field(..., description="active, superseded, archived, disputed")
-    version_chain: Optional[str] = Field(None, description="ID of the document this supersedes")
+    version_chain: Optional[str] = Field(None, description="document_id this supersedes (new version → old version pointer)")
     asset_links: List[str] = Field(default_factory=list, description="Linked canonical asset IDs")
     access_tags: List[str] = Field(default_factory=list)
 

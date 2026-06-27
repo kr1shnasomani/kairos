@@ -3,7 +3,7 @@ Graph service — Neo4j temporal graph operations (Layer 4).
 All write operations enforce the five mandatory edge properties.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -38,8 +38,11 @@ class GraphService:
     # -------------------------------------------------------------------------
 
     async def create_asset_node(self, asset_data: Dict[str, Any]) -> str:
-        """Creates or merges a canonical asset node in the MDM backbone."""
-        cypher = """
+        """
+        Creates or merges a canonical asset node. If parent_asset_id is provided,
+        creates a PARENT_OF relationship from parent to this asset.
+        """
+        node_cypher = """
         MERGE (a:Asset {asset_id: $asset_id})
         ON CREATE SET
             a.tag_number = $tag_number,
@@ -53,10 +56,25 @@ class GraphService:
             a.created_at = $created_at
         RETURN a.asset_id AS asset_id
         """
+        parent_cypher = """
+        MATCH (parent:Asset {asset_id: $parent_asset_id})
+        MATCH (child:Asset {asset_id: $asset_id})
+        MERGE (parent)-[:PARENT_OF]->(child)
+        """
         async with self.driver.session(database=self.database) as session:
-            result = await session.run(cypher, **asset_data, created_at=datetime.utcnow().isoformat())
+            params = {k: v for k, v in asset_data.items() if k != "parent_asset_id"}
+            params["created_at"] = datetime.now(timezone.utc).isoformat()
+            result = await session.run(node_cypher, **params)
             record = await result.single()
-            return record["asset_id"]
+            asset_id = record["asset_id"]
+
+            if asset_data.get("parent_asset_id"):
+                await session.run(
+                    parent_cypher,
+                    parent_asset_id=asset_data["parent_asset_id"],
+                    asset_id=asset_id,
+                )
+        return asset_id
 
     async def get_asset(self, asset_id: str) -> Optional[Dict[str, Any]]:
         cypher = "MATCH (a:Asset {asset_id: $asset_id}) RETURN a"
@@ -64,6 +82,74 @@ class GraphService:
             result = await session.run(cypher, asset_id=asset_id)
             record = await result.single()
             return dict(record["a"]) if record else None
+
+    async def list_assets(
+        self,
+        site_id: Optional[str] = None,
+        equipment_class: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """Returns paginated asset list with total count. Authority pre-filter before traversal."""
+        where_clauses = []
+        params: Dict[str, Any] = {"skip": skip, "limit": limit}
+        if site_id:
+            where_clauses.append("a.site_id = $site_id")
+            params["site_id"] = site_id
+        if equipment_class:
+            where_clauses.append("a.equipment_class = $equipment_class")
+            params["equipment_class"] = equipment_class
+
+        where = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+        list_cypher = f"""
+        MATCH (a:Asset) {where}
+        RETURN a
+        ORDER BY a.created_at DESC
+        SKIP $skip LIMIT $limit
+        """
+        count_cypher = f"MATCH (a:Asset) {where} RETURN count(a) AS total"
+
+        async with self.driver.session(database=self.database) as session:
+            count_result = await session.run(count_cypher, **{k: v for k, v in params.items() if k not in ("skip", "limit")})
+            count_record = await count_result.single()
+            total = count_record["total"] if count_record else 0
+
+            list_result = await session.run(list_cypher, **params)
+            assets = [dict(record["a"]) async for record in list_result]
+
+        return {"assets": assets, "total": total}
+
+    async def get_asset_hierarchy(self, asset_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Returns the asset's position in the hierarchy:
+        ancestors (walk up PARENT_OF chain, up to 10 levels) and direct children.
+        """
+        asset_cypher = "MATCH (a:Asset {asset_id: $asset_id}) RETURN a"
+        ancestors_cypher = """
+        MATCH (a:Asset {asset_id: $asset_id})<-[:PARENT_OF*1..10]-(ancestor:Asset)
+        RETURN DISTINCT ancestor
+        ORDER BY ancestor.created_at ASC
+        """
+        children_cypher = """
+        MATCH (a:Asset {asset_id: $asset_id})-[:PARENT_OF]->(child:Asset)
+        RETURN child
+        """
+        async with self.driver.session(database=self.database) as session:
+            asset_result = await session.run(asset_cypher, asset_id=asset_id)
+            asset_record = await asset_result.single()
+            if not asset_record:
+                return None
+
+            asset = dict(asset_record["a"])
+
+            anc_result = await session.run(ancestors_cypher, asset_id=asset_id)
+            ancestors = [dict(record["ancestor"]) async for record in anc_result]
+
+            ch_result = await session.run(children_cypher, asset_id=asset_id)
+            children = [dict(record["child"]) async for record in ch_result]
+
+        return {"asset": asset, "ancestors": ancestors, "children": children}
 
     # -------------------------------------------------------------------------
     # Knowledge edges (Layer 4 — all five properties enforced)
@@ -81,7 +167,6 @@ class GraphService:
         confidence: float,
         verification_status: str = "unverified",
         valid_to: Optional[datetime] = None,
-        properties: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Creates a temporal knowledge edge with all five mandatory properties.
@@ -134,6 +219,22 @@ class GraphService:
         async with self.driver.session(database=self.database) as session:
             await session.run(cypher, edge_id=edge_id, valid_to=valid_to.isoformat())
 
+    async def close_validity_windows_for_document(self, document_id: str, valid_to: datetime) -> int:
+        """
+        Closes all active edges that reference a specific document (document supersession).
+        Returns the count of edges closed. Never deletes — only sets valid_to + status.
+        """
+        cypher = """
+        MATCH ()-[r:KNOWLEDGE_EDGE {document_id: $document_id}]-()
+        WHERE r.valid_to IS NULL
+        SET r.valid_to = $valid_to, r.verification_status = 'superseded'
+        RETURN count(r) AS closed
+        """
+        async with self.driver.session(database=self.database) as session:
+            result = await session.run(cypher, document_id=document_id, valid_to=valid_to.isoformat())
+            record = await result.single()
+            return record["closed"] if record else 0
+
     # -------------------------------------------------------------------------
     # Time-travel queries (Layer 4)
     # -------------------------------------------------------------------------
@@ -148,7 +249,7 @@ class GraphService:
         Returns all temporal graph edges for an asset, optionally scoped to a
         historical point-in-time. Uses composite index on (asset_id, valid_from, valid_to).
         """
-        as_of_str = as_of.isoformat() if as_of else datetime.utcnow().isoformat()
+        as_of_str = as_of.isoformat() if as_of else datetime.now(timezone.utc).isoformat()
         cypher = """
         MATCH (a:Asset {asset_id: $asset_id})-[r:KNOWLEDGE_EDGE]->(target)
         WHERE r.valid_from <= $as_of

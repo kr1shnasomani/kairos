@@ -240,6 +240,34 @@ OpenTelemetry with Grafana stack. Covers OTel SDK instrumentation for Go/Java/Py
 
 ---
 
+### `ponytail`
+Forces the laziest solution that actually works — YAGNI, stdlib first, no unrequested abstractions, shortest diff wins. Use whenever the user says "ponytail", "be lazy", "simplest solution", "yagni", "do less", or complains about over-engineering, bloat, or unnecessary dependencies. Supports intensity levels: lite, full (default), ultra.
+
+**Path**: `.agents/skills/ponytail/SKILL.md`
+
+---
+
+### `ponytail-audit`
+Whole-repo audit for over-engineering. Scans the entire codebase and produces a ranked list of what to delete, simplify, or replace with stdlib/native equivalents. Use when the user says "audit this codebase", "audit for over-engineering", "what can I delete", or "find bloat". One-shot report, applies no fixes.
+
+**Path**: `.agents/skills/ponytail-audit/SKILL.md`
+
+---
+
+### `ponytail-debt`
+Harvests every `ponytail:` comment in the codebase into a debt ledger so deliberate shortcuts don't silently rot. Use when the user says "ponytail debt", "what did ponytail defer", "list the shortcuts", or "ponytail ledger". One-shot report, changes nothing.
+
+**Path**: `.agents/skills/ponytail-debt/SKILL.md`
+
+---
+
+### `ponytail-review`
+Code review focused exclusively on over-engineering in a diff — finds what to delete, what reinvents stdlib, what is YAGNI. One line per finding with location, what to cut, and what replaces it. Use when the user says "review for over-engineering", "what can we delete", or "is this over-engineered".
+
+**Path**: `.agents/skills/ponytail-review/SKILL.md`
+
+---
+
 ### `prometheus`
 Prometheus and Grafana Cloud Metrics overview including PromQL query language, Metrics Drilldown, alerting, recording rules, and integration patterns. Use when working with Prometheus, writing PromQL queries, configuring alerting, or discussing metrics architecture and best practices.
 

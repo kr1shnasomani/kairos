@@ -1,63 +1,141 @@
-# KAIROS — Agent Instructions
+# KAIROS — Agent Context
 
-## What This Is
-Industrial Operational Intelligence Platform — 13 layers, event-driven, proactive knowledge delivery to field workers. Not a search tool. Not a RAG chatbot. Full architecture: `docs/ARCHITECTURE.md` (read before writing feature code).
+## What Is This
+Industrial Operational Intelligence Platform — proactive knowledge delivery to field workers at the moment they need it. Not a RAG chatbot. 13-layer event-driven architecture. Full design: `docs/ARCHITECTURE.md`. Full task list: `IMPLEMENTATION.md`.
 
-## Commands
+---
+
+## Current Implementation State
+
+**Phase:** 1 — Retrieval Only. Do not wire Phase 2 (LLM synthesis) or Phase 3 (proactive push) into active code paths.
+
+### Completed Tasks (verified, tested, running)
+| Task | What | Verified By |
+|------|------|-------------|
+| 1 | DB schema applied, `/health/detailed` pings all 5 services | `GET /health/detailed` → all ok |
+| 2 | Asset MDM — all 6 `/assets/*` endpoints, Neo4j + Supabase + ES | Asset P-101 created, retrieved |
+| 3 | Immutable vault — `POST /documents/ingest`, SHA-256 dedup, Supabase Storage, Temporal trigger | Full ingest + status poll |
+| 4 | OCR Temporal activities — `store_in_vault`, `run_ocr`, `mark_complete` | Pipeline runs to `complete`, confidence=0.95 |
+
+### Next Task: Task 5 — NER + Entity-to-Asset Linking
+See `IMPLEMENTATION.md` Task 5 for the full spec. Key files to touch:
+- `backend/api/services/ner.py` — wire `NERService.extract_entities()` and `resolve_asset_tag()`
+- `backend/workflows/document_pipeline.py` — `run_ner` and `link_to_graph` activities (currently stubs)
+- `backend/api/services/graph.py` — `create_knowledge_edge()` already implemented, use it
+
+---
+
+## Dev Commands
+Everything runs inside Docker. There is no `python manage.py`, no `npm run dev`, no local virtual env.
+
 ```bash
-make dev        # Start all Docker services (Neo4j, Qdrant, ES, Redis, Temporal, OPA, Vault, Grafana)
-make api        # FastAPI dev server → http://localhost:8000/docs
-make workers    # Celery (queues: ingestion / extraction / attribution)
-make connectors # Go OT connector → :8090
-make init-all   # First-time: Neo4j schema + Qdrant collections
+make dev        # Build and start ALL services
+make stop       # Stop all services
+make nuke       # Destroy all volumes — irreversible
+make init-all   # First-time setup: Neo4j constraints + Qdrant collections
+make test       # pytest in kairos-backend-api + go test in kairos-backend-go
 make lint       # ruff + golangci-lint
-make test       # pytest
+make logs       # Tail all service logs
+make ps         # Show container status
 ```
 
-## Stack
-FastAPI (Python 3.12) · Neo4j 5.20 · Qdrant · Elasticsearch 8.13 · Redis 7.2 · Temporal.io · Celery · Go (Gin) for OT connectors · OPA · HashiCorp Vault · OpenTelemetry → Grafana · Supabase (storage + auth + postgres) · NVIDIA NIM / Ollama (Phase 2 only)
+**Container names:** `kairos-backend-api` (port 8000) · `kairos-backend-go` (8090) · `kairos-neo4j` (7474/7687) · `kairos-qdrant` (6333) · `kairos-elasticsearch` (9200) · `kairos-redis` (6379) · `kairos-temporal` (7233) · `kairos-temporal-activity-worker` · `kairos-temporal-worker` (Celery) · `kairos-opa` (8181) · `kairos-vault` (8200) · `kairos-grafana` (3001)
 
-## Current Phase: 1 — Retrieval Only
-- Phase 2 (synthesis) activates when `NVIDIA_NIM_API_KEY` or Ollama is configured
-- Phase 3 (proactive push) activates after 30-day EEMUA 191 pilot gate passes
-- **Do not wire Phase 2/3 features into active Phase 1 code paths**
+**Temporal UI:** `http://localhost:8088` — check workflow status here.
+
+**API is at:** `http://localhost:8000` — `APP_DEBUG=true` in dev, so no auth token required.
+
+---
+
+## Stack
+FastAPI (Python 3.12) · Neo4j 5.20 · Qdrant · Elasticsearch 8.13 · Redis 7.2 · Temporal.io · Celery · Go (Gin) for OT connectors · OPA · HashiCorp Vault · OpenTelemetry → Grafana · Supabase (Postgres + Storage + Auth)
+
+---
 
 ## Non-Negotiable Rules
 
-**Neo4j edges** — every write must carry all five properties or it's a bug:
+### Neo4j Edges — Every Write Needs All 5 Properties
 ```python
-valid_from, valid_to          # temporal validity window
-authority_level               # 1=Regulatory 2=Engineering 3=OEM 4=Procedure 5=Field
-document_id                   # provenance pointer to vault artifact
-confidence                    # 0.0–1.0
-verification_status           # unverified / verified / disputed / superseded / quarantined
+await graph.create_knowledge_edge({
+    "from_node": asset_id,
+    "to_node": document_id,
+    "relationship": "DOCUMENTED_BY",
+    "valid_from": datetime.now(timezone.utc).isoformat(),
+    "valid_to": None,                        # open-ended
+    "authority_level": 4,                    # 1=Regulatory 2=Engineering 3=OEM 4=Procedure 5=Field
+    "document_id": document_id,
+    "confidence": 0.92,
+    "verification_status": "unverified",     # unverified / verified / disputed / superseded / quarantined
+})
+```
+Missing any of these five is a bug, not a warning.
+
+### Vault — Never Delete, Never Overwrite
+Close `valid_to` to supersede. The artifact in Supabase Storage is permanent. Use `GraphService.close_validity_window(edge_id, valid_to)` to supersede graph edges.
+
+### Quarantine — Unverified Never Auto-Promotes
+`confidence < 0.7` or unresolved tag → `quarantine_items` table. Never directly to the canonical graph. Human action only to promote.
+
+### Asset Nodes — MERGE Not CREATE
+```cypher
+MERGE (a:Asset {asset_id: $id}) SET a += $props
 ```
 
-**Vault (Layer 2)** — never delete, never overwrite. Supersede by closing `valid_to`.
+### Authority Pre-Filter Before Traversal
+```cypher
+WHERE r.authority_level <= $max_level AND r.valid_from <= $as_of
+```
+Filter on the index first, traverse second.
 
-**Quarantine (Layer 6)** — unverified inputs never auto-promote to the canonical graph. Human action only.
+### EEMUA 191 Governor
+Call `EventBusService.check_governor(user_id)` before every brief delivery. PTW briefs (`priority='critical'`) are always exempt. Hard ceiling: ≤6 push events per operator per hour.
 
-**EEMUA 191 (Layer 8)** — call `EventBusService.check_governor()` before every brief delivery. PTW briefs (`priority='critical'`) are always exempt. All others obey ≤6/hour ceiling.
+### LLM / Safety-Critical Queries
+Phase 2 only. In Phase 1, return retrieved documents directly. Safety-critical parameter queries (pressure limits, interlock sequences, torque specs) → explicit refusal, never hedged answers.
 
-**LLM synthesis (Layer 11)** — assembles from retrieved context only. Safety-critical parameter queries (pressure limits, interlock sequences, torque specs) use explicit refusal, never hedged answers.
+### OT Connectors (Go)
+Historian data is ephemeral — query, reason in memory, discard. Never store time-series in KAIROS infrastructure.
 
-**OT connectors (Go)** — historian data is ephemeral. Never store time-series data in KAIROS infrastructure.
+---
 
-**Cypher** — `MERGE` not `CREATE` for asset nodes. Authority-level pre-filter before traversal, not after.
+## Code Style
+- Routers thin — handler calls service, returns result. No business logic inline.
+- All service I/O lives in `backend/api/services/`
+- `structlog` for all logging. Never `print()`, never stdlib `logging`.
+- `async/await` throughout FastAPI. No blocking I/O in async handlers.
+- Pydantic model for every request and response shape.
+- Never hardcode secrets — all via `api/config.py` Settings or env vars.
+- Never `SELECT *` or wildcard CORS `"*"` in production.
+- Never touch `frontend/` — deferred.
 
-## Do
-- Routers thin, service calls in `backend/api/services/`
-- `async/await` throughout FastAPI — no blocking calls in handlers
-- `structlog` for all logging — never `print()` or stdlib `logging`
-- Pydantic models for every request/response shape
-- `MERGE` for asset nodes in Neo4j
+---
 
-## Don't
-- Never hardcode secrets — all via env vars, Vault in production
-- Never `SELECT *` or wildcard CORS (`"*"`) in production
-- Never touch `frontend/` — deferred to a later phase
-- Never add Phase 2/3 features to Phase 1 active paths
-- Never delete vault documents — supersede only
+## Where Things Live
+| Concern | File |
+|---------|------|
+| FastAPI app entrypoint | `backend/api/main.py` |
+| Settings / env vars | `backend/api/config.py` |
+| Dependency injection | `backend/api/dependencies.py` |
+| Routers | `backend/api/routers/*.py` |
+| Services (business logic + I/O) | `backend/api/services/*.py` |
+| Pydantic models | `backend/api/models/*.py` |
+| Temporal workflow | `backend/workflows/document_pipeline.py` |
+| Temporal worker entrypoint | `backend/workers/temporal_worker.py` |
+| Celery worker | `backend/workers/celery_app.py` |
+| Go OT connectors | `backend/connectors/` |
+| Neo4j schema | `backend/db/neo4j/init_schema.cypher` |
+| Supabase migrations | `backend/db/migrations/` |
+| Agent instructions (backend) | `backend/AGENTS.md` |
+| Agent instructions (connectors) | `backend/connectors/AGENTS.md` |
+| Full task specs | `IMPLEMENTATION.md` |
+| Architecture detail | `docs/ARCHITECTURE.md` |
+
+---
 
 ## Skills
-All skills: `SKILL_MANIFEST.md` — 55 skills covering Neo4j, Qdrant, Redis, Elasticsearch, FastAPI, Celery, Temporal, Go, Grafana, HuggingFace, Supabase, OpenTelemetry, and more.
+All skills: `SKILL_MANIFEST.md` — 59 skills for Neo4j, Qdrant, Redis, Elasticsearch, FastAPI, Celery, Temporal, Go, Grafana, Supabase, OpenTelemetry, and more.
+
+`ponytail` — YAGNI enforcement. Invoke with `/ponytail [lite|full|ultra]` or say "be lazy".
+`ponytail-review` — diff-scoped over-engineering review. Invoke with `/ponytail-review`.
+`ponytail-audit` — whole-repo scan. Invoke with `/ponytail-audit`.
+`ponytail-debt` — harvest `ponytail:` comments. Invoke with `/ponytail-debt`.

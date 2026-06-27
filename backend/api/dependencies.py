@@ -4,7 +4,7 @@ Provides shared clients as FastAPI dependencies (injected per-request or applica
 """
 
 from functools import lru_cache
-from typing import Annotated, Generator
+from typing import Annotated
 
 import redis.asyncio as aioredis
 import structlog
@@ -14,7 +14,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from neo4j import AsyncDriver, AsyncGraphDatabase
 from qdrant_client import AsyncQdrantClient
-from temporalio.client import Client
+from supabase import Client, create_client
+from temporalio.client import Client as TemporalClient
 
 from api.config import Settings, get_settings
 
@@ -111,20 +112,41 @@ RedisDep = Annotated[aioredis.Redis, Depends(get_redis)]
 # Temporal — Workflow Orchestration
 # =============================================================================
 
-_temporal_client: Client | None = None
+_temporal_client: TemporalClient | None = None
 
 
-async def get_temporal_client(settings: SettingsDep) -> Client:
+async def get_temporal_client(settings: SettingsDep) -> TemporalClient:
     global _temporal_client
     if _temporal_client is None:
-        _temporal_client = await Client.connect(
+        _temporal_client = await TemporalClient.connect(
             settings.TEMPORAL_ADDRESS,
             namespace=settings.TEMPORAL_NAMESPACE,
         )
     return _temporal_client
 
 
-TemporalDep = Annotated[Client, Depends(get_temporal_client)]
+TemporalDep = Annotated[TemporalClient, Depends(get_temporal_client)]
+
+
+# =============================================================================
+# Supabase — Document Vault, Relational DB, Auth
+# Uses service role key: bypasses RLS (backend-only access)
+# =============================================================================
+
+_supabase_client: Client | None = None
+
+
+def get_supabase(settings: SettingsDep) -> Client:
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = create_client(
+            settings.SUPABASE_URL,
+            settings.SUPABASE_SERVICE_ROLE_KEY,
+        )
+    return _supabase_client
+
+
+SupabaseDep = Annotated[Client, Depends(get_supabase)]
 
 
 # =============================================================================
