@@ -3,9 +3,11 @@ Search router — Layer 11: Reasoning and Synthesis Layer.
 Hybrid retrieval: exact match (ES) + semantic vector (Qdrant) + graph traversal (Neo4j).
 """
 
+import asyncio
 from datetime import datetime
 from typing import Optional
 
+import structlog
 from fastapi import APIRouter, Query
 
 from api.dependencies import (
@@ -14,13 +16,16 @@ from api.dependencies import (
     Neo4jDep,
     QdrantDep,
     SettingsDep,
+    SupabaseDep,
 )
-from api.models.document import SearchResponse
+from api.models.document import SearchResponse, SynthesizeRequest, SynthesizeResponse
 from api.services.graph import GraphService
-from api.services.llm import LLMService
+from api.services.llm import LLMService, SAFETY_CRITICAL_CATEGORIES
 from api.services.search_engine import SearchEngineService
 from api.services.search_service import SearchService
 from api.services.vector_store import VectorStoreService
+
+log = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -100,18 +105,55 @@ async def search_asset(
     return SearchResponse(query=q, results=results, total=len(results), retrieval_methods=methods)
 
 
-@router.post("/synthesize", summary="Synthesize an answer from retrieved knowledge (Phase 2+)")
+@router.post("/synthesize", response_model=SynthesizeResponse, summary="Synthesize an answer from retrieved knowledge")
 async def synthesize(
+    payload: SynthesizeRequest,
     current_user: CurrentUserDep,
-    payload: dict,
-) -> dict:
+    settings: SettingsDep,
+    supabase: SupabaseDep,
+) -> SynthesizeResponse:
     """
-    Synthesis stub — Phase 2 gate. Returns a clean no-op until LLM is wired in Task 8.
+    Assembles retrieved knowledge into a provenance-backed answer via NIM or Ollama.
+    Safety-critical categories trigger explicit refusal when evidence confidence is low.
+    No-ops cleanly when no LLM is configured (Phase 1 fallback).
     """
-    return {
-        "answer": None,
-        "sources": [],
-        "confidence": None,
-        "safety_critical": False,
-        "message": "Synthesis requires NVIDIA_NIM_API_KEY or Ollama to be configured.",
-    }
+    llm = LLMService(settings)
+    result = await llm.synthesize(payload.query, payload.context, payload.query_category)
+
+    parsed: dict = {}
+    if result.get("answer"):
+        parsed = LLMService.parse_synthesis_response(result["answer"])
+
+    refused = bool(result.get("refused"))
+    safety_critical = payload.query_category in SAFETY_CRITICAL_CATEGORIES if payload.query_category else False
+
+    try:
+        await asyncio.to_thread(
+            lambda: supabase.table("audit_log").insert({
+                "action": "synthesis",
+                "entity_type": "query",
+                "performed_by": current_user.get("user_id", "unknown"),
+                "details": {
+                    "query": payload.query,
+                    "query_category": payload.query_category,
+                    "sources_used": parsed.get("sources_used", []),
+                    "confidence": parsed.get("confidence"),
+                    "refused": refused,
+                },
+            }).execute()
+        )
+    except Exception as exc:
+        log.warning("synthesis.audit_log_failed", error=str(exc))
+
+    return SynthesizeResponse(
+        answer=parsed.get("answer") or result.get("answer"),
+        sources=result.get("sources", []),
+        confidence=parsed.get("confidence") or result.get("confidence"),
+        refused=refused,
+        refusal_reason=result.get("refusal_reason"),
+        safety_critical=safety_critical,
+        sources_used=parsed.get("sources_used", []),
+        uncertainty=parsed.get("uncertainty") or result.get("uncertainty"),
+        model=result.get("model"),
+        message=result.get("message"),
+    )

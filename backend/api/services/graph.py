@@ -19,6 +19,8 @@ class GraphService:
     confidence scores, and verification status on every edge write.
     """
 
+    _SAFETY_CRITICAL_KEYWORDS = {"pressure", "temperature", "inspection", "isolation", "material"}
+
     def __init__(self, driver: AsyncDriver, database: str = "neo4j"):
         self.driver = driver
         self.database = database
@@ -179,6 +181,61 @@ class GraphService:
                 created_at=datetime.now(timezone.utc).isoformat(),
             )
 
+    async def detect_conflict(
+        self,
+        source_id: str,
+        source_label: str,
+        relationship_type: str,
+        new_document_id: str,
+        new_authority_level: int,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Checks for an active edge on the same (source, relationship_type) from a DIFFERENT document.
+        Returns conflict metadata dict for Supabase insert, or None if no conflict.
+        """
+        if source_label not in self._LABEL_ID_FIELD:
+            return None
+        src_field = self._LABEL_ID_FIELD[source_label]
+        # Safe: src_field and source_label come from validated whitelist
+        cypher = f"""
+        MATCH (src:{source_label} {{{src_field}: $source_id}})-[r:KNOWLEDGE_EDGE]->(existing)
+        WHERE r.relationship_type = $relationship_type
+          AND r.valid_to IS NULL
+          AND r.document_id <> $new_document_id
+          AND r.verification_status <> 'superseded'
+        RETURN r.edge_id AS edge_id, r.document_id AS document_id,
+               r.authority_level AS authority_level, r.confidence AS confidence
+        LIMIT 1
+        """
+        async with self.driver.session(database=self.database) as session:
+            result = await session.run(
+                cypher,
+                source_id=source_id,
+                relationship_type=relationship_type,
+                new_document_id=new_document_id,
+            )
+            record = await result.single()
+        if not record:
+            return None
+
+        param_lower = relationship_type.lower()
+        is_safety_param = any(kw in param_lower for kw in self._SAFETY_CRITICAL_KEYWORDS)
+        track = "engineering" if (new_authority_level <= 3 and is_safety_param) else "administrative"
+        sla_hours = 24 if track == "engineering" else 5 * 24
+        severity = "critical" if new_authority_level == 1 else ("major" if track == "engineering" else "minor")
+
+        return {
+            "parameter": relationship_type,
+            "track": track,
+            "severity": severity,
+            "source_a": {"edge_id": record["edge_id"], "document_id": record["document_id"],
+                         "authority_level": record["authority_level"], "confidence": record["confidence"]},
+            "source_b": {"document_id": new_document_id, "authority_level": new_authority_level},
+            "authority_a": record["authority_level"],
+            "authority_b": new_authority_level,
+            "sla_hours": sla_hours,
+        }
+
     async def create_knowledge_edge(
         self,
         source_id: str,
@@ -193,10 +250,12 @@ class GraphService:
         confidence: float,
         verification_status: str = "unverified",
         valid_to: Optional[datetime] = None,
-    ) -> str:
+    ) -> Dict[str, Any]:
         """
         Creates a temporal knowledge edge with all five mandatory properties.
         Labels must be from the known node label set (validated against whitelist).
+        Returns {"edge_id": str, "conflict": dict|None} — conflict is non-None when
+        an existing active edge for the same (source, relationship_type) was found.
         """
         if source_label not in self._LABEL_ID_FIELD or target_label not in self._LABEL_ID_FIELD:
             raise ValueError(f"Unknown label: {source_label!r} or {target_label!r}")
@@ -209,7 +268,15 @@ class GraphService:
         tgt_field = self._LABEL_ID_FIELD[target_label]
         edge_id = f"{source_id}_{relationship_type}_{target_id}_{valid_from.isoformat()}"
 
-        # Labels come from a validated whitelist — f-string is safe here
+        # Detect conflict before writing (labels come from validated whitelist — f-string safe)
+        conflict = await self.detect_conflict(
+            source_id=source_id,
+            source_label=source_label,
+            relationship_type=relationship_type,
+            new_document_id=document_id,
+            new_authority_level=authority_level,
+        )
+
         cypher = f"""
         MATCH (src:{source_label} {{{src_field}: $source_id}})
         MATCH (tgt:{target_label} {{{tgt_field}: $target_id}})
@@ -240,7 +307,8 @@ class GraphService:
                 verification_status=verification_status,
             )
             record = await result.single()
-            return record["edge_id"] if record else edge_id
+
+        return {"edge_id": record["edge_id"] if record else edge_id, "conflict": conflict}
 
     async def close_validity_window(self, edge_id: str, valid_to: datetime) -> None:
         """Closes the validity window on an edge (supersession, never deletion)."""

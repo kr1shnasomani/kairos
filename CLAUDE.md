@@ -1,1 +1,1 @@
-@AGENTS.md
+/Users/apple/Documents/Projects/kairos/AGENTS.md

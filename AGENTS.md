@@ -1,143 +1,143 @@
 # KAIROS — Agent Context
 
-## What Is This
-Industrial Operational Intelligence Platform — proactive knowledge delivery to field workers at the moment they need it. Not a RAG chatbot. 13-layer event-driven architecture. Full design: `docs/ARCHITECTURE.md`. Full task list: `IMPLEMENTATION.md`.
+## Essential Reading (load before anything else)
+- `docs/PROBLEM_STATEMENT.md` — what this platform is for and why it matters. Every decision must trace back to this.
+- `IMPLEMENTATION.md` — full task specs. The contract for every build.
+- `docs/ARCHITECTURE.md` — 13-layer design. Understand the layer a task lives in before touching it.
 
 ---
 
-## Current Implementation State
+## Current State
 
 **Phase:** 1 — Retrieval Only. Do not wire Phase 2 (LLM synthesis) or Phase 3 (proactive push) into active code paths.
 
-### Completed Tasks (verified, tested, running)
+### Completed (verified, running)
 | Task | What | Verified By |
 |------|------|-------------|
-| 1 | DB schema applied, `/health/detailed` pings all 5 services | `GET /health/detailed` → all ok |
+| 1 | DB schema + `/health/detailed` pings all 5 services | `GET /health/detailed` → all ok |
 | 2 | Asset MDM — all 6 `/assets/*` endpoints, Neo4j + Supabase + ES | Asset P-101 created, retrieved |
-| 3 | Immutable vault — `POST /documents/ingest`, SHA-256 dedup, Supabase Storage, Temporal trigger | Full ingest + status poll |
+| 3 | Immutable vault — `POST /documents/ingest`, SHA-256 dedup, Temporal trigger | Full ingest + status poll |
 | 4 | OCR Temporal activities — `store_in_vault`, `run_ocr`, `mark_complete` | Pipeline runs to `complete`, confidence=0.95 |
-| 5 | NER + entity-to-asset linking — `run_ner`, `link_to_graph` activities, `create_knowledge_edge` Cypher fixed | Pipeline runs all 7 stages; edge verified in Neo4j with all 5 properties |
-| 6 | Vector + text indexing — `index_vectors` (Qdrant, Jina `jina-embeddings-v3` 1024-dim) and `index_text` (ES) parallel | Qdrant 1024-dim point + ES doc verified |
-| 7 | Hybrid Search — `GET /search` parallel ES + Qdrant + Neo4j, authority re-rank, `as_of` time-travel, quarantine toggle | Tag search → ES hits; concept search → Qdrant semantic; as_of 2020 → 0 graph results; all 3 retrieval methods active |
+| 5 | NER + entity-to-asset linking — `run_ner`, `link_to_graph`, `create_knowledge_edge` | All 7 stages; Neo4j edge with all 5 properties verified |
+| 6 | Vector + text indexing — `index_vectors` (Qdrant, Jina 1024-dim) + `index_text` (ES) parallel | Qdrant point + ES doc verified |
+| 7 | Hybrid Search — `GET /search` parallel ES + Qdrant + Neo4j, authority re-rank, `as_of` time-travel | Tag → ES hit; concept → Qdrant semantic; as_of 2020 → 0 graph results |
+| 8 | LLM Synthesis — `POST /search/synthesize`, NIM + Ollama, safety-critical refusal, audit log | NIM answer verified; `max_allowable_pressure` conf=0.35 → refused=true; audit_log written |
+| 9 | Dual-Track Conflict Detection + Blast-Radius — `detect_conflict()` in GraphService, all `/governance/*` endpoints wired, MoC webhook | Promote quarantine → conflict_detected=true; MoC webhook → status=resolved; blast-radius=5 affected facts |
 
-### Next Task: Task 8 — LLM Synthesis (`POST /search/synthesize`)
-See `IMPLEMENTATION.md` Task 8 for the full spec. Key files to touch:
-- `backend/api/routers/search.py` — `POST /search/synthesize` endpoint (currently clean stub)
-- `backend/api/services/llm.py` — `synthesize()` already implemented, just needs wiring + response parsing
+### Next: Task 10 — Compliance Gap Detection
+Full spec in `IMPLEMENTATION.md`.
 
 ---
 
-## Dev Commands
-Everything runs inside Docker. There is no `python manage.py`, no `npm run dev`, no local virtual env.
+## Task Protocol (follow every time, no exceptions)
 
-```bash
-make dev        # Build and start ALL services
-make stop       # Stop all services
-make nuke       # Destroy all volumes — irreversible
-make init-all   # First-time setup: Neo4j constraints + Qdrant collections
-make test       # pytest in kairos-backend-api + go test in kairos-backend-go
-make lint       # ruff + golangci-lint
-make logs       # Tail all service logs
-make ps         # Show container status
-```
+### 1 — Full Context Before Writing Anything
+- Read the full task spec in `IMPLEMENTATION.md`.
+- Read every file you will touch, end-to-end. Trace the call chain: router → service → db/external.
+- Check the completed table above — don't re-implement verified work.
+- Identify which architecture layer the task lives in (`docs/ARCHITECTURE.md`).
 
-**Container names:** `kairos-backend-api` (port 8000) · `kairos-backend-go` (8090) · `kairos-neo4j` (7474/7687) · `kairos-qdrant` (6333) · `kairos-elasticsearch` (9200) · `kairos-redis` (6379) · `kairos-temporal` (7233) · `kairos-temporal-activity-worker` · `kairos-temporal-worker` (Celery) · `kairos-opa` (8181) · `kairos-vault` (8200) · `kairos-grafana` (3001)
+### 2 — Plan
+- State exactly which files change and what each change does.
+- Invoke `/ponytail lite` (minimum) before planning. YAGNI applies. Reuse what exists. No abstractions for one use case.
+- Check `SKILL_MANIFEST.md` for relevant skills and invoke any that apply — skills are mandatory, not optional. Search by domain keyword (e.g. "neo4j", "qdrant", "temporal", "fastapi") to find the right one quickly.
 
-**Temporal UI:** `http://localhost:8088` — check workflow status here.
+### 3 — Build
+- Docker is the only runtime. No local `python`, no `pip install` outside containers.
+- Hot-reload is active — edits apply immediately. Rebuild only if new pip deps added.
+- After edits: AST parse check before waiting on Docker (`python3 -c "import ast; ast.parse(open('f').read())"`).
+- Root-cause errors, don't patch symptoms. One fix in the shared function beats guards at every caller.
+- Log with `structlog`. Never `print()`, never stdlib `logging`.
+- Stay in scope. If something unrelated is broken, note it — don't fix it mid-task.
 
-**API is at:** `http://localhost:8000` — `APP_DEBUG=true` in dev, so no auth token required.
+### 4 — Verify End-to-End (nothing is done until this passes)
+- Run the exact test cases from `IMPLEMENTATION.md` spec via live HTTP calls against the running stack.
+- Read container logs: `docker logs kairos-backend-api 2>&1 | tail -30`. No silent errors allowed.
+- Confirm writes in the actual database (Supabase/Neo4j/Qdrant/ES) — not just the HTTP response.
+- Update the completed table above with a concrete "Verified By" entry.
+- Delete any temp files, test scripts, or scratch PDFs created during the task.
 
 ---
 
 ## Stack
-FastAPI (Python 3.12) · Neo4j 5.20 · Qdrant · Elasticsearch 8.13 · Redis 7.2 · Temporal.io · Celery · Go (Gin) for OT connectors · OPA · HashiCorp Vault · OpenTelemetry → Grafana · Supabase (Postgres + Storage + Auth)
+FastAPI (Python 3.12) · Neo4j 5.20 · Qdrant · Elasticsearch 8.13 · Redis 7.2 · Temporal.io · Celery · Go (Gin) · OPA · HashiCorp Vault · OpenTelemetry → Grafana · Supabase (Postgres + Storage + Auth)
+
+## Dev Commands
+```bash
+make dev        # Build + start all services
+make stop       # Stop all
+make nuke       # Destroy all volumes — irreversible
+make init-all   # First-time: Neo4j constraints + Qdrant collections
+make logs       # Tail all service logs
+make ps         # Container status
+```
+**Ports:** API `8000` · Neo4j `7474/7687` · Qdrant `6333` · ES `9200` · Redis `6379` · Temporal `7233` · Temporal UI `8088` · Grafana `3001`
 
 ---
 
 ## Non-Negotiable Rules
 
-### Neo4j Edges — Every Write Needs All 5 Properties
-```python
-await graph.create_knowledge_edge({
-    "from_node": asset_id,
-    "to_node": document_id,
-    "relationship": "DOCUMENTED_BY",
-    "valid_from": datetime.now(timezone.utc).isoformat(),
-    "valid_to": None,                        # open-ended
-    "authority_level": 4,                    # 1=Regulatory 2=Engineering 3=OEM 4=Procedure 5=Field
-    "document_id": document_id,
-    "confidence": 0.92,
-    "verification_status": "unverified",     # unverified / verified / disputed / superseded / quarantined
-})
-```
-Missing any of these five is a bug, not a warning.
+**Neo4j edges — all 6 properties on every write, no exceptions:**
+`valid_from` · `valid_to` · `authority_level` · `document_id` · `confidence` · `verification_status`
 
-### Vault — Never Delete, Never Overwrite
-Close `valid_to` to supersede. The artifact in Supabase Storage is permanent. Use `GraphService.close_validity_window(edge_id, valid_to)` to supersede graph edges.
+**Vault is permanent.** Never delete. Never overwrite. Supersede by closing `valid_to`. Supabase Storage artifacts are immutable.
 
-### Quarantine — Unverified Never Auto-Promotes
-`confidence < 0.7` or unresolved tag → `quarantine_items` table. Never directly to the canonical graph. Human action only to promote.
+**Quarantine is a one-way gate.** `confidence < 0.7` or unresolved entity → `quarantine_items`. Human action only to promote. No auto-promotion ever.
 
-### Asset Nodes — MERGE Not CREATE
-```cypher
-MERGE (a:Asset {asset_id: $id}) SET a += $props
-```
+**Asset nodes:** `MERGE (a:Asset {asset_id: $id}) SET a += $props` — never CREATE.
 
-### Authority Pre-Filter Before Traversal
-```cypher
-WHERE r.authority_level <= $max_level AND r.valid_from <= $as_of
-```
-Filter on the index first, traverse second.
+**Authority pre-filter before graph traversal:**
+`WHERE r.authority_level <= $max_level AND r.valid_from <= $as_of`
 
-### EEMUA 191 Governor
-Call `EventBusService.check_governor(user_id)` before every brief delivery. PTW briefs (`priority='critical'`) are always exempt. Hard ceiling: ≤6 push events per operator per hour.
+**Safety-critical queries** (pressure limits, interlock sequences, torque specs): explicit refusal, never hedged answers. Sources returned directly.
 
-### LLM / Safety-Critical Queries
-Phase 2 only. In Phase 1, return retrieved documents directly. Safety-critical parameter queries (pressure limits, interlock sequences, torque specs) → explicit refusal, never hedged answers.
+**Phase discipline:** Phase 2 LLM synthesis lives only in `POST /search/synthesize` — never auto-triggered. Phase 3 push never wired until Phase 2 is stable.
 
-### OT Connectors (Go)
-Historian data is ephemeral — query, reason in memory, discard. Never store time-series in KAIROS infrastructure.
+**EEMUA 191 Governor:** call `EventBusService.check_governor(user_id)` before every brief delivery. Hard ceiling ≤6 push events/operator/hour. PTW briefs always exempt.
+
+**Secrets:** never hardcode. All via `api/config.py` Settings → env vars.
+
+**OT Connectors:** historian data is ephemeral — query, reason in memory, discard. Never store time-series in KAIROS.
 
 ---
 
 ## Code Style
-- Routers thin — handler calls service, returns result. No business logic inline.
-- All service I/O lives in `backend/api/services/`
-- `structlog` for all logging. Never `print()`, never stdlib `logging`.
-- `async/await` throughout FastAPI. No blocking I/O in async handlers.
+- Routers thin — handler calls service, returns result. No business logic in routers.
+- All service logic in `backend/api/services/`.
 - Pydantic model for every request and response shape.
-- Never hardcode secrets — all via `api/config.py` Settings or env vars.
-- Never `SELECT *` or wildcard CORS `"*"` in production.
+- `async/await` throughout. No blocking I/O in async handlers.
+- Never `SELECT *`. Never wildcard CORS `"*"` in production.
 - Never touch `frontend/` — deferred.
 
 ---
 
 ## Where Things Live
-| Concern | File |
+| Concern | Path |
 |---------|------|
-| FastAPI app entrypoint | `backend/api/main.py` |
-| Settings / env vars | `backend/api/config.py` |
+| FastAPI entrypoint | `backend/api/main.py` |
+| Settings | `backend/api/config.py` |
 | Dependency injection | `backend/api/dependencies.py` |
 | Routers | `backend/api/routers/*.py` |
-| Services (business logic + I/O) | `backend/api/services/*.py` |
+| Services | `backend/api/services/*.py` |
 | Pydantic models | `backend/api/models/*.py` |
 | Temporal workflow | `backend/workflows/document_pipeline.py` |
-| Temporal worker entrypoint | `backend/workers/temporal_worker.py` |
+| Temporal worker | `backend/workers/temporal_worker.py` |
 | Celery worker | `backend/workers/celery_app.py` |
 | Go OT connectors | `backend/connectors/` |
 | Neo4j schema | `backend/db/neo4j/init_schema.cypher` |
 | Supabase migrations | `backend/db/migrations/` |
-| Agent instructions (backend) | `backend/AGENTS.md` |
-| Agent instructions (connectors) | `backend/connectors/AGENTS.md` |
-| Full task specs | `IMPLEMENTATION.md` |
-| Architecture detail | `docs/ARCHITECTURE.md` |
+
+---
+
+## Available Tooling
+- **GitHub CLI (`gh`)** — available in terminal. Use for PR creation, issue management, CI status checks.
+- **Supabase MCP** — direct Supabase access via MCP tools (`mcp__claude_ai_Supabase__*`). Use for running SQL, checking migrations, inspecting table state, and applying schema changes without going through the API. Prefer this over `docker exec` for Supabase-related diagnostics.
 
 ---
 
 ## Skills
-All skills: `SKILL_MANIFEST.md` — 59 skills for Neo4j, Qdrant, Redis, Elasticsearch, FastAPI, Celery, Temporal, Go, Grafana, Supabase, OpenTelemetry, and more.
+**`/ponytail` is mandatory for every task.** Use `lite` by default, `full` for complex tasks, `ultra` when asked to cut scope.
 
-`ponytail` — YAGNI enforcement. Invoke with `/ponytail [lite|full|ultra]` or say "be lazy".
-`ponytail-review` — diff-scoped over-engineering review. Invoke with `/ponytail-review`.
-`ponytail-audit` — whole-repo scan. Invoke with `/ponytail-audit`.
-`ponytail-debt` — harvest `ponytail:` comments. Invoke with `/ponytail-debt`.
+All 59 skills are in `.claude/skills/` (symlinked from `.agents/skills/`). Full index: `SKILL_MANIFEST.md`.
+Before starting any task, search `SKILL_MANIFEST.md` for skills matching your domain — don't guess, scan. Key domains: `neo4j`, `qdrant`, `temporal`, `fastapi`, `elasticsearch`, `redis`, `supabase`, `grafana`, `celery`, `golang`, `python`, `opentelemetry`, `docker`.
+Invoke matching skills before writing code in that domain. Skills give current API patterns — don't rely on training data for library-specific calls.

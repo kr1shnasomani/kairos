@@ -5,6 +5,7 @@ and explicit refusal for safety-critical parameter queries.
 """
 
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -110,7 +111,7 @@ class LLMService:
         for i, chunk in enumerate(context, 1):
             authority = chunk.get("authority_level", "unknown")
             doc_id = chunk.get("document_id", "unknown")
-            text = chunk.get("text", "")
+            text = chunk.get("text") or chunk.get("snippet", "")
             blocks.append(f"[Source {i} | Authority Level {authority} | Document: {doc_id}]\n{text}")
         return "\n\n---\n\n".join(blocks)
 
@@ -173,6 +174,34 @@ SOURCES_USED: [comma-separated source numbers]"""
         except Exception as e:
             log.error("ollama.synthesis_failed", error=str(e))
             return {"answer": None, "error": str(e), "sources": context}
+
+    @staticmethod
+    def parse_synthesis_response(text: str) -> Dict[str, Any]:
+        """
+        Extracts structured fields from the synthesis prompt output.
+        Expected format (from _build_synthesis_prompt):
+          ANSWER: ...
+          CONFIDENCE: 0.0-1.0
+          UNCERTAINTY: ...
+          SOURCES_USED: 1, 2, 3
+        """
+        out: Dict[str, Any] = {"answer": None, "confidence": None, "uncertainty": None, "sources_used": []}
+        for key, field in [
+            ("ANSWER", "answer"),
+            ("CONFIDENCE", "confidence"),
+            ("UNCERTAINTY", "uncertainty"),
+            ("SOURCES_USED", "sources_used"),
+        ]:
+            m = re.search(rf"^{key}:\s*(.+?)(?=\n[A-Z_]+:|$)", text, re.MULTILINE | re.DOTALL)
+            if m:
+                out[field] = m.group(1).strip()
+        try:
+            out["confidence"] = float(out["confidence"]) if out["confidence"] else None
+        except (ValueError, TypeError):
+            out["confidence"] = None
+        raw_sources = out.get("sources_used") or ""
+        out["sources_used"] = [int(x.strip()) for x in str(raw_sources).split(",") if x.strip().isdigit()]
+        return out
 
     @property
     def jina_available(self) -> bool:

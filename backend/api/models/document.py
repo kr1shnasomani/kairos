@@ -7,6 +7,25 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+class SynthesizeRequest(BaseModel):
+    query: str
+    context: List[Dict[str, Any]] = Field(default_factory=list, description="Retrieved SearchResult dicts")
+    query_category: Optional[str] = Field(None, description="Safety-critical category key if applicable")
+
+
+class SynthesizeResponse(BaseModel):
+    answer: Optional[str] = None
+    sources: List[Dict[str, Any]] = Field(default_factory=list)
+    confidence: Optional[float] = None
+    refused: bool = False
+    refusal_reason: Optional[str] = None
+    safety_critical: bool = False
+    sources_used: List[int] = Field(default_factory=list)
+    uncertainty: Optional[str] = None
+    model: Optional[str] = None
+    message: Optional[str] = None
+
+
 class VaultDocument(BaseModel):
     document_id: str
     sha256_hash: str
@@ -108,3 +127,9 @@ class QuarantineItem(BaseModel):
     reviewer_id: Optional[str] = None
     review_status: str = Field(default="pending", description="pending, promoted, disputed, archived")
     linked_work_order_id: Optional[str] = None
+
+
+class PromoteQuarantineRequest(BaseModel):
+    authority_level: int = Field(..., ge=1, le=5, description="1=Regulatory 2=Engineering 3=OEM 4=Procedure 5=Field")
+    relationship_type: str = Field(..., description="Neo4j relationship type for the promoted edge, e.g. DOCUMENTED_BY")
+    notes: Optional[str] = None

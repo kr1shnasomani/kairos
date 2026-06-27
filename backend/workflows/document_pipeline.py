@@ -349,7 +349,7 @@ async def link_to_graph(
         if canonical_id:
             # Resolved: write unverified edge — human must verify before it becomes canonical
             try:
-                await graph.create_knowledge_edge(
+                result = await graph.create_knowledge_edge(
                     source_id=canonical_id,
                     source_label="Asset",
                     target_id=document_id,
@@ -362,6 +362,26 @@ async def link_to_graph(
                     verification_status="unverified",
                 )
                 edges_created += 1
+
+                conflict = result.get("conflict")
+                if conflict:
+                    from datetime import timedelta
+                    await asyncio.to_thread(
+                        lambda cd=conflict, aid=canonical_id: supabase.table("knowledge_conflicts").insert({
+                            "track": cd["track"],
+                            "asset_id": aid,
+                            "parameter": cd["parameter"],
+                            "source_a": cd["source_a"],
+                            "source_b": cd["source_b"],
+                            "authority_a": cd["authority_a"],
+                            "authority_b": cd["authority_b"],
+                            "severity": cd["severity"],
+                            "status": "pending_moc" if cd["track"] == "engineering" else "open",
+                            "sla_deadline": (now + timedelta(hours=cd["sla_hours"])).isoformat(),
+                        }).execute()
+                    )
+                    log.info("link.conflict_detected", asset_id=canonical_id, track=conflict["track"],
+                             parameter=conflict["parameter"])
             except Exception as exc:
                 log.warning("link.edge_create_failed", asset_id=canonical_id, document_id=document_id, error=str(exc))
         else:
