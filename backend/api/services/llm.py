@@ -138,7 +138,7 @@ SOURCES_USED: [comma-separated source numbers]"""
     async def _synthesize_nim(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Calls NVIDIA NIM (OpenAI-compatible API)."""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=90.0) as client:
                 response = await client.post(
                     f"{self.settings.NVIDIA_NIM_BASE_URL}/chat/completions",
                     headers={
@@ -157,7 +157,7 @@ SOURCES_USED: [comma-separated source numbers]"""
                 answer_text = data["choices"][0]["message"]["content"]
                 return {"answer": answer_text, "sources": context, "model": "nim", "raw": data}
         except Exception as e:
-            log.error("nim.synthesis_failed", error=str(e))
+            log.error("nim.synthesis_failed", error=str(e), exc_type=type(e).__name__)
             return {"answer": None, "error": str(e), "sources": context}
 
     async def _synthesize_ollama(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:

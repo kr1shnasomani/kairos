@@ -3,6 +3,7 @@ KAIROS — FastAPI Dependency Injection
 Provides shared clients as FastAPI dependencies (injected per-request or application-wide).
 """
 
+import asyncio
 from functools import lru_cache
 from typing import Annotated
 
@@ -176,20 +177,35 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    token = credentials.credentials
+
+    # Internal service bypass — Go connector and Celery workers call with INTERNAL_API_KEY
+    if token == settings.INTERNAL_API_KEY:
+        return {"user_id": "service-kairos-connector", "email": "connector@internal", "role": "admin", "site_id": "SITE_001", "sub": "service-connector"}
+
     try:
-        payload = jwt.decode(
-            credentials.credentials,
-            settings.SUPABASE_JWT_SECRET or settings.APP_SECRET_KEY,
-            algorithms=["HS256"],
-            options={"verify_exp": True},
-        )
-        return payload
-    except JWTError as e:
+        # Use a fresh client with anon key for token verification — keeps the global
+        # service-role client's session clean (auth.get_user mutates client state).
+        verify_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+        result = await asyncio.to_thread(lambda: verify_client.auth.get_user(token))
+        user = result.user
+        if not user:
+            raise ValueError("No user returned")
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid or expired token: {e}",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    meta = user.user_metadata or {}
+    return {
+        "user_id": str(user.id),
+        "email": user.email,
+        "role": meta.get("role", "field_worker"),
+        "site_id": meta.get("site_id", ""),
+        "sub": str(user.id),
+    }
 
 
 CurrentUserDep = Annotated[dict, Depends(get_current_user)]

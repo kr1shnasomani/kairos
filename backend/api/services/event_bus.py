@@ -12,6 +12,7 @@ import redis.asyncio as aioredis
 import structlog
 
 from api.config import Settings
+from api.services.metrics import governor_suppressed
 
 log = structlog.get_logger(__name__)
 
@@ -69,6 +70,7 @@ class EventBusService:
 
         ceiling = self.settings.MAX_PUSH_PER_USER_PER_HOUR
         if current_count >= ceiling:
+            governor_suppressed.add(1, {"user_id": user_id})
             log.info("governor.suppressed", user_id=user_id, count=current_count, ceiling=ceiling)
             return False
         return True

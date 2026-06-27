@@ -2,60 +2,64 @@
 Attribution worker — Layer 10: Telemetry-Grounded Outcome Attribution.
 Evaluates maintenance outcomes against three parallel checks before any
 confidence adjustment is made in the knowledge graph.
+All three checks must confirm a genuine failure before any action is taken.
 """
 
-import structlog
+import os
+import statistics
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
+
+import httpx
+import structlog
+from supabase import create_client
 
 from workers.celery_app import celery_app
 
 log = structlog.get_logger(__name__)
 
+# Failure mode families — same family = genuine recurrence, not coincidence
+_FAILURE_FAMILIES: Dict[str, str] = {
+    # Mechanical
+    "VIBE-HIGH": "mechanical", "VIBE-LOW": "mechanical",
+    "BEARING-FAIL": "mechanical", "IMBALANCE": "mechanical",
+    "MISALIGN": "mechanical", "CAVITATION": "mechanical",
+    # Seal/leak
+    "SEAL-FAIL": "seal", "LEAK-MECH": "seal", "LEAK-PROCESS": "seal",
+    # Electrical
+    "MOTOR-FAIL": "electrical", "OVERLOAD": "electrical", "INSULATION": "electrical",
+    # Process
+    "LOW-FLOW": "process", "HIGH-TEMP": "process", "PRESSURE-LOSS": "process",
+    "VIBRATION": "mechanical",  # alias
+}
+
+_GO_URL = os.getenv("GO_CONNECTOR_URL", "http://kairos-backend-go:8090")
+
+
+def _supabase():
+    return create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+
 
 @celery_app.task(queue="attribution", name="workers.attribution.evaluate_outcome")
-def evaluate_outcome(work_order_id: str, asset_id: str) -> Dict[str, Any]:
+def evaluate_outcome(event_id: str, asset_id: str) -> Dict[str, Any]:
     """
-    Triggered when a work order is closed or a recurrence is detected (within 30 days).
-    
-    Runs three parallel checks before any confidence adjustment:
-    1. Telemetry baseline comparison (federated historian query via Go connector)
-    2. Failure code cross-reference (same failure mode family = genuine recurrence)
-    3. Execution verification (was the recommended action actually performed?)
-    
-    Only when ALL THREE checks confirm a genuine recommendation failure does
-    the system downgrade the authority ranking of the source document.
-    
-    Critical constraint: if the instrumentation coverage map shows the affected
-    component is not directly instrumented, telemetry check is downgraded to
-    supporting evidence — human-verified closeout notes become the primary check.
+    Triggered when a second work order for the same asset arrives within 30 days.
+    All three checks must confirm genuine failure before flagging for review.
     """
-    log.info("attribution.started", work_order_id=work_order_id, asset_id=asset_id)
+    log.info("attribution.started", event_id=event_id, asset_id=asset_id)
 
-    # Step 1: Telemetry baseline comparison
-    # - Query instrumentation coverage map for this asset
-    # - If component is instrumented: federated historian query via Go connector
-    # - If not instrumented: rely on human-verified CMMS closeout notes
-    telemetry_check = _check_telemetry_baseline(asset_id, work_order_id)
+    telemetry_check = _check_telemetry_baseline(asset_id, event_id)
+    failure_check = _check_failure_code_match(asset_id, event_id)
+    execution_check = _check_execution_compliance(event_id)
 
-    # Step 2: Failure code cross-reference
-    failure_check = _check_failure_code_match(work_order_id)
-
-    # Step 3: Execution verification
-    execution_check = _check_execution_compliance(work_order_id)
-
-    # Attribution decision
-    genuine_failure = telemetry_check["failed"] and failure_check["matched"] and execution_check["compliant"]
-
-    if genuine_failure:
-        log.warning(
-            "attribution.genuine_recommendation_failure",
-            work_order_id=work_order_id,
-            asset_id=asset_id,
-        )
-        # TODO: downgrade source document authority ranking (flag for engineering review, not permanent)
+    genuine_failure = (
+        telemetry_check.get("failed", False)
+        and failure_check.get("matched", False)
+        and execution_check.get("compliant", False)
+    )
 
     result = {
-        "work_order_id": work_order_id,
+        "event_id": event_id,
         "asset_id": asset_id,
         "telemetry_check": telemetry_check,
         "failure_check": failure_check,
@@ -64,23 +68,157 @@ def evaluate_outcome(work_order_id: str, asset_id: str) -> Dict[str, Any]:
         "action": "flagged_for_review" if genuine_failure else "no_action",
     }
 
-    log.info("attribution.complete", **{k: v for k, v in result.items() if not isinstance(v, dict)})
+    if genuine_failure:
+        log.warning("attribution.genuine_recommendation_failure",
+                    event_id=event_id, asset_id=asset_id)
+        # Downgrades are human-gated: write to audit_log for engineering review
+        try:
+            _supabase().table("audit_log").insert({
+                "action": "attribution_flag",
+                "entity_type": "work_order",
+                "entity_id": event_id,
+                "performed_by": "attribution_worker",
+                "details": result,
+            }).execute()
+        except Exception as exc:
+            log.error("attribution.audit_log_failed", error=str(exc))
+
+    log.info("attribution.complete", event_id=event_id, asset_id=asset_id,
+             genuine_failure=genuine_failure, action=result["action"])
     return result
 
 
-def _check_telemetry_baseline(asset_id: str, work_order_id: str) -> Dict[str, Any]:
-    """Queries historian (via Go connector) for post-maintenance telemetry baseline."""
-    # TODO: call Go connector at http://localhost:8090/ot/query
-    return {"checked": False, "failed": False, "reason": "historian_query_not_yet_wired"}
+def _check_telemetry_baseline(asset_id: str, event_id: str) -> Dict[str, Any]:
+    """
+    Queries historian via Go connector for post-maintenance telemetry.
+    If coverage_percent == 0, asset is not instrumented — check skipped (primary_check=False).
+    If instrumented, checks whether post-maintenance mean deviates > 2σ from baseline.
+    """
+    try:
+        cov = httpx.get(f"{_GO_URL}/ot/coverage/{asset_id}", timeout=10).json()
+    except Exception as exc:
+        log.warning("attribution.coverage_unreachable", error=str(exc))
+        return {"primary_check": False, "failed": False, "reason": "go_connector_unreachable"}
+
+    if cov.get("coverage_percent", 0) == 0:
+        return {"primary_check": False, "failed": False, "reason": "not_instrumented"}
+
+    tag = (cov.get("instrumented_tags") or [asset_id + "-VIBE"])[0]
+
+    # Use event occurred_at as the maintenance date for the query window
+    try:
+        sb = _supabase()
+        row = sb.table("operational_events").select("occurred_at").eq("event_id", event_id).single().execute()
+        maint_date = datetime.fromisoformat(row.data["occurred_at"].replace("Z", "+00:00"))
+    except Exception:
+        maint_date = datetime.now(timezone.utc) - timedelta(days=1)
+
+    query_from = maint_date.isoformat()
+    query_to = (maint_date + timedelta(days=30)).isoformat()
+
+    try:
+        ts = httpx.get(f"{_GO_URL}/ot/query",
+                       params={"asset_id": asset_id, "tag": tag, "from": query_from, "to": query_to},
+                       timeout=15).json()
+    except Exception as exc:
+        log.warning("attribution.historian_unreachable", error=str(exc))
+        return {"primary_check": False, "failed": False, "reason": "historian_unreachable"}
+
+    data = ts.get("data", [])
+    values = [float(p["value"]) for p in data if "value" in p]
+    if len(values) < 10:
+        return {"primary_check": True, "failed": False, "reason": "insufficient_data", "point_count": len(values)}
+
+    # First half = baseline, second half = post-maintenance window
+    mid = len(values) // 2
+    baseline = values[:mid]
+    post = values[mid:]
+    baseline_mean = statistics.mean(baseline)
+    baseline_std = statistics.stdev(baseline) if len(baseline) > 1 else 0.0
+    post_mean = statistics.mean(post)
+
+    threshold = 2 * baseline_std if baseline_std > 0 else 0.5
+    failed = abs(post_mean - baseline_mean) > threshold
+
+    return {
+        "primary_check": True,
+        "failed": failed,
+        "baseline_mean": round(baseline_mean, 4),
+        "post_mean": round(post_mean, 4),
+        "threshold_2sigma": round(threshold, 4),
+        "tag": tag,
+    }
 
 
-def _check_failure_code_match(work_order_id: str) -> Dict[str, Any]:
-    """Compares failure code of recurrence against original work order."""
-    # TODO: query Supabase/Neo4j for original and recurrence failure codes
-    return {"checked": False, "matched": False, "reason": "db_query_not_yet_wired"}
+def _check_failure_code_match(asset_id: str, event_id: str) -> Dict[str, Any]:
+    """
+    Compares failure code families of the current WO and the prior WO for this asset.
+    Same family = genuine recurrence pattern.
+    """
+    try:
+        sb = _supabase()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        rows = (
+            sb.table("operational_events")
+            .select("event_id, payload")
+            .eq("asset_id", asset_id)
+            .eq("event_type", "work_order_created")
+            .gte("occurred_at", cutoff)
+            .order("occurred_at", desc=True)
+            .limit(5)
+            .execute()
+        ).data or []
+    except Exception as exc:
+        log.warning("attribution.failure_code_query_failed", error=str(exc))
+        return {"matched": False, "reason": "db_query_failed"}
+
+    codes = []
+    for row in rows:
+        code = (row.get("payload") or {}).get("failure_code", "")
+        if code:
+            codes.append(code.upper())
+
+    if len(codes) < 2:
+        return {"matched": False, "reason": "insufficient_work_orders", "codes_found": len(codes)}
+
+    # Map to family; unknown codes get their own family (no match)
+    families = [_FAILURE_FAMILIES.get(c, c) for c in codes]
+    matched = families[0] == families[1]
+
+    return {
+        "matched": matched,
+        "current_code": codes[0],
+        "prior_code": codes[1],
+        "current_family": families[0],
+        "prior_family": families[1],
+    }
 
 
-def _check_execution_compliance(work_order_id: str) -> Dict[str, Any]:
-    """Verifies that the recommended action was actually documented as performed."""
-    # TODO: cross-reference recommendation against CMMS work order closeout
-    return {"checked": False, "compliant": False, "reason": "cmms_query_not_yet_wired"}
+def _check_execution_compliance(event_id: str) -> Dict[str, Any]:
+    """
+    Checks if the recommended action was documented in the work order close notes.
+    compliant=True means the action WAS performed (not a deviation).
+    """
+    _ACTION_KEYWORDS = {
+        "replaced", "repaired", "inspected", "calibrated", "lubricated",
+        "aligned", "balanced", "cleaned", "adjusted", "tightened", "sealed",
+    }
+
+    try:
+        sb = _supabase()
+        row = sb.table("operational_events").select("payload").eq("event_id", event_id).single().execute()
+        payload = row.data.get("payload") or {}
+    except Exception as exc:
+        log.warning("attribution.execution_query_failed", error=str(exc))
+        return {"compliant": False, "reason": "db_query_failed"}
+
+    close_notes = (payload.get("close_notes") or "").lower()
+    if not close_notes:
+        return {"compliant": False, "reason": "no_close_notes"}
+
+    found = [kw for kw in _ACTION_KEYWORDS if kw in close_notes]
+    return {
+        "compliant": bool(found),
+        "keywords_found": found,
+        "close_notes_length": len(close_notes),
+    }

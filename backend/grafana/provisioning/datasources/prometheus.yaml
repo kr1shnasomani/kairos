@@ -4,5 +4,11 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
-    url: http://otel_collector:8889
+    url: http://kairos-otel-collector:8889
     isDefault: true
+
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://kairos-tempo:3200
+    uid: tempo

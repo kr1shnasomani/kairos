@@ -89,3 +89,16 @@ can_promote_quarantine if {
     input.action == "promote_quarantine"
     input.user.role in {"reliability", "admin"}
 }
+
+# =============================================================================
+# Catch-all: non-sensitive writes allowed for any authenticated role.
+# Sensitive actions are blocked above for insufficient roles; everything else
+# (events, briefs, search, compliance reads via POST) passes through.
+# =============================================================================
+
+_sensitive_actions := {"promote_quarantine", "resolve_admin_conflict", "write_assets", "ingest_document"}
+
+allow if {
+    input.user.role in {"field_worker", "engineer", "reliability", "admin", "compliance"}
+    not input.action in _sensitive_actions
+}

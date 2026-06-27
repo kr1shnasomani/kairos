@@ -4,6 +4,7 @@ from api.routers import (  # noqa: F401
     briefs,
     compliance,
     documents,
+    elicitation,
     events,
     governance,
     health,

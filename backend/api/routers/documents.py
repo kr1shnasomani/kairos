@@ -6,6 +6,7 @@ and surfaces extraction status and results.
 
 import asyncio
 import hashlib
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -17,6 +18,7 @@ from api.config import settings
 from api.dependencies import CurrentUserDep, Neo4jDep, SupabaseDep, TemporalDep
 from api.models.document import DocumentStatus, ExtractionResult, VaultDocument
 from api.services.graph import GraphService
+from api.services.metrics import ingestion_duration
 from workflows.document_pipeline import DocumentIngestionWorkflow
 
 log = structlog.get_logger(__name__)
@@ -45,6 +47,7 @@ async def ingest_document(
 
     Returns immediately with document_id + job_id. Poll /documents/{document_id}/status.
     """
+    _ingest_start = time.monotonic()
     file_bytes = await file.read()
     sha256 = hashlib.sha256(file_bytes).hexdigest()
 
@@ -186,6 +189,7 @@ async def ingest_document(
         log.warning("ingest.temporal_unavailable", document_id=document_id, error=str(exc))
         workflow_status = "workflow_pending"
 
+    ingestion_duration.record(time.monotonic() - _ingest_start, {"document_type": document_type})
     log.info(
         "ingest.complete",
         document_id=document_id,

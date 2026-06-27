@@ -132,4 +132,5 @@ class QuarantineItem(BaseModel):
 class PromoteQuarantineRequest(BaseModel):
     authority_level: int = Field(..., ge=1, le=5, description="1=Regulatory 2=Engineering 3=OEM 4=Procedure 5=Field")
     relationship_type: str = Field(..., description="Neo4j relationship type for the promoted edge, e.g. DOCUMENTED_BY")
+    document_type: str = Field("procedure", description="Type of document for the promoted edge: procedure, inspection_report, oem_manual, etc.")
     notes: Optional[str] = None

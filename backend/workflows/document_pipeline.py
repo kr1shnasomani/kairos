@@ -317,7 +317,7 @@ async def link_to_graph(
     alias_map = {row["alias"]: row["canonical_asset_id"] for row in (alias_result.data or [])}
 
     # Ensure the Document node exists in Neo4j before any edges point at it
-    await graph.merge_document_node(document_id, {"authority_level": authority_level})
+    await graph.merge_document_node(document_id, {"authority_level": authority_level, "document_type": document_type})
 
     now = datetime.now(timezone.utc)
     edges_created = 0

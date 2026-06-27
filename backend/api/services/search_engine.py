@@ -78,6 +78,7 @@ class SearchEngineService:
                     "document_id": h["_source"].get("document_id"),
                     "asset_id": h["_source"].get("asset_id"),
                     "title": h["_source"].get("title"),
+                    "document_type": h["_source"].get("document_type", "unknown"),
                     "snippet": h.get("highlight", {}).get("content", [""])[0],
                     "score": h["_score"],
                     "authority_level": h["_source"].get("authority_level", 5),

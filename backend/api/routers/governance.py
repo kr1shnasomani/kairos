@@ -16,6 +16,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, stat
 from api.dependencies import CurrentUserDep, Neo4jDep, SupabaseDep, require_role
 from api.models.document import PromoteQuarantineRequest
 from api.services.graph import GraphService
+from api.services.metrics import conflicts_open
 
 log = structlog.get_logger(__name__)
 router = APIRouter()
@@ -209,7 +210,7 @@ async def promote_quarantine_item(
 
     graph = GraphService(driver)
     # Ensure Document node exists
-    await graph.merge_document_node(document_id, {"authority_level": payload.authority_level})
+    await graph.merge_document_node(document_id, {"authority_level": payload.authority_level, "document_type": payload.document_type})
 
     edge_result = await graph.create_knowledge_edge(
         source_id=asset_id,
@@ -271,6 +272,8 @@ async def promote_quarantine_item(
         }).execute()
     )
 
+    if conflict is not None:
+        conflicts_open.add(1, {"track": conflict.get("track", "unknown")})
     log.info("quarantine.promoted", item_id=item_id, asset_id=asset_id, edge_id=edge_result["edge_id"])
     return {
         "status": "promoted",

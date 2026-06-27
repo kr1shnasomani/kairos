@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from api.config import settings
 from api.dependencies import get_es_client, get_qdrant_client
+from api.middleware.opa import OPAMiddleware
 from api.middleware.telemetry import setup_telemetry
 from api.services.search_engine import SearchEngineService
 from api.services.vector_store import VectorStoreService
@@ -21,6 +22,7 @@ from api.routers import (
     briefs,
     compliance,
     documents,
+    elicitation,
     events,
     governance,
     health,
@@ -74,6 +76,16 @@ def create_app() -> FastAPI:
     )
 
     # -------------------------------------------------------------------------
+    # OPA policy enforcement (write routes)
+    # -------------------------------------------------------------------------
+    app.add_middleware(
+        OPAMiddleware,
+        opa_url=settings.OPA_URL,
+        jwt_secret=settings.SUPABASE_JWT_SECRET or settings.APP_SECRET_KEY,
+        debug=settings.APP_DEBUG,
+    )
+
+    # -------------------------------------------------------------------------
     # OpenTelemetry (no-op when OTEL endpoint is not configured)
     # -------------------------------------------------------------------------
     if settings.APP_ENV != "test":
@@ -91,6 +103,7 @@ def create_app() -> FastAPI:
     app.include_router(briefs.router, prefix="/briefs", tags=["Briefs (Layer 8)"])
     app.include_router(governance.router, prefix="/governance", tags=["Governance (Layer 7)"])
     app.include_router(compliance.router, prefix="/compliance", tags=["Compliance"])
+    app.include_router(elicitation.router, prefix="/elicitation", tags=["Elicitation (Layer 6)"])
 
     # -------------------------------------------------------------------------
     # Global exception handler

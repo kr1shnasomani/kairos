@@ -9,9 +9,9 @@ from typing import Optional
 
 import shortuuid
 import structlog
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, SupabaseDep
+from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, SupabaseDep, require_role
 from api.models.asset import AssetCreate
 from api.services.graph import GraphService
 
@@ -22,10 +22,10 @@ router = APIRouter()
 @router.post("/", summary="Register a new canonical asset", status_code=status.HTTP_201_CREATED)
 async def create_asset(
     payload: AssetCreate,
-    current_user: CurrentUserDep,
     driver: Neo4jDep,
     supabase: SupabaseDep,
     es: ElasticsearchDep,
+    current_user: dict = Depends(require_role("admin", "engineer")),
 ) -> dict:
     """
     Creates a deterministic asset node in the MDM backbone (Neo4j + Supabase).

@@ -17,20 +17,19 @@ processors:
 exporters:
   prometheus:
     endpoint: 0.0.0.0:8889
-  logging:
-    loglevel: info
-  # Uncomment to send to Grafana Cloud or another backend:
-  # otlp/grafana:
-  #   endpoint: <grafana-tempo-endpoint>
-  #   headers:
-  #     authorization: "Bearer <token>"
+  otlp/tempo:
+    endpoint: kairos-tempo:4317
+    tls:
+      insecure: true
+  debug:
+    verbosity: basic
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [logging]
+      exporters: [otlp/tempo, debug]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]

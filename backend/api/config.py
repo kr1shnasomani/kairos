@@ -128,7 +128,7 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     # OPA
     # -------------------------------------------------------------------------
-    OPA_URL: str = "http://localhost:8181"
+    OPA_URL: str = "http://kairos-opa:8181"
 
     # -------------------------------------------------------------------------
     # Vault
@@ -156,6 +156,7 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     GO_CONNECTOR_PORT: int = 8090
     HISTORIAN_QUERY_TIMEOUT_SECONDS: int = 30
+    INTERNAL_API_KEY: str = "kairos-internal-dev-key"
 
 
 @lru_cache

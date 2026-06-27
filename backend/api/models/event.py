@@ -28,6 +28,7 @@ class WorkOrderEvent(BaseEvent):
     assigned_technician_id: Optional[str] = None
     priority: str = Field(default="normal", description="critical, high, normal, low")
     planned_start: Optional[datetime] = None
+    close_notes: Optional[str] = None  # CMMS work order closeout notes — used by attribution worker
     event_type: str = "work_order_created"
 
 
