@@ -1,1 +1,1 @@
-/Users/apple/Documents/Projects/kairos/AGENTS.md
+AGENTS.md
