@@ -3,7 +3,7 @@
 # These are NOT required to run the API stub — only needed for Layer 3 (perception engine)
 
 # --- OCR ---
-paddlepaddle==2.6.1
+paddlepaddle==2.6.2
 paddleocr==2.8.1
 
 # --- NLP / NER ---

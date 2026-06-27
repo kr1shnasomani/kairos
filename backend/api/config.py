@@ -85,6 +85,13 @@ class Settings(BaseSettings):
     NVIDIA_NIM_TEMPERATURE: float = 0.1
 
     # -------------------------------------------------------------------------
+    # Jina AI (embeddings — keeps NIM key free for synthesis/LLM tasks)
+    # -------------------------------------------------------------------------
+    JINA_API_KEY: str = ""
+    JINA_EMBED_MODEL: str = "jina-embeddings-v3"
+    JINA_EMBED_URL: str = "https://api.jina.ai/v1/embeddings"
+
+    # -------------------------------------------------------------------------
     # Ollama (local, fallback)
     # -------------------------------------------------------------------------
     OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -94,7 +101,7 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     # Embeddings
     # -------------------------------------------------------------------------
-    EMBEDDING_DIMENSION: int = 768
+    EMBEDDING_DIMENSION: int = 1024  # jina-embeddings-v3 output dim
 
     # -------------------------------------------------------------------------
     # HuggingFace

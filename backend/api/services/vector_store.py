@@ -71,16 +71,20 @@ class VectorStoreService:
         asset_id: Optional[str] = None,
         authority_min: int = 1,
         include_quarantine: bool = False,
+        quarantine_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Semantic search with optional payload filtering.
         Filters: asset_id, authority_level >= authority_min, quarantine status.
+        quarantine_only=True: return only quarantine items (for explicit quarantine retrieval pass).
         """
         must_conditions = []
 
         if asset_id:
             must_conditions.append(FieldCondition(key="asset_id", match=MatchValue(value=asset_id)))
-        if not include_quarantine:
+        if quarantine_only:
+            must_conditions.append(FieldCondition(key="is_quarantine", match=MatchValue(value=True)))
+        elif not include_quarantine:
             must_conditions.append(FieldCondition(key="is_quarantine", match=MatchValue(value=False)))
 
         query_filter = Filter(must=must_conditions) if must_conditions else None

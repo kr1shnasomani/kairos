@@ -174,11 +174,42 @@ SOURCES_USED: [comma-separated source numbers]"""
             log.error("ollama.synthesis_failed", error=str(e))
             return {"answer": None, "error": str(e), "sources": context}
 
-    async def embed(self, text: str) -> List[float]:
+    @property
+    def jina_available(self) -> bool:
+        return bool(self.settings.JINA_API_KEY)
+
+    async def embed(self, text: str, task: str = "retrieval.passage") -> List[float]:
         """
-        Generates text embeddings for vector indexing.
-        Uses Ollama nomic-embed-text for local operation.
+        Generates text embeddings (1024-dim, jina-embeddings-v3).
+        Primary: Jina AI — keeps NIM key reserved for LLM synthesis.
+        Fallback: Ollama nomic-embed-text (local, air-gapped deployments).
+        task: "retrieval.passage" for indexing, "retrieval.query" for search queries.
         """
+        if self.jina_available:
+            return await self._embed_jina(text, task)
+        return await self._embed_ollama(text)
+
+    async def _embed_jina(self, text: str, task: str) -> List[float]:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    self.settings.JINA_EMBED_URL,
+                    headers={"Authorization": f"Bearer {self.settings.JINA_API_KEY}"},
+                    json={
+                        "model": self.settings.JINA_EMBED_MODEL,
+                        "input": [text],
+                        "task": task,
+                        "dimensions": self.settings.EMBEDDING_DIMENSION,
+                        "embedding_type": "float",
+                    },
+                )
+                response.raise_for_status()
+                return response.json()["data"][0]["embedding"]
+        except Exception as e:
+            log.error("embed.jina_failed", error=str(e))
+            return await self._embed_ollama(text)
+
+    async def _embed_ollama(self, text: str) -> List[float]:
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
@@ -188,5 +219,5 @@ SOURCES_USED: [comma-separated source numbers]"""
                 response.raise_for_status()
                 return response.json()["embedding"]
         except Exception as e:
-            log.error("embed.failed", error=str(e))
+            log.error("embed.ollama_failed", error=str(e))
             return []

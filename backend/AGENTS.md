@@ -12,8 +12,8 @@
 | 1 — Asset MDM | `routers/assets.py` · `services/graph.py` | ✅ Complete (Task 2) |
 | 2 — Immutable vault | `routers/documents.py` | ✅ Complete (Task 3) |
 | 3 — OCR perception | `services/ocr.py` · `workflows/document_pipeline.py::run_ocr` | ✅ Complete (Task 4) |
-| 3 — NER perception | `services/ner.py` · `workflows/document_pipeline.py::run_ner` | 🔧 Stub — Task 5 |
-| 4 — Temporal graph | `services/graph.py` | ✅ Complete — all methods implemented |
+| 3 — NER perception | `services/ner.py` · `workflows/document_pipeline.py::run_ner` | ✅ Complete (Task 5) |
+| 4 — Temporal graph | `services/graph.py` · `workflows/document_pipeline.py::link_to_graph` | ✅ Complete (Task 5) |
 | 5 — OT connectors | `connectors/internal/ot/client.go` | 🔧 Stub — Task 17 |
 | 6 — Quarantine | `routers/governance.py` | 🔧 Stub — Task 9 |
 | 7 — Governance / MoC | `routers/governance.py` | 🔧 Stub — Task 9 |
@@ -22,6 +22,7 @@
 | 8 — Briefs router | `routers/briefs.py` | 🔧 Stub — Task 13 |
 | 9 — Elicitation | `workflows/elicitation.py` | 🔧 Stub — Task 15 |
 | 10 — Attribution | `workers/attribution.py` | 🔧 Stub — Task 16 |
+| 6 — Vector + text indexing | `workflows/document_pipeline.py::index_vectors` · `::index_text` | ✅ Complete (Task 6) |
 | 11 — Hybrid search | `routers/search.py` | 🔧 Stub — Task 7 |
 | 11 — LLM synthesis | `services/llm.py` | 🚫 Phase 2 only — do not activate |
 | 12 — Interface | — | 🚫 Frontend deferred |
@@ -92,15 +93,18 @@ async def my_handler(driver: Neo4jDep):
     graph = GraphService(driver)
     asset = await graph.get_asset(asset_id)
     await graph.create_asset_node({...})  # uses MERGE internally
-    await graph.create_knowledge_edge({
-        "valid_from": datetime.now(timezone.utc).isoformat(),
-        "valid_to": None,
-        "authority_level": 4,
-        "document_id": document_id,
-        "confidence": 0.92,
-        "verification_status": "unverified",
-        # ... relationship-specific fields
-    })
+    await graph.merge_document_node(document_id, {"authority_level": 4})
+    await graph.create_knowledge_edge(
+        source_id=asset_id, source_label="Asset",
+        target_id=document_id, target_label="Document",
+        relationship_type="DOCUMENTED_BY",
+        valid_from=datetime.now(timezone.utc),
+        authority_level=4,
+        document_id=document_id,
+        confidence=0.92,
+        verification_status="unverified",
+        # valid_to=None is the default (open-ended)
+    )
 ```
 All Neo4j access goes through `GraphService`. Don't write Cypher in routers.
 
@@ -243,7 +247,8 @@ All Neo4j access through these methods in `services/graph.py`:
 | `list_assets(site_id, equipment_class, skip, limit)` | Paginated with total count |
 | `get_asset_hierarchy(asset_id)` | Ancestors + children via PARENT_OF |
 | `get_asset_knowledge_at(asset_id, as_of, authority_min)` | Time-travel edge query |
-| `create_knowledge_edge(data)` | Enforces all 5 mandatory properties |
+| `merge_document_node(document_id, props)` | Idempotent MERGE for Document nodes — call before creating edges to a doc |
+| `create_knowledge_edge(source_id, source_label, target_id, target_label, ...)` | Creates KNOWLEDGE_EDGE; labels validated against whitelist; enforces all 5 mandatory properties |
 | `close_validity_window(edge_id, valid_to)` | Supersession — never deletion |
 | `get_blast_radius(document_id)` | Downstream impact traversal |
 

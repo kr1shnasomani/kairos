@@ -3,18 +3,31 @@ Search router — Layer 11: Reasoning and Synthesis Layer.
 Hybrid retrieval: exact match (ES) + semantic vector (Qdrant) + graph traversal (Neo4j).
 """
 
-from typing import List, Optional
+from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Query
 
-from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, QdrantDep
-from api.models.document import SearchResult
+from api.dependencies import (
+    CurrentUserDep,
+    ElasticsearchDep,
+    Neo4jDep,
+    QdrantDep,
+    SettingsDep,
+)
+from api.models.document import SearchResponse
+from api.services.graph import GraphService
+from api.services.llm import LLMService
+from api.services.search_engine import SearchEngineService
+from api.services.search_service import SearchService
+from api.services.vector_store import VectorStoreService
 
 router = APIRouter()
 
 
-@router.get("/", summary="Hybrid knowledge search")
+@router.get("/", response_model=SearchResponse, summary="Hybrid knowledge search")
 async def search(
+    settings: SettingsDep,
     current_user: CurrentUserDep,
     driver: Neo4jDep,
     qdrant: QdrantDep,
@@ -25,25 +38,35 @@ async def search(
     include_quarantine: bool = Query(False, description="Include unverified quarantine layer items"),
     as_of: Optional[str] = Query(None, description="ISO8601 timestamp for time-travel search"),
     limit: int = Query(10, le=50),
-) -> dict:
+) -> SearchResponse:
     """
-    Hybrid retrieval using four methods:
+    Hybrid retrieval using three parallel methods:
     1. Exact match (ES) — tag numbers, part numbers, clause refs, document IDs
     2. Semantic vector search (Qdrant) — conceptual queries
-    3. Graph traversal (Neo4j) — relationship and time-travel queries
-    4. Authority-ranked re-ranking — regulatory requirements outrank field observations
+    3. Graph traversal (Neo4j) — relationship and time-travel queries (requires asset_id)
 
-    Phase 1: retrieval only (no synthesis).
-    Phase 2+: synthesis activates when Supabase + NIM are configured.
+    Results are authority-ranked: regulatory requirements (level 1) outrank field observations (level 5).
+    Phase 1: retrieval only. synthesis=None until Phase 2.
     """
-    # TODO: implement parallel retrieval + re-ranking
-    return {
-        "query": q,
-        "results": [],
-        "total": 0,
-        "synthesis": None,  # None in Phase 1
-        "retrieval_method": "hybrid",
-    }
+    as_of_dt = datetime.fromisoformat(as_of) if as_of else None
+
+    svc = SearchService(
+        graph=GraphService(driver, settings.NEO4J_DATABASE),
+        vector=VectorStoreService(qdrant, settings),
+        engine=SearchEngineService(es, settings),
+        llm=LLMService(settings),
+    )
+    results = await svc.hybrid_search(
+        query=q,
+        collection=settings.QDRANT_COLLECTION_DOCUMENTS,
+        asset_id=asset_id,
+        authority_min=authority_min,
+        include_quarantine=include_quarantine,
+        as_of=as_of_dt,
+        limit=limit,
+    )
+    methods = sorted({r.retrieval_method for r in results})
+    return SearchResponse(query=q, results=results, total=len(results), retrieval_methods=methods)
 
 
 @router.get("/assets/{asset_id}", summary="Search within a specific asset's knowledge")
@@ -52,11 +75,29 @@ async def search_asset(
     current_user: CurrentUserDep,
     driver: Neo4jDep,
     qdrant: QdrantDep,
+    es: ElasticsearchDep,
+    settings: SettingsDep,
     q: str = Query(...),
     limit: int = Query(10, le=50),
-) -> dict:
-    """Asset-scoped search — returns all knowledge fragments linked to this asset matching the query."""
-    return {"asset_id": asset_id, "query": q, "results": [], "total": 0}
+) -> SearchResponse:
+    """Asset-scoped hybrid search — delegates to the main search with asset_id locked."""
+    svc = SearchService(
+        graph=GraphService(driver, settings.NEO4J_DATABASE),
+        vector=VectorStoreService(qdrant, settings),
+        engine=SearchEngineService(es, settings),
+        llm=LLMService(settings),
+    )
+    results = await svc.hybrid_search(
+        query=q,
+        collection=settings.QDRANT_COLLECTION_DOCUMENTS,
+        asset_id=asset_id,
+        authority_min=1,
+        include_quarantine=False,
+        as_of=None,
+        limit=limit,
+    )
+    methods = sorted({r.retrieval_method for r in results})
+    return SearchResponse(query=q, results=results, total=len(results), retrieval_methods=methods)
 
 
 @router.post("/synthesize", summary="Synthesize an answer from retrieved knowledge (Phase 2+)")
@@ -65,12 +106,8 @@ async def synthesize(
     payload: dict,
 ) -> dict:
     """
-    Given a query and retrieved context, calls the LLM synthesis layer (NVIDIA NIM / Ollama).
-    Requires NVIDIA_NIM_API_KEY or Ollama to be configured.
-    Returns answer with mandatory source citations, confidence indicators, and uncertainty flags.
-    Safety-critical parameter queries return source documents directly rather than synthesized answers.
+    Synthesis stub — Phase 2 gate. Returns a clean no-op until LLM is wired in Task 8.
     """
-    # TODO: implement LLM synthesis with source citation enforcement
     return {
         "answer": None,
         "sources": [],

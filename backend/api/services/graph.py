@@ -155,10 +155,36 @@ class GraphService:
     # Knowledge edges (Layer 4 — all five properties enforced)
     # -------------------------------------------------------------------------
 
+    # Maps Neo4j node labels to their primary key property name
+    _LABEL_ID_FIELD = {
+        "Asset": "asset_id",
+        "Document": "document_id",
+        "Event": "event_id",
+        "Concept": "concept_id",
+        "Person": "person_id",
+        "Organisation": "org_id",
+    }
+
+    async def merge_document_node(self, document_id: str, props: Optional[Dict[str, Any]] = None) -> None:
+        """MERGE a Document node into Neo4j (idempotent). Called before creating edges to it."""
+        cypher = """
+        MERGE (d:Document {document_id: $document_id})
+        ON CREATE SET d += $props, d.created_at = $created_at
+        """
+        async with self.driver.session(database=self.database) as session:
+            await session.run(
+                cypher,
+                document_id=document_id,
+                props=props or {},
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+
     async def create_knowledge_edge(
         self,
-        source_node_id: str,
-        target_node_id: str,
+        source_id: str,
+        source_label: str,
+        target_id: str,
+        target_label: str,
         relationship_type: str,
         # Five mandatory edge properties:
         valid_from: datetime,
@@ -170,18 +196,24 @@ class GraphService:
     ) -> str:
         """
         Creates a temporal knowledge edge with all five mandatory properties.
-        Raises ValueError if any required property is missing.
+        Labels must be from the known node label set (validated against whitelist).
         """
+        if source_label not in self._LABEL_ID_FIELD or target_label not in self._LABEL_ID_FIELD:
+            raise ValueError(f"Unknown label: {source_label!r} or {target_label!r}")
         if not (1 <= authority_level <= 5):
             raise ValueError(f"authority_level must be 1-5, got {authority_level}")
         if not (0.0 <= confidence <= 1.0):
             raise ValueError(f"confidence must be 0.0-1.0, got {confidence}")
 
-        edge_id = f"{source_node_id}_{relationship_type}_{target_node_id}_{valid_from.isoformat()}"
-        cypher = """
-        MATCH (src {node_id: $source_node_id})
-        MATCH (tgt {node_id: $target_node_id})
-        CREATE (src)-[r:KNOWLEDGE_EDGE {
+        src_field = self._LABEL_ID_FIELD[source_label]
+        tgt_field = self._LABEL_ID_FIELD[target_label]
+        edge_id = f"{source_id}_{relationship_type}_{target_id}_{valid_from.isoformat()}"
+
+        # Labels come from a validated whitelist — f-string is safe here
+        cypher = f"""
+        MATCH (src:{source_label} {{{src_field}: $source_id}})
+        MATCH (tgt:{target_label} {{{tgt_field}: $target_id}})
+        CREATE (src)-[r:KNOWLEDGE_EDGE {{
             edge_id: $edge_id,
             relationship_type: $relationship_type,
             valid_from: $valid_from,
@@ -190,14 +222,14 @@ class GraphService:
             document_id: $document_id,
             confidence: $confidence,
             verification_status: $verification_status
-        }]->(tgt)
+        }}]->(tgt)
         RETURN r.edge_id AS edge_id
         """
         async with self.driver.session(database=self.database) as session:
             result = await session.run(
                 cypher,
-                source_node_id=source_node_id,
-                target_node_id=target_node_id,
+                source_id=source_id,
+                target_id=target_id,
                 relationship_type=relationship_type,
                 edge_id=edge_id,
                 valid_from=valid_from.isoformat(),

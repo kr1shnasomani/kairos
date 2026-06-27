@@ -75,6 +75,14 @@ class SearchResult(BaseModel):
     vault_url: Optional[str] = None
 
 
+class SearchResponse(BaseModel):
+    query: str
+    results: List[SearchResult]
+    total: int
+    synthesis: None = None
+    retrieval_methods: List[str] = Field(default_factory=list)
+
+
 class ConflictItem(BaseModel):
     conflict_id: str
     track: str = Field(..., description="administrative, engineering")

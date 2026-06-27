@@ -16,12 +16,14 @@ Industrial Operational Intelligence Platform — proactive knowledge delivery to
 | 2 | Asset MDM — all 6 `/assets/*` endpoints, Neo4j + Supabase + ES | Asset P-101 created, retrieved |
 | 3 | Immutable vault — `POST /documents/ingest`, SHA-256 dedup, Supabase Storage, Temporal trigger | Full ingest + status poll |
 | 4 | OCR Temporal activities — `store_in_vault`, `run_ocr`, `mark_complete` | Pipeline runs to `complete`, confidence=0.95 |
+| 5 | NER + entity-to-asset linking — `run_ner`, `link_to_graph` activities, `create_knowledge_edge` Cypher fixed | Pipeline runs all 7 stages; edge verified in Neo4j with all 5 properties |
+| 6 | Vector + text indexing — `index_vectors` (Qdrant, Jina `jina-embeddings-v3` 1024-dim) and `index_text` (ES) parallel | Qdrant 1024-dim point + ES doc verified |
+| 7 | Hybrid Search — `GET /search` parallel ES + Qdrant + Neo4j, authority re-rank, `as_of` time-travel, quarantine toggle | Tag search → ES hits; concept search → Qdrant semantic; as_of 2020 → 0 graph results; all 3 retrieval methods active |
 
-### Next Task: Task 5 — NER + Entity-to-Asset Linking
-See `IMPLEMENTATION.md` Task 5 for the full spec. Key files to touch:
-- `backend/api/services/ner.py` — wire `NERService.extract_entities()` and `resolve_asset_tag()`
-- `backend/workflows/document_pipeline.py` — `run_ner` and `link_to_graph` activities (currently stubs)
-- `backend/api/services/graph.py` — `create_knowledge_edge()` already implemented, use it
+### Next Task: Task 8 — LLM Synthesis (`POST /search/synthesize`)
+See `IMPLEMENTATION.md` Task 8 for the full spec. Key files to touch:
+- `backend/api/routers/search.py` — `POST /search/synthesize` endpoint (currently clean stub)
+- `backend/api/services/llm.py` — `synthesize()` already implemented, just needs wiring + response parsing
 
 ---
 

@@ -32,6 +32,9 @@ DEFAULT_RETRY = RetryPolicy(
 
 _supabase_client = None
 _redis_client = None
+_neo4j_driver = None
+_qdrant_client = None
+_es_client = None
 
 
 def _get_supabase():
@@ -58,6 +61,46 @@ def _get_redis():
             decode_responses=True,
         )
     return _redis_client
+
+
+def _get_neo4j_driver():
+    """Returns a cached async Neo4j driver — one per worker process."""
+    global _neo4j_driver
+    if _neo4j_driver is None:
+        import os
+        from neo4j import AsyncGraphDatabase
+        _neo4j_driver = AsyncGraphDatabase.driver(
+            os.environ.get("NEO4J_URI", "bolt://kairos-neo4j:7687"),
+            auth=(
+                os.environ.get("NEO4J_USERNAME", "neo4j"),
+                os.environ.get("NEO4J_PASSWORD", "kairos_dev_password"),
+            ),
+        )
+    return _neo4j_driver
+
+
+def _get_qdrant_client():
+    """Returns a cached async Qdrant client — one per worker process."""
+    global _qdrant_client
+    if _qdrant_client is None:
+        import os
+        from qdrant_client import AsyncQdrantClient
+        _qdrant_client = AsyncQdrantClient(
+            url=os.environ.get("QDRANT_URL", "http://kairos-qdrant:6333"),
+        )
+    return _qdrant_client
+
+
+def _get_es_client():
+    """Returns a cached async Elasticsearch client — one per worker process."""
+    global _es_client
+    if _es_client is None:
+        import os
+        from elasticsearch import AsyncElasticsearch
+        _es_client = AsyncElasticsearch(
+            [os.environ.get("ELASTICSEARCH_URL", "http://kairos-elasticsearch:9200")]
+        )
+    return _es_client
 
 
 # =============================================================================
@@ -216,18 +259,35 @@ async def run_ocr(
 
 
 # =============================================================================
-# Activity 3: run_ner — stub (Task 5)
+# Activity 3: run_ner
 # =============================================================================
 
 @activity.defn
 async def run_ner(document_id: str, text: str, job_id: str) -> Dict[str, Any]:
-    """Step 3: NER entity extraction. Wired in Task 5."""
-    log.info("activity.ner_stub", document_id=document_id, text_length=len(text))
-    return {"entities": [], "requires_annotation": False}
+    """Step 3: NER entity extraction — mXLM-RoBERTa, degrades gracefully when model absent."""
+    from api.services.ner import NERService
+
+    supabase = _get_supabase()
+    ner = NERService()
+    result = await ner.extract_entities(text)
+    entities = result.get("entities", [])
+
+    await asyncio.to_thread(
+        lambda: supabase.table("extraction_jobs").update({
+            "pipeline_stage": "graph_linking",
+            "progress_pct": 50,
+            "entity_count": len(entities),
+        }).eq("job_id", job_id).execute()
+    )
+    log.info("activity.ner_complete", document_id=document_id, entity_count=len(entities))
+    return {
+        "entities": entities,
+        "requires_annotation": result.get("requires_annotation", False),
+    }
 
 
 # =============================================================================
-# Activity 4: link_to_graph — stub (Task 5)
+# Activity 4: link_to_graph
 # =============================================================================
 
 @activity.defn
@@ -238,13 +298,118 @@ async def link_to_graph(
     authority_level: int,
     job_id: str,
 ) -> Dict[str, Any]:
-    """Step 4: Graph edge creation. Wired in Task 5."""
-    log.info("activity.graph_stub", document_id=document_id, entity_count=len(entities))
-    return {"edges_created": 0}
+    """
+    Step 4: Resolve ASSET_TAG entities to canonical assets and write KNOWLEDGE_EDGE rows.
+    Confidence >= 0.7 + resolved → unverified graph edge.
+    Confidence < 0.7 or unresolved → quarantine_items (never auto-promotes to canonical graph).
+    """
+    from api.services.graph import GraphService
+    from api.services.ner import NERService
+
+    supabase = _get_supabase()
+    graph = GraphService(_get_neo4j_driver())
+    ner = NERService()
+
+    # Build alias lookup from Supabase {alias: canonical_asset_id}
+    alias_result = await asyncio.to_thread(
+        lambda: supabase.table("asset_alias_map").select("alias, canonical_asset_id").execute()
+    )
+    alias_map = {row["alias"]: row["canonical_asset_id"] for row in (alias_result.data or [])}
+
+    # Ensure the Document node exists in Neo4j before any edges point at it
+    await graph.merge_document_node(document_id, {"authority_level": authority_level})
+
+    now = datetime.now(timezone.utc)
+    edges_created = 0
+    quarantine_count = 0
+
+    for entity in entities:
+        if entity.get("entity_type") != "ASSET_TAG":
+            continue
+
+        confidence = entity.get("confidence", 0.0)
+        raw_tag = entity.get("text", "")
+
+        # Low confidence → quarantine regardless of resolution; never touch the graph
+        if confidence < 0.7:
+            await asyncio.to_thread(
+                lambda e=entity, rt=raw_tag, c=confidence: supabase.table("quarantine_items").insert({
+                    "asset_id": asset_id,
+                    "content": f"Low-confidence entity: '{rt}' (confidence={c:.2f})",
+                    "input_type": "deviation_flag",
+                    "submitted_by": "extraction_pipeline",
+                    "session_context": {"document_id": document_id, "entity": e},
+                }).execute()
+            )
+            quarantine_count += 1
+            continue
+
+        canonical_id = ner.resolve_asset_tag(raw_tag, alias_map)
+
+        if canonical_id:
+            # Resolved: write unverified edge — human must verify before it becomes canonical
+            try:
+                await graph.create_knowledge_edge(
+                    source_id=canonical_id,
+                    source_label="Asset",
+                    target_id=document_id,
+                    target_label="Document",
+                    relationship_type="DOCUMENTED_BY",
+                    valid_from=now,
+                    authority_level=authority_level,
+                    document_id=document_id,
+                    confidence=confidence,
+                    verification_status="unverified",
+                )
+                edges_created += 1
+            except Exception as exc:
+                log.warning("link.edge_create_failed", asset_id=canonical_id, document_id=document_id, error=str(exc))
+        else:
+            # Unresolved: register as unconfirmed alias candidate (if we have a parent asset) + quarantine
+            if asset_id:
+                try:
+                    normalized = raw_tag.strip().upper().replace(" ", "")
+                    await asyncio.to_thread(
+                        lambda na=normalized: supabase.table("asset_alias_map").upsert({
+                            "canonical_asset_id": asset_id,
+                            "alias": na,
+                            "alias_source": f"ner_extraction:{document_id}",
+                            "confidence": confidence,
+                            "confirmed": False,
+                        }, on_conflict="alias").execute()
+                    )
+                except Exception as exc:
+                    log.warning("link.alias_insert_failed", alias=raw_tag, error=str(exc))
+
+            await asyncio.to_thread(
+                lambda e=entity, rt=raw_tag: supabase.table("quarantine_items").insert({
+                    "asset_id": asset_id,
+                    "content": f"Unresolved asset tag: '{rt}'",
+                    "input_type": "deviation_flag",
+                    "submitted_by": "extraction_pipeline",
+                    "session_context": {"document_id": document_id, "entity": e},
+                }).execute()
+            )
+            quarantine_count += 1
+
+    # Persist edge count so GET /documents/{id}/status can report it
+    await asyncio.to_thread(
+        lambda: supabase.table("extraction_jobs").update({
+            "graph_edges": edges_created,
+        }).eq("job_id", job_id).execute()
+    )
+
+    log.info(
+        "activity.link_to_graph_complete",
+        document_id=document_id,
+        edges=edges_created,
+        quarantined=quarantine_count,
+    )
+    return {"edges_created": edges_created, "quarantine_count": quarantine_count}
 
 
 # =============================================================================
-# Activity 5: index_vectors — stub (Task 6)
+# Activity 5: index_vectors
 # =============================================================================
 
 @activity.defn
@@ -254,13 +419,64 @@ async def index_vectors(
     metadata: Dict[str, Any],
     job_id: str,
 ) -> Dict[str, Any]:
-    """Step 5: Qdrant vector indexing. Wired in Task 6."""
-    log.info("activity.vectors_stub", document_id=document_id)
-    return {"chunks_indexed": 0}
+    """
+    Step 5: Chunk text and index embeddings into Qdrant kairos_documents collection.
+    Embedding via Ollama nomic-embed-text. Degrades gracefully if Ollama is unavailable
+    (returns chunks_indexed=0 without failing the pipeline).
+    """
+    import uuid as uuid_lib
+    from api.services.llm import LLMService
+    from api.services.vector_store import VectorStoreService
+    from api.config import Settings
+
+    settings = Settings()
+    vector_store = VectorStoreService(_get_qdrant_client(), settings)
+    llm = LLMService(settings)
+
+    # Word-based chunking (~400 words / 50-word overlap ≈ 512 / 50 token segments)
+    words = text.split()
+    chunk_size, overlap = 400, 50
+    chunks: List[str] = []
+    i = 0
+    while i < len(words):
+        chunks.append(" ".join(words[i: i + chunk_size]))
+        i += chunk_size - overlap
+    if not chunks:
+        return {"chunks_indexed": 0}
+
+    asset_id = metadata.get("asset_id")
+    authority_level = metadata.get("authority_level", 5)
+    chunks_indexed = 0
+
+    for idx, chunk_text in enumerate(chunks):
+        vector = await llm.embed(chunk_text)
+        if not vector:
+            log.warning("index_vectors.embed_failed", document_id=document_id, chunk=idx,
+                        hint="Ollama not reachable — start nomic-embed-text and re-index")
+            continue
+
+        point_id = str(uuid_lib.uuid5(uuid_lib.NAMESPACE_URL, f"{document_id}:{idx}"))
+        await vector_store.upsert(
+            collection=settings.QDRANT_COLLECTION_DOCUMENTS,
+            point_id=point_id,
+            vector=vector,
+            payload={
+                "document_id": document_id,
+                "asset_id": asset_id,
+                "chunk_index": idx,
+                "authority_level": authority_level,
+                "is_quarantine": False,
+                "text": chunk_text,
+            },
+        )
+        chunks_indexed += 1
+
+    log.info("activity.index_vectors_complete", document_id=document_id, chunks=chunks_indexed)
+    return {"chunks_indexed": chunks_indexed}
 
 
 # =============================================================================
-# Activity 6: index_text — stub (Task 6)
+# Activity 6: index_text
 # =============================================================================
 
 @activity.defn
@@ -270,9 +486,36 @@ async def index_text(
     metadata: Dict[str, Any],
     job_id: str,
 ) -> Dict[str, Any]:
-    """Step 6: Elasticsearch text indexing. Wired in Task 6."""
-    log.info("activity.es_stub", document_id=document_id)
-    return {"indexed": False}
+    """
+    Step 6: Index full document content into Elasticsearch kairos_documents index.
+    Always succeeds — ES is always available in the stack. Used for exact/keyword search.
+    """
+    from api.services.search_engine import SearchEngineService
+    from api.config import Settings
+
+    settings = Settings()
+    es = _get_es_client()
+    search_svc = SearchEngineService(es, settings)
+
+    await search_svc.ensure_indices()
+
+    await es.index(
+        index=settings.ELASTICSEARCH_INDEX_DOCUMENTS,
+        id=document_id,
+        document={
+            "document_id": document_id,
+            "asset_id": metadata.get("asset_id"),
+            "title": metadata.get("title", document_id),
+            "content": text,
+            "document_type": metadata.get("document_type", "unknown"),
+            "authority_level": metadata.get("authority_level", 5),
+            "status": "active",
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+    log.info("activity.index_text_complete", document_id=document_id)
+    return {"indexed": True}
 
 
 @activity.defn
@@ -310,6 +553,7 @@ class DocumentIngestionWorkflow:
         mime_type = params.get("mime_type", "application/pdf")
         asset_id = params.get("asset_id")
         authority_level = params.get("authority_level", 4)
+        document_type = params.get("document_type", "unknown")
         job_id = params["job_id"]
 
         workflow.logger.info("document_pipeline.started", document_id=document_id)
@@ -361,16 +605,21 @@ class DocumentIngestionWorkflow:
         )
 
         # ── Steps 5 & 6: Vector + text indexing in parallel ─────────────────
+        indexing_metadata = {
+            "asset_id": asset_id,
+            "authority_level": authority_level,
+            "document_type": document_type,
+        }
         vector_result, text_result = await asyncio.gather(
             workflow.execute_activity(
                 index_vectors,
-                args=[document_id, ocr_result["text"], {"asset_id": asset_id}, job_id],
+                args=[document_id, ocr_result["text"], indexing_metadata, job_id],
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=DEFAULT_RETRY,
             ),
             workflow.execute_activity(
                 index_text,
-                args=[document_id, ocr_result["text"], {"asset_id": asset_id}, job_id],
+                args=[document_id, ocr_result["text"], indexing_metadata, job_id],
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=DEFAULT_RETRY,
             ),

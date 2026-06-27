@@ -332,6 +332,7 @@ services:
       - REDIS_URL=redis://kairos-redis:6379/0
       - TEMPORAL_ADDRESS=kairos-temporal:7233
       - TEMPORAL_TASK_QUEUE=kairos-ingestion
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
     env_file:
       - .env
     depends_on:
