@@ -547,13 +547,18 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `NVIDIA_NIM_API_KEY` | `""` | Required for NIM synthesis |
-| `NVIDIA_NIM_MODEL` | `meta/llama-3.1-70b-instruct` | — |
+| `NVIDIA_NIM_API_KEY` | `""` | Required for NIM synthesis, NER, and OCR |
+| `NVIDIA_NIM_MODEL` | `meta/llama-3.3-70b-instruct` | LLM synthesis |
+| `NVIDIA_NIM_NER_MODEL` | `mistralai/ministral-14b-instruct-2512` | NER extraction |
+| `NVIDIA_NIM_OCR_MODEL` | `nvidia/nemotron-ocr-v2` | OCR for scanned docs/images |
 | `NVIDIA_NIM_MAX_TOKENS` | `4096` | Set to `512` to avoid ReadTimeout |
 | `JINA_API_KEY` | `""` | Required for Jina embeddings |
-| `JINA_EMBED_MODEL` | `jina-embeddings-v3` | 1024-dim output |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Fallback LLM + embeddings |
+| `JINA_EMBED_MODEL` | `jina-embeddings-v3` | 1024-dim output, primary embeddings |
+| `GROQ_API_KEY` | `""` | Required for voice transcription |
+| `GROQ_WHISPER_MODEL` | `whisper-large-v3` | STT via Groq API |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Fallback LLM + NER + embeddings |
 | `OLLAMA_MODEL` | `qwen2.5:14b` | Fallback synthesis model |
+| `OLLAMA_NER_MODEL` | `llama3.1:8b` | Fallback NER model |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Fallback embedding model |
 
 ### Temporal

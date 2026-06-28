@@ -213,7 +213,7 @@ POST /documents/ingest
 
 DocumentIngestionWorkflow (workflows/document_pipeline.py):
   1. store_in_vault    → SHA-256 verify, stage: ocr_running
-  2. run_ocr           → PaddleOCR/PyMuPDF, stage: ner_running  (or review_required → stop)
+  2. run_ocr           → PyMuPDF (native PDF fast path) / NIM Nemotron-OCR-v2 (scans/images), stage: ner_running  (or review_required → stop)
   3. run_ner           → entity extraction [STUB — Task 5]
   4. link_to_graph     → Neo4j edges + quarantine routing [STUB — Task 5]
   5+6. index_vectors + index_text (parallel) [STUB — Task 6]

@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     NVIDIA_NIM_API_KEY: str = ""
     NVIDIA_NIM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
-    NVIDIA_NIM_MODEL: str = "meta/llama-3.1-70b-instruct"
+    NVIDIA_NIM_MODEL: str = "meta/llama-3.3-70b-instruct"
     NVIDIA_NIM_MAX_TOKENS: int = 4096
     NVIDIA_NIM_TEMPERATURE: float = 0.1
 
@@ -96,6 +96,7 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:14b"
+    OLLAMA_NER_MODEL: str = "llama3.1:8b"
     OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
 
     # -------------------------------------------------------------------------
@@ -104,10 +105,8 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int = 1024  # jina-embeddings-v3 output dim
 
     # -------------------------------------------------------------------------
-    # HuggingFace
+    # HuggingFace — cache + token for YOLO/ultralytics model downloads
     # -------------------------------------------------------------------------
-    HF_MODEL_NER: str = "xlm-roberta-large"
-    HF_MODEL_CLASSIFIER: str = "bert-base-multilingual-cased"
     HF_CACHE_DIR: str = "./.cache/huggingface"
     HF_TOKEN: str = ""
 
@@ -157,6 +156,18 @@ class Settings(BaseSettings):
     GO_CONNECTOR_PORT: int = 8090
     HISTORIAN_QUERY_TIMEOUT_SECONDS: int = 30
     INTERNAL_API_KEY: str = "kairos-internal-dev-key"
+
+    # -------------------------------------------------------------------------
+    # Groq — Voice Transcription (Whisper-large-v3 via API)
+    # -------------------------------------------------------------------------
+    GROQ_API_KEY: str = ""
+    GROQ_WHISPER_MODEL: str = "whisper-large-v3"
+
+    # -------------------------------------------------------------------------
+    # NVIDIA NIM — OCR (Nemotron-OCR-v2)
+    # -------------------------------------------------------------------------
+    NVIDIA_NIM_OCR_MODEL: str = "nvidia/nemotron-ocr-v2"
+    NVIDIA_NIM_NER_MODEL: str = "mistralai/ministral-14b-instruct-2512"
 
 
 @lru_cache

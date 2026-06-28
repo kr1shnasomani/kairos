@@ -1,130 +1,164 @@
 """
 NER service — Layer 3: Named Entity Recognition.
-Primary: mXLM-RoBERTa fine-tuned for industrial entities (requires requirements-ml.txt).
-Fallback: regex patterns for structured industrial tag formats (P-101, V-247, EQ-101).
-The regex fallback fires automatically when the ML model is unavailable, giving high-precision
-ASSET_TAG extraction without ML dependencies. ML model takes over when installed.
+Primary: NVIDIA NIM mistral-14b via JSON prompt.
+Fallback: Ollama llama3.1:8b (local).
 """
 
+import json
+import os
 import re
 from typing import Any, Dict, List, Optional
+
+import httpx
 import structlog
 
 log = structlog.get_logger(__name__)
 
-# Matches standard industrial equipment tag patterns: P-101, V-247, EQ-101, FV-1234A, HX-02
-# Excludes regulatory refs (OISD-117 has too many chars before hyphen; handled by 1-4 letter limit)
+_NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+
 _ASSET_TAG_RE = re.compile(r'\b([A-Z]{1,4}-\d{2,4}[A-Z]?)\b')
 
-# Industrial entity types recognized by the NER model
-INDUSTRIAL_ENTITY_TYPES = [
-    "ASSET_TAG",          # Equipment tag numbers: P-101, V-247, EQ-101
-    "PROCESS_PARAMETER",  # Temperatures, pressures, flow rates
-    "MATERIAL",           # Material grades, part numbers
-    "PERSON",             # Personnel names and roles
-    "DATE",               # Dates and time references
-    "REGULATION",         # Regulatory clauses (OISD-117, CEA Reg. 4.2)
-    "FAILURE_MODE",       # Failure descriptions (seal failure, bearing wear)
-    "ACTION_VERB",        # Maintenance actions (replaced, inspected, calibrated)
-    "LOCATION",           # Plant areas, sections, units
-    "ORGANIZATION",       # Vendors, regulatory bodies
-]
+_NER_PROMPT = """Extract named entities from the industrial text below. Return ONLY a valid JSON array, no other text.
+
+Entity types:
+- ASSET_TAG: Equipment tag numbers (P-101, V-247, FV-1234A, HX-301)
+- PROCESS_PARAMETER: Measurements with values/units (pressure, temperature, flow rate)
+- FAILURE_MODE: Failure descriptions (bearing wear, seal failure, corrosion)
+- REGULATION: Standards and regulatory references (OISD-117, ISO 45001, CEA Reg 4.2)
+- ACTION_VERB: Maintenance actions (replaced, inspected, calibrated)
+- MATERIAL: Material grades or part numbers
+- PERSON: Personnel names or roles
+- LOCATION: Plant areas, sections, units
+- DATE: Dates and time references
+- ORGANIZATION: Vendors, contractors, regulatory bodies
+
+Output format:
+[{{"text": "P-101", "entity_type": "ASSET_TAG", "confidence": 0.95}}, ...]
+
+Text: {text}"""
 
 
 class NERService:
-    """
-    Named entity recognition for industrial documents.
-    Primary model: mXLM-RoBERTa (multilingual, handles Hinglish code-switching).
-    Active learning loop: low-confidence extractions surface for inline correction by operators.
-    """
-
-    def __init__(self, model_name: str = "xlm-roberta-large", cache_dir: Optional[str] = None):
-        self.model_name = model_name
-        self.cache_dir = cache_dir
-        self._pipeline = None
-
-    def _get_pipeline(self):
-        if self._pipeline is None:
-            try:
-                from transformers import pipeline
-                self._pipeline = pipeline(
-                    "token-classification",
-                    model=self.model_name,
-                    aggregation_strategy="simple",
-                    device=-1,  # CPU; set to 0 for GPU
-                )
-                log.info("ner.initialized", model=self.model_name)
-            except ImportError:
-                log.warning("ner.transformers_not_installed", hint="pip install -r requirements-ml.txt")
-                self._pipeline = "unavailable"
-        return self._pipeline
+    def __init__(self):
+        self._nim_key = os.getenv("NVIDIA_NIM_API_KEY", "")
+        self._nim_model = os.getenv("NVIDIA_NIM_NER_MODEL", "mistralai/ministral-14b-instruct-2512")
+        self._ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        self._ollama_ner_model = os.getenv("OLLAMA_NER_MODEL", "llama3.1:8b")
 
     async def extract_entities(
         self,
         text: str,
         language_hint: Optional[str] = None,
-        confidence_threshold: float = 0.7,
+        confidence_threshold: float = 0.5,
     ) -> Dict[str, Any]:
-        """
-        Extracts industrial entities from text.
-        Returns entities with confidence scores; items below threshold flagged for active learning.
-        """
-        pipeline = self._get_pipeline()
-        if pipeline == "unavailable":
-            # Regex fallback: high-precision rule-based extraction for structured tag patterns.
-            # Fires automatically when ML model is not installed. Produces ASSET_TAG entities
-            # at confidence=0.9 — sufficient for graph linking without human review.
-            entities = []
-            for match in _ASSET_TAG_RE.finditer(text.upper()):
-                entities.append({
-                    "text": match.group(1),
-                    "entity_type": "ASSET_TAG",
-                    "confidence": 0.9,
-                    "start": match.start(),
-                    "end": match.end(),
-                    "requires_review": False,
-                })
-            log.info("ner.regex_fallback", entity_count=len(entities))
-            return {
-                "entities": entities,
-                "low_confidence_spans": [],
-                "requires_annotation": False,
-                "total_entities": len(entities),
-            }
+        if self._nim_key:
+            result = await self._extract_via_nim(text)
+            if result is not None:
+                return result
 
+        result = await self._extract_via_ollama(text)
+        if result is not None:
+            return result
+
+        return self._regex_fallback(text)
+
+    async def _extract_via_nim(self, text: str) -> Optional[Dict[str, Any]]:
         try:
-            raw_entities = pipeline(text[:512])  # Model max length guard
-            entities = []
-            low_confidence_spans = []
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    _NIM_URL,
+                    headers={"Authorization": f"Bearer {self._nim_key}"},
+                    json={
+                        "model": self._nim_model,
+                        "messages": [{"role": "user", "content": _NER_PROMPT.format(text=text[:2000])}],
+                        "max_tokens": 1024,
+                        "temperature": 0.0,
+                    },
+                )
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"].strip()
+                return self._parse_response(content, source="nim")
+        except Exception as exc:
+            log.warning("ner.nim_failed", error=str(exc))
+            return None
 
-            for ent in raw_entities:
+    async def _extract_via_ollama(self, text: str) -> Optional[Dict[str, Any]]:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{self._ollama_url}/api/chat",
+                    json={
+                        "model": self._ollama_ner_model,
+                        "messages": [{"role": "user", "content": _NER_PROMPT.format(text=text[:2000])}],
+                        "stream": False,
+                        "options": {"temperature": 0.0},
+                    },
+                )
+                resp.raise_for_status()
+                content = resp.json()["message"]["content"].strip()
+                return self._parse_response(content, source="ollama")
+        except Exception as exc:
+            log.warning("ner.ollama_failed", error=str(exc))
+            return None
+
+    def _parse_response(self, content: str, source: str) -> Optional[Dict[str, Any]]:
+        try:
+            # Strip markdown code fences if present
+            content = re.sub(r"```(?:json)?|```", "", content).strip()
+            raw = json.loads(content)
+            if not isinstance(raw, list):
+                return None
+
+            entities = []
+            low_confidence = []
+            for item in raw:
+                if not isinstance(item, dict) or "text" not in item or "entity_type" not in item:
+                    continue
+                confidence = float(item.get("confidence", 0.85))
                 entity = {
-                    "text": ent["word"],
-                    "entity_type": ent.get("entity_group", "UNKNOWN"),
-                    "confidence": float(ent["score"]),
-                    "start": ent["start"],
-                    "end": ent["end"],
-                    "requires_review": ent["score"] < confidence_threshold,
+                    "text": item["text"],
+                    "entity_type": item["entity_type"],
+                    "confidence": round(confidence, 4),
+                    "start": None,
+                    "end": None,
+                    "requires_review": confidence < 0.7,
                 }
                 entities.append(entity)
-                if ent["score"] < confidence_threshold:
-                    low_confidence_spans.append(entity)
+                if confidence < 0.7:
+                    low_confidence.append(entity)
 
+            log.info("ner.complete", source=source, entity_count=len(entities))
             return {
                 "entities": entities,
-                "low_confidence_spans": low_confidence_spans,
-                "requires_annotation": len(low_confidence_spans) > 0,
+                "low_confidence_spans": low_confidence,
+                "requires_annotation": len(low_confidence) > 0,
                 "total_entities": len(entities),
+                "model": source,
             }
-        except Exception as e:
-            log.error("ner.extraction_failed", error=str(e))
-            return {"entities": [], "low_confidence_spans": [], "requires_annotation": False, "error": str(e)}
+        except (json.JSONDecodeError, ValueError) as exc:
+            log.warning("ner.parse_failed", source=source, error=str(exc))
+            return None
+
+    def _regex_fallback(self, text: str) -> Dict[str, Any]:
+        entities = []
+        for match in _ASSET_TAG_RE.finditer(text.upper()):
+            entities.append({
+                "text": match.group(1),
+                "entity_type": "ASSET_TAG",
+                "confidence": 0.9,
+                "start": match.start(),
+                "end": match.end(),
+                "requires_review": False,
+            })
+        log.info("ner.regex_fallback", entity_count=len(entities))
+        return {
+            "entities": entities,
+            "low_confidence_spans": [],
+            "requires_annotation": False,
+            "total_entities": len(entities),
+            "model": "regex",
+        }
 
     def resolve_asset_tag(self, raw_tag: str, alias_map: Dict[str, str]) -> Optional[str]:
-        """
-        Resolves a raw tag string to a canonical asset ID using the alias map.
-        Returns None if no match found (routes to human review, not AI inference).
-        """
-        # Normalize: strip whitespace, uppercase
         normalized = raw_tag.strip().upper().replace(" ", "")
         return alias_map.get(normalized) or alias_map.get(raw_tag.strip())

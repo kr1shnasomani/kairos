@@ -5,13 +5,15 @@ operator responses into quarantine for human review and graph promotion.
 """
 
 import asyncio
+import hashlib
 from typing import Any, Dict, List
 
 import shortuuid
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
+from api.config import get_settings
 from api.dependencies import CurrentUserDep, SupabaseDep, TemporalDep
 
 log = structlog.get_logger(__name__)
@@ -170,3 +172,73 @@ async def submit_responses(
              work_order_id=work_order_id,
              item_id=result.get("item_id"))
     return result
+
+
+@router.post(
+    "/{work_order_id}/voice",
+    summary="Ingest voice note — transcribe via Whisper, route to quarantine",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def ingest_voice_note(
+    work_order_id: str,
+    file: UploadFile,
+    submitted_by: str = Form(...),
+    current_user: CurrentUserDep = None,
+    supabase: SupabaseDep = None,
+) -> dict:
+    settings = get_settings()
+
+    audio_bytes = await file.read()
+    sha256 = hashlib.sha256(audio_bytes).hexdigest()
+
+    # SHA-256 dedup: skip re-upload if identical file already stored
+    existing = await asyncio.to_thread(
+        lambda: supabase.table("quarantine_items")
+        .select("item_id")
+        .eq("session_context->>sha256", sha256)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return {
+            "status": "duplicate",
+            "item_id": existing.data[0]["item_id"],
+            "message": "Identical audio already in quarantine",
+        }
+
+    storage_path = f"voice_notes/{work_order_id}/{sha256[:8]}_{file.filename}"
+    try:
+        await asyncio.to_thread(
+            lambda: supabase.storage.from_(settings.SUPABASE_STORAGE_BUCKET).upload(
+                storage_path,
+                audio_bytes,
+                {"content-type": file.content_type or "audio/wav"},
+            )
+        )
+    except Exception as exc:
+        if "Duplicate" not in str(exc) and "already exists" not in str(exc):
+            raise
+        log.info("elicitation.voice_note_already_in_storage", storage_path=storage_path)
+
+    from workers.voice_transcription import transcribe_voice_note
+    task = transcribe_voice_note.delay(
+        work_order_id=work_order_id,
+        storage_path=storage_path,
+        sha256=sha256,
+        submitted_by=submitted_by,
+        filename=file.filename or "audio.wav",
+    )
+
+    log.info("elicitation.voice_note_queued",
+             work_order_id=work_order_id,
+             storage_path=storage_path,
+             task_id=task.id)
+
+    return {
+        "status": "accepted",
+        "work_order_id": work_order_id,
+        "task_id": task.id,
+        "storage_path": storage_path,
+        "sha256": sha256,
+        "message": "Voice note stored. Transcription and NER running asynchronously.",
+    }

@@ -441,8 +441,7 @@ async def index_vectors(
 ) -> Dict[str, Any]:
     """
     Step 5: Chunk text and index embeddings into Qdrant kairos_documents collection.
-    Embedding via Ollama nomic-embed-text. Degrades gracefully if Ollama is unavailable
-    (returns chunks_indexed=0 without failing the pipeline).
+    Embedding via Jina AI (primary) with Ollama nomic-embed-text as fallback.
     """
     import uuid as uuid_lib
     from api.services.llm import LLMService
@@ -472,7 +471,7 @@ async def index_vectors(
         vector = await llm.embed(chunk_text)
         if not vector:
             log.warning("index_vectors.embed_failed", document_id=document_id, chunk=idx,
-                        hint="Ollama not reachable — start nomic-embed-text and re-index")
+                        hint="Jina and Ollama both unreachable — check JINA_API_KEY and OLLAMA_BASE_URL")
             continue
 
         point_id = str(uuid_lib.uuid5(uuid_lib.NAMESPACE_URL, f"{document_id}:{idx}"))

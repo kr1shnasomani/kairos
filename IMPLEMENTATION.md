@@ -51,11 +51,10 @@ Every router, worker, service, and Go handler has a correct stub (signature, mod
 
 ## Task 4: OCR — `run_ocr` Temporal Activity
 
-**Objective:** Wire the `store_in_vault` and `run_ocr` Temporal activities to actually execute PaddleOCR and update job status.
+**Objective:** Wire the `store_in_vault` and `run_ocr` Temporal activities to execute OCR via NVIDIA NIM and update job status.
 
 - `store_in_vault` activity: download file bytes from Supabase Storage, verify SHA-256 matches, update `extraction_jobs` stage to `ocr_running`
-- `run_ocr` activity: call `OCRService.extract_text(file_bytes, mime_type)`, update `extraction_jobs` with `ocr_confidence` and advance stage to `ner_running`; if `overall_confidence < 0.5`, set stage to `review_required`, stop pipeline, push to a Redis Stream `kairos:events:review_required`
-- Ensure `requirements-ml.txt` is installed in the `kairos-temporal-worker` container (add to its Dockerfile command or build stage)
+- `run_ocr` activity: call `OCRService.extract_text(file_bytes, mime_type)`, update `extraction_jobs` with `ocr_confidence` and advance stage to `ner_running`; if `overall_confidence < 0.5`, set stage to `review_required`, stop pipeline, push to a Redis Stream `kairos:events:review_required`. Fast path: PyMuPDF extracts native text from digital PDFs (no API call); images and scanned PDFs go to NVIDIA NIM Nemotron-OCR-v2.
 
 **Test:** Ingest a real PDF, poll `/documents/{id}/status`, confirm `ocr_confidence > 0` and stage advances correctly.
 
@@ -79,7 +78,7 @@ Every router, worker, service, and Go handler has a correct stub (signature, mod
 
 **Objective:** Make ingested documents searchable via Qdrant (semantic) and Elasticsearch (exact).
 
-- `index_vectors` activity: chunk text into 512-token segments with 50-token overlap; embed each chunk via `LLMService.embed(chunk)` (Ollama `nomic-embed-text`); call `VectorStoreService.upsert()` to `kairos_documents` collection with payload `{document_id, asset_id, chunk_index, authority_level, is_quarantine: False, text}`
+- `index_vectors` activity: chunk text into 512-token segments with 50-token overlap; embed each chunk via `LLMService.embed(chunk)` (Jina AI `jina-embeddings-v3` primary, Ollama `nomic-embed-text` fallback); call `VectorStoreService.upsert()` to `kairos_documents` collection with payload `{document_id, asset_id, chunk_index, authority_level, is_quarantine: False, text}`
 - `index_text` activity: `es_client.index(index=ELASTICSEARCH_INDEX_DOCUMENTS, id=document_id, document={document_id, asset_id, title, content, document_type, authority_level, status, ingested_at})`
 - Steps 5 and 6 run in parallel inside the Temporal workflow (already wired with `workflow.wait([...])`)
 
@@ -270,11 +269,13 @@ Every router, worker, service, and Go handler has a correct stub (signature, mod
 
 **Objective:** Accept voice notes from the elicitation engine, transcribe via Whisper, run through NER, and store in quarantine. Architecture requires this for tacit knowledge capture from field technicians.
 
-- Create `api/services/whisper.py` with `WhisperService`: lazy model init (`whisper.load_model("base")` on first call), `transcribe(audio_bytes) -> {text, language, confidence}` method; add `openai-whisper` to `requirements-ml.txt`
-- `POST /elicitation/{work_order_id}/voice`: accept `UploadFile` (audio); store raw bytes in Supabase Storage at `voice_notes/{work_order_id}/{filename}` (immutable, SHA-256); call `WhisperService.transcribe()`; pass transcript through `NERService.extract_entities()`; insert into `quarantine_items` with `input_type='voice_note'`, `content=transcript`, linked `work_order_id`
-- Wire into `elicitation_worker.py` — voice transcription runs as a Celery task, not inline
+- Create `api/services/whisper.py` with `WhisperService`: calls **Groq API** (`GROQ_API_KEY`, `GROQ_WHISPER_MODEL=whisper-large-v3`) via sync `httpx` — no local model, no heavy deps. `transcribe(audio_bytes, filename) -> {text, language, confidence, segments}`. confidence derived from `avg_logprob` across Groq verbose_json segments.
+- Add `GROQ_API_KEY` and `GROQ_WHISPER_MODEL` to `api/config.py` Settings.
+- `POST /elicitation/{work_order_id}/voice`: accept `UploadFile` + `submitted_by` form field; store raw bytes in Supabase Storage at `voice_notes/{work_order_id}/{sha256[:8]}_{filename}` (immutable, SHA-256 dedup); queue Celery task; return 202.
+- `workers/voice_transcription.py`: Celery task on `transcription` queue — download from storage, verify SHA-256, call `WhisperService.transcribe()`, run `NERService.extract_entities()` in new asyncio loop, insert `quarantine_items` with `input_type='voice_note'` and full `session_context`.
+- Add `workers.voice_transcription` to `celery_app.py` includes; add `transcription` queue to docker-compose Celery worker command.
 
-**Test:** Upload a `.m4a` or `.wav` file to the endpoint, verify transcript text in `quarantine_items` table with `input_type='voice_note'` and correct `work_order_id`.
+**Test:** Upload `test.wav` to `POST /elicitation/WO-TEST-001/voice`, verify 202 + `task_id`; wait for Celery task; verify `quarantine_items` row with `input_type='voice_note'`, transcript text, and `work_order_id=WO-TEST-001`.
 
 ---
 

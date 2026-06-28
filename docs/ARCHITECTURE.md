@@ -81,11 +81,11 @@ The vault is the foundation of trust. When KAIROS produces an answer citing a so
 
 The perception engine operates as a pipeline of specialized models, not a single generalist model. Specialization is necessary because industrial document types are sufficiently different from each other that a generalist model optimized for one degrades significantly on another.
 
-**Text extraction:** PaddleOCR 3.0 (released May 2025) as the primary backbone, selected for its multilingual architecture and strong performance on non-English and mixed-script documents. PaddleOCR 3.0's PP-StructureV3 layout analysis pipeline explicitly frames OCR as a bridge to semantic understanding and retrieval for downstream AI reasoning — precisely the role it plays in KAIROS. For Indian industrial deployments, this is not optional: maintenance forms annotated in Hindi, shift logs written in Hinglish (code-switched Hindi/English typed in Latin script), and P&ID annotation stamps in regional scripts are a normal operating reality, not an edge case. The perception engine handles these natively.
+**Text extraction:** Two-path approach. Native digital PDFs are parsed directly via PyMuPDF — fast, zero API cost, preserves text fidelity. Scanned documents and images go to NVIDIA NIM Nemotron-OCR-v2 via the NIM cloud API, which handles mixed-script and multilingual documents. This cloud-first design eliminates local model dependencies and heavy infrastructure while maintaining strong accuracy on the document types KAIROS ingests.
 
-**Multilingual entity extraction:** mXLM-RoBERTa fine-tuned on industrial domain corpora for named entity recognition across English, Hindi, and transliterated regional text. Entity types include: equipment tags, process parameters (temperatures, pressures, flow rates), material designations, personnel names and roles, dates and time references, regulatory clauses, failure modes, and action verbs. Where code-switching occurs within a single field, the model handles boundary detection across scripts. A critical caveat: spontaneous Hinglish NER on maintenance logs — where engineers freely mix Hindi grammar with English technical terms, often within the same sentence and without consistent romanisation — is an actively researched, under-resourced problem. No current model performs robustly on this task out of the box. Fine-tuned mXLM-RoBERTa encoders outperform prompted LLMs on token-level NER in code-switched settings, making them the right architecture, but reliable performance on KAIROS's specific domain requires annotated training data drawn from the target facility's own maintenance records.
+**Named entity recognition:** NVIDIA NIM `mistralai/ministral-14b-instruct-2512` via structured JSON prompting as the primary path — no local model, no package dependencies. Entity types extracted: ASSET_TAG, PROCESS_PARAMETER, FAILURE_MODE, REGULATION, ACTION_VERB, MATERIAL, PERSON, LOCATION, DATE, ORGANIZATION. Fallback: Ollama `llama3.1:8b` (local, for air-gapped or offline operation). Last resort: regex patterns for ASSET_TAG format matching. All three paths produce the same output schema. Model names are configured via `.env` (`NVIDIA_NIM_NER_MODEL`, `OLLAMA_NER_MODEL`) — no hardcoding in service code.
 
-Leaving this as an unresolved "deployment-phase requirement" creates a Phase 1 adoption risk: if the system cannot reliably parse Hindi and Hinglish maintenance documents from day one, the core value proposition of Phase 1 — finding documents faster — fails for a significant portion of the document corpus. KAIROS addresses this through an **Active Learning Annotation Interface** built into the Phase 1 search experience. When the perception engine returns a low-confidence extraction on a mixed-script document, the search result surfaces the specific uncertain entity spans with visual highlighting, and presents bilingual operators with an inline correction interface: a single tap to confirm, correct, or delete the proposed entity. Every confirmed or corrected annotation is immediately fed back into the local mXLM-RoBERTa fine-tuning loop, accumulating labeled training data as a byproduct of normal search usage. This converts the user population into an annotation workforce without imposing a separate annotation task — corrections happen at the moment of search, when the operator is already reading the document. By the end of Phase 1 (months 1-3), the model will have accumulated facility-specific labeled data across the most common document types, and NER accuracy on facility-specific Hinglish will materially improve before synthesis activates in Phase 2.
+KAIROS surfaces low-confidence entity extractions inline in search results through the **Active Learning Annotation Interface**, allowing operators to confirm, correct, or delete proposed entities in one tap. Every correction is stored in `ner_annotations` and linked back to the relevant quarantine item, building a facility-specific labeled dataset over time without imposing a separate annotation task on staff.
 
 **Engineering drawing topology:** Custom YOLOv9 + LayoutLMv3 models trained on the technical drawing standards of the target sector. Standard OCR applied to engineering drawings destroys the spatial relationships that are the actual information content of the drawing. These models extract: equipment nodes, flow connections, valve positions, instrumentation loops, isolation boundaries, and line designations — reconstructing the physical topology of the facility from its 2D representations. The specific symbol vocabulary varies by sector (ISA symbology for process industries, IEEE/IEC for electrical, ISO 10628 for chemical engineering) and is configured at deployment time. The model runs unquantized on local GPU infrastructure. The outputs are structured JSON topology representations, not raw image analysis.
 
@@ -95,7 +95,7 @@ Mandatory requirement regardless of model accuracy: every engineering drawing to
 
 **Handwriting recognition:** Separate model for handwritten content, which is prevalent in field inspection forms and shift logs. Handwritten text receives lower initial confidence scores, flagged explicitly in the extraction output.
 
-**Voice-to-structured-knowledge:** Whisper multilingual for transcription of voice notes captured in the elicitation engine (Layer 9), followed by structured extraction over the transcript.
+**Voice-to-structured-knowledge:** Groq API (`whisper-large-v3`) for transcription of voice notes captured in the elicitation engine (Layer 9) — cloud API, no local model. Transcript fed through the NER pipeline for structured entity extraction.
 
 All extraction outputs carry confidence scores per field. Outputs below configurable confidence thresholds route to human review before canonical consideration. No extraction result automatically becomes truth.
 
@@ -429,8 +429,8 @@ The specific design risk in AI compliance intelligence is the false negative: a 
 **EEMUA 191 / ISA-18.2 trigger governance**
 The proactive push architecture is only valuable if it does not contribute to the very problem it is solving. Notification overload — alarm fatigue — is the most thoroughly documented failure mode in process industry safety operations. KAIROS's trigger governance subsystem enforces the EEMUA 191 benchmark of ≤6 push events per operator per hour in normal operation, with a priority queue, state-based suppression during abnormal operating periods, cool-down windows per asset, and a pilot monitoring gate that must be satisfied before Phase 3 activates. This makes proactive delivery safe rather than just possible.
 
-**Active Learning Annotation Interface for multilingual bootstrapping**
-Reliable Hinglish NER requires facility-specific labeled training data that doesn't exist at deployment. Rather than imposing a separate annotation project, KAIROS converts normal Phase 1 search usage into annotation activity: low-confidence entity extractions surface inline in search results with one-tap correction for bilingual operators. Every correction feeds the local mXLM-RoBERTa fine-tuning loop. By the time synthesis activates in Phase 2, the NER model has been trained on the facility's own document vocabulary without any additional burden on staff.
+**Active Learning Annotation Interface**
+KAIROS converts normal Phase 1 search usage into annotation activity: low-confidence entity extractions surface inline in search results with one-tap correction for operators. Every correction is stored in `ner_annotations` and linked to the relevant quarantine item, accumulating a facility-specific labeled dataset as a byproduct of normal search usage — no separate annotation project required. By the time synthesis activates in Phase 2, the annotation corpus reflects the facility's own document vocabulary and entity patterns.
 
 **PII redaction pipeline for cross-site knowledge promotion**
 Cross-site pattern detection requires knowledge to flow from local data planes to the central control plane. Shift handovers, incident reports, and elicitation responses contain personnel data that labor agreements and India's Digital Personal Data Protection Act 2023 prohibit from crossing facility boundaries without anonymization. The PII redaction pipeline strips names, shift identifiers, and personal attributes before any knowledge edge is promoted cross-site, ensuring that only the sanitized technical pattern reaches sister facilities.
@@ -456,13 +456,13 @@ Cross-site pattern detection requires knowledge to flow from local data planes t
 
 | What | Tool | Notes |
 |------|------|-------|
-| Cloud LLM synthesis | **NVIDIA NIM** | Free credits, Llama 3.1 70B, OpenAI-compatible API — drop-in for synthesis |
-| Local LLM | **Ollama** | Qwen2.5 14B runs well on M3 Air, free, used for edge/offline synthesis |
-| OCR | **PaddleOCR 3.0** | Open source, multilingual, handles mixed-script documents natively |
-| Named entity recognition | **mXLM-RoBERTa** | HuggingFace, multilingual, fine-tuned for industrial entity types |
+| Cloud LLM synthesis | **NVIDIA NIM** | Llama 3.3 70B (`meta/llama-3.3-70b-instruct`), OpenAI-compatible API |
+| Local LLM fallback | **Ollama** | Qwen2.5 14B — edge/offline synthesis fallback |
+| OCR | **NVIDIA NIM Nemotron-OCR-v2** | Cloud API; PyMuPDF fast path for native digital PDFs |
+| Named entity recognition | **NVIDIA NIM ministral-14b** | JSON-prompted NER; Ollama llama3.1:8b local fallback; regex last resort |
+| Embeddings | **Jina AI** (`jina-embeddings-v3`) | Cloud API, 1024-dim; Ollama nomic-embed-text fallback |
+| Voice transcription | **Groq API** (`whisper-large-v3`) | Cloud API, no local model |
 | Engineering drawing parser | **YOLOv9 + LayoutLMv3** | Open source — custom training mocked for MVP, architecture fully designed |
-| Voice transcription | **Whisper** | Open source, runs locally, multilingual |
-| Domain classifiers | **BERT-based** (HuggingFace) | Confidence scoring, conflict classification, PII detection — lightweight and fast |
 
 ---
 
@@ -530,7 +530,7 @@ One command starts the entire local stack. Agents generate this file in minutes.
 ### What to Build vs What to Mock
 
 **Build fully:**
-- Document upload → PaddleOCR → entity extraction → Neo4j graph → Qdrant vectors
+- Document upload → NIM OCR (PyMuPDF fast path for digital PDFs) → NIM NER → Neo4j graph → Qdrant vectors
 - Hybrid retrieval + NVIDIA NIM synthesis with source citations
 - Work order event → proactive brief → mobile delivery
 - Supabase auth with role-based access
