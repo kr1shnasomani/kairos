@@ -6,7 +6,9 @@ operator responses into quarantine for human review and graph promotion.
 
 import asyncio
 import hashlib
-from typing import Any, Dict, List
+import json
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
 import shortuuid
 import structlog
@@ -15,6 +17,7 @@ from pydantic import BaseModel
 
 from api.config import get_settings
 from api.dependencies import CurrentUserDep, SupabaseDep, TemporalDep
+from api.dependencies import require_role
 
 log = structlog.get_logger(__name__)
 router = APIRouter()
@@ -241,4 +244,286 @@ async def ingest_voice_note(
         "storage_path": storage_path,
         "sha256": sha256,
         "message": "Voice note stored. Transcription and NER running asynchronously.",
+    }
+
+
+# =============================================================================
+# Off-Boarding Interview Series (Task 31)
+# =============================================================================
+
+class OffboardingCreateRequest(BaseModel):
+    personnel_id: str
+    personnel_email: str
+    retirement_date: str  # ISO date YYYY-MM-DD
+    session_interval_days: int = 12
+
+
+class OffboardingResponseRequest(BaseModel):
+    item_id: str  # UUID of offboarding_session_items row
+    responses: List[Dict[str, str]]  # [{question, answer}, ...]
+    submitted_by: str
+
+
+@router.post("/offboarding", summary="Start off-boarding interview programme", status_code=status.HTTP_201_CREATED)
+async def create_offboarding_programme(
+    payload: OffboardingCreateRequest,
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    # Role gate
+    if current_user.get("role") not in ("engineer", "admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="engineer or admin role required")
+
+    # Identify top equipment classes from this person's WO history
+    wo_result = await asyncio.to_thread(
+        lambda: supabase.table("operational_events")
+        .select("asset_id")
+        .eq("event_type", "work_order_created")
+        .filter("payload->>assigned_technician_id", "eq", payload.personnel_id)
+        .execute()
+    )
+    asset_ids = list({row["asset_id"] for row in (wo_result.data or []) if row.get("asset_id")})
+
+    equipment_families: List[str] = []
+    if asset_ids:
+        assets_result = await asyncio.to_thread(
+            lambda: supabase.table("assets")
+            .select("asset_id, equipment_class")
+            .in_("asset_id", asset_ids)
+            .execute()
+        )
+        # Count by equipment_class, take top 6
+        class_counts: Dict[str, int] = {}
+        for row in (assets_result.data or []):
+            ec = row.get("equipment_class") or "GENERAL"
+            class_counts[ec] = class_counts.get(ec, 0) + 1
+        equipment_families = [k for k, _ in sorted(class_counts.items(), key=lambda x: -x[1])][:6]
+
+    # Pad to 6 with site-wide common classes if needed
+    if len(equipment_families) < 6:
+        all_assets = await asyncio.to_thread(
+            lambda: supabase.table("assets").select("equipment_class").execute()
+        )
+        site_classes = [r["equipment_class"] for r in (all_assets.data or []) if r.get("equipment_class")]
+        for cls in site_classes:
+            if cls not in equipment_families:
+                equipment_families.append(cls)
+            if len(equipment_families) >= 6:
+                break
+
+    # Always have at least one family
+    if not equipment_families:
+        equipment_families = ["GENERAL"]
+
+    # Create offboarding_sessions row
+    session_row = await asyncio.to_thread(
+        lambda: supabase.table("offboarding_sessions").insert({
+            "personnel_id": payload.personnel_id,
+            "personnel_email": payload.personnel_email,
+            "retirement_date": payload.retirement_date,
+            "total_sessions": len(equipment_families),
+            "session_interval_days": payload.session_interval_days,
+            "status": "scheduled",
+            "created_by": current_user.get("user_id", "unknown"),
+        }).execute()
+    )
+    session_id = session_row.data[0]["id"]
+
+    # Create session items and schedule Celery tasks
+    now_utc = datetime.now(timezone.utc)
+    items_created = []
+    for i, family in enumerate(equipment_families):
+        scheduled_for = now_utc + timedelta(days=i * payload.session_interval_days)
+        # Session 1 fires in 10s for demo/test; rest use proper eta
+        if i == 0:
+            scheduled_for = now_utc + timedelta(seconds=10)
+
+        item_row = await asyncio.to_thread(
+            lambda sf=scheduled_for, fam=family, idx=i: supabase.table("offboarding_session_items").insert({
+                "session_id": session_id,
+                "session_number": idx + 1,
+                "equipment_family": fam,
+                "scheduled_for": sf.isoformat(),
+                "status": "pending",
+                "questions": [],
+            }).execute()
+        )
+        item_id = item_row.data[0]["id"]
+
+        from workers.offboarding import generate_offboarding_questions
+        generate_offboarding_questions.apply_async(args=[item_id], eta=scheduled_for)
+
+        items_created.append({"item_id": item_id, "session_number": i + 1, "equipment_family": family, "scheduled_for": scheduled_for.isoformat()})
+
+    await asyncio.to_thread(
+        lambda: supabase.table("audit_log").insert({
+            "action": "offboarding_programme_created",
+            "entity_type": "offboarding_session",
+            "entity_id": session_id,
+            "performed_by": current_user.get("user_id", "unknown"),
+            "details": {"personnel_id": payload.personnel_id, "personnel_email": payload.personnel_email, "total_sessions": len(equipment_families)},
+        }).execute()
+    )
+
+    log.info("offboarding.programme_created", session_id=session_id, personnel_id=payload.personnel_id, sessions=len(equipment_families))
+    return {"session_id": session_id, "personnel_id": payload.personnel_id, "total_sessions": len(equipment_families), "items": items_created}
+
+
+@router.get("/offboarding", summary="List all active off-boarding programmes")
+async def list_offboarding_programmes(
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    result = await asyncio.to_thread(
+        lambda: supabase.table("offboarding_sessions")
+        .select("id, personnel_id, personnel_email, retirement_date, total_sessions, status, created_at")
+        .neq("status", "cancelled")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    sessions = result.data or []
+
+    # Compute completion percentage for each
+    items: List[Dict[str, Any]] = []
+    for s in sessions:
+        completed = await asyncio.to_thread(
+            lambda sid=s["id"]: supabase.table("offboarding_session_items")
+            .select("id", count="exact")
+            .eq("session_id", sid)
+            .eq("status", "completed")
+            .execute()
+        )
+        items.append({
+            **s,
+            "sessions_completed": completed.count or 0,
+            "completion_pct": round(100 * (completed.count or 0) / max(s["total_sessions"], 1)),
+        })
+
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/offboarding/{session_id}", summary="Get off-boarding programme detail with all session items")
+async def get_offboarding_programme(
+    session_id: str,
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    session_result = await asyncio.to_thread(
+        lambda: supabase.table("offboarding_sessions").select("*").eq("id", session_id).single().execute()
+    )
+    if not session_result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session '{session_id}' not found")
+
+    items_result = await asyncio.to_thread(
+        lambda: supabase.table("offboarding_session_items")
+        .select("id, session_number, equipment_family, status, scheduled_for, completed_at")
+        .eq("session_id", session_id)
+        .order("session_number")
+        .execute()
+    )
+    return {**session_result.data, "session_items": items_result.data or []}
+
+
+@router.get("/offboarding/{session_id}/questions", summary="Return questions for all items in this off-boarding session")
+async def get_offboarding_questions(
+    session_id: str,
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    items_result = await asyncio.to_thread(
+        lambda: supabase.table("offboarding_session_items")
+        .select("id, session_number, equipment_family, status, questions, scheduled_for")
+        .eq("session_id", session_id)
+        .order("session_number")
+        .execute()
+    )
+    if not items_result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No items found for session '{session_id}'")
+
+    ready = [i for i in items_result.data if i["status"] == "questions_ready"]
+    return {
+        "session_id": session_id,
+        "total_items": len(items_result.data),
+        "items_ready": len(ready),
+        "items": items_result.data,
+    }
+
+
+@router.post("/offboarding/{session_id}/responses", summary="Submit responses for an off-boarding session item")
+async def submit_offboarding_responses(
+    session_id: str,
+    payload: OffboardingResponseRequest,
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    # Fetch the specific session item
+    item_result = await asyncio.to_thread(
+        lambda: supabase.table("offboarding_session_items")
+        .select("id, session_number, equipment_family, questions")
+        .eq("id", payload.item_id)
+        .eq("session_id", session_id)
+        .single()
+        .execute()
+    )
+    if not item_result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Item '{payload.item_id}' not found in session '{session_id}'")
+
+    item = item_result.data
+
+    # Fetch session for personnel_id
+    session_result = await asyncio.to_thread(
+        lambda: supabase.table("offboarding_sessions")
+        .select("personnel_id, total_sessions")
+        .eq("id", session_id)
+        .single()
+        .execute()
+    )
+    session = session_result.data or {}
+
+    # Insert into quarantine_items with offboarding_response input_type
+    quarantine_row = await asyncio.to_thread(
+        lambda: supabase.table("quarantine_items").insert({
+            "asset_id": None,
+            "content": json.dumps(payload.responses),
+            "input_type": "offboarding_response",
+            "submitted_by": payload.submitted_by,
+            "session_context": {
+                "session_id": session_id,
+                "session_number": item["session_number"],
+                "equipment_family": item["equipment_family"],
+                "questions": item["questions"],
+                "personnel_id": session.get("personnel_id", ""),
+            },
+        }).execute()
+    )
+    item_id_q = quarantine_row.data[0]["item_id"]
+
+    # Mark item completed
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await asyncio.to_thread(
+        lambda: supabase.table("offboarding_session_items").update({
+            "status": "completed",
+            "completed_at": now_iso,
+        }).eq("id", payload.item_id).execute()
+    )
+
+    # Check if all items complete → mark programme completed
+    remaining = await asyncio.to_thread(
+        lambda: supabase.table("offboarding_session_items")
+        .select("id", count="exact")
+        .eq("session_id", session_id)
+        .neq("status", "completed")
+        .execute()
+    )
+    if (remaining.count or 0) == 0:
+        await asyncio.to_thread(
+            lambda: supabase.table("offboarding_sessions").update({"status": "completed"}).eq("id", session_id).execute()
+        )
+
+    log.info("offboarding.response_submitted", session_id=session_id, item_id=payload.item_id, quarantine_item_id=item_id_q)
+    return {
+        "quarantine_item_id": item_id_q,
+        "session_id": session_id,
+        "item_id": payload.item_id,
+        "programme_completed": (remaining.count or 0) == 0,
     }

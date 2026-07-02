@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     REDIS_STREAM_SHIFT_HANDOVER: str = "kairos:events:shift_handover"
     REDIS_STREAM_ALARMS: str = "kairos:events:alarms"
     REDIS_STREAM_BRIEFS: str = "kairos:events:briefs"
+    REDIS_STREAM_TAG_OUT: str = "kairos:events:tag_out"
+    REDIS_STREAM_INSPECTIONS: str = "kairos:events:inspections"
 
     # -------------------------------------------------------------------------
     # NVIDIA NIM (cloud, key provided later)

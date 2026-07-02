@@ -62,6 +62,23 @@ async def create_annotation(
     )
     annotation_id = result.data[0]["id"]
 
+    # Feed validation corpus — confirmed correct entities are verified ground truth
+    if payload.is_correct:
+        try:
+            await asyncio.to_thread(
+                lambda: supabase.table("validation_corpus").insert({
+                    "document_id": payload.document_id,
+                    "entity_text": payload.entity_text,
+                    "entity_type": payload.entity_type,
+                    "span_start": payload.span_start,
+                    "span_end": payload.span_end,
+                    "authority": "annotation_correction",
+                    "promoted_by": annotated_by,
+                }).execute()
+            )
+        except Exception as exc:
+            log.warning("validation_corpus.insert_failed", document_id=payload.document_id, error=str(exc))
+
     quarantine_updated = False
     if not payload.is_correct:
         # Find matching quarantine item by document_id + entity_text, lower confidence

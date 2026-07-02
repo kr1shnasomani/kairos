@@ -5,7 +5,7 @@ Publishes to Redis Streams for async brief generation.
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import shortuuid
 import structlog
@@ -17,13 +17,16 @@ from api.models.event import (
     DeviationFlagEvent,
     DeviationFlagResolveRequest,
     EventAck,
+    InspectionCompleteEvent,
     PlantStateEvent,
     PTWEvent,
     ShiftHandoverEvent,
+    TagOutEvent,
     WorkOrderEvent,
 )
 from api.services.brief_engine import BriefEngine
 from api.services.event_bus import EventBusService
+from api.utils.failure_families import FAILURE_FAMILIES
 from workers.attribution import evaluate_outcome
 from workers.brief_assembly import assemble_brief
 
@@ -56,6 +59,30 @@ async def ingest_work_order(
 
     event_dict = payload.model_dump(mode="json")
 
+    # --- Recurrence detection (before insert so we can set event_subtype) ---
+    recurring_detected = False
+    recurring_brief_task_id = None
+    recurrence_count = 0
+    this_family = FAILURE_FAMILIES.get(payload.failure_code, payload.failure_code)
+    try:
+        cutoff_90 = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+        prior_wos = await asyncio.to_thread(
+            lambda: supabase.table("operational_events")
+            .select("payload")
+            .eq("asset_id", payload.asset_id)
+            .eq("event_type", "work_order_created")
+            .gte("occurred_at", cutoff_90)
+            .execute()
+        )
+        recurrence_count = sum(
+            1 for row in (prior_wos.data or [])
+            if FAILURE_FAMILIES.get((row.get("payload") or {}).get("failure_code", ""), "?") == this_family
+        )
+        if recurrence_count >= 1:
+            recurring_detected = True
+    except Exception as exc:
+        log.warning("events.recurrence_detection_failed", error=str(exc))
+
     await asyncio.to_thread(
         lambda: supabase.table("operational_events").insert({
             "event_id": payload.event_id,
@@ -66,6 +93,7 @@ async def ingest_work_order(
             "payload": event_dict,
             "occurred_at": payload.occurred_at.isoformat(),
             "received_at": payload.received_at.isoformat(),
+            "event_subtype": "recurring" if recurring_detected else None,
         }).execute()
     )
 
@@ -95,9 +123,31 @@ async def ingest_work_order(
     await redis.setex(pending_key, window_secs + 60, task.id)
     task_id = task.id
 
+    # Recurring failure brief — dispatched immediately at high priority
+    if recurring_detected:
+        recurring_event = {
+            **event_dict,
+            "event_subtype": "recurring",
+            "recurrence_count": recurrence_count,
+            "failure_family": this_family,
+            "brief_priority": "high",
+        }
+        await bus.publish_work_order(recurring_event)
+        recurring_task = assemble_brief.apply_async(
+            args=["recurring_failure_detected", recurring_event],
+            countdown=0,
+        )
+        recurring_brief_task_id = recurring_task.id
+        log.info(
+            "events.recurring_failure_detected",
+            asset_id=payload.asset_id,
+            failure_code=payload.failure_code,
+            failure_family=this_family,
+            recurrence_count=recurrence_count,
+        )
+
     # Attribution: if this asset had a prior WO in the last 30 days, evaluate outcome
     try:
-        from datetime import datetime, timedelta, timezone
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         count_result = await asyncio.to_thread(
             lambda: supabase.table("operational_events")
@@ -114,9 +164,17 @@ async def ingest_work_order(
         log.warning("attribution.enqueue_failed", error=str(exc))
 
     log.info("events.work_order_ingested", event_id=payload.event_id, asset_id=payload.asset_id,
-             stream_id=stream_id, brief_task_id=task_id, brief_due_in_seconds=window_secs)
-    return {"status": "accepted", "event_id": payload.event_id, "stream_entry_id": stream_id,
-            "brief_task_id": task_id, "brief_due_in_seconds": window_secs}
+             stream_id=stream_id, brief_task_id=task_id, brief_due_in_seconds=window_secs,
+             recurring_detected=recurring_detected)
+    return {
+        "status": "accepted",
+        "event_id": payload.event_id,
+        "stream_entry_id": stream_id,
+        "brief_task_id": task_id,
+        "brief_due_in_seconds": window_secs,
+        "recurring_detected": recurring_detected,
+        "recurring_brief_task_id": recurring_brief_task_id,
+    }
 
 
 @router.post("/ptw", summary="Ingest Permit-to-Work event", status_code=status.HTTP_202_ACCEPTED)
@@ -303,12 +361,14 @@ async def flag_deviation(
     """
     reported_by = payload.reported_by or current_user.get("user_id", "unknown")
 
+    deviation_sla = (datetime.utcnow() + timedelta(hours=24)).isoformat()
     insert_result = await asyncio.to_thread(
         lambda: supabase.table("quarantine_items").insert({
             "asset_id": payload.asset_id,
             "content": payload.description,
             "input_type": "deviation_flag",
             "submitted_by": reported_by,
+            "sla_due_at": deviation_sla,
             "session_context": {
                 "reported_by": reported_by,
                 "affected_topology_path": payload.affected_topology_path,
@@ -491,6 +551,189 @@ async def set_plant_state(
     )
     log.info("events.plant_state_set", site_id=payload.site_id, state=payload.state, set_by=set_by)
     return {"status": "set", "site_id": payload.site_id, "state": payload.state}
+
+
+@router.post("/tag-out", summary="Ingest equipment tag-out event", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_tag_out(
+    payload: TagOutEvent,
+    current_user: CurrentUserDep,
+    redis: RedisDep,
+    supabase: SupabaseDep,
+    settings: SettingsDep,
+) -> dict:
+    """
+    Receives an equipment tag-out event. Deduplicates, publishes to TAG_OUT stream,
+    inserts into operational_events, triggers delayed brief assembly.
+    """
+    bus = EventBusService(redis, settings)
+
+    if await bus.is_duplicate(payload.asset_id, payload.event_type):
+        log.info("events.tag_out_deduplicated", event_id=payload.event_id, asset_id=payload.asset_id)
+        return {"status": "deduplicated", "event_id": payload.event_id}
+
+    event_dict = payload.model_dump(mode="json")
+
+    await asyncio.to_thread(
+        lambda: supabase.table("operational_events").insert({
+            "event_id": payload.event_id,
+            "event_type": payload.event_type,
+            "source_system": payload.source_system,
+            "site_id": payload.site_id,
+            "asset_id": payload.asset_id,
+            "payload": event_dict,
+            "occurred_at": payload.occurred_at.isoformat(),
+            "received_at": payload.received_at.isoformat(),
+            "event_subtype": None,
+        }).execute()
+    )
+
+    stream_id = await bus.publish(settings.REDIS_STREAM_TAG_OUT, event_dict)
+
+    await asyncio.to_thread(
+        lambda sid=stream_id: supabase.table("operational_events")
+        .update({"redis_stream_id": sid})
+        .eq("event_id", payload.event_id)
+        .execute()
+    )
+
+    await asyncio.to_thread(
+        lambda: supabase.table("audit_log").insert({
+            "action": "equipment_tag_out",
+            "entity_type": "asset",
+            "entity_id": payload.asset_id,
+            "performed_by": payload.performed_by,
+            "details": {
+                "tag_out_reason": payload.tag_out_reason,
+                "expected_return_date": payload.expected_return_date.isoformat() if payload.expected_return_date else None,
+                "stream_id": stream_id,
+            },
+        }).execute()
+    )
+
+    window_secs = settings.LATE_ARRIVAL_WINDOW_MINUTES * 60
+    pending_key = f"kairos:brief_pending:{payload.asset_id}"
+    existing_id = await redis.get(pending_key)
+    if existing_id:
+        from workers.celery_app import celery_app as _app
+        _app.control.revoke(existing_id, terminate=False)
+        log.info("events.deferred_brief_revoked", asset_id=payload.asset_id, revoked_task=existing_id)
+    task = assemble_brief.apply_async(args=[payload.event_type, event_dict], countdown=window_secs)
+    await redis.setex(pending_key, window_secs + 60, task.id)
+
+    log.info("events.tag_out_ingested", event_id=payload.event_id, asset_id=payload.asset_id,
+             stream_id=stream_id, brief_task_id=task.id)
+    return {
+        "status": "accepted",
+        "event_id": payload.event_id,
+        "stream_entry_id": stream_id,
+        "brief_task_id": task.id,
+        "brief_due_in_seconds": window_secs,
+    }
+
+
+@router.post("/inspection-complete", summary="Ingest inspection completion event", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_inspection_complete(
+    payload: InspectionCompleteEvent,
+    current_user: CurrentUserDep,
+    redis: RedisDep,
+    supabase: SupabaseDep,
+    settings: SettingsDep,
+    driver: Neo4jDep,
+) -> dict:
+    """
+    Receives an inspection completion event. Creates a Neo4j knowledge edge if document_id
+    provided. Routes to quarantine if confidence < 0.7. Triggers brief on failed result
+    or non-empty findings. Correlates with other events for the same asset.
+    """
+    from api.services.graph import GraphService
+    now = datetime.now(timezone.utc)
+    event_dict = payload.model_dump(mode="json")
+
+    # Create Neo4j knowledge edge if a supporting document is referenced
+    edge_id = None
+    if payload.document_id:
+        graph = GraphService(driver)
+        await graph.merge_document_node(
+            payload.document_id,
+            {"inspection_type": payload.inspection_type, "result": payload.result},
+        )
+        edge_result = await graph.create_knowledge_edge(
+            source_id=payload.asset_id,
+            source_label="Asset",
+            target_id=payload.document_id,
+            target_label="Document",
+            relationship_type="INSPECTION_RECORD",
+            valid_from=now,
+            authority_level=4,
+            document_id=payload.document_id,
+            confidence=payload.confidence,
+            verification_status="unverified",
+        )
+        edge_id = edge_result.get("edge_id")
+
+    # Quarantine low-confidence findings
+    quarantine_item_id = None
+    if payload.confidence < 0.7:
+        qi = await asyncio.to_thread(
+            lambda: supabase.table("quarantine_items").insert({
+                "asset_id": payload.asset_id,
+                "content": f"Inspection {payload.inspection_type}: {payload.findings or payload.result}",
+                "input_type": "field_observation",
+                "submitted_by": payload.performed_by,
+                "session_context": {
+                    "inspection_type": payload.inspection_type,
+                    "result": payload.result,
+                    "confidence": payload.confidence,
+                    "document_id": payload.document_id,
+                },
+            }).execute()
+        )
+        quarantine_item_id = qi.data[0]["item_id"]
+
+    await asyncio.to_thread(
+        lambda: supabase.table("operational_events").insert({
+            "event_id": payload.event_id,
+            "event_type": payload.event_type,
+            "source_system": payload.source_system,
+            "site_id": payload.site_id,
+            "asset_id": payload.asset_id,
+            "payload": event_dict,
+            "occurred_at": payload.occurred_at.isoformat(),
+            "received_at": payload.received_at.isoformat(),
+        }).execute()
+    )
+
+    bus = EventBusService(redis, settings)
+    brief_task_id = None
+    trigger_brief = payload.result == "failed" or bool(payload.findings)
+
+    if trigger_brief:
+        stream_id = await bus.publish(settings.REDIS_STREAM_WORK_ORDERS, event_dict)
+        task = assemble_brief.apply_async(args=["inspection_complete", event_dict], countdown=0)
+        brief_task_id = task.id
+    else:
+        stream_id = await bus.publish(settings.REDIS_STREAM_INSPECTIONS, event_dict)
+
+    await asyncio.to_thread(
+        lambda sid=stream_id: supabase.table("operational_events")
+        .update({"redis_stream_id": sid})
+        .eq("event_id", payload.event_id)
+        .execute()
+    )
+
+    # Correlate with other events for same asset
+    await bus.correlate_events(payload.asset_id, str(payload.event_id), payload.occurred_at, supabase)
+
+    log.info("events.inspection_complete_ingested", event_id=payload.event_id, asset_id=payload.asset_id,
+             result=payload.result, edge_id=edge_id, brief_triggered=trigger_brief)
+    return {
+        "status": "accepted",
+        "event_id": payload.event_id,
+        "stream_entry_id": stream_id,
+        "edge_id": edge_id,
+        "quarantine_item_id": quarantine_item_id,
+        "brief_task_id": brief_task_id,
+    }
 
 
 @router.get("/plant-state/{site_id}", summary="Get current plant operating state for a site")

@@ -33,7 +33,7 @@ def assemble_brief(event_type: str, event_dict: dict) -> str:
 async def _assemble(event_type: str, event_dict: dict) -> str:
     from api.config import Settings
     from api.services.brief_engine import BriefEngine
-    from api.models.event import WorkOrderEvent, PTWEvent, ShiftHandoverEvent
+    from api.models.event import WorkOrderEvent, PTWEvent, ShiftHandoverEvent, AlarmEvent
     from neo4j import AsyncGraphDatabase
     from qdrant_client import AsyncQdrantClient
     from elasticsearch import AsyncElasticsearch
@@ -65,6 +65,12 @@ async def _assemble(event_type: str, event_dict: dict) -> str:
             brief = await engine.assemble_ptw_brief(PTWEvent(**event_dict))
         elif event_type == "shift_handover":
             brief = await engine.assemble_shift_handover_brief(ShiftHandoverEvent(**event_dict))
+        elif event_type == "recurring_failure_detected":
+            brief = await engine.assemble_recurring_failure_brief(event_dict)
+        elif event_type == "equipment_tag_out":
+            brief = await engine.assemble_tag_out_brief(event_dict)
+        elif event_type == "inspection_complete":
+            brief = await engine.assemble_inspection_brief(event_dict)
         else:
             log.warning("brief_assembly.unknown_event_type", event_type=event_type)
             return ""

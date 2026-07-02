@@ -15,23 +15,9 @@ import structlog
 from supabase import create_client
 
 from workers.celery_app import celery_app
+from api.utils.failure_families import FAILURE_FAMILIES as _FAILURE_FAMILIES
 
 log = structlog.get_logger(__name__)
-
-# Failure mode families — same family = genuine recurrence, not coincidence
-_FAILURE_FAMILIES: Dict[str, str] = {
-    # Mechanical
-    "VIBE-HIGH": "mechanical", "VIBE-LOW": "mechanical",
-    "BEARING-FAIL": "mechanical", "IMBALANCE": "mechanical",
-    "MISALIGN": "mechanical", "CAVITATION": "mechanical",
-    # Seal/leak
-    "SEAL-FAIL": "seal", "LEAK-MECH": "seal", "LEAK-PROCESS": "seal",
-    # Electrical
-    "MOTOR-FAIL": "electrical", "OVERLOAD": "electrical", "INSULATION": "electrical",
-    # Process
-    "LOW-FLOW": "process", "HIGH-TEMP": "process", "PRESSURE-LOSS": "process",
-    "VIBRATION": "mechanical",  # alias
-}
 
 _GO_URL = os.getenv("GO_CONNECTOR_URL", "http://kairos-backend-go:8090")
 

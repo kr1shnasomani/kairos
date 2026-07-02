@@ -37,7 +37,15 @@
 
 | 28 | State-Based Push Suppression — `plant_operating_states` table (migration `011_plant_state.sql`); `PLANT_STATE_DEFAULT=normal` in config; `EventBusService.get_plant_state()/check_governor()` with plant-state gate before hourly count; `POST /events/plant-state` (engineer/admin, upserts state+audit_log) + `GET /events/plant-state/{site_id}`; `GET /briefs` suppresses normal-priority briefs during turnaround/shutdown/emergency while always passing critical (PTW) | SITE_001 → turnaround: suppressed_count=3, 0 normal briefs returned; POST PTW → critical brief fa62fcbe delivered (total_pending=1); reset to normal → suppressed_count=0, 4 briefs returned ✅ |
 
-### All 29 Tasks Complete ✅
+| 31 | Off-Boarding Interview Series — migration `013_offboarding_sessions.sql` (2 tables: `offboarding_sessions`, `offboarding_session_items`); `workers/offboarding.py` Celery task `generate_offboarding_questions` on `elicitation` queue (Neo4j equipment-family gap query → LLM offboarding prompt → 5 fallback questions if LLM unavailable); 5 endpoints on `/elicitation/offboarding`; `quarantine_items_input_type_check` constraint extended to include `offboarding_response`; `elicitation` queue added to Celery worker in `docker-compose.yml` | `POST /elicitation/offboarding` → 6 items across centrifugal_pump/PUMP/pump/vessel/heat_exchanger/compressor, session 1 fired in 10s, `questions_ready`; responses submitted → quarantine item f0dd5def `input_type=offboarding_response` with full `session_context` (session_id, session_number, equipment_family, questions, personnel_id); `GET /elicitation/offboarding` → completion_pct=17% (1/6 done); `GET /elicitation/offboarding/{id}` → all items with statuses ✅ |
+| 30 | Recurring Failure Detection — `FAILURE_FAMILIES` shared dict (`api/utils/failure_families.py`); recurrence detection in `POST /events/work-order` (90-day WO history query, `event_subtype='recurring'`); `recurring_failure_detected` event published; `assemble_recurring_failure_brief` in `BriefEngine`; migration `012_event_subtype.sql` | P-101 with 3 prior WOs: `recurring_detected=True`, brief b11d1f34 delivered `priority=high`, headline "3 time(s) in 90 days" ✅ |
+| 32 | Validation Corpus + Model Gate — migration `014_validation_corpus.sql`; corpus ingestion via `promote_quarantine_item` (`authority='human_promotion'`) and `POST /annotations` with `is_correct=True` (`authority='annotation_correction'`); `workers/model_validation.py` Celery task on `validation` queue (NER over corpus, precision/recall/F1 per entity type, baseline gate via `audit_log`); 3 governance endpoints: `GET /governance/validation-corpus/stats`, `POST /governance/model-gate/run`, `GET /governance/model-gate/history`; `docker-compose.yml` updated with `validation` queue | Corpus has 2 `ASSET_TAG` rows; run 1 passed (F1=1.0, no baseline); run 2 correctly failed (F1=0.667 < incumbent 1.0); all 3 endpoints verified ✅ |
+
+| 33 | Equipment Tag-Out + Inspection Completion Events — `POST /events/tag-out` (dedup, `REDIS_STREAM_TAG_OUT`, delayed brief), `POST /events/inspection-complete` (Neo4j INSPECTION_RECORD edge if doc_id, quarantine if confidence<0.7, immediate brief on result=failed/findings, correlate_events); `BriefEngine.assemble_tag_out_brief` + `assemble_inspection_brief` + 4 helpers; `REDIS_STREAM_TAG_OUT` + `REDIS_STREAM_INSPECTIONS` in config+.env.example; `TagOutEvent`+`InspectionCompleteEvent` models; dispatch cases in `brief_assembly.py` | P-101 tag-out → operational_events+audit_log verified; P-101 inspection with DOC-INSP-P101-2026 → Neo4j KNOWLEDGE_EDGE confidence=1.0 authority=4 verification_status=unverified (all 6 props); inspection brief b06f496c priority=high; tag-out brief "7 downstream dependencies" assembled ✅ |
+
+| 34 | Governance SLA Tracking + Escalation — migration `015_sla_tracking.sql` (`escalated_at`+`escalated_to` on `knowledge_conflicts`; `sla_due_at DEFAULT NOW()+5d`+`escalated_at` on `quarantine_items`); `api/services/sla_service.py` `SLAService.check_and_escalate()` (lazy, idempotent, writes `audit_log` action=`sla_escalated`); lazy check at top of `GET /conflicts`, `GET /quarantine`, new `GET /governance/sla-report`; `deviation_flag` inserts override `sla_due_at` to 24h; responses enriched with `sla_due_at`+`is_overdue` | Inserted conflict with `sla_deadline=NOW()-1m` → sla-report returned `conflicts_escalated=1`, `escalated_at` populated in DB, `sla.conflict_escalated` in logs; second call → `escalated_this_run=0` (idempotent); `GET /conflicts` fields include `sla_due_at`, `is_overdue`; `GET /quarantine` fields include `sla_due_at`, `is_overdue` ✅ |
+
+### All 34 tasks complete.
 Full spec in `IMPLEMENTATION.md`.
 
 ---
@@ -89,8 +97,14 @@ The column has a FK constraint to the `assets` table. An empty string `""` fails
 `docker compose up -d --no-deps --force-recreate kairos-backend-api`
 A plain restart does not re-read `.env`.
 
-**Internal service auth (Go connector).**
-The Go connector uses `INTERNAL_API_KEY` as a Bearer token. `get_current_user` in FastAPI detects this and returns a service account with `role=admin`, bypassing Supabase token verification.
+**Internal service auth (Go connector + testing admin endpoints).**
+The Go connector uses `INTERNAL_API_KEY` as a Bearer token. `get_current_user` in FastAPI detects this and returns a service account with `role=admin`, bypassing Supabase token verification. Default dev value: `kairos-internal-dev-key`. Use this when testing `require_role("admin")` endpoints (e.g. `POST /governance/model-gate/run`) without a real admin JWT.
+
+**`quarantine_items.input_type` CHECK constraint must be updated for new input types.**
+The constraint is `CHECK (input_type = ANY (ARRAY[...]))`. Adding a new `input_type` value requires `ALTER TABLE quarantine_items DROP CONSTRAINT quarantine_items_input_type_check` then re-adding it with the new value included. Current allowed values: `field_observation`, `voice_note`, `elicitation_response`, `deviation_flag`, `offboarding_response`.
+
+**`audit_log` column is `timestamp`, not `created_at`.**
+The `audit_log` table uses `timestamp TIMESTAMPTZ` as its time column. Any `.order("created_at", ...)` or `.select("..., created_at")` query against `audit_log` will fail with `column audit_log.created_at does not exist`.
 
 ---
 

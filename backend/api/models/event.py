@@ -83,3 +83,22 @@ class PlantStateEvent(BaseModel):
     site_id: str
     state: str = Field(..., description="normal, turnaround, shutdown, emergency")
     expires_at: Optional[datetime] = None
+
+
+class TagOutEvent(BaseEvent):
+    asset_id: str
+    tag_out_reason: str
+    performed_by: str
+    expected_return_date: Optional[datetime] = None
+    event_type: str = "equipment_tag_out"
+
+
+class InspectionCompleteEvent(BaseEvent):
+    asset_id: str
+    inspection_type: str
+    result: str = Field(..., description="passed, failed, conditional")
+    performed_by: str
+    findings: str = ""
+    document_id: Optional[str] = None
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    event_type: str = "inspection_complete"

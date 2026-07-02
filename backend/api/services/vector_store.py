@@ -69,13 +69,13 @@ class VectorStoreService:
         query_vector: List[float],
         limit: int = 10,
         asset_id: Optional[str] = None,
-        authority_min: int = 1,
+        authority_min: int = 5,
         include_quarantine: bool = False,
         quarantine_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Semantic search with optional payload filtering.
-        Filters: asset_id, authority_level >= authority_min, quarantine status.
+        Filters: asset_id, authority_level <= authority_min, quarantine status.
         quarantine_only=True: return only quarantine items (for explicit quarantine retrieval pass).
         """
         must_conditions = []
@@ -104,5 +104,5 @@ class VectorStoreService:
                 "payload": r.payload,
             }
             for r in results
-            if r.payload.get("authority_level", 5) >= authority_min
+            if r.payload.get("authority_level", 5) <= authority_min
         ]

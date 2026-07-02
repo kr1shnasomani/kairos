@@ -420,6 +420,16 @@ async def link_to_graph(
     )
     alias_map = {row["alias"]: row["canonical_asset_id"] for row in (alias_result.data or [])}
 
+    # Also map canonical asset_ids to themselves so tags that directly match a
+    # canonical ID (e.g. "P-101") resolve without needing an alias_map entry.
+    canonical_result = await asyncio.to_thread(
+        lambda: supabase.table("assets").select("asset_id").execute()
+    )
+    for row in (canonical_result.data or []):
+        cid = row["asset_id"]
+        alias_map.setdefault(cid, cid)
+        alias_map.setdefault(cid.upper().replace(" ", ""), cid)
+
     doc_meta = await asyncio.to_thread(
         lambda: supabase.table("documents")
         .select("document_type, occurred_at, ingested_at")

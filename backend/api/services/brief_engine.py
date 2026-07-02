@@ -254,6 +254,226 @@ class BriefEngine:
         )
 
     # -------------------------------------------------------------------------
+    # Recurring failure brief
+    # -------------------------------------------------------------------------
+
+    async def assemble_recurring_failure_brief(self, event_dict: Dict[str, Any]) -> Brief:
+        asset_id = event_dict["asset_id"]
+        failure_code = event_dict.get("failure_code", "UNKNOWN")
+        recurrence_count = event_dict.get("recurrence_count", 1)
+        failure_family = event_dict.get("failure_family", failure_code)
+        event_id = event_dict.get("event_id")
+
+        graph_task = self.graph.get_asset_knowledge_at(asset_id)
+        vector_task = self._vector_search(f"failure {failure_code} {failure_family}", asset_id)
+        timeline_task = self._get_failure_timeline(asset_id)
+        quarantine_task = self._get_quarantine(asset_id)
+
+        results = await asyncio.gather(
+            graph_task, vector_task, timeline_task, quarantine_task,
+            return_exceptions=True,
+        )
+        graph_edges, vector_hits, timeline, quarantine_items = [
+            r if not isinstance(r, Exception) else [] for r in results
+        ]
+
+        sources = _sources_from_graph(graph_edges) + _sources_from_vector(vector_hits)
+        quarantine_flags = [q["item_id"] for q in quarantine_items if isinstance(q, dict)]
+
+        total_occurrences = recurrence_count + 1
+        headline = (
+            f"Asset {asset_id} has failed with {failure_code} "
+            f"{total_occurrences} time(s) in 90 days — recurring {failure_family} failure pattern"
+        )
+
+        body_lines = [
+            f"Failure code: {failure_code} | Family: {failure_family} | Total occurrences (90 days): {total_occurrences}",
+        ]
+
+        if timeline:
+            body_lines.append(f"\nFailure timeline — {len(timeline)} work order(s) in 90 days:")
+            prev_ts: Optional[str] = None
+            for i, row in enumerate(timeline[:6]):
+                occurred = row.get("occurred_at", "?")
+                fc = (row.get("payload") or {}).get("failure_code", "?")
+                body_lines.append(f"  [{i + 1}] {occurred} — {fc}")
+                if prev_ts and occurred != "?":
+                    try:
+                        t1 = datetime.fromisoformat(occurred.replace("Z", "+00:00"))
+                        t2 = datetime.fromisoformat(prev_ts.replace("Z", "+00:00"))
+                        days_between = abs((t2 - t1).days)
+                        body_lines.append(f"       ↑ {days_between} day(s) since prior failure")
+                    except Exception:
+                        pass
+                prev_ts = occurred if occurred != "?" else prev_ts
+            if len(timeline) >= 3:
+                body_lines.append("\n⚠ Three or more failures in 90 days — check for accelerating degradation")
+
+        if vector_hits:
+            body_lines.append(f"\nRelated patterns across equipment class (top {min(3, len(vector_hits))}):")
+            for h in vector_hits[:3]:
+                p = h.get("payload", {})
+                body_lines.append(f"  • [{p.get('document_id', '?')}] score={h.get('score', 0):.2f}")
+
+        return Brief(
+            brief_id=str(uuid.uuid4()),
+            trigger_event_id=event_id,
+            trigger_event_type="recurring_failure_detected",
+            asset_id=asset_id,
+            work_order_id=event_dict.get("work_order_id"),
+            recipient_user_id=event_dict.get("assigned_technician_id") or f"site-{event_dict.get('site_id', 'unknown')}",
+            priority="high",
+            headline=headline,
+            body="\n".join(body_lines),
+            action_items=[
+                f"Investigate root cause of recurring {failure_family} failure ({total_occurrences}× in 90 days)",
+                "Review failure interval trend — check for accelerating degradation",
+                "Raise reliability review if interval between failures is decreasing",
+            ],
+            warnings=[f"Recurring {failure_family} failure — pattern suggests systematic issue"],
+            quarantine_flags=quarantine_flags,
+            sources=sources,
+            confidence=_calc_confidence(graph_edges, vector_hits),
+        )
+
+    # -------------------------------------------------------------------------
+    # Tag-out brief
+    # -------------------------------------------------------------------------
+
+    async def assemble_tag_out_brief(self, event_dict: Dict[str, Any]) -> Brief:
+        asset_id = event_dict["asset_id"]
+        tag_out_reason = event_dict.get("tag_out_reason", "")
+        performed_by = event_dict.get("performed_by", "unknown")
+        event_id = event_dict.get("event_id")
+
+        topology_task = self._asset_pid_topology(asset_id)
+        ptw_task = self._get_active_ptw_for_asset(asset_id)
+        moc_task = self._get_open_moc(asset_id)
+        compliance_task = self._get_asset_compliance_obligations(asset_id)
+
+        results = await asyncio.gather(
+            topology_task, ptw_task, moc_task, compliance_task,
+            return_exceptions=True,
+        )
+        topology, ptw_items, moc_items, compliance_reqs = [
+            r if not isinstance(r, Exception) else [] for r in results
+        ]
+
+        dep_count = len(topology) + len(ptw_items) + len(moc_items)
+        headline = f"Asset {asset_id} is being tagged out — {dep_count} downstream dependencies identified"
+
+        body_lines = [
+            f"Tag-out raised by: {performed_by} | Reason: {tag_out_reason}",
+        ]
+        if topology:
+            body_lines.append(f"\nP&ID isolation topology — {len(topology)} connected element(s):")
+            for t in topology[:5]:
+                body_lines.append(f"  • {t.get('element', '?')} [{t.get('type', '?')}]")
+        if ptw_items:
+            body_lines.append(f"\nActive PTW items referencing this asset ({len(ptw_items)}):")
+            for p in ptw_items[:3]:
+                body_lines.append(f"  • PTW {(p.get('payload') or {}).get('ptw_id', '?')} at {p.get('occurred_at', '?')}")
+        if moc_items:
+            body_lines.append(f"\nOpen MoC items for this asset ({len(moc_items)}):")
+            for m in moc_items[:3]:
+                body_lines.append(f"  • {m.get('moc_id', '?')} — {m.get('description', '')[:80]}")
+        if compliance_reqs:
+            body_lines.append(f"\nCompliance obligations on tag-out ({len(compliance_reqs)} regulation(s)):")
+            for r in compliance_reqs[:3]:
+                body_lines.append(f"  • [{r.get('clause_id', '?')}] {r.get('requirement_text', '')[:80]}")
+
+        return Brief(
+            brief_id=str(uuid.uuid4()),
+            trigger_event_id=event_id,
+            trigger_event_type="equipment_tag_out",
+            asset_id=asset_id,
+            recipient_user_id=f"site-{event_dict.get('site_id', 'unknown')}",
+            priority="high",
+            headline=headline,
+            body="\n".join(body_lines),
+            action_items=[
+                f"Verify {len(topology)} downstream elements are safely isolated",
+                "Confirm no active PTW items conflict with tag-out scope",
+                "Update CMMS with expected return date before work commences",
+            ],
+            warnings=[f"Open MoC items exist for this asset"] if moc_items else [],
+            quarantine_flags=[],
+            sources=[],
+            confidence=0.85,
+        )
+
+    # -------------------------------------------------------------------------
+    # Inspection brief
+    # -------------------------------------------------------------------------
+
+    async def assemble_inspection_brief(self, event_dict: Dict[str, Any]) -> Brief:
+        asset_id = event_dict["asset_id"]
+        inspection_type = event_dict.get("inspection_type", "")
+        result = event_dict.get("result", "")
+        findings = event_dict.get("findings", "")
+        performed_by = event_dict.get("performed_by", "unknown")
+        event_id = event_dict.get("event_id")
+
+        timeline_task = self._get_failure_timeline(asset_id)
+        last_inspection_task = self._get_last_inspection(asset_id)
+        compliance_task = self._get_asset_compliance_obligations(asset_id)
+
+        results = await asyncio.gather(
+            timeline_task, last_inspection_task, compliance_task,
+            return_exceptions=True,
+        )
+        timeline, last_inspections, compliance_reqs = [
+            r if not isinstance(r, Exception) else [] for r in results
+        ]
+
+        headline = (
+            f"Inspection {inspection_type} FAILED on {asset_id} — "
+            f"{len(timeline)} prior failure(s) in 90 days"
+        ) if result == "failed" else (
+            f"Inspection {inspection_type} on {asset_id} — findings require review"
+        )
+
+        body_lines = [
+            f"Inspector: {performed_by} | Type: {inspection_type} | Result: {result.upper()}",
+        ]
+        if findings:
+            body_lines.append(f"Findings: {findings}")
+        if timeline:
+            body_lines.append(f"\nFailure history — {len(timeline)} work order(s) in 90 days:")
+            for row in timeline[:5]:
+                body_lines.append(f"  • {row.get('occurred_at', '?')} — {(row.get('payload') or {}).get('failure_code', '?')}")
+        if last_inspections:
+            prev = last_inspections[0]
+            body_lines.append(
+                f"\nPrevious inspection: {prev.get('occurred_at', '?')} "
+                f"— result: {(prev.get('payload') or {}).get('result', '?')}"
+            )
+        if compliance_reqs:
+            body_lines.append(f"\nRelated compliance obligations ({len(compliance_reqs)}):")
+            for r in compliance_reqs[:2]:
+                body_lines.append(f"  • [{r.get('clause_id', '?')}] {r.get('requirement_text', '')[:80]}")
+
+        return Brief(
+            brief_id=str(uuid.uuid4()),
+            trigger_event_id=event_id,
+            trigger_event_type="inspection_complete",
+            asset_id=asset_id,
+            recipient_user_id=f"site-{event_dict.get('site_id', 'unknown')}",
+            priority="high",
+            headline=headline,
+            body="\n".join(body_lines),
+            action_items=[
+                f"Review inspection findings for {asset_id}",
+                "Raise corrective work order if defects confirmed",
+                "Check compliance obligations — inspection interval may be affected",
+            ],
+            warnings=[f"Inspection result: {result.upper()}"] if result == "failed" else [],
+            quarantine_flags=[],
+            sources=[],
+            confidence=0.8,
+        )
+
+    # -------------------------------------------------------------------------
     # Delivery — save to Supabase, publish to briefs Redis stream
     # -------------------------------------------------------------------------
 
@@ -336,6 +556,25 @@ class BriefEngine:
     # -------------------------------------------------------------------------
     # Private helpers
     # -------------------------------------------------------------------------
+
+    async def _get_failure_timeline(self, asset_id: str) -> List[Dict[str, Any]]:
+        """90-day work order history for an asset — used for recurrence interval analysis."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+        try:
+            result = await asyncio.to_thread(
+                lambda: self.supabase.table("operational_events")
+                .select("occurred_at, payload")
+                .eq("asset_id", asset_id)
+                .eq("event_type", "work_order_created")
+                .gte("occurred_at", cutoff)
+                .order("occurred_at", desc=True)
+                .limit(20)
+                .execute()
+            )
+            return result.data or []
+        except Exception as e:
+            log.warning("brief_engine.failure_timeline_failed", error=str(e))
+            return []
 
     async def _get_correlated_events(self, event_id: str) -> List[Dict[str, Any]]:
         """Fetches other events sharing the same compound_event_id."""
@@ -441,6 +680,97 @@ class BriefEngine:
             .execute()
         )
         return result.data or []
+
+    async def _asset_pid_topology(self, asset_id: str) -> List[Dict[str, Any]]:
+        """Neo4j query for pid_topology edges connected to this asset."""
+        cypher = """
+        MATCH (a:Asset {asset_id: $asset_id})-[r:KNOWLEDGE_EDGE]->(n)
+        WHERE r.relationship_type = 'pid_topology'
+          AND r.valid_to IS NULL
+          AND r.valid_from <= $as_of
+        RETURN n.concept_id AS element, n.type AS type
+        LIMIT 20
+        """
+        try:
+            async with self.graph.driver.session(database=self.graph.database) as session:
+                result = await session.run(
+                    cypher,
+                    asset_id=asset_id,
+                    as_of=datetime.now(timezone.utc).isoformat(),
+                )
+                return [dict(r) async for r in result]
+        except Exception as e:
+            log.warning("brief_engine.pid_topology_failed", error=str(e))
+            return []
+
+    async def _get_active_ptw_for_asset(self, asset_id: str) -> List[Dict[str, Any]]:
+        """Supabase query for active PTW events referencing this asset in their payload."""
+        try:
+            result = await asyncio.to_thread(
+                lambda: self.supabase.table("operational_events")
+                .select("event_id, payload, occurred_at")
+                .eq("event_type", "ptw_generated")
+                .contains("payload", {"asset_ids": [asset_id]})
+                .order("occurred_at", desc=True)
+                .limit(5)
+                .execute()
+            )
+            return result.data or []
+        except Exception as e:
+            log.warning("brief_engine.active_ptw_failed", error=str(e))
+            return []
+
+    async def _get_open_moc(self, asset_id: str) -> List[Dict[str, Any]]:
+        """Supabase query for open MoC items for this asset."""
+        try:
+            result = await asyncio.to_thread(
+                lambda: self.supabase.table("moc_items")
+                .select("moc_id, description, status, created_at")
+                .eq("asset_id", asset_id)
+                .eq("status", "draft")
+                .order("created_at", desc=True)
+                .limit(5)
+                .execute()
+            )
+            return result.data or []
+        except Exception as e:
+            log.warning("brief_engine.open_moc_failed", error=str(e))
+            return []
+
+    async def _get_asset_compliance_obligations(self, asset_id: str) -> List[Dict[str, Any]]:
+        """Neo4j query for regulations applicable to this asset's equipment class."""
+        cypher = """
+        MATCH (a:Asset {asset_id: $asset_id})
+        MATCH (reg:Concept {type: 'Regulation'})
+        WHERE reg.applies_to_equipment_class IS NULL
+           OR reg.applies_to_equipment_class = a.equipment_class
+        RETURN reg.clause_id AS clause_id, reg.requirement_text AS requirement_text
+        LIMIT 5
+        """
+        try:
+            async with self.graph.driver.session(database=self.graph.database) as session:
+                result = await session.run(cypher, asset_id=asset_id)
+                return [dict(r) async for r in result]
+        except Exception as e:
+            log.warning("brief_engine.compliance_obligations_failed", error=str(e))
+            return []
+
+    async def _get_last_inspection(self, asset_id: str) -> List[Dict[str, Any]]:
+        """Supabase query for the most recent prior inspection event for this asset."""
+        try:
+            result = await asyncio.to_thread(
+                lambda: self.supabase.table("operational_events")
+                .select("event_id, occurred_at, payload")
+                .eq("asset_id", asset_id)
+                .eq("event_type", "inspection_complete")
+                .order("occurred_at", desc=True)
+                .limit(3)
+                .execute()
+            )
+            return result.data or []
+        except Exception as e:
+            log.warning("brief_engine.last_inspection_failed", error=str(e))
+            return []
 
     async def _get_active_alarms(self, site_id: str) -> List[Dict[str, Any]]:
         result = await asyncio.to_thread(

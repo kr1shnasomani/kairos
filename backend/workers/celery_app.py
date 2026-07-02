@@ -19,6 +19,8 @@ celery_app = Celery(
         "workers.attribution",
         "workers.voice_transcription",
         "workers.brief_assembly",
+        "workers.model_validation",
+        "workers.offboarding",
     ],
 )
 
@@ -34,6 +36,8 @@ celery_app.conf.update(
         "workers.attribution.*": {"queue": "attribution"},
         "workers.voice_transcription.*": {"queue": "transcription"},
         "workers.brief_assembly.*": {"queue": "ingestion"},
+        "workers.model_validation.*": {"queue": "validation"},
+        "workers.offboarding.*": {"queue": "elicitation"},
     },
     task_track_started=True,
     task_acks_late=True,  # Ensure tasks aren't lost if worker crashes

@@ -418,6 +418,81 @@ Every router, worker, service, and Go handler has a correct stub (signature, mod
 
 ---
 
+## Task 30: Recurring Failure Detection — Distinct Event Source (Layer 8)
+
+**Objective:** When a work order is created for equipment that has failed with a similar failure code within the last 90 days, automatically publish a `recurring_failure_detected` event and assemble a pattern-focused brief. Architecture lists this as one of 8 canonical event sources but the attribution worker (Task 16) only handles confidence adjustment — it does not proactively push a brief.
+
+- In `POST /events/work-order` handler, after dedup check, query `operational_events` for same `asset_id` + same failure family within 90 days: `SELECT COUNT(*) FROM operational_events WHERE asset_id=$1 AND event_type='work_order_created' AND occurred_at > NOW() - INTERVAL '90 days'`; map `failure_code` to failure family using `_FAILURE_FAMILIES` from `workers/attribution.py` — do NOT duplicate this dict; move it to `api/utils/failure_families.py` and import from there in both `attribution.py` and the events router
+- If count ≥ 1 and same family: publish a `recurring_failure_detected` event to `REDIS_STREAM_WORK_ORDERS` with `event_subtype='recurring'` and `recurrence_count` field; set `brief_priority='high'` (below PTW critical, above normal)
+- Add `BriefEngine.assemble_recurring_failure_brief(event)`: distinct from the standard WO brief — headline is pattern-focused: "EQ-101 has failed with [failure_code] [N] times in 90 days"; body pulls full failure timeline from Neo4j + Qdrant semantic search for that failure mode family across the equipment class; includes failure interval trend (is it accelerating?); includes attribution notes if available from `operational_events.payload`
+- Add `event_subtype TEXT` column to `operational_events` via migration `012_event_subtype.sql`; populate `'recurring'` for recurring detections, `NULL` for standard
+
+**Test:** Create two work orders for P-101 with failure_code `SEAL-FAIL` within 90 days; verify the second POST returns `recurring_detected: true` + `brief_id` for a recurring brief; verify brief headline references recurrence count; verify `event_subtype='recurring'` in `operational_events`.
+
+---
+
+## Task 31: Off-Boarding Interview Series — Retiring Expert Knowledge Transfer (Layer 9 / Flow D)
+
+**Objective:** Implement the structured off-boarding interview series for retiring personnel. Architecture Flow D describes this in detail: identify high-knowledge-density individuals, schedule 6 sessions over 10 weeks, each session focused on a specific equipment family with graph-derived questions. The micro-interview (Task 15) is the mechanism; this is that mechanism applied on a scheduled multi-session arc.
+
+- Add migration `013_offboarding_sessions.sql`: `offboarding_sessions(id UUID PK, personnel_id TEXT, personnel_email TEXT, retirement_date DATE, total_sessions INT DEFAULT 6, session_interval_days INT DEFAULT 12, status TEXT CHECK IN ('scheduled','in_progress','completed','cancelled'), created_by TEXT, created_at TIMESTAMPTZ)` and `offboarding_session_items(id UUID PK, session_id UUID FK, session_number INT, equipment_family TEXT, focus_failure_modes TEXT[], status TEXT CHECK IN ('pending','questions_ready','completed'), questions JSONB, scheduled_for TIMESTAMPTZ, completed_at TIMESTAMPTZ)`
+- `POST /elicitation/offboarding` — `engineer` or `admin` only; accepts `{personnel_id, personnel_email, retirement_date}`; identifies high-knowledge-density by querying `operational_events WHERE performed_by=$personnel_id` grouped by equipment class (top 6 classes by work order count + novel troubleshooting flags); creates `offboarding_sessions` row + 6 `offboarding_session_items` spaced `session_interval_days` apart; for each session, dispatch `generate_offboarding_questions` via `apply_async(eta=scheduled_for)` on the `elicitation` queue (this is a delayed task, NOT Celery Beat — no beat process or beat_schedule involved); write `audit_log`. **Durability note:** `eta`-scheduled tasks spanning days/weeks are lost on worker restart. For production, replace `apply_async(eta=...)` with a Temporal `OffboardingWorkflow` using `workflow.sleep()` between sessions — consistent with how Tasks 3-6 and 15 already use Temporal for crash-survivable pipelines. For demo, `apply_async(eta=...)` on the existing worker is acceptable.
+- Register `generate_offboarding_questions` task in `celery_app.py` includes and add `elicitation` to the `--queues` flag in the Celery worker command in `docker-compose.yml` (same pattern as Task 19 added `transcription`)
+- `generate_offboarding_questions` Celery task (on `elicitation` queue): lazy-import `api.services.*` inside task body (see MEMORY.md Celery pitfall); for the session's `equipment_family`, query Neo4j for known vs unknown failure modes (same pattern as Task 15 `generate_interview_questions`); pass gaps to `LLMService.synthesize()` with a more specific prompt: "You are interviewing a retiring expert. Known facts about {equipment_family}: {known}. Gaps: {unknown}. Generate 5 questions a retiring engineer would uniquely know — focus on failure attribution accuracy, non-obvious operating conditions, and historical incidents not fully documented." Store questions in `offboarding_session_items.questions`; update status to `questions_ready`
+- `GET /elicitation/offboarding/{session_id}/questions` — return questions for the session (same pattern as Task 15)
+- `POST /elicitation/offboarding/{session_id}/responses` — accept question-answer pairs; call `store_elicitation_response` Temporal activity; insert into `quarantine_items` with `input_type='offboarding_response'` and `session_context={session_id, session_number, equipment_family, questions, personnel_id}`; update `session_items.status='completed'`; if all 6 sessions complete, update `offboarding_sessions.status='completed'`
+- `GET /elicitation/offboarding` — list all active off-boarding programmes with completion percentage (sessions completed / total)
+- `GET /elicitation/offboarding/{session_id}` — return programme detail with all session items and their status
+
+**Test:** `POST /elicitation/offboarding` for `engineer@kairos.local`; verify 6 `offboarding_session_items` created with spaced `scheduled_for` dates covering 6 equipment families from their work order history; trigger `generate_offboarding_questions` manually for session 1; verify questions are graph-derived (reference specific failure modes on that equipment family); submit responses; verify `quarantine_items` row with `input_type='offboarding_response'` and full `session_context`.
+
+---
+
+## Task 32: Layer 0 — Rolling Validation Corpus and Model Gate
+
+**Objective:** Every human-promoted quarantine item becomes part of the empirical baseline. Before any NER model configuration change is deployed, it must match or exceed the incumbent's precision/recall on this corpus. Architecture Layer 0 calls this a hard deployment gate.
+
+- Add migration `014_validation_corpus.sql`: `validation_corpus(id UUID PK, document_id TEXT, entity_text TEXT, entity_type TEXT, span_start INT, span_end INT, authority TEXT CHECK IN ('human_promotion','annotation_correction'), promoted_by TEXT, created_at TIMESTAMPTZ)` — each row is a verified ground-truth entity extracted from a real document
+- Wire corpus ingestion: in `POST /governance/quarantine/{id}/promote` (Task 9), after promoting the quarantine item, read entity from `quarantine_items.session_context->'entity'` (the live column is `session_context`, not `payload`; the JSON shape stores a single entity object, not a list) and insert into `validation_corpus` with `authority='human_promotion'`; in `POST /annotations` (Task 21), when `is_correct=True`, insert the confirmed entity into `validation_corpus` with `authority='annotation_correction'`
+- Create `scripts/run_model_validation.py`: accepts `--model-name` CLI arg; for each row in `validation_corpus`, runs `NERService.extract_entities()` on the source document chunk (fetched from Supabase Storage or ES); compares predicted entity type against ground-truth `entity_type`; outputs per-entity-type precision, recall, F1 and overall metrics; also outputs per-asset-class breakdown
+- `GET /governance/validation-corpus/stats` — return corpus size by entity type, by asset class, date of last update; used by the ops dashboard to show corpus coverage
+- `POST /governance/model-gate/run` — `admin` only; triggers `run_model_validation.py` as a Celery task on the `validation` queue; returns `{task_id}`; stores result in `audit_log` with `action='model_gate_result'` and `details={model_name, precision, recall, f1, passed: bool}`; `passed=True` if all entity-type F1 scores ≥ incumbent baseline stored in `audit_log`. Register the validation task in `celery_app.py` includes and add `validation` to the `--queues` flag in the Celery worker command in `docker-compose.yml` (same pattern as Task 19 added `transcription`)
+- `GET /governance/model-gate/history` — return last 20 model gate runs from `audit_log WHERE action='model_gate_result'` — so engineers can track accuracy trend over time
+
+**Test:** Promote 3 quarantine items; verify 3 rows appear in `validation_corpus`; confirm correct entity; `POST /annotations` with `is_correct=True`; verify 4th row added with `authority='annotation_correction'`; call `POST /governance/model-gate/run`; poll `GET /governance/model-gate/history`; verify result entry with `precision`, `recall`, `f1`, `passed` fields.
+
+---
+
+## Task 33: Equipment Tag-Out + Inspection Completion Events (Layer 8)
+
+**Objective:** Two of the 8 canonical Layer 8 event sources — equipment tag-out and inspection completion — have no `POST /events/` endpoint and no brief assembly path. They are enumerated in the architecture alongside work order, PTW, shift handover, alarm, MoC completion, and recurring failure (now Task 30). Without these, the event subscription layer is 6/8 complete.
+
+- `POST /events/tag-out` — accepts `{asset_id, tag_out_reason, performed_by, expected_return_date}`; dedup via `EventBusService.is_duplicate(asset_id, 'equipment_tag_out', window=10min)`; publish to new `REDIS_STREAM_TAG_OUT`; insert into `operational_events` with `event_type='equipment_tag_out'` and `event_subtype=NULL`; trigger `BriefEngine.assemble_tag_out_brief()` via Celery delay (same late-arrival window pattern as Task 26); write `audit_log`
+- `BriefEngine.assemble_tag_out_brief(event)`: query Neo4j for asset's active isolation topology (any `pid_topology` edges on this asset), outstanding PTW items referencing this asset, compliance obligations triggered by taking this equipment class out of service, and any open MoC items that affect this asset; headline = "EQ-X is being tagged out — [N] downstream dependencies identified"; set `brief_priority='high'`
+- `POST /events/inspection-complete` — accepts `{asset_id, inspection_type, result, performed_by, findings TEXT, document_id, confidence FLOAT (optional, default 1.0)}`; confidence represents the inspector's stated certainty in the finding — default `1.0` is correct for a direct human attestation (the inspector performed the inspection and is asserting the result); if `document_id` provided, call `GraphService.create_knowledge_edge()` with `authority_level=4`, `confidence=request.confidence` (default 1.0), `verification_status='unverified'`; route to quarantine only if `confidence < 0.7` (which will be rare for a direct human submission); if `result='failed'` or findings non-empty, publish to `REDIS_STREAM_WORK_ORDERS` to trigger a brief for the reliability engineer; insert into `operational_events` with `event_type='inspection_complete'`; call `EventBusService.correlate_events()` (Task 27 — may correlate with existing open WO for same asset)
+- `BriefEngine.assemble_inspection_brief(event)` — only assembled on `result='failed'` or when findings reference safety-critical parameters: pulls failure history, open compliance items, last inspection record comparison, and flags if inspection interval deadline is approaching for any related equipment class
+- Add both stream names (`REDIS_STREAM_TAG_OUT`, `REDIS_STREAM_INSPECTIONS`) to `config.py` Settings and `.env.example`
+
+**Test:** `POST /events/tag-out` for P-101; verify `operational_events` row with `event_type='equipment_tag_out'`; verify brief assembled with isolation topology context; `POST /events/inspection-complete` for P-101 with `result='failed'` (no `confidence` field); verify Neo4j edge created with `confidence=1.0`, `verification_status='unverified'`; verify brief delivered to reliability engineer user.
+
+---
+
+## Task 34: Governance SLA Tracking + Escalation (Layer 7)
+
+**Objective:** The architecture specifies explicit SLAs with automatic escalation — administrative conflicts: 5-day SLA, escalate to data governance lead at 7 days; engineering conflicts: 24h SLA for safety-critical equipment, 5-day SLA for non-critical. Backlog volume surfaced in the dashboard. None of this is implemented. **No Celery Beat process exists in docker-compose.yml and none should be added** — SLA escalation is implemented as a lazy inline check, consistent with how the circuit breaker and governor already work in this codebase.
+
+- Add migration `015_sla_tracking.sql`: add `sla_due_at TIMESTAMPTZ`, `escalated_at TIMESTAMPTZ`, `escalated_to TEXT` columns to `knowledge_conflicts`; add `sla_due_at TIMESTAMPTZ`, `escalated_at TIMESTAMPTZ` columns to `quarantine_items`
+- On `INSERT` into `knowledge_conflicts` (in Task 9 `detect_conflict()`): compute `sla_due_at` = `created_at + INTERVAL '5 days'` for `track='administrative'`, `created_at + INTERVAL '24 hours'` for `track='engineering'` on safety_critical assets, `created_at + INTERVAL '5 days'` for `track='engineering'` on non-critical; store in the row
+- On `INSERT` into `quarantine_items` (all paths: Tasks 5, 9, 15, 19, 20, 23, 31): compute `sla_due_at = created_at + INTERVAL '5 days'` for standard items, `+ INTERVAL '24 hours'` for `input_type='deviation_flag'`
+- Create `api/services/sla_service.py` with `SLAService.check_and_escalate(supabase) -> dict`: queries `knowledge_conflicts WHERE status='open' AND sla_due_at < NOW() AND escalated_at IS NULL`; for each overdue item, inserts into `audit_log` with `action='sla_escalated'` and `details={conflict_id, track, overdue_by_hours}`; sets `escalated_at=NOW()` on the row; same logic for `quarantine_items WHERE review_status='pending' AND sla_due_at < NOW() AND escalated_at IS NULL`; returns summary dict. **No Celery worker, no Beat, no additional queue.**
+- Call `SLAService.check_and_escalate()` lazily at the top of three existing request handlers: `GET /governance/sla-report`, `GET /governance/conflicts`, and `GET /governance/quarantine` — exactly as `CircuitBreakerService.check()` is called inline in `link_to_graph` and `EventBusService.check_governor()` is called inline in `GET /briefs`
+- `GET /governance/sla-report` — after running `check_and_escalate()`, return `{overdue_conflicts: [{conflict_id, track, asset_id, overdue_by_hours, escalated}], overdue_quarantine: [{item_id, asset_id, overdue_by_hours}], on_time_conflicts: int, on_time_quarantine: int}`
+- Update `GET /governance/conflicts` and `GET /governance/quarantine` responses to include `sla_due_at` and `is_overdue: bool` fields so the frontend can render SLA countdown indicators
+
+**Test:** Insert a conflict with `track='administrative'`; manually set `sla_due_at = NOW() - INTERVAL '1 minute'` in Supabase; call `GET /governance/sla-report`; verify `escalated_at` is now populated on the conflict row and `audit_log` has `action='sla_escalated'`; verify the conflict appears in `overdue_conflicts` in the response.
+
+---
+
 ## Non-Negotiable Constraints (apply to every task)
 
 - Every Neo4j edge write must carry all five properties: `valid_from`, `valid_to`, `authority_level`, `document_id`, `confidence`, `verification_status`

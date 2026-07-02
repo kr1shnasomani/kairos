@@ -357,7 +357,7 @@ class GraphService:
         self,
         asset_id: str,
         as_of: Optional[datetime] = None,
-        authority_min: int = 1,
+        authority_min: int = 5,
     ) -> List[Dict[str, Any]]:
         """
         Returns all temporal graph edges for an asset, optionally scoped to a

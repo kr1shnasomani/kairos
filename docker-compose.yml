@@ -339,7 +339,7 @@ services:
       - .env
     depends_on:
       - kairos-redis
-    command: ["celery", "-A", "workers.celery_app", "worker", "--loglevel=info", "--queues=ingestion,extraction,attribution,transcription"]
+    command: ["celery", "-A", "workers.celery_app", "worker", "--loglevel=info", "--queues=ingestion,extraction,attribution,transcription,validation,elicitation"]
 
   # ---------------------------------------------------------------------------
   # Layer 3: Temporal Activity Worker — DocumentIngestionWorkflow activities

@@ -17,6 +17,7 @@ from api.dependencies import CurrentUserDep, Neo4jDep, SupabaseDep, require_role
 from api.models.document import PromoteQuarantineRequest
 from api.services.graph import GraphService
 from api.services.metrics import conflicts_open
+from api.services.sla_service import SLAService
 
 log = structlog.get_logger(__name__)
 router = APIRouter()
@@ -41,8 +42,11 @@ async def list_conflicts(
     - Administrative: minor inconsistencies, lightweight review, 5-day SLA.
     - Engineering: safety-critical contradictions, requires MoC, 24h SLA for critical equipment.
     """
+    await SLAService.check_and_escalate(supabase)
+
+    now = datetime.now(timezone.utc)
     query = supabase.table("knowledge_conflicts").select(
-        "conflict_id, track, asset_id, parameter, source_a, source_b, authority_a, authority_b, severity, status, sla_deadline, created_at",
+        "conflict_id, track, asset_id, parameter, source_a, source_b, authority_a, authority_b, severity, status, sla_deadline, escalated_at, created_at",
         count="exact",
     )
     if track:
@@ -55,7 +59,12 @@ async def list_conflicts(
     result = await asyncio.to_thread(
         lambda: query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     )
-    return {"items": result.data or [], "total": result.count or 0, "limit": limit, "offset": offset}
+    items = []
+    for row in result.data or []:
+        sla_due_at = row.get("sla_deadline")
+        is_overdue = bool(sla_due_at and datetime.fromisoformat(sla_due_at.replace("Z", "+00:00")) < now)
+        items.append({**row, "sla_due_at": sla_due_at, "is_overdue": is_overdue})
+    return {"items": items, "total": result.count or 0, "limit": limit, "offset": offset}
 
 
 @router.get("/conflicts/{conflict_id}", summary="Get conflict detail and blast-radius report")
@@ -152,8 +161,11 @@ async def list_quarantine(
     All quarantine results are clearly labeled as non-canonical.
     Items with input_type='elicitation_response' include full session_context (questions + answers).
     """
+    await SLAService.check_and_escalate(supabase)
+
+    now = datetime.now(timezone.utc)
     query = supabase.table("quarantine_items").select(
-        "item_id, asset_id, content, input_type, submitted_by, submitted_at, reviewer_id, review_status, work_order_id, session_context",
+        "item_id, asset_id, content, input_type, submitted_by, submitted_at, reviewer_id, review_status, work_order_id, session_context, sla_due_at, escalated_at",
         count="exact",
     )
     if asset_id:
@@ -168,8 +180,13 @@ async def list_quarantine(
     result = await asyncio.to_thread(
         lambda: query.order("submitted_at", desc=True).range(offset, offset + limit - 1).execute()
     )
+    items = []
+    for row in result.data or []:
+        sla = row.get("sla_due_at")
+        is_overdue = bool(sla and datetime.fromisoformat(sla.replace("Z", "+00:00")) < now)
+        items.append({**row, "is_overdue": is_overdue})
     return {
-        "items": result.data or [],
+        "items": items,
         "total": result.count or 0,
         "limit": limit,
         "offset": offset,
@@ -277,6 +294,26 @@ async def promote_quarantine_item(
         }).execute()
     )
 
+    # Feed validation corpus — every human promotion is a verified ground truth
+    entity = ctx.get("entity") or {}
+    entity_text = entity.get("text") or (item.get("content") or "")[:200]
+    entity_type = entity.get("entity_type") or ""
+    if entity_text and entity_type:
+        try:
+            await asyncio.to_thread(
+                lambda: supabase.table("validation_corpus").insert({
+                    "document_id": document_id,
+                    "entity_text": entity_text,
+                    "entity_type": entity_type,
+                    "span_start": entity.get("start"),
+                    "span_end": entity.get("end"),
+                    "authority": "human_promotion",
+                    "promoted_by": current_user.get("user_id", "unknown"),
+                }).execute()
+            )
+        except Exception as exc:
+            log.warning("validation_corpus.insert_failed", item_id=item_id, error=str(exc))
+
     if conflict is not None:
         conflicts_open.add(1, {"track": conflict.get("track", "unknown")})
     log.info("quarantine.promoted", item_id=item_id, asset_id=asset_id, edge_id=edge_result["edge_id"])
@@ -337,6 +374,50 @@ async def dispute_quarantine_item(
 
     log.info("quarantine.disputed", item_id=item_id, user=current_user.get("user_id"))
     return {"status": "disputed", "item_id": item_id, "reason": reason}
+
+
+# =============================================================================
+# SLA Report
+# =============================================================================
+
+@router.get("/sla-report", summary="SLA escalation report for conflicts and quarantine items")
+async def get_sla_report(
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    """
+    Runs lazy SLA escalation then returns counts of overdue conflicts and quarantine items.
+    """
+    escalation_result = await SLAService.check_and_escalate(supabase)
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    overdue_conflicts = await asyncio.to_thread(
+        lambda: supabase.table("knowledge_conflicts")
+        .select("conflict_id, track, asset_id, sla_deadline, escalated_at, status", count="exact")
+        .lt("sla_deadline", now)
+        .neq("status", "resolved")
+        .execute()
+    )
+    overdue_quarantine = await asyncio.to_thread(
+        lambda: supabase.table("quarantine_items")
+        .select("item_id, asset_id, input_type, sla_due_at, escalated_at", count="exact")
+        .lt("sla_due_at", now)
+        .eq("review_status", "pending")
+        .execute()
+    )
+
+    return {
+        "checked_at": escalation_result["checked_at"],
+        "escalated_this_run": {
+            "conflicts": escalation_result["conflicts_escalated"],
+            "quarantine_items": escalation_result["quarantine_escalated"],
+        },
+        "overdue_conflicts": overdue_conflicts.data or [],
+        "overdue_conflicts_total": overdue_conflicts.count or 0,
+        "overdue_quarantine_items": overdue_quarantine.data or [],
+        "overdue_quarantine_total": overdue_quarantine.count or 0,
+    }
 
 
 # =============================================================================
@@ -488,3 +569,64 @@ async def get_blast_radius(
     that derive from the specified document. Used when a document is superseded or disputed.
     """
     return await GraphService(driver).get_blast_radius(document_id)
+
+
+# =============================================================================
+# Layer 0 — Validation Corpus + Model Gate
+# =============================================================================
+
+@router.get("/validation-corpus/stats", summary="Validation corpus coverage statistics")
+async def validation_corpus_stats(
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    """Return corpus size by entity type and date of last update."""
+    result = await asyncio.to_thread(
+        lambda: supabase.table("validation_corpus")
+        .select("entity_type, created_at")
+        .execute()
+    )
+    rows = result.data or []
+
+    by_entity_type: dict = {}
+    last_updated_at = None
+    for row in rows:
+        et = row.get("entity_type", "unknown")
+        by_entity_type[et] = by_entity_type.get(et, 0) + 1
+        ts = row.get("created_at")
+        if ts and (last_updated_at is None or ts > last_updated_at):
+            last_updated_at = ts
+
+    return {
+        "total_corpus_size": len(rows),
+        "by_entity_type": by_entity_type,
+        "last_updated_at": last_updated_at,
+    }
+
+
+@router.post("/model-gate/run", summary="Trigger NER model gate evaluation")
+async def run_model_gate_endpoint(
+    model_name: str,
+    current_user: dict = Depends(require_role("admin")),
+) -> dict:
+    """Admin only. Runs NER accuracy evaluation against the validation corpus on the validation queue."""
+    from workers.model_validation import run_model_gate
+    task = run_model_gate.apply_async(args=[model_name])
+    return {"task_id": task.id, "model_name": model_name, "status": "queued"}
+
+
+@router.get("/model-gate/history", summary="Model gate run history")
+async def model_gate_history(
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    """Return last 20 model gate runs from audit_log."""
+    result = await asyncio.to_thread(
+        lambda: supabase.table("audit_log")
+        .select("id, entity_id, details, timestamp")
+        .eq("action", "model_gate_result")
+        .order("timestamp", desc=True)
+        .limit(20)
+        .execute()
+    )
+    return {"items": result.data or [], "total": len(result.data or [])}
