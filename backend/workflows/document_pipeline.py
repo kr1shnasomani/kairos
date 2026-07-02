@@ -782,7 +782,10 @@ class DocumentIngestionWorkflow:
     @workflow.run
     async def run(self, params: Dict[str, Any]) -> Dict[str, Any]:
         document_id = params["document_id"]
-        vault_path = params["vault_path"]
+        vault_path = params.get("vault_path")
+        if not vault_path:
+            workflow.logger.error(f"document_pipeline.missing_vault_path document_id={document_id}")
+            return {"status": "failed", "reason": "missing vault_path"}
         mime_type = params.get("mime_type", "application/pdf")
         asset_id = params.get("asset_id")
         authority_level = params.get("authority_level", 4)

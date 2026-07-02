@@ -226,17 +226,40 @@ List all registered assets.
 | `skip` | int | `0` | Pagination offset |
 | `limit` | int | `50` | Page size (max 200) |
 
-**Response `200`:** Array of asset objects.
+**Response `200`:**
+```json
+{
+  "items": [...],
+  "total": 5,
+  "limit": 50,
+  "offset": 0
+}
+```
 
 ---
 
 ### `GET /assets/{asset_id}`
 
-Get a single asset by its canonical ID.
+Get a single asset by its canonical ID. Enriched with 3-parallel live counts.
 
 **Auth required:** Yes
 
-**Response `200`:** Full asset object. **`404`** if not found.
+**Response `200`:**
+```json
+{
+  "asset_id": "P-101",
+  "tag_number": "P-101",
+  "name": "Feed Pump Alpha",
+  "equipment_class": "pump",
+  "site_id": "SITE_001",
+  "criticality": "safety_critical",
+  "open_work_orders_count": 2,
+  "compliance_gap_count": 0,
+  "last_inspection_date": "2024-03-01T00:00:00Z"
+}
+```
+
+`open_work_orders_count`, `compliance_gap_count`, and `last_inspection_date` are fetched in parallel from Supabase. **`404`** if not found.
 
 ---
 
@@ -336,6 +359,7 @@ Ingest a document into the vault and trigger the full pipeline: OCR → NER → 
 | `asset_ids` | string (JSON array) | No | `'["P-101","V-201"]'` |
 | `source_system` | string | Yes | e.g. `SAP_DMS`, `SharePoint` |
 | `access_tags` | string (JSON array) | No | e.g. `'["confidential","process"]'` |
+| `occurred_at` | ISO8601 string | No | Source document date (used for timestamp drift detection) |
 
 **Response `202`:**
 ```json
@@ -349,8 +373,6 @@ Ingest a document into the vault and trigger the full pipeline: OCR → NER → 
 ```
 
 SHA-256 deduplication: if an identical file was previously ingested, returns the existing `document_id` with `status: "duplicate"`.
-
-**Metrics:** Records `kairos.ingestion.duration` histogram on completion.
 
 ---
 
@@ -370,7 +392,13 @@ List vault documents.
 | `skip` | int | `0` |
 | `limit` | int | `50` |
 
-**Response `200`:** Array of `VaultDocument` objects.
+**Response `200`:**
+```json
+{
+  "items": [...],
+  "total": 12
+}
+```
 
 ---
 
@@ -470,7 +498,7 @@ Get the parsed P&ID / engineering drawing topology for a drawing document.
 
 **Auth required:** Yes
 
-Only available for documents with `document_type = "engineering_drawing"`. Topology is extracted at ingest time by the mock PID topology pipeline (Task 20) — the OCR stage is skipped, and element data is loaded from the embedded fixture.
+Only available for documents with `document_type = "engineering_drawing"`. Topology is extracted at ingest time by the mock PID topology pipeline — the OCR stage is skipped, and element data is loaded from the embedded fixture.
 
 **Response `200`:**
 ```json
@@ -717,7 +745,7 @@ Combined evidence is passed to `LLMService.rca_synthesize()`. Falls back to raw 
 
 **Prefix:** `/events`
 
-Event ingestion for CMMS work orders, Permit-to-Work, shift handovers, and DCS alarms. All events:
+Event ingestion for CMMS work orders, Permit-to-Work, shift handovers, DCS alarms, equipment tag-outs, and inspections. All events:
 1. Deduplicated via 10-minute Redis TTL key (same `asset_id` + `event_type`)
 2. Written to `operational_events` (Supabase)
 3. Published to the appropriate Redis Stream
@@ -750,24 +778,28 @@ Ingest a CMMS work order.
 
 `close_notes` is populated when the WO is closed — used by the Celery attribution worker's execution compliance check.
 
-`assigned_technician_id` is optional — if absent, brief is addressed site-wide (`recipient_user_id = "site-SITE_001"`).
+`assigned_technician_id` is optional — if absent, brief is addressed site-wide.
 
-**Response `202` — first event for asset (delayed assembly):**
+**Side effects:**
+- Recurring failure detection: if same asset had ≥1 prior WO in the last 90 days with the same failure family, `event_subtype=recurring` is set and a `recurring_failure_detected` event is published. A high-priority brief is assembled immediately.
+- Attribution trigger: if same asset had a prior WO in the last 30 days, a Celery `evaluate_outcome` task is queued.
+- Elicitation check: if failure code is rare, asset is uninstrumented, or priority is critical/urgent, a `MicroInterviewWorkflow` may be triggered on the `kairos-elicitation` queue.
+
+**Response `202` — first event for asset:**
 ```json
 {
   "event_id": "evt-uuid",
   "status": "accepted",
   "brief_task_id": "celery-task-uuid",
   "brief_due_in_seconds": 300,
-  "stream_id": "1704067200000-0"
+  "stream_id": "1704067200000-0",
+  "recurring_detected": false
 }
 ```
 
-Brief assembly is **delayed by `LATE_ARRIVAL_WINDOW_MINUTES`** (default 5 min) via Celery `apply_async(countdown=...)`. This allows correlated events (alarms, PTWs) to arrive before the brief is assembled. A Redis key `kairos:brief_pending:{asset_id}` tracks the pending task ID so it can be revoked by a PTW event for the same asset.
+Brief assembly is delayed by `LATE_ARRIVAL_WINDOW_MINUTES` (default 5 min) via `apply_async(countdown=...)` to allow correlated events to arrive first.
 
 **Response `200` — duplicate within dedup window:** `{"event_id": "...", "status": "deduplicated"}`
-
-**Side effects:** If this asset had a prior WO in the last 30 days, a Celery `evaluate_outcome` attribution task is queued.
 
 ---
 
@@ -793,7 +825,7 @@ Ingest a Permit-to-Work event.
 }
 ```
 
-PTW events always receive `priority: critical`. The EEMUA 191 governor always delivers PTW briefs regardless of push count.
+PTW events always receive `priority: critical`. The EEMUA 191 governor always delivers PTW briefs regardless of push count. PTW handler also revokes any pending delayed WO brief for the same asset before assembling immediately.
 
 **Response `202`:** Same shape as work order.
 
@@ -846,35 +878,93 @@ Ingest an alarm acknowledgment.
 
 ---
 
-### `GET /events/{event_id}`
+### `POST /events/tag-out`
 
-Get a single operational event with event correlation metadata.
+Ingest an equipment tag-out event. Used when a physical tag-out (lockout/tagout) is applied to an asset.
 
 **Auth required:** Yes
 
-**Response `200`:**
+**Request body:**
 ```json
 {
-  "event_id": "evt-uuid",
-  "event_type": "work_order_created",
   "asset_id": "P-101",
+  "tag_out_reason": "Planned maintenance — seal replacement",
+  "performed_by": "tech-uuid",
+  "expected_return_date": "2024-01-05T08:00:00Z",
+  "source_system": "SAP_PM",
   "site_id": "SITE_001",
-  "occurred_at": "2026-07-02T09:00:00Z",
-  "payload": {},
-  "compound_event_id": "compound-uuid",
-  "correlated_event_ids": ["alarm-evt-uuid"]
+  "occurred_at": "2024-01-02T06:00:00Z"
 }
 ```
 
-`compound_event_id` and `correlated_event_ids` are set when this event was correlated with other same-asset events within `DEDUP_WINDOW_MINUTES`. Events sharing a `compound_event_id` are grouped into a single compound event for brief assembly.
+**Side effects:**
+- Inserts into `operational_events` and publishes to `kairos:events:tag_out` stream
+- Writes `audit_log` entry with `action=equipment_tag_out`
+- Triggers delayed brief assembly (same countdown as WO)
 
-**`404`** if not found.
+**Response `202`:**
+```json
+{
+  "status": "accepted",
+  "event_id": "evt-uuid",
+  "stream_entry_id": "1704067200000-0",
+  "brief_task_id": "celery-task-uuid",
+  "brief_due_in_seconds": 300
+}
+```
+
+---
+
+### `POST /events/inspection-complete`
+
+Ingest an inspection completion event. Optionally creates a Neo4j knowledge edge if a supporting document is provided. Low-confidence findings (<0.7) are automatically quarantined.
+
+**Auth required:** Yes
+
+**Request body:**
+```json
+{
+  "asset_id": "P-101",
+  "inspection_type": "visual",
+  "result": "failed",
+  "performed_by": "inspector-uuid",
+  "findings": "Seal showing wear, recommend replacement within 30 days",
+  "document_id": "DOC-INSP-P101-2024",
+  "confidence": 1.0,
+  "source_system": "SAP_PM",
+  "site_id": "SITE_001",
+  "occurred_at": "2024-01-02T10:00:00Z"
+}
+```
+
+`result` values: `passed | failed | conditional`
+
+**Side effects:**
+- If `document_id` provided: creates `INSPECTION_RECORD` Neo4j edge with all 6 required properties
+- If `confidence < 0.7`: inserts into `quarantine_items` with `input_type=field_observation`
+- If `result = "failed"` or `findings` non-empty: triggers immediate brief assembly
+- Correlates with other events for the same asset via `compound_event_id`
+- Publishes to `kairos:events:inspections` (normal) or `kairos:events:work_orders` (failed/findings)
+
+**Response `202`:**
+```json
+{
+  "status": "accepted",
+  "event_id": "evt-uuid",
+  "stream_entry_id": "1704067200000-0",
+  "edge_id": "neo4j-edge-id",
+  "quarantine_item_id": null,
+  "brief_task_id": "celery-task-uuid"
+}
+```
+
+`edge_id` is `null` when no `document_id` was provided. `quarantine_item_id` is populated only when `confidence < 0.7`.
 
 ---
 
 ### `POST /events/deviation-flag`
 
-Report a physical deviation from the last known state for an asset. Freezes all unacknowledged briefs for the asset until resolved.
+Report a physical deviation from the last known state for an asset. Freezes all unacknowledged briefs for the asset until resolved. Carries a 24-hour SLA (overrides default 5-day quarantine SLA).
 
 **Auth required:** Yes
 
@@ -900,7 +990,7 @@ Report a physical deviation from the last known state for an asset. Freezes all 
 ```
 
 **Side effects:**
-- Inserts item into `quarantine_items` with `input_type=deviation_flag`
+- Inserts item into `quarantine_items` with `input_type=deviation_flag` and `sla_due_at = NOW() + 24h`
 - Sets `delivery_frozen=true` on all unacknowledged briefs for this asset
 - Publishes to `kairos:events:alarms` stream
 - Writes to `audit_log`
@@ -988,6 +1078,32 @@ Returns `PLANT_STATE_DEFAULT` (default: `"normal"`) if no state has been set or 
 
 ---
 
+### `GET /events/{event_id}`
+
+Get a single operational event with event correlation metadata.
+
+**Auth required:** Yes
+
+**Response `200`:**
+```json
+{
+  "event_id": "evt-uuid",
+  "event_type": "work_order_created",
+  "asset_id": "P-101",
+  "site_id": "SITE_001",
+  "occurred_at": "2026-07-02T09:00:00Z",
+  "payload": {},
+  "compound_event_id": "compound-uuid",
+  "correlated_event_ids": ["alarm-evt-uuid"]
+}
+```
+
+`compound_event_id` and `correlated_event_ids` are set when this event was correlated with other same-asset events within `DEDUP_WINDOW_MINUTES`.
+
+**`404`** if not found.
+
+---
+
 ### `POST /events/{event_id}/ack`
 
 Acknowledge receipt of an operational event.
@@ -1069,11 +1185,9 @@ Get pending briefs for the current user. Also returns site-wide briefs. Calls `r
 ```
 
 **Suppression rules (in priority order):**
-1. **EEMUA 191 governor:** If `push_count_last_hour >= ceiling`, all non-critical briefs suppressed → `suppressed_count > 0`.
-2. **Plant state gate:** If current plant state for the user's `site_id` is `turnaround`, `shutdown`, or `emergency`, all non-critical briefs suppressed. Critical (PTW) briefs always pass.
-3. **Frozen briefs:** Briefs with `delivery_frozen=true` (set by deviation flag) are included in the response with `frozen=true` and `freeze_reason` but excluded from governor push counting.
-
-`record_push` is called for every brief actually delivered (non-frozen, non-suppressed).
+1. **EEMUA 191 governor:** If `push_count_last_hour >= ceiling`, all non-critical briefs suppressed.
+2. **Plant state gate:** If plant state for the user's `site_id` is `turnaround`, `shutdown`, or `emergency`, non-critical briefs suppressed. Critical (PTW) briefs always pass.
+3. **Frozen briefs:** Briefs with `delivery_frozen=true` (set by deviation flag) are included with `frozen=true` and `freeze_reason` but excluded from governor push counting.
 
 ---
 
@@ -1155,17 +1269,17 @@ When `rating = "incorrect"`: writes `confidence_recheck_queued` to `audit_log` w
 
 **Prefix:** `/governance`
 
-Knowledge conflict detection, quarantine management, and Management of Change.
+Knowledge conflict detection, quarantine management, Management of Change, SLA tracking, circuit breaker, validation corpus, and model gate.
 
 ---
 
 ### `GET /governance/conflicts`
 
-List open knowledge conflicts.
+List open knowledge conflicts. Runs lazy SLA escalation before returning results.
 
 **Auth required:** Yes (`engineer`, `admin`, `reliability`)
 
-**Query params:** `status` (`open | resolved | all`, default `open`), `track` (`administrative | engineering`), `asset_id`, `limit`
+**Query params:** `status` (`open | pending_moc | resolved | all`, default `open`), `track` (`administrative | engineering`), `asset_id`, `limit`, `offset`
 
 **Response `200`:**
 ```json
@@ -1180,6 +1294,9 @@ List open knowledge conflicts.
       "source_b": {"document_id": "doc-b", "value": "15.0 bar", "authority_level": 2},
       "severity": "critical",
       "status": "open",
+      "sla_due_at": "2024-01-06T00:00:00Z",
+      "is_overdue": false,
+      "escalated_at": null,
       "detected_at": "2024-01-01T00:00:00Z"
     }
   ],
@@ -1192,6 +1309,8 @@ List open knowledge conflicts.
 Conflict tracks:
 - `engineering` — same parameter, different values from different authority levels
 - `administrative` — same document with conflicting `valid_from/valid_to` windows
+
+`sla_due_at` maps to the existing `sla_deadline` column. `is_overdue` is computed inline. `escalated_at` is populated when SLA escalation fires.
 
 ---
 
@@ -1207,7 +1326,7 @@ Get conflict detail + blast-radius report.
 
 ### `POST /governance/conflicts/{conflict_id}/resolve`
 
-Resolve a conflict.
+Resolve an administrative-track conflict. Engineering-track conflicts must be resolved via `POST /governance/moc/webhook`.
 
 **Auth required:** Yes — `admin` or `engineer` (OPA enforced)
 
@@ -1220,38 +1339,46 @@ Resolve a conflict.
 }
 ```
 
-`resolution` values: `accept_source_a | accept_source_b | supersede_both | moc_required`
-
 **Response `200`:** `{"conflict_id": "...", "status": "resolved"}`
 
 ---
 
 ### `GET /governance/quarantine`
 
-List items in the quarantine layer.
+List items in the quarantine layer. Runs lazy SLA escalation before returning results.
 
 **Auth required:** Yes
 
-**Query params:** `asset_id`, `review_status` (`pending | promoted | disputed`), `limit`
+**Query params:** `asset_id`, `reviewer_id`, `review_status` (`pending | promoted | disputed | archived`), `limit`, `offset`
+
+Default `review_status` is `pending`.
 
 **Response `200`:**
 ```json
-[
-  {
-    "item_id": "q-uuid",
-    "asset_id": "P-101",
-    "parameter": "seal_clearance_mm",
-    "value": "0.15",
-    "confidence": 0.62,
-    "source_document_id": "doc-uuid",
-    "review_status": "pending",
-    "session_context": null,
-    "quarantined_at": "2024-01-01T00:00:00Z"
-  }
-]
+{
+  "items": [
+    {
+      "item_id": "q-uuid",
+      "asset_id": "P-101",
+      "content": "Seal clearance 0.15mm from voice note",
+      "input_type": "voice_note",
+      "submitted_by": "tech-uuid",
+      "review_status": "pending",
+      "session_context": null,
+      "sla_due_at": "2024-01-06T00:00:00Z",
+      "is_overdue": false,
+      "escalated_at": null,
+      "quarantined_at": "2024-01-01T00:00:00Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0,
+  "note": "All items are unverified field inputs — not reviewed by engineering authority."
+}
 ```
 
-Items enter quarantine when `confidence < 0.7` or entity resolution fails during NER.
+Items enter quarantine when `confidence < 0.7` or entity resolution fails. `sla_due_at` defaults to `NOW() + 5 days`; deviation flags override to `NOW() + 24h`.
 
 ---
 
@@ -1259,7 +1386,7 @@ Items enter quarantine when `confidence < 0.7` or entity resolution fails during
 
 Promote a quarantine item to the canonical graph. **Human action only — no auto-promotion, ever.**
 
-**Auth required:** Yes — `admin` or `engineer` (OPA blocks `field_worker` with 403)
+**Auth required:** Yes — `reliability`, `engineer`, or `admin` (OPA blocks `field_worker` with 403)
 
 **Request body:**
 ```json
@@ -1271,7 +1398,7 @@ Promote a quarantine item to the canonical graph. **Human action only — no aut
 }
 ```
 
-On promotion, `detect_conflict()` runs. If a conflict is detected, `kairos.conflicts.open` metric increments by 1.
+On promotion, `detect_conflict()` runs. If a conflict is detected, `kairos.conflicts.open` metric increments.
 
 **Response `200` — no conflict:**
 ```json
@@ -1308,15 +1435,55 @@ Mark a quarantine item as incorrect. Prevents accidental promotion.
 
 ---
 
+### `GET /governance/sla-report`
+
+SLA escalation report for all overdue conflicts and quarantine items. Runs lazy escalation then returns full overdue inventory.
+
+**Auth required:** Yes
+
+**Response `200`:**
+```json
+{
+  "checked_at": "2024-01-06T12:00:00Z",
+  "escalated_this_run": {
+    "conflicts": 1,
+    "quarantine_items": 0
+  },
+  "overdue_conflicts": [
+    {
+      "conflict_id": "conf-uuid",
+      "track": "engineering",
+      "asset_id": "P-101",
+      "sla_deadline": "2024-01-05T00:00:00Z",
+      "escalated_at": "2024-01-06T12:00:00Z",
+      "status": "open"
+    }
+  ],
+  "overdue_conflicts_total": 1,
+  "overdue_quarantine_items": [],
+  "overdue_quarantine_total": 0
+}
+```
+
+Escalation is idempotent — `escalated_this_run` is 0 on subsequent calls for already-escalated items.
+
+---
+
 ### `GET /governance/moc`
 
 List Management of Change records.
 
 **Auth required:** Yes
 
-**Query params:** `status` (`open | resolved | all`)
+**Query params:** `status` (`draft | pending_approval | approved | rejected`)
 
-**Response `200`:** Array of MoC objects.
+**Response `200`:**
+```json
+{
+  "items": [...],
+  "total": 3
+}
+```
 
 ---
 
@@ -1326,18 +1493,23 @@ Receive an MoC resolution webhook from the plant MoC system.
 
 **Auth required:** Yes (`admin` or service key)
 
+Optionally verifies HMAC-SHA256 signature via `X-Webhook-Signature` header when `MOC_WEBHOOK_SECRET` is configured.
+
 **Request body:**
 ```json
 {
   "moc_id": "MOC-2024-007",
-  "status": "resolved",
-  "resolution": "approved",
+  "status": "approved",
   "approved_by": "chief.engineer@plant.com",
   "effective_date": "2024-03-01T00:00:00Z"
 }
 ```
 
-**Response `200`:** `{"moc_id": "...", "status": "resolved", "edges_updated": 3}`
+`status` values: `approved | rejected`
+
+On `approved`: closes the old validity window on the conflicting Neo4j edge and resolves the linked `knowledge_conflicts` row.
+
+**Response `200`:** `{"status": "received", "moc_id": "...", "resolution": "approved"}`
 
 ---
 
@@ -1368,8 +1540,6 @@ The circuit breaker monitors the ratio of human-overridden extractions to total 
 
 `status` values: `active | halted`
 
-When `halted`, `link_to_graph` skips writing Neo4j edges for that entity type and publishes to `kairos:events:review_required` Redis Stream instead.
-
 ---
 
 ### `GET /governance/blast-radius/{document_id}`
@@ -1388,6 +1558,82 @@ Get the blast-radius report for a proposed document change.
   "details": [
     {"asset_id": "P-101", "rel_type": "HAS_MAX_PRESSURE", "count": 5}
   ]
+}
+```
+
+---
+
+### `GET /governance/validation-corpus/stats`
+
+Return validation corpus coverage statistics used by the model gate.
+
+**Auth required:** Yes
+
+**Response `200`:**
+```json
+{
+  "total_corpus_size": 42,
+  "by_entity_type": {
+    "ASSET_TAG": 18,
+    "process_parameter": 12,
+    "FAILURE_MODE": 12
+  },
+  "last_updated_at": "2024-01-05T09:00:00Z"
+}
+```
+
+The corpus is populated automatically when quarantine items are promoted (`authority=human_promotion`) or when annotations with `is_correct=True` are submitted (`authority=annotation_correction`).
+
+---
+
+### `POST /governance/model-gate/run`
+
+Trigger NER model gate evaluation against the validation corpus.
+
+**Auth required:** Yes — `admin` only
+
+**Query params:**
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `model_name` | string | Yes | NER model to evaluate (e.g. `mistralai/ministral-14b-instruct-2512`) |
+
+**Response `200`:**
+```json
+{
+  "task_id": "celery-task-uuid",
+  "model_name": "mistralai/ministral-14b-instruct-2512",
+  "status": "queued"
+}
+```
+
+The Celery task runs on the `validation` queue. Results are written to `audit_log` with `action=model_gate_result`. The gate compares F1 against the incumbent baseline; if lower, the run is marked `failed`.
+
+---
+
+### `GET /governance/model-gate/history`
+
+Return the last 20 model gate run results.
+
+**Auth required:** Yes
+
+**Response `200`:**
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "entity_id": "mistralai/ministral-14b-instruct-2512",
+      "details": {
+        "model_name": "mistralai/ministral-14b-instruct-2512",
+        "precision": 0.91,
+        "recall": 0.88,
+        "f1": 0.895,
+        "gate_passed": true
+      },
+      "timestamp": "2024-01-05T09:05:00Z"
+    }
+  ],
+  "total": 1
 }
 ```
 
@@ -1514,7 +1760,7 @@ List all configured regulatory frameworks.
 
 **Prefix:** `/elicitation`
 
-Knowledge gap elicitation via AI-generated micro-interviews. Triggers a `MicroInterviewWorkflow` on the `kairos-elicitation` Temporal task queue. Responses are stored in `quarantine_items` for human review before graph promotion.
+Knowledge gap elicitation via AI-generated micro-interviews and off-boarding programmes. Micro-interview responses and off-boarding responses are stored in `quarantine_items` for human review before graph promotion.
 
 ---
 
@@ -1578,40 +1824,6 @@ Returns `404` if no session exists yet.
 
 ---
 
-### `POST /elicitation/{work_order_id}/voice`
-
-Submit a voice note for a work order. Transcribed via Groq Whisper, NER extracted, and stored as a `quarantine_items` entry for human review.
-
-**Auth required:** Yes
-
-**Request:** `multipart/form-data`
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `file` | binary | Yes | Audio file (WAV, MP3, M4A, FLAC) |
-
-**Processing pipeline:**
-1. SHA-256 dedup check — returns existing item if same audio file submitted twice
-2. Upload to Supabase Storage (`kairos-vault` bucket)
-3. Celery task on `transcription` queue → Groq `whisper-large-v3` transcription
-4. NER extraction on transcript text
-5. Insert into `quarantine_items` with `input_type=voice_note`
-
-**Response `202`:**
-```json
-{
-  "item_id": "q-item-uuid",
-  "transcript": "The pump seal was replaced 3 months ago and is showing wear again",
-  "confidence": 0.84,
-  "status": "quarantined",
-  "vault_path": "voice/WO-2024-001/abc123.wav"
-}
-```
-
-`confidence` is Groq's transcription confidence score. Items are quarantined for expert review before graph promotion.
-
----
-
 ### `POST /elicitation/{work_order_id}/responses`
 
 Submit Q&A responses. Stored in `quarantine_items` for expert review before graph promotion.
@@ -1635,6 +1847,199 @@ Submit Q&A responses. Stored in `quarantine_items` for expert review before grap
   "session_id": "session-uuid",
   "status": "completed",
   "quarantine_item_id": "q-item-uuid",
+  "message": "Responses stored in quarantine for expert review"
+}
+```
+
+---
+
+### `POST /elicitation/{work_order_id}/voice`
+
+Submit a voice note for a work order. Transcribed via Groq Whisper, NER extracted, stored as a `quarantine_items` entry.
+
+**Auth required:** Yes
+
+**Request:** `multipart/form-data`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | binary | Yes | Audio file (WAV, MP3, M4A, FLAC) |
+| `submitted_by` | string | Yes | User ID of submitter |
+
+**Processing pipeline:**
+1. SHA-256 dedup check — returns existing item if same audio file submitted twice
+2. Upload to Supabase Storage (`kairos-vault` bucket)
+3. Celery task on `transcription` queue → Groq `whisper-large-v3` transcription
+4. NER extraction on transcript text
+5. Insert into `quarantine_items` with `input_type=voice_note`
+
+**Response `202`:**
+```json
+{
+  "status": "accepted",
+  "work_order_id": "WO-2024-001",
+  "task_id": "celery-task-uuid",
+  "storage_path": "voice_notes/WO-2024-001/abc12345_note.wav",
+  "sha256": "abc123...",
+  "message": "Voice note stored. Transcription and NER running asynchronously."
+}
+```
+
+---
+
+### `POST /elicitation/offboarding`
+
+Start an off-boarding interview programme for a departing employee. Identifies the top equipment families from the employee's work order history (up to 6), creates one session item per family, and schedules a Celery task to generate questions for each.
+
+**Auth required:** Yes — `engineer` or `admin`
+
+**Request body:**
+```json
+{
+  "personnel_id": "tech-uuid",
+  "personnel_email": "john.smith@plant.com",
+  "retirement_date": "2024-06-30",
+  "session_interval_days": 12
+}
+```
+
+`session_interval_days` — spacing between successive interview sessions (default 12).
+
+**Response `201`:**
+```json
+{
+  "session_id": "session-uuid",
+  "personnel_id": "tech-uuid",
+  "total_sessions": 6,
+  "items": [
+    {
+      "item_id": "item-uuid",
+      "session_number": 1,
+      "equipment_family": "centrifugal_pump",
+      "scheduled_for": "2024-01-01T00:00:10Z"
+    }
+  ]
+}
+```
+
+Session 1 fires in 10 seconds (demo/test). Subsequent sessions are spaced by `session_interval_days`.
+
+---
+
+### `GET /elicitation/offboarding`
+
+List all active off-boarding programmes with completion percentage.
+
+**Auth required:** Yes
+
+**Response `200`:**
+```json
+{
+  "items": [
+    {
+      "id": "session-uuid",
+      "personnel_id": "tech-uuid",
+      "personnel_email": "john.smith@plant.com",
+      "retirement_date": "2024-06-30",
+      "total_sessions": 6,
+      "status": "scheduled",
+      "sessions_completed": 1,
+      "completion_pct": 17,
+      "created_at": "2024-01-01T00:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+### `GET /elicitation/offboarding/{session_id}`
+
+Get a specific off-boarding programme with all session items and their statuses.
+
+**Auth required:** Yes
+
+**Response `200`:**
+```json
+{
+  "id": "session-uuid",
+  "personnel_id": "tech-uuid",
+  "personnel_email": "john.smith@plant.com",
+  "retirement_date": "2024-06-30",
+  "total_sessions": 6,
+  "status": "scheduled",
+  "session_items": [
+    {
+      "id": "item-uuid",
+      "session_number": 1,
+      "equipment_family": "centrifugal_pump",
+      "status": "completed",
+      "scheduled_for": "2024-01-01T00:00:10Z",
+      "completed_at": "2024-01-01T00:05:00Z"
+    }
+  ]
+}
+```
+
+**`404`** if not found.
+
+---
+
+### `GET /elicitation/offboarding/{session_id}/questions`
+
+Return questions for all session items in this programme (items with `status=questions_ready`).
+
+**Auth required:** Yes
+
+**Response `200`:**
+```json
+{
+  "session_id": "session-uuid",
+  "total_items": 6,
+  "items_ready": 1,
+  "items": [
+    {
+      "id": "item-uuid",
+      "session_number": 1,
+      "equipment_family": "centrifugal_pump",
+      "status": "questions_ready",
+      "questions": ["..."],
+      "scheduled_for": "2024-01-01T00:00:10Z"
+    }
+  ]
+}
+```
+
+---
+
+### `POST /elicitation/offboarding/{session_id}/responses`
+
+Submit responses for one session item. Stores in `quarantine_items` with `input_type=offboarding_response`.
+
+**Auth required:** Yes
+
+**Request body:**
+```json
+{
+  "item_id": "item-uuid",
+  "responses": [
+    {"question_index": 0, "answer": "I check the mechanical seal weekly for any signs of leakage"},
+    {"question_index": 1, "answer": "The most common failure is bearing wear, usually after 18 months"}
+  ],
+  "submitted_by": "tech-uuid"
+}
+```
+
+`question_index` is an integer (0-based). `submitted_by` defaults to the current user if omitted.
+
+**Response `200`:**
+```json
+{
+  "session_id": "session-uuid",
+  "item_id": "item-uuid",
+  "quarantine_item_id": "q-item-uuid",
+  "status": "completed",
   "message": "Responses stored in quarantine for expert review"
 }
 ```
@@ -1670,6 +2075,7 @@ Submit a NER correction annotation.
 **Side effects:**
 - Inserts annotation into `ner_annotations`
 - If `is_correct=false`: reduces `quarantine_items.confidence` by 0.1 for any pending quarantine item with matching `document_id` + `entity_type`; writes `audit_log` entry with `action=confidence_recheck_queued`; records a circuit breaker override for the entity type
+- If `is_correct=true`: adds to `validation_corpus` with `authority=annotation_correction`
 
 **Response `201`:**
 ```json
@@ -1722,6 +2128,8 @@ Aggregated annotation statistics for dashboard display.
 
 Immutable audit trail. Every write operation in KAIROS appends an entry. Read-only API.
 
+> **Note:** The time column is `timestamp`, not `created_at`.
+
 ---
 
 ### `GET /audit-log/`
@@ -1733,12 +2141,12 @@ Query the audit log with optional filters.
 **Query params:**
 | Param | Type | Description |
 |-------|------|-------------|
-| `action` | string | Filter by action type (e.g. `rca_pack_generated`, `brief_acknowledged`) |
+| `action` | string | Filter by action type |
 | `entity_type` | string | Filter by entity type (`document`, `brief`, `asset`, …) |
 | `entity_id` | string | Filter by entity ID |
 | `limit` | int | Max results (default 50) |
 
-**Common action values:** `brief_acknowledged` · `confidence_recheck_queued` · `plant_state_changed` · `rca_pack_generated` · `timestamp_drift_detected` · `attribution_flag` · `quarantine_promoted` · `quarantine_disputed` · `moc_resolved` · `circuit_breaker_override`
+**Common action values:** `brief_acknowledged` · `confidence_recheck_queued` · `plant_state_changed` · `rca_pack_generated` · `timestamp_drift_detected` · `attribution_flag` · `quarantine_promoted` · `quarantine_disputed` · `moc_resolved` · `moc_webhook_received` · `circuit_breaker_override` · `equipment_tag_out` · `sla_escalated` · `model_gate_result` · `offboarding_programme_created` · `recurring_failure_detected`
 
 **Response `200`:**
 ```json
@@ -1920,7 +2328,7 @@ curl http://localhost:8000/assets/P-101
 | Role | Can do |
 |------|--------|
 | `field_worker` | Read search, read briefs, ack briefs, post alarms |
-| `engineer` | Above + ingest documents, write assets, read/resolve governance |
+| `engineer` | Above + ingest documents, write assets, read/resolve governance, start offboarding |
 | `reliability` | Above (no asset write) + promote quarantine |
 | `compliance` | Read search, read compliance, read audit |
 | `admin` | Everything |

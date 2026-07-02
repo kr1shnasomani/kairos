@@ -463,7 +463,7 @@ async def list_moc(
     result = await asyncio.to_thread(
         lambda: query.order("created_at", desc=True).limit(100).execute()
     )
-    return {"moc_items": result.data or [], "total": result.count or 0}
+    return {"items": result.data or [], "total": result.count or 0}
 
 
 @router.post("/moc/webhook", summary="Receive MoC resolution webhook from plant MoC system")

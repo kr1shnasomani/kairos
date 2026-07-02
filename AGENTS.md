@@ -2,9 +2,9 @@
 
 ## Essential Reading (load before anything else)
 - `docs/PROBLEM_STATEMENT.md` — what this platform is for and why it matters. Every decision must trace back to this.
-- `IMPLEMENTATION.md` — full task specs. The contract for every build. Tasks 1–29 defined.
+- `IMPLEMENTATION.md` — full task specs. The contract for every build. Tasks 1–34 defined.
 - `docs/ARCHITECTURE.md` — 13-layer design. Understand the layer a task lives in before touching it.
-- `MEMORY.md` — **current implementation state**: completed task table (tasks 1–29 verified ✅), known pitfalls, key architectural decisions. Read this before starting any task to avoid re-implementing completed work.
+- `MEMORY.md` — **current implementation state**: completed task table (tasks 1–34 verified ✅), known pitfalls, key architectural decisions. Read this before starting any task to avoid re-implementing completed work.
 
 ---
 

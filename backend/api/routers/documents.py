@@ -238,14 +238,14 @@ async def list_documents(
         )
         linked_ids = [r["document_id"] for r in (link_result.data or [])]
         if not linked_ids:
-            return {"documents": [], "total": 0, "limit": limit, "offset": offset}
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
         query = query.in_("document_id", linked_ids)
 
     result = await asyncio.to_thread(
         lambda: query.order("ingested_at", desc=True).range(offset, offset + limit - 1).execute()
     )
     return {
-        "documents": result.data or [],
+        "items": result.data or [],
         "total": result.count or 0,
         "limit": limit,
         "offset": offset,

@@ -35,9 +35,10 @@
 ## Documentation Index
 
 1. `docs/ARCHITECTURE.md`: The complete 13-layer platform design, constraints, and architecture.
-2. `IMPLEMENTATION.md`: Full 29-task implementation spec (the contract for the backend).
-3. `docs/DATABASE.md`: Schema and entity relationships (if applicable).
-4. `AGENTS.md`: Coding guardrails, rules, and required skills for contribution.
+2. `IMPLEMENTATION.md`: Full 34-task implementation spec (the contract for the backend).
+3. `docs/API.md`: Complete REST API reference for all 34 tasks.
+4. `docs/BACKEND.md`: Services, workers, DB schema, config, and infra reference.
+5. `AGENTS.md` / `CLAUDE.md`: Coding guardrails, rules, and required skills for contribution.
 
 ## Repository Structure
 
@@ -90,7 +91,7 @@ This single command automatically builds and launches:
 - **Databases**: `kairos-neo4j`, `kairos-qdrant`, `kairos-elasticsearch`, `kairos-redis`, `kairos-temporal-postgres`
 - **Infrastructure**: `kairos-temporal`, `kairos-temporal-ui`, `kairos-opa`, `kairos-vault`, `kairos-grafana`, `kairos-otel-collector`
 
-*(To stop the platform gracefully, press `Ctrl+C` or run `make down`)*
+*(To stop the platform gracefully, press `Ctrl+C` or run `make stop`)*
 
 ## Local URLs
 

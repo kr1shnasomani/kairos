@@ -260,8 +260,8 @@ class OffboardingCreateRequest(BaseModel):
 
 class OffboardingResponseRequest(BaseModel):
     item_id: str  # UUID of offboarding_session_items row
-    responses: List[Dict[str, str]]  # [{question, answer}, ...]
-    submitted_by: str
+    responses: List[Dict[str, Any]]  # [{question_index, answer}, ...]
+    submitted_by: Optional[str] = None  # defaults to current user if not provided
 
 
 @router.post("/offboarding", summary="Start off-boarding interview programme", status_code=status.HTTP_201_CREATED)
@@ -456,6 +456,7 @@ async def submit_offboarding_responses(
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
 ) -> dict:
+    submitter = payload.submitted_by or current_user.get("user_id", "unknown")
     # Fetch the specific session item
     item_result = await asyncio.to_thread(
         lambda: supabase.table("offboarding_session_items")
@@ -486,7 +487,7 @@ async def submit_offboarding_responses(
             "asset_id": None,
             "content": json.dumps(payload.responses),
             "input_type": "offboarding_response",
-            "submitted_by": payload.submitted_by,
+            "submitted_by": submitter,
             "session_context": {
                 "session_id": session_id,
                 "session_number": item["session_number"],

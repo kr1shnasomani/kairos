@@ -53,7 +53,6 @@ class Brief(BaseModel):
 
 
 class BriefFeedback(BaseModel):
-    brief_id: str
     rating: str = Field(..., description="accurate, missing_context, incorrect")
     notes: Optional[str] = None
     submitted_at: datetime = Field(default_factory=datetime.utcnow)

@@ -106,6 +106,9 @@ The constraint is `CHECK (input_type = ANY (ARRAY[...]))`. Adding a new `input_t
 **`audit_log` column is `timestamp`, not `created_at`.**
 The `audit_log` table uses `timestamp TIMESTAMPTZ` as its time column. Any `.order("created_at", ...)` or `.select("..., created_at")` query against `audit_log` will fail with `column audit_log.created_at does not exist`.
 
+**`workflow.logger` in Temporal is a stdlib logger, not structlog.**
+`workflow.logger` wraps Python's stdlib `logging.Logger`. It does NOT accept keyword arguments. Calling `workflow.logger.error("msg", key=val)` raises `TypeError: Logger._log() got an unexpected keyword argument`. Always use f-strings: `workflow.logger.error(f"event key={val}")`. This is distinct from structlog (used everywhere else in the codebase) which does accept keyword args.
+
 ---
 
 ## Critical Post-Volume-Reset Steps
