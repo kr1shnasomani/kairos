@@ -181,6 +181,20 @@ class GraphService:
                 created_at=datetime.now(timezone.utc).isoformat(),
             )
 
+    async def merge_concept_node(self, concept_id: str, props: Optional[Dict[str, Any]] = None) -> None:
+        """MERGE a Concept node into Neo4j (idempotent). Used for topology elements, regulations, etc."""
+        cypher = """
+        MERGE (c:Concept {concept_id: $concept_id})
+        ON CREATE SET c += $props, c.created_at = $created_at
+        """
+        async with self.driver.session(database=self.database) as session:
+            await session.run(
+                cypher,
+                concept_id=concept_id,
+                props=props or {},
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+
     async def detect_conflict(
         self,
         source_id: str,
@@ -371,6 +385,45 @@ class GraphService:
     # Blast-radius analysis (Layer 7)
     # -------------------------------------------------------------------------
 
+    async def get_event_timeline(
+        self,
+        asset_id: str,
+        window_start: str,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        Returns Event nodes linked to an asset (by property or relationship)
+        with occurred_at >= window_start, ordered chronologically.
+        """
+        cypher = """
+        MATCH (e:Event)
+        WHERE (e.asset_id = $asset_id
+               OR EXISTS { MATCH (a:Asset {asset_id: $asset_id})-[]->(e) })
+          AND e.occurred_at >= $window_start
+        RETURN DISTINCT
+            e.event_id   AS event_id,
+            e.event_type AS event_type,
+            e.occurred_at AS occurred_at,
+            e.description AS description,
+            e.document_id AS document_id,
+            e.source      AS source
+        ORDER BY e.occurred_at ASC
+        LIMIT $limit
+        """
+        async with self.driver.session(database=self.database) as session:
+            result = await session.run(cypher, asset_id=asset_id, window_start=window_start, limit=limit)
+            return [
+                {
+                    "event_id": r["event_id"],
+                    "event_type": r["event_type"],
+                    "occurred_at": r["occurred_at"],
+                    "description": r["description"] or "",
+                    "document_id": r["document_id"],
+                    "source": r["source"] or "neo4j",
+                }
+                async for r in result
+            ]
+
     async def get_blast_radius(self, document_id: str) -> Dict[str, Any]:
         """
         Traverses the graph to find all facts and downstream relationships
@@ -385,3 +438,21 @@ class GraphService:
             result = await session.run(cypher, document_id=document_id)
             affected = [{"edge": dict(record["r"]), "target": dict(record["target"])} async for record in result]
             return {"document_id": document_id, "affected_count": len(affected), "affected": affected}
+
+    async def get_last_inspection_date(self, asset_id: str) -> Optional[str]:
+        """Returns the most recent inspection Event occurred_at for an asset, or None."""
+        cypher = """
+        MATCH (e:Event)
+        WHERE (e.asset_id = $asset_id
+               OR EXISTS { MATCH (a:Asset {asset_id: $asset_id})-[]->(e) })
+          AND e.event_type = 'inspection'
+        RETURN e.occurred_at AS inspection_date
+        ORDER BY e.occurred_at DESC LIMIT 1
+        """
+        async with self.driver.session(database=self.database) as session:
+            result = await session.run(cypher, asset_id=asset_id)
+            record = await result.single()
+            if record and record["inspection_date"]:
+                val = record["inspection_date"]
+                return val.isoformat() if hasattr(val, "isoformat") else str(val)
+            return None

@@ -45,7 +45,7 @@ async def get_my_briefs(
             "brief_id, trigger_event_id, trigger_event_type, asset_id, work_order_id, ptw_id, "
             "recipient_user_id, priority, headline, body, action_items, warnings, "
             "quarantine_flags, sources, confidence, requires_countersignature, "
-            "delivered_at, acknowledged_at, acknowledged_by, created_at"
+            "delivered_at, acknowledged_at, acknowledged_by, delivery_frozen, created_at"
         )
         .or_(f"recipient_user_id.eq.{user_id},recipient_user_id.eq.{site_recipient}" if site_recipient else f"recipient_user_id.eq.{user_id}")
         .order("created_at", desc=True)
@@ -57,9 +57,13 @@ async def get_my_briefs(
     result = await asyncio.to_thread(lambda: query.execute())
     all_briefs = result.data or []
 
-    # Separate critical (always pass) from non-critical (subject to governor)
-    critical = [b for b in all_briefs if b.get("priority") == "critical"]
-    normal = [b for b in all_briefs if b.get("priority") != "critical"]
+    # Frozen briefs are shown but excluded from governor push counting and delivery
+    frozen = [b for b in all_briefs if b.get("delivery_frozen")]
+    unfrozen = [b for b in all_briefs if not b.get("delivery_frozen")]
+
+    # Separate critical (always pass) from non-critical (subject to governor) within unfrozen
+    critical = [b for b in unfrozen if b.get("priority") == "critical"]
+    normal = [b for b in unfrozen if b.get("priority") != "critical"]
 
     suppressed_count = 0
     if gov["state"] == "suppressed":
@@ -67,21 +71,45 @@ async def get_my_briefs(
         normal = []
         log.info("governor.suppressed_briefs", user_id=user_id, suppressed=suppressed_count)
 
+    # Plant state gate: turnaround/shutdown/emergency suppresses all non-critical briefs
+    if normal and site_id:
+        plant_state = await bus.get_plant_state(site_id, supabase)
+        if plant_state in ("turnaround", "shutdown", "emergency"):
+            suppressed_count += len(normal)
+            log.info(
+                "governor.plant_state_suppression",
+                user_id=user_id,
+                site_id=site_id,
+                plant_state=plant_state,
+                suppressed=len(normal),
+                reason="plant_state_suppression",
+            )
+            normal = []
+
     delivered = critical + normal
 
-    # Record a push event for each brief actually returned to the operator
+    # Record a push event only for non-frozen briefs actually delivered
     for _ in delivered:
         await bus.record_push(user_id)
 
     # Refresh governor state after recording pushes
     gov = await bus.get_governor_state(user_id)
 
+    # Tag frozen briefs so the frontend can render the freeze banner
+    for b in frozen:
+        b["frozen"] = True
+        b["freeze_reason"] = "Physical deviation flag pending resolution"
+
     return {
-        "briefs": delivered,
-        "total_pending": len(delivered),
+        "briefs": delivered + frozen,
+        "total_pending": len(delivered) + len(frozen),
         "suppressed_count": suppressed_count,
-        "governor_state": gov["state"],
-        "push_count_last_hour": gov["push_count_last_hour"],
+        "governor_state": {
+            "push_count_last_hour": gov["push_count_last_hour"],
+            "ceiling": gov["ceiling"],
+            "state": gov["state"],
+        },
+        "next_delivery_allowed_at": gov.get("next_delivery_allowed_at"),
     }
 
 

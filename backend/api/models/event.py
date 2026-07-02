@@ -64,3 +64,22 @@ class EventAck(BaseModel):
     acknowledged_at: datetime = Field(default_factory=datetime.utcnow)
     signature: Optional[str] = None  # Cryptographic signature for audit trail
     notes: Optional[str] = None
+
+
+class DeviationFlagEvent(BaseModel):
+    asset_id: str
+    description: str
+    reported_by: Optional[str] = None
+    affected_topology_path: Optional[str] = None
+
+
+class DeviationFlagResolveRequest(BaseModel):
+    resolution: str = Field(..., description="'promoted' or 'disputed'")
+    moc_warranted: bool = False
+    notes: Optional[str] = None
+
+
+class PlantStateEvent(BaseModel):
+    site_id: str
+    state: str = Field(..., description="normal, turnaround, shutdown, emergency")
+    expires_at: Optional[datetime] = None

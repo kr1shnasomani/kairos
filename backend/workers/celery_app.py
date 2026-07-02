@@ -18,6 +18,7 @@ celery_app = Celery(
         "workers.extraction",
         "workers.attribution",
         "workers.voice_transcription",
+        "workers.brief_assembly",
     ],
 )
 
@@ -32,6 +33,7 @@ celery_app.conf.update(
         "workers.extraction.*": {"queue": "extraction"},
         "workers.attribution.*": {"queue": "attribution"},
         "workers.voice_transcription.*": {"queue": "transcription"},
+        "workers.brief_assembly.*": {"queue": "ingestion"},
     },
     task_track_started=True,
     task_acks_late=True,  # Ensure tasks aren't lost if worker crashes

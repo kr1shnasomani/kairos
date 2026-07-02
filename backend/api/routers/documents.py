@@ -35,6 +35,7 @@ async def ingest_document(
     document_type: str = Form(..., description="oem_manual, procedure, inspection_report, ptw, shift_log, regulation"),
     source_system: str = Form("manual_upload"),
     authority_level: int = Form(4, ge=1, le=5, description="1=Regulatory 2=Engineering 3=OEM 4=Procedure 5=Field"),
+    occurred_at: Optional[str] = Form(None, description="Source document timestamp ISO8601 (e.g. 2024-01-15T08:30:00Z)"),
 ) -> dict:
     """
     Ingests a document into the immutable vault (Supabase Storage).
@@ -111,6 +112,7 @@ async def ingest_document(
                 "status": "active",
                 "ingested_at": now,
                 "ingested_by": current_user.get("user_id", "unknown"),
+                "occurred_at": occurred_at,
             }).execute()
         )
 
@@ -321,6 +323,41 @@ async def get_extraction_results(
         vector_chunks_indexed=0,
         review_items=[],  # populated by link_to_graph activity in Task 5
     )
+
+
+@router.get("/{document_id}/topology", summary="Get extracted P&ID topology for engineer verification")
+async def get_document_topology(
+    document_id: str,
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    """
+    Returns the topology JSON extracted from a pid_drawing document.
+    All elements are unverified — engineer must confirm element-by-element before canonical promotion.
+    """
+    result = await asyncio.to_thread(
+        lambda: supabase.table("quarantine_items")
+        .select("session_context, item_id, submitted_at")
+        .eq("content", f"PID_TOPOLOGY_MANIFEST:{document_id}")
+        .eq("input_type", "deviation_flag")
+        .limit(1)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No P&ID topology found for document '{document_id}'. "
+                   "Ensure it was ingested with document_type='pid_drawing'.",
+        )
+
+    ctx = result.data[0]["session_context"]
+    return {
+        "document_id": document_id,
+        "manifest_item_id": str(result.data[0]["item_id"]),
+        "verification_status": "unverified",
+        "topology": ctx.get("topology", {}),
+        "extracted_at": result.data[0]["submitted_at"],
+    }
 
 
 @router.get("/{document_id}", summary="Get vault document metadata")

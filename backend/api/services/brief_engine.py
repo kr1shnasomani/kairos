@@ -100,6 +100,22 @@ class BriefEngine:
             for p in procedures[:3]:
                 body_lines.append(f"  • {p.get('title') or p.get('document_id', '?')}")
 
+        # Enrich with correlated events from the same compound event window
+        correlated = await self._get_correlated_events(str(event.event_id))
+        for c in correlated:
+            et = c.get("event_type", "")
+            p = c.get("payload") or {}
+            if et == "alarm_acknowledged":
+                body_lines.append(
+                    f"\n[DCS ALARM correlated] Tag: {p.get('alarm_tag', '?')} — {p.get('alarm_description', '')}"
+                )
+            elif et == "ptw_generated":
+                body_lines.append(
+                    f"\n[PTW correlated] ID: {p.get('ptw_id', '?')} | Isolation: {p.get('isolation_points', [])}"
+                )
+            elif et in ("shift_handover", "work_order_created"):
+                body_lines.append(f"\n[{et.upper()} correlated] at {c.get('occurred_at', '?')}")
+
         confidence = _calc_confidence(graph_edges, vector_hits)
 
         return Brief(
@@ -320,6 +336,30 @@ class BriefEngine:
     # -------------------------------------------------------------------------
     # Private helpers
     # -------------------------------------------------------------------------
+
+    async def _get_correlated_events(self, event_id: str) -> List[Dict[str, Any]]:
+        """Fetches other events sharing the same compound_event_id."""
+        try:
+            row = await asyncio.to_thread(
+                lambda: self.supabase.table("operational_events")
+                .select("compound_event_id")
+                .eq("event_id", event_id)
+                .execute()
+            )
+            compound_id = row.data[0].get("compound_event_id") if row.data else None
+            if not compound_id:
+                return []
+            corr = await asyncio.to_thread(
+                lambda: self.supabase.table("operational_events")
+                .select("event_type, payload, occurred_at")
+                .eq("compound_event_id", compound_id)
+                .neq("event_id", event_id)
+                .execute()
+            )
+            return corr.data or []
+        except Exception as e:
+            log.warning("brief_engine.correlated_events_failed", error=str(e))
+            return []
 
     async def _vector_search(self, query: str, asset_id: str) -> List[Dict[str, Any]]:
         try:

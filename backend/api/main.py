@@ -17,7 +17,9 @@ from api.middleware.telemetry import setup_telemetry
 from api.services.search_engine import SearchEngineService
 from api.services.vector_store import VectorStoreService
 from api.routers import (
+    annotations,
     assets,
+    audit_log,
     auth,
     briefs,
     compliance,
@@ -104,6 +106,8 @@ def create_app() -> FastAPI:
     app.include_router(governance.router, prefix="/governance", tags=["Governance (Layer 7)"])
     app.include_router(compliance.router, prefix="/compliance", tags=["Compliance"])
     app.include_router(elicitation.router, prefix="/elicitation", tags=["Elicitation (Layer 6)"])
+    app.include_router(annotations.router, prefix="/annotations", tags=["Annotations (Layer 3)"])
+    app.include_router(audit_log.router, prefix="/audit-log", tags=["Audit Log"])
 
     # -------------------------------------------------------------------------
     # Global exception handler

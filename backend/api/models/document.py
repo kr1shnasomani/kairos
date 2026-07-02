@@ -26,6 +26,25 @@ class SynthesizeResponse(BaseModel):
     message: Optional[str] = None
 
 
+class RCAPackRequest(BaseModel):
+    asset_id: str
+    incident_date: datetime
+    failure_code: str
+    include_quarantine: bool = False
+
+
+class RCAPackResponse(BaseModel):
+    asset_id: str
+    incident_date: str
+    failure_code: str
+    timeline: List[Dict[str, Any]] = Field(default_factory=list)
+    hypotheses: List[Dict[str, Any]] = Field(default_factory=list)
+    supporting_documents: List[Dict[str, Any]] = Field(default_factory=list)
+    confidence: Optional[float] = None
+    refused: bool = False
+    synthesis_available: bool = False
+
+
 class VaultDocument(BaseModel):
     document_id: str
     sha256_hash: str

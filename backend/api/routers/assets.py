@@ -117,7 +117,7 @@ async def list_assets(
         skip=offset,
         limit=limit,
     )
-    return {**result, "limit": limit, "offset": offset}
+    return {"items": result["assets"], "total": result["total"], "limit": limit, "offset": offset}
 
 
 @router.get("/{asset_id}", summary="Get asset by canonical ID")
@@ -125,13 +125,38 @@ async def get_asset(
     asset_id: str,
     current_user: CurrentUserDep,
     driver: Neo4jDep,
+    supabase: SupabaseDep,
 ) -> dict:
-    """Returns the canonical asset node from the temporal graph."""
+    """Returns the canonical asset node with live operational enrichment."""
     graph = GraphService(driver)
     asset = await graph.get_asset(asset_id)
     if not asset:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Asset '{asset_id}' not found")
-    return asset
+
+    wo_future = asyncio.to_thread(
+        lambda: supabase.table("operational_events")
+        .select("event_id", count="exact")
+        .eq("asset_id", asset_id)
+        .eq("event_type", "work_order_created")
+        .execute()
+    )
+    gap_future = asyncio.to_thread(
+        lambda: supabase.table("knowledge_conflicts")
+        .select("conflict_id", count="exact")
+        .eq("asset_id", asset_id)
+        .eq("status", "open")
+        .execute()
+    )
+    inspection_future = graph.get_last_inspection_date(asset_id)
+
+    wo_result, gap_result, last_inspection = await asyncio.gather(wo_future, gap_future, inspection_future)
+
+    return {
+        **asset,
+        "open_work_orders_count": wo_result.count or 0,
+        "compliance_gap_count": gap_result.count or 0,
+        "last_inspection_date": last_inspection,
+    }
 
 
 @router.get("/{asset_id}/aliases", summary="List all known tag aliases for an asset")

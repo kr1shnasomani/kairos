@@ -34,6 +34,7 @@ async def list_conflicts(
     asset_id: Optional[str] = Query(None),
     conflict_status: Optional[str] = Query(None, alias="status", description="open, pending_moc, resolved"),
     limit: int = Query(50, le=200),
+    offset: int = Query(0),
 ) -> dict:
     """
     Returns conflicts from the dual-track governance plane.
@@ -52,9 +53,9 @@ async def list_conflicts(
         query = query.eq("status", conflict_status)
 
     result = await asyncio.to_thread(
-        lambda: query.order("created_at", desc=True).limit(limit).execute()
+        lambda: query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     )
-    return {"conflicts": result.data or [], "total": result.count or 0}
+    return {"items": result.data or [], "total": result.count or 0, "limit": limit, "offset": offset}
 
 
 @router.get("/conflicts/{conflict_id}", summary="Get conflict detail and blast-radius report")
@@ -144,13 +145,15 @@ async def list_quarantine(
     reviewer_id: Optional[str] = Query(None),
     review_status: Optional[str] = Query(None, description="pending, promoted, disputed, archived"),
     limit: int = Query(50, le=200),
+    offset: int = Query(0),
 ) -> dict:
     """
     Returns unverified field inputs awaiting review.
     All quarantine results are clearly labeled as non-canonical.
+    Items with input_type='elicitation_response' include full session_context (questions + answers).
     """
     query = supabase.table("quarantine_items").select(
-        "item_id, asset_id, content, input_type, submitted_by, submitted_at, reviewer_id, review_status, work_order_id",
+        "item_id, asset_id, content, input_type, submitted_by, submitted_at, reviewer_id, review_status, work_order_id, session_context",
         count="exact",
     )
     if asset_id:
@@ -163,11 +166,13 @@ async def list_quarantine(
         query = query.eq("review_status", "pending")  # default: pending items only
 
     result = await asyncio.to_thread(
-        lambda: query.order("submitted_at", desc=True).limit(limit).execute()
+        lambda: query.order("submitted_at", desc=True).range(offset, offset + limit - 1).execute()
     )
     return {
         "items": result.data or [],
         "total": result.count or 0,
+        "limit": limit,
+        "offset": offset,
         "note": "All items are unverified field inputs — not reviewed by engineering authority.",
     }
 
@@ -294,16 +299,17 @@ async def dispute_quarantine_item(
     """Flags a quarantine item as disputed with a reason. Does not delete it."""
     result = await asyncio.to_thread(
         lambda: supabase.table("quarantine_items")
-        .select("item_id, review_status")
+        .select("item_id, review_status, asset_id, session_context")
         .eq("item_id", item_id)
         .execute()
     )
     if not result.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Quarantine item '{item_id}' not found")
-    if result.data[0]["review_status"] != "pending":
+    item = result.data[0]
+    if item["review_status"] != "pending":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Item is already '{result.data[0]['review_status']}', cannot dispute.",
+            detail=f"Item is already '{item['review_status']}', cannot dispute.",
         )
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -314,8 +320,46 @@ async def dispute_quarantine_item(
             "reviewed_at": now_iso,
         }).eq("item_id", item_id).execute()
     )
+
+    # Circuit breaker: record quarantine rejection override
+    from api.services.circuit_breaker import CircuitBreakerService
+    cb = CircuitBreakerService(supabase)
+    asset_class = "unknown"
+    q_asset_id = item.get("asset_id")
+    if q_asset_id:
+        asset_row = await asyncio.to_thread(
+            lambda: supabase.table("assets").select("equipment_class").eq("asset_id", q_asset_id).execute()
+        )
+        if asset_row.data:
+            asset_class = asset_row.data[0].get("equipment_class") or "unknown"
+    doc_id = (item.get("session_context") or {}).get("document_id")
+    await cb.record_override(asset_class, doc_id, "quarantine_rejection")
+
     log.info("quarantine.disputed", item_id=item_id, user=current_user.get("user_id"))
     return {"status": "disputed", "item_id": item_id, "reason": reason}
+
+
+# =============================================================================
+# Circuit Breaker (SPC — Layer 7)
+# =============================================================================
+
+@router.get("/circuit-breaker", summary="SPC circuit breaker status per asset class")
+async def get_circuit_breaker_status(
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    """
+    Returns the current Z-score and halted status for every asset class
+    that has recorded extraction overrides in the last 30 days.
+    A halted asset class blocks new graph writes until override rate normalises.
+    """
+    from api.services.circuit_breaker import CircuitBreakerService
+    cb = CircuitBreakerService(supabase)
+    states = await cb.get_all_states()
+    return {
+        "states": states,
+        "halted_count": sum(1 for s in states if s["halted"]),
+    }
 
 
 # =============================================================================

@@ -203,6 +203,98 @@ SOURCES_USED: [comma-separated source numbers]"""
         out["sources_used"] = [int(x.strip()) for x in str(raw_sources).split(",") if x.strip().isdigit()]
         return out
 
+    async def rca_synthesize(
+        self,
+        failure_code: str,
+        timeline: List[Dict[str, Any]],
+        evidence: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Generates an RCA pack via NIM/Ollama.
+        Returns raw LLM answer dict; caller parses hypotheses via parse_rca_response().
+        Falls back gracefully when no LLM is configured.
+        """
+        timeline_text = "\n".join(
+            f"- [{e.get('occurred_at', '')}] {e.get('event_type', 'event')}: {e.get('description', '')}"
+            for e in timeline
+        ) or "No events found in the 90-day window."
+
+        evidence_text = self._format_context(evidence) if evidence else "No evidence documents found."
+
+        prompt = f"""You are the KAIROS RCA engine for an industrial operational intelligence platform.
+
+Generate a Root Cause Analysis (RCA) pack for failure code: {failure_code}
+
+FAILURE TIMELINE (chronological):
+{timeline_text}
+
+EVIDENCE DOCUMENTS:
+{evidence_text}
+
+Instructions:
+- Rank failure mode hypotheses by evidence weight (1.0 = fully supported, 0.0 = speculative).
+- Cite every hypothesis to the specific source document_id(s) from the evidence above.
+- NEVER invent information not present in the sources.
+
+Respond in this exact format:
+HYPOTHESES:
+1. [hypothesis text] | evidence_weight: [0.0-1.0] | sources: [document_id, document_id]
+2. [hypothesis text] | evidence_weight: [0.0-1.0] | sources: [document_id]
+
+CONFIDENCE: [0.0-1.0]
+UNCERTAINTY: [what is not yet known or requires further investigation]"""
+
+        if self.nim_available:
+            return await self._synthesize_nim(prompt, evidence)
+        elif self.ollama_available:
+            return await self._synthesize_ollama(prompt, evidence)
+        return {
+            "answer": None,
+            "sources": evidence,
+            "confidence": None,
+            "message": "No LLM configured. Set NVIDIA_NIM_API_KEY or ensure Ollama is running.",
+        }
+
+    @staticmethod
+    def parse_rca_response(text: str) -> Dict[str, Any]:
+        """
+        Parses LLM RCA output into structured hypotheses list.
+        Expected format from rca_synthesize prompt:
+          HYPOTHESES:
+          1. text | evidence_weight: 0.8 | sources: DOC-A, DOC-B
+          CONFIDENCE: 0.75
+        """
+        hypotheses: List[Dict[str, Any]] = []
+
+        hyp_match = re.search(r"HYPOTHESES:\n(.*?)(?=\n[A-Z]+:|$)", text, re.DOTALL)
+        if hyp_match:
+            for line in hyp_match.group(1).strip().splitlines():
+                line = line.strip()
+                if not line or not re.match(r"^\d+\.", line):
+                    continue
+                parts = [p.strip() for p in line.split("|")]
+                hyp_text = re.sub(r"^\d+\.\s*", "", parts[0]).strip()
+                weight = 0.5
+                sources: List[str] = []
+                for part in parts[1:]:
+                    if "evidence_weight" in part:
+                        m = re.search(r"[\d.]+", part.split(":", 1)[-1])
+                        if m:
+                            try:
+                                weight = float(m.group())
+                            except ValueError:
+                                pass
+                    elif "sources" in part:
+                        raw = part.split(":", 1)[-1].strip()
+                        sources = [s.strip() for s in raw.split(",") if s.strip()]
+                if hyp_text:
+                    hypotheses.append({"hypothesis": hyp_text, "evidence_weight": weight, "sources": sources})
+
+        conf_match = re.search(r"CONFIDENCE:\s*([\d.]+)", text)
+        confidence = float(conf_match.group(1)) if conf_match else None
+
+        return {"hypotheses": hypotheses, "confidence": confidence}
+
     @property
     def jina_available(self) -> bool:
         return bool(self.settings.JINA_API_KEY)

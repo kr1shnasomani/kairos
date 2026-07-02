@@ -111,6 +111,7 @@ async def list_compliance_gaps(
     site_id: Optional[str] = Query(None),
     severity: Optional[str] = Query(None, description="critical, major, minor"),
     limit: int = Query(100, le=500),
+    offset: int = Query(0),
 ) -> dict:
     """
     Detects gaps: Regulation nodes with no verified procedure edge on applicable assets.
@@ -126,13 +127,13 @@ async def list_compliance_gaps(
         )
         rows = [dict(r) async for r in result]
 
-    gaps = [
+    items = [
         {**r, "severity": _severity(r["authority_level"])}
         for r in rows
         if severity is None or _severity(r["authority_level"]) == severity
     ]
 
-    return {"gaps": gaps, "total": len(gaps), "framework": framework, "last_scan": "realtime"}
+    return {"items": items, "total": len(items), "limit": limit, "offset": offset, "framework": framework, "last_scan": "realtime"}
 
 
 @router.get("/dashboard", summary="Compliance posture dashboard")

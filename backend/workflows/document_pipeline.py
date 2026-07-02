@@ -9,6 +9,7 @@ download directly from Supabase Storage — the vault is the source of truth.
 
 import asyncio
 import hashlib
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -176,16 +177,119 @@ async def run_ocr(
     vault_path: str,
     mime_type: str,
     job_id: str,
+    document_type: str = "unknown",
 ) -> Dict[str, Any]:
     """
     Downloads the document from Storage and runs the OCR pipeline.
-    - Confidence >= 0.5  → advances stage to ner_running
-    - Confidence < 0.5   → sets stage to review_required, publishes to
-                           Redis Stream kairos:events:review_required
+    - pid_drawing       → skips OCR; loads mock topology fixture; routes all elements to quarantine
+    - Confidence >= 0.5 → advances stage to ner_running
+    - Confidence < 0.5  → sets stage to review_required, publishes to kairos:events:review_required
     """
+    import json
+    import os
+
     from api.services.ocr import OCRService
 
     supabase = _get_supabase()
+
+    # ── PID drawing fast path: topology extraction, no OCR ──────────────────
+    if document_type == "pid_drawing":
+        from api.services.graph import GraphService
+
+        fixture_path = os.path.join(os.path.dirname(__file__), "..", "fixtures", "pid_topology_mock.json")
+        with open(fixture_path) as f:
+            topology = json.load(f)
+
+        graph = GraphService(_get_neo4j_driver())
+        now = datetime.now(timezone.utc)
+
+        # Merge Document node with pid_topology type so edges can point to it
+        await graph.merge_document_node(document_id, {"document_type": "pid_topology", "authority_level": 3})
+
+        # Flatten all topology elements into one iterable
+        all_elements = (
+            [{"element_group": "equipment_nodes", **e} for e in topology.get("equipment_nodes", [])]
+            + [{"element_group": "isolation_valves", **v} for v in topology.get("isolation_valves", [])]
+            + [{"element_group": "instrumentation_loops", **l} for l in topology.get("instrumentation_loops", [])]
+            + [{"element_group": "isolation_boundaries", **b} for b in topology.get("isolation_boundaries", [])]
+        )
+
+        element_count = 0
+        for elem in all_elements:
+            elem_id = elem["id"]
+            elem_group = elem["element_group"]
+
+            # Merge Concept node so the KNOWLEDGE_EDGE MATCH succeeds
+            await graph.merge_concept_node(elem_id, {
+                "label": elem.get("tag") or elem.get("loop_id") or elem.get("boundary_id") or elem_id,
+                "element_type": elem_group,
+                "source_document_id": document_id,
+            })
+
+            # Unverified edge: Document -[CONTAINS_TOPOLOGY_ELEMENT]-> Concept
+            try:
+                await graph.create_knowledge_edge(
+                    source_id=document_id,
+                    source_label="Document",
+                    target_id=elem_id,
+                    target_label="Concept",
+                    relationship_type="CONTAINS_TOPOLOGY_ELEMENT",
+                    valid_from=now,
+                    authority_level=3,
+                    document_id=document_id,
+                    confidence=0.85,
+                    verification_status="unverified",
+                )
+            except Exception as exc:
+                log.warning("pid.edge_create_failed", element_id=elem_id, error=str(exc))
+
+            # Each element → quarantine for human element-by-element engineer verification
+            ctx = {k: v for k, v in elem.items() if k != "element_group"}
+            ctx["source_document_id"] = document_id
+            ctx["element_group"] = elem_group
+            await asyncio.to_thread(
+                lambda eid=elem_id, eg=elem_group, c=ctx: supabase.table("quarantine_items").insert({
+                    "asset_id": None,
+                    "content": f"PID element: {eid} ({eg})",
+                    "input_type": "deviation_flag",
+                    "submitted_by": "extraction_pipeline",
+                    "session_context": c,
+                }).execute()
+            )
+            element_count += 1
+
+        # One manifest item with the full topology JSON — serves GET /topology
+        await asyncio.to_thread(
+            lambda: supabase.table("quarantine_items").insert({
+                "asset_id": None,
+                "content": f"PID_TOPOLOGY_MANIFEST:{document_id}",
+                "input_type": "deviation_flag",
+                "submitted_by": "extraction_pipeline",
+                "session_context": {
+                    "source_document_id": document_id,
+                    "element_type": "topology_manifest",
+                    "topology": topology,
+                },
+            }).execute()
+        )
+
+        await asyncio.to_thread(
+            lambda: supabase.table("extraction_jobs").update({
+                "pipeline_stage": "pid_topology_queued",
+                "progress_pct": 80,
+                "entity_count": element_count,
+            }).eq("job_id", job_id).execute()
+        )
+
+        log.info("activity.pid_topology_extracted", document_id=document_id, elements=element_count)
+        return {
+            "pid_drawing": True,
+            "text": "",
+            "overall_confidence": 1.0,
+            "requires_review": False,
+            "element_count": element_count,
+        }
+    # ── End PID fast path ───────────────────────────────────────────────────
 
     # Download bytes from vault (activities re-download independently — vault is truth)
     file_bytes = await asyncio.to_thread(
@@ -316,10 +420,110 @@ async def link_to_graph(
     )
     alias_map = {row["alias"]: row["canonical_asset_id"] for row in (alias_result.data or [])}
 
-    # Ensure the Document node exists in Neo4j before any edges point at it
-    await graph.merge_document_node(document_id, {"authority_level": authority_level, "document_type": document_type})
+    doc_meta = await asyncio.to_thread(
+        lambda: supabase.table("documents")
+        .select("document_type, occurred_at, ingested_at")
+        .eq("document_id", document_id)
+        .execute()
+    )
+    doc_row = doc_meta.data[0] if doc_meta.data else {}
+    doc_type = doc_row.get("document_type", "unknown")
+    await graph.merge_document_node(document_id, {"authority_level": authority_level, "document_type": doc_type})
+
+    # Circuit breaker pre-flight: check Z-score per asset_class before any graph writes
+    from api.services.circuit_breaker import CircuitBreakerService
+    cb = CircuitBreakerService(supabase)
+
+    candidate_ids = list({
+        ner.resolve_asset_tag(e.get("text", ""), alias_map)
+        for e in entities
+        if e.get("entity_type") == "ASSET_TAG" and e.get("confidence", 0.0) >= 0.7
+    } - {None})
+
+    asset_class_map: Dict[str, str] = {}
+    if candidate_ids:
+        asset_rows = await asyncio.to_thread(
+            lambda: supabase.table("assets").select("asset_id, equipment_class").in_("asset_id", candidate_ids).execute()
+        )
+        asset_class_map = {
+            r["asset_id"]: (r.get("equipment_class") or "unknown")
+            for r in (asset_rows.data or [])
+        }
+
+    checked_classes: Dict[str, dict] = {}
+    for cid in candidate_ids:
+        ac = asset_class_map.get(cid, "unknown")
+        if ac not in checked_classes:
+            checked_classes[ac] = await cb.check(ac)
+
+    halted_classes = [ac for ac, r in checked_classes.items() if r["halted"]]
+    if halted_classes:
+        redis = _get_redis()
+        await asyncio.to_thread(
+            lambda: redis.xadd("kairos:events:review_required", {
+                "document_id": document_id,
+                "reason": "circuit_breaker_halted",
+                "halted_classes": ",".join(halted_classes),
+                "job_id": job_id,
+            })
+        )
+        log.warning(
+            "activity.link_to_graph.circuit_breaker_halted",
+            document_id=document_id,
+            halted_classes=halted_classes,
+        )
+        return {
+            "edges_created": 0,
+            "quarantine_count": 0,
+            "circuit_breaker_halted": True,
+            "halted_classes": halted_classes,
+        }
 
     now = datetime.now(timezone.utc)
+
+    # Timestamp normalization: canonical_valid_from = ingested_at by default;
+    # use source occurred_at only when drift is within tolerance
+    _ingested_str = doc_row.get("ingested_at")
+    _occurred_str = doc_row.get("occurred_at")
+    _ingested_dt = (
+        datetime.fromisoformat(_ingested_str.replace("Z", "+00:00"))
+        if _ingested_str else now
+    )
+    canonical_valid_from = _ingested_dt
+
+    if _occurred_str:
+        _tol = int(os.environ.get("TIMESTAMP_DRIFT_TOLERANCE_MINUTES", "60"))
+        _source_dt = datetime.fromisoformat(_occurred_str.replace("Z", "+00:00"))
+        _drift = abs((_source_dt - _ingested_dt).total_seconds() / 60)
+        if _drift > _tol:
+            await asyncio.to_thread(
+                lambda: supabase.table("audit_log").insert({
+                    "action": "timestamp_drift_detected",
+                    "entity_type": "document",
+                    "entity_id": document_id,
+                    "performed_by": "extraction_pipeline",
+                    "details": {
+                        "source_ts": _occurred_str,
+                        "ingested_ts": _ingested_str,
+                        "drift_minutes": round(_drift, 2),
+                    },
+                }).execute()
+            )
+            await asyncio.to_thread(
+                lambda: supabase.table("extraction_jobs")
+                .update({"timestamp_drift_detected": True})
+                .eq("job_id", job_id)
+                .execute()
+            )
+            log.warning(
+                "activity.timestamp_drift_detected",
+                document_id=document_id,
+                drift_minutes=round(_drift, 2),
+                source_ts=_occurred_str,
+            )
+        else:
+            canonical_valid_from = _source_dt
+
     edges_created = 0
     quarantine_count = 0
 
@@ -355,7 +559,7 @@ async def link_to_graph(
                     target_id=document_id,
                     target_label="Document",
                     relationship_type="DOCUMENTED_BY",
-                    valid_from=now,
+                    valid_from=canonical_valid_from,
                     authority_level=authority_level,
                     document_id=document_id,
                     confidence=confidence,
@@ -588,17 +792,36 @@ class DocumentIngestionWorkflow:
         # ── Step 2: OCR ─────────────────────────────────────────────────────
         ocr_result = await workflow.execute_activity(
             run_ocr,
-            args=[document_id, vault_path, mime_type, job_id],
+            args=[document_id, vault_path, mime_type, job_id, document_type],
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=DEFAULT_RETRY,
         )
 
+        # PID drawings: topology loaded into quarantine; skip NER/linking/indexing
+        if ocr_result.get("pid_drawing"):
+            await workflow.execute_activity(
+                mark_complete,
+                args=[job_id, document_id],
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=DEFAULT_RETRY,
+            )
+            workflow.logger.info(
+                "document_pipeline.pid_topology_complete",
+                document_id=document_id,
+                elements=ocr_result.get("element_count", 0),
+            )
+            return {
+                "document_id": document_id,
+                "status": "pid_topology_queued",
+                "element_count": ocr_result.get("element_count", 0),
+            }
+
         # Early exit: low-confidence OCR routes to human review
         if ocr_result.get("requires_review"):
             workflow.logger.warning(
-                "document_pipeline.routed_to_review",
-                document_id=document_id,
-                confidence=ocr_result["overall_confidence"],
+                "document_pipeline.routed_to_review document_id=%s confidence=%s",
+                document_id,
+                ocr_result["overall_confidence"],
             )
             return {
                 "document_id": document_id,

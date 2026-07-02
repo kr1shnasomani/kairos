@@ -149,6 +149,7 @@ class Settings(BaseSettings):
     BRIEF_COOLDOWN_HOURS: int = 4
     DEDUP_WINDOW_MINUTES: int = 10
     LATE_ARRIVAL_WINDOW_MINUTES: int = 5
+    PLANT_STATE_DEFAULT: str = "normal"
 
     # -------------------------------------------------------------------------
     # Go Connector
@@ -168,6 +169,11 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     NVIDIA_NIM_OCR_MODEL: str = "nvidia/nemotron-ocr-v2"
     NVIDIA_NIM_NER_MODEL: str = "mistralai/ministral-14b-instruct-2512"
+
+    # -------------------------------------------------------------------------
+    # Ingestion pipeline
+    # -------------------------------------------------------------------------
+    TIMESTAMP_DRIFT_TOLERANCE_MINUTES: int = 60
 
 
 @lru_cache
