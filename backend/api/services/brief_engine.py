@@ -377,7 +377,7 @@ class BriefEngine:
     async def _get_quarantine(self, asset_id: str) -> List[Dict[str, Any]]:
         result = await asyncio.to_thread(
             lambda: self.supabase.table("quarantine_items")
-            .select("item_id, source_document_id, review_status")
+            .select("item_id, review_status")
             .eq("asset_id", asset_id)
             .eq("review_status", "pending")
             .execute()

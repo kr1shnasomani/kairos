@@ -18,9 +18,11 @@
 8. [Governance](#8-governance)
 9. [Compliance](#9-compliance)
 10. [Elicitation](#10-elicitation)
-11. [Go OT Connector (port 8090)](#11-go-ot-connector-port-8090)
-12. [Error Codes](#12-error-codes)
-13. [Auth Quick-Reference](#13-auth-quick-reference)
+11. [Annotations](#11-annotations)
+12. [Audit Log](#12-audit-log)
+13. [Go OT Connector (port 8090)](#13-go-ot-connector-port-8090)
+14. [Error Codes](#14-error-codes)
+15. [Auth Quick-Reference](#15-auth-quick-reference)
 
 ---
 
@@ -204,11 +206,7 @@ Key fields:
 {
   "asset_id": "P-101",
   "tag_number": "P-101",
-  "name": "Feed Pump Alpha",
-  "equipment_class": "pump",
-  "site_id": "SITE_001",
-  "criticality": "safety_critical",
-  "created_at": "2024-01-01T00:00:00Z"
+  "status": "created"
 }
 ```
 
@@ -291,7 +289,6 @@ Get all temporal graph facts linked to this asset from Neo4j.
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `as_of` | ISO8601 datetime | `now` | Time-travel: return facts valid at this timestamp |
-| `max_authority` | int 1–5 | `5` | Maximum authority level to include |
 
 **Response `200`:**
 ```json
@@ -412,7 +409,7 @@ Get full NER extraction results.
 ```json
 {
   "document_id": "doc-uuid",
-  "extraction_model": "spacy-en-core-web-lg",
+  "extraction_model": "mistralai/ministral-14b-instruct-2512",
   "entities": [
     {
       "entity_type": "process_parameter",
@@ -464,6 +461,40 @@ Get vault document metadata.
 ```
 
 `status` values: `active | superseded | archived | disputed`
+
+---
+
+### `GET /documents/{document_id}/topology`
+
+Get the parsed P&ID / engineering drawing topology for a drawing document.
+
+**Auth required:** Yes
+
+Only available for documents with `document_type = "engineering_drawing"`. Topology is extracted at ingest time by the mock PID topology pipeline (Task 20) — the OCR stage is skipped, and element data is loaded from the embedded fixture.
+
+**Response `200`:**
+```json
+{
+  "document_id": "doc-uuid",
+  "drawing_id": "P-2301",
+  "equipment": [
+    {"id": "P-101", "type": "pump", "tag": "P-101"},
+    {"id": "V-201", "type": "vessel", "tag": "V-201"}
+  ],
+  "valves": [
+    {"id": "XV-101", "type": "gate_valve", "connected_to": ["P-101", "V-201"]}
+  ],
+  "loops": [
+    {"loop_id": "LC-1001", "type": "level_control", "instruments": ["LT-1001", "LV-1001"]}
+  ],
+  "boundaries": [
+    {"id": "ISOL-BOUNDARY-1", "description": "Pump isolation boundary"}
+  ],
+  "neo4j_edges_written": 11
+}
+```
+
+**`404`** if not found or topology not yet extracted.
 
 ---
 
@@ -616,6 +647,72 @@ An `audit_log` entry is written on every synthesis call.
 
 ---
 
+### `POST /search/rca-pack`
+
+**Layer 11 RCA synthesis.** Assembles a failure timeline, ranked hypotheses, and supporting documents for a specific asset incident.
+
+**Auth required:** Yes
+
+**Three parallel retrieval passes:**
+1. **Neo4j** — Event nodes linked to the asset in a 90-day window (chronological timeline)
+2. **Qdrant** — Semantic search on `failure_code + asset_class` against `kairos_knowledge`
+3. **Supabase** — `operational_events` (work orders, alarms, PTWs) in the same 90-day window
+
+Combined evidence is passed to `LLMService.rca_synthesize()`. Falls back to raw timeline + documents when LLM is unavailable.
+
+**Safety-critical queries:** `refused=True` when the failure code matches a safety-critical category. Sources returned directly.
+
+**Request body:**
+```json
+{
+  "asset_id": "P-101",
+  "incident_date": "2026-07-02T09:00:00Z",
+  "failure_code": "SEAL-FAIL",
+  "include_quarantine": false
+}
+```
+
+**Response `200`:**
+```json
+{
+  "asset_id": "P-101",
+  "incident_date": "2026-07-02T09:00:00Z",
+  "failure_code": "SEAL-FAIL",
+  "timeline": [
+    {
+      "event_type": "vibration_alarm",
+      "occurred_at": "2026-04-05T06:12:00",
+      "description": "Elevated vibration on P-101",
+      "source": "neo4j"
+    }
+  ],
+  "hypotheses": [
+    {
+      "hypothesis": "Bearing wear caused by insufficient lubrication",
+      "evidence_weight": 0.82,
+      "sources": ["doc-p101-maint-record"]
+    }
+  ],
+  "supporting_documents": [
+    {
+      "document_id": "doc-p101-failure-hist",
+      "title": "P-101 Failure History",
+      "authority_level": 2,
+      "confidence": 0.91
+    }
+  ],
+  "confidence": 0.85,
+  "refused": false,
+  "synthesis_available": true
+}
+```
+
+- `synthesis_available: false` when NIM/Ollama is unavailable — timeline and documents still returned.
+- `refused: true` with empty `hypotheses` when the failure code is safety-critical.
+- Every call writes an `audit_log` entry with `action=rca_pack_generated`.
+
+---
+
 ## 6. Events (Operational)
 
 **Prefix:** `/events`
@@ -655,17 +752,20 @@ Ingest a CMMS work order.
 
 `assigned_technician_id` is optional — if absent, brief is addressed site-wide (`recipient_user_id = "site-SITE_001"`).
 
-**Response `202`:**
+**Response `202` — first event for asset (delayed assembly):**
 ```json
 {
   "event_id": "evt-uuid",
   "status": "accepted",
-  "brief_id": "brief-uuid",
+  "brief_task_id": "celery-task-uuid",
+  "brief_due_in_seconds": 300,
   "stream_id": "1704067200000-0"
 }
 ```
 
-Duplicate: `{"event_id": "...", "status": "deduplicated"}` with `200`.
+Brief assembly is **delayed by `LATE_ARRIVAL_WINDOW_MINUTES`** (default 5 min) via Celery `apply_async(countdown=...)`. This allows correlated events (alarms, PTWs) to arrive before the brief is assembled. A Redis key `kairos:brief_pending:{asset_id}` tracks the pending task ID so it can be revoked by a PTW event for the same asset.
+
+**Response `200` — duplicate within dedup window:** `{"event_id": "...", "status": "deduplicated"}`
 
 **Side effects:** If this asset had a prior WO in the last 30 days, a Celery `evaluate_outcome` attribution task is queued.
 
@@ -733,6 +833,7 @@ Ingest an alarm acknowledgment.
   "alarm_id": "ALM-0042",
   "asset_id": "P-101",
   "alarm_tag": "P-101-VIBHI",
+  "alarm_description": "Vibration high alarm — P-101 exceeds 4.5 mm/s",
   "severity": "high",
   "acknowledged_by": "tech-uuid",
   "source_system": "DCS",
@@ -742,6 +843,148 @@ Ingest an alarm acknowledgment.
 ```
 
 **Response `202`:** Same shape.
+
+---
+
+### `GET /events/{event_id}`
+
+Get a single operational event with event correlation metadata.
+
+**Auth required:** Yes
+
+**Response `200`:**
+```json
+{
+  "event_id": "evt-uuid",
+  "event_type": "work_order_created",
+  "asset_id": "P-101",
+  "site_id": "SITE_001",
+  "occurred_at": "2026-07-02T09:00:00Z",
+  "payload": {},
+  "compound_event_id": "compound-uuid",
+  "correlated_event_ids": ["alarm-evt-uuid"]
+}
+```
+
+`compound_event_id` and `correlated_event_ids` are set when this event was correlated with other same-asset events within `DEDUP_WINDOW_MINUTES`. Events sharing a `compound_event_id` are grouped into a single compound event for brief assembly.
+
+**`404`** if not found.
+
+---
+
+### `POST /events/deviation-flag`
+
+Report a physical deviation from the last known state for an asset. Freezes all unacknowledged briefs for the asset until resolved.
+
+**Auth required:** Yes
+
+**Request body:**
+```json
+{
+  "asset_id": "P-101",
+  "description": "Bypass valve observed open — not reflected in DCS state",
+  "reported_by": "tech-uuid",
+  "affected_topology_path": "P-101 → XV-101 → V-201"
+}
+```
+
+**Response `202`:**
+```json
+{
+  "item_id": "q-item-uuid",
+  "asset_id": "P-101",
+  "status": "quarantined",
+  "briefs_frozen": 3,
+  "stream_id": "1704067200000-0"
+}
+```
+
+**Side effects:**
+- Inserts item into `quarantine_items` with `input_type=deviation_flag`
+- Sets `delivery_frozen=true` on all unacknowledged briefs for this asset
+- Publishes to `kairos:events:alarms` stream
+- Writes to `audit_log`
+
+---
+
+### `POST /events/deviation-flag/{item_id}/resolve`
+
+Resolve a physical deviation flag. Unfreezes briefs and optionally creates an MoC record.
+
+**Auth required:** Yes — `engineer` or `admin` (OPA enforced)
+
+**Request body:**
+```json
+{
+  "resolution": "promoted",
+  "moc_warranted": true,
+  "notes": "Bypass confirmed open per field inspection — MOC initiated"
+}
+```
+
+`resolution` values: `promoted | disputed`
+
+**Response `200`:**
+```json
+{
+  "item_id": "q-item-uuid",
+  "status": "resolved",
+  "briefs_unfrozen": 3,
+  "moc_id": "MOC-XXXXXXXX"
+}
+```
+
+`moc_id` is only present when `moc_warranted=true`.
+
+---
+
+### `POST /events/plant-state`
+
+Set the current plant operating state for a site. Non-critical briefs are suppressed during `turnaround`, `shutdown`, or `emergency` states.
+
+**Auth required:** Yes — `engineer` or `admin`
+
+**Request body:**
+```json
+{
+  "site_id": "SITE_001",
+  "state": "turnaround",
+  "expires_at": null
+}
+```
+
+`state` values: `normal | turnaround | shutdown | emergency`
+
+`expires_at` (optional ISO8601 datetime) — if set, the state automatically reverts to `PLANT_STATE_DEFAULT` after this time.
+
+**Response `202`:**
+```json
+{
+  "status": "set",
+  "site_id": "SITE_001",
+  "state": "turnaround"
+}
+```
+
+**Side effects:** Upserts `plant_operating_states` row; writes `audit_log` entry with `action=plant_state_changed`.
+
+---
+
+### `GET /events/plant-state/{site_id}`
+
+Get the current plant operating state for a site.
+
+**Auth required:** Yes
+
+**Response `200`:**
+```json
+{
+  "site_id": "SITE_001",
+  "state": "turnaround"
+}
+```
+
+Returns `PLANT_STATE_DEFAULT` (default: `"normal"`) if no state has been set or if the latest state has expired.
 
 ---
 
@@ -780,40 +1023,57 @@ Get pending briefs for the current user. Also returns site-wide briefs. Calls `r
 **Auth required:** Yes
 
 **Query params:**
-| Param | Type | Description |
-|-------|------|-------------|
-| `site_id` | string | Filter to site |
-| `priority` | string | `critical \| high \| medium \| low` |
-| `limit` | int | Max briefs (default 20) |
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `unacknowledged_only` | bool | `true` | When true, filters to unacknowledged briefs only |
+| `limit` | int | `10` | Max briefs (max 50) |
 
 **Response `200`:**
 ```json
-[
-  {
-    "brief_id": "brief-uuid",
-    "recipient_user_id": "tech-uuid",
-    "priority": "high",
-    "trigger_event_type": "work_order",
-    "headline": "P-101: Elevated vibration — 3 prior failures in 18 months",
-    "body": "...",
-    "action_items": ["Check coupling alignment", "Review last overhaul report"],
-    "warnings": ["Active PTW in same area expires at 18:00"],
-    "sources": [
-      {
-        "document_id": "DOC-P101-FAILURE-HIST",
-        "title": "P-101 Failure History Report",
-        "authority_level": 2,
-        "confidence": 0.91,
-        "snippet": "Three vibration-related failures in 18 months..."
-      }
-    ],
-    "requires_countersignature": false,
-    "delivered_at": "2024-01-01T22:10:00Z"
-  }
-]
+{
+  "briefs": [
+    {
+      "brief_id": "brief-uuid",
+      "recipient_user_id": "tech-uuid",
+      "priority": "high",
+      "trigger_event_type": "work_order_created",
+      "headline": "P-101: Elevated vibration — 3 prior failures in 18 months",
+      "body": "...",
+      "action_items": ["Check coupling alignment", "Review last overhaul report"],
+      "warnings": ["Active PTW in same area expires at 18:00"],
+      "sources": [
+        {
+          "document_id": "DOC-P101-FAILURE-HIST",
+          "document_type": "maintenance_record",
+          "title": "P-101 Failure History Report",
+          "authority_level": 2,
+          "relevant_excerpt": "Three vibration-related failures in 18 months...",
+          "vault_url": "https://...",
+          "is_quarantine": false
+        }
+      ],
+      "requires_countersignature": false,
+      "delivery_frozen": false,
+      "delivered_at": "2024-01-01T22:10:00Z"
+    }
+  ],
+  "total_pending": 1,
+  "suppressed_count": 0,
+  "governor_state": {
+    "push_count_last_hour": 1,
+    "ceiling": 6,
+    "state": "normal"
+  },
+  "next_delivery_allowed_at": null
+}
 ```
 
-Governor suppressed: returns `[]` (empty array).
+**Suppression rules (in priority order):**
+1. **EEMUA 191 governor:** If `push_count_last_hour >= ceiling`, all non-critical briefs suppressed → `suppressed_count > 0`.
+2. **Plant state gate:** If current plant state for the user's `site_id` is `turnaround`, `shutdown`, or `emergency`, all non-critical briefs suppressed. Critical (PTW) briefs always pass.
+3. **Frozen briefs:** Briefs with `delivery_frozen=true` (set by deviation flag) are included in the response with `frozen=true` and `freeze_reason` but excluded from governor push counting.
+
+`record_push` is called for every brief actually delivered (non-frozen, non-suppressed).
 
 ---
 
@@ -827,14 +1087,14 @@ Get current push governor state for the authenticated user.
 ```json
 {
   "user_id": "tech-uuid",
-  "state": "active",
+  "state": "normal",
   "push_count_last_hour": 3,
   "ceiling": 6,
-  "can_receive": true
+  "next_delivery_allowed_at": null
 }
 ```
 
-`state` values: `active | suppressed`
+`state` values: `normal | suppressed`
 
 ---
 
@@ -909,19 +1169,24 @@ List open knowledge conflicts.
 
 **Response `200`:**
 ```json
-[
-  {
-    "conflict_id": "conf-uuid",
-    "track": "engineering",
-    "asset_id": "P-101",
-    "parameter": "max_allowable_pressure",
-    "source_a": {"document_id": "doc-a", "value": "12.5 bar", "authority_level": 1},
-    "source_b": {"document_id": "doc-b", "value": "15.0 bar", "authority_level": 2},
-    "severity": "critical",
-    "status": "open",
-    "detected_at": "2024-01-01T00:00:00Z"
-  }
-]
+{
+  "items": [
+    {
+      "conflict_id": "conf-uuid",
+      "track": "engineering",
+      "asset_id": "P-101",
+      "parameter": "max_allowable_pressure",
+      "source_a": {"document_id": "doc-a", "value": "12.5 bar", "authority_level": 1},
+      "source_b": {"document_id": "doc-b", "value": "15.0 bar", "authority_level": 2},
+      "severity": "critical",
+      "status": "open",
+      "detected_at": "2024-01-01T00:00:00Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
 ```
 
 Conflict tracks:
@@ -1076,6 +1341,37 @@ Receive an MoC resolution webhook from the plant MoC system.
 
 ---
 
+### `GET /governance/circuit-breaker`
+
+Get the current SPC circuit breaker state for all monitored entity types.
+
+**Auth required:** Yes
+
+The circuit breaker monitors the ratio of human-overridden extractions to total extractions in a rolling 7-day window. When the override rate exceeds the threshold, the breaker trips to `halted` and new extractions for that entity type are queued for human review rather than written to the graph.
+
+**Response `200`:**
+```json
+{
+  "states": [
+    {
+      "entity_type": "process_parameter",
+      "override_count_7d": 3,
+      "total_extractions_7d": 45,
+      "override_rate": 0.067,
+      "threshold": 0.2,
+      "status": "active"
+    }
+  ],
+  "halted_count": 0
+}
+```
+
+`status` values: `active | halted`
+
+When `halted`, `link_to_graph` skips writing Neo4j edges for that entity type and publishes to `kairos:events:review_required` Redis Stream instead.
+
+---
+
 ### `GET /governance/blast-radius/{document_id}`
 
 Get the blast-radius report for a proposed document change.
@@ -1101,7 +1397,7 @@ Get the blast-radius report for a proposed document change.
 
 **Prefix:** `/compliance`
 
-Regulatory gap detection against 12 seeded frameworks (OISD-117, ISO 45001, and 10 others). Seed via `docker exec kairos-backend-api python scripts/init_compliance.py`.
+Regulatory gap detection against 12 seeded frameworks (OISD-117, ISO 45001, and 10 others). Seed via `docker exec kairos-backend-api python scripts/seed_regulations.py`.
 
 ---
 
@@ -1115,19 +1411,26 @@ List detected compliance gaps across all assets.
 
 **Response `200`:**
 ```json
-[
-  {
-    "gap_id": "gap-uuid",
-    "asset_id": "P-101",
-    "framework": "OISD-117",
-    "clause_id": "6.4.2",
-    "requirement": "Maximum allowable pressure must be documented and tagged",
-    "gap_description": "No pressure documentation found in knowledge graph for P-101",
-    "severity": "critical",
-    "cleared": false,
-    "detected_at": "2024-01-01T00:00:00Z"
-  }
-]
+{
+  "items": [
+    {
+      "gap_id": "gap-uuid",
+      "asset_id": "P-101",
+      "framework": "OISD-117",
+      "clause_id": "6.4.2",
+      "requirement": "Maximum allowable pressure must be documented and tagged",
+      "gap_description": "No pressure documentation found in knowledge graph for P-101",
+      "severity": "critical",
+      "cleared": false,
+      "detected_at": "2024-01-01T00:00:00Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0,
+  "framework": "OISD-117",
+  "last_scan": "realtime"
+}
 ```
 
 ---
@@ -1275,6 +1578,40 @@ Returns `404` if no session exists yet.
 
 ---
 
+### `POST /elicitation/{work_order_id}/voice`
+
+Submit a voice note for a work order. Transcribed via Groq Whisper, NER extracted, and stored as a `quarantine_items` entry for human review.
+
+**Auth required:** Yes
+
+**Request:** `multipart/form-data`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | binary | Yes | Audio file (WAV, MP3, M4A, FLAC) |
+
+**Processing pipeline:**
+1. SHA-256 dedup check — returns existing item if same audio file submitted twice
+2. Upload to Supabase Storage (`kairos-vault` bucket)
+3. Celery task on `transcription` queue → Groq `whisper-large-v3` transcription
+4. NER extraction on transcript text
+5. Insert into `quarantine_items` with `input_type=voice_note`
+
+**Response `202`:**
+```json
+{
+  "item_id": "q-item-uuid",
+  "transcript": "The pump seal was replaced 3 months ago and is showing wear again",
+  "confidence": 0.84,
+  "status": "quarantined",
+  "vault_path": "voice/WO-2024-001/abc123.wav"
+}
+```
+
+`confidence` is Groq's transcription confidence score. Items are quarantined for expert review before graph promotion.
+
+---
+
 ### `POST /elicitation/{work_order_id}/responses`
 
 Submit Q&A responses. Stored in `quarantine_items` for expert review before graph promotion.
@@ -1304,7 +1641,130 @@ Submit Q&A responses. Stored in `quarantine_items` for expert review before grap
 
 ---
 
-## 11. Go OT Connector (port 8090)
+## 11. Annotations
+
+**Prefix:** `/annotations`
+
+Active learning annotation interface. Allows human reviewers to correct NER extraction errors. Each correction reduces the confidence of the associated quarantine item by 0.1 and is logged for circuit breaker monitoring.
+
+---
+
+### `POST /annotations/`
+
+Submit a NER correction annotation.
+
+**Auth required:** Yes (`engineer` or `admin`)
+
+**Request body:**
+```json
+{
+  "document_id": "doc-uuid",
+  "entity_type": "process_parameter",
+  "original_value": "12.5 bar",
+  "corrected_value": "15.0 bar",
+  "is_correct": false,
+  "notes": "Wrong vessel — this value applies to V-201, not P-101"
+}
+```
+
+**Side effects:**
+- Inserts annotation into `ner_annotations`
+- If `is_correct=false`: reduces `quarantine_items.confidence` by 0.1 for any pending quarantine item with matching `document_id` + `entity_type`; writes `audit_log` entry with `action=confidence_recheck_queued`; records a circuit breaker override for the entity type
+
+**Response `201`:**
+```json
+{
+  "annotation_id": "ann-uuid",
+  "document_id": "doc-uuid",
+  "entity_type": "process_parameter",
+  "is_correct": false,
+  "quarantine_confidence_updated": true
+}
+```
+
+---
+
+### `GET /annotations/`
+
+List annotations, optionally filtered by document.
+
+**Auth required:** Yes
+
+**Query params:** `document_id` (optional)
+
+**Response `200`:** Array of annotation objects.
+
+---
+
+### `GET /annotations/stats`
+
+Aggregated annotation statistics for dashboard display.
+
+**Auth required:** Yes
+
+**Response `200`:**
+```json
+{
+  "total_annotations": 42,
+  "corrections_this_week": 6,
+  "top_corrected_entity_types": [
+    {"entity_type": "FAILURE_MODE", "count": 3},
+    {"entity_type": "process_parameter", "count": 2}
+  ]
+}
+```
+
+---
+
+## 12. Audit Log
+
+**Prefix:** `/audit-log`
+
+Immutable audit trail. Every write operation in KAIROS appends an entry. Read-only API.
+
+---
+
+### `GET /audit-log/`
+
+Query the audit log with optional filters.
+
+**Auth required:** Yes (`engineer` or `admin`)
+
+**Query params:**
+| Param | Type | Description |
+|-------|------|-------------|
+| `action` | string | Filter by action type (e.g. `rca_pack_generated`, `brief_acknowledged`) |
+| `entity_type` | string | Filter by entity type (`document`, `brief`, `asset`, …) |
+| `entity_id` | string | Filter by entity ID |
+| `limit` | int | Max results (default 50) |
+
+**Common action values:** `brief_acknowledged` · `confidence_recheck_queued` · `plant_state_changed` · `rca_pack_generated` · `timestamp_drift_detected` · `attribution_flag` · `quarantine_promoted` · `quarantine_disputed` · `moc_resolved` · `circuit_breaker_override`
+
+**Response `200`:**
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "action": "rca_pack_generated",
+      "entity_type": "asset",
+      "entity_id": "P-101",
+      "performed_by": "engineer@kairos.local",
+      "details": {
+        "failure_code": "SEAL-FAIL",
+        "timeline_events": 18,
+        "synthesis_available": false
+      },
+      "timestamp": "2026-07-02T12:05:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+## 13. Go OT Connector (port 8090)
 
 **Base URL:** `http://localhost:8090`
 
@@ -1392,7 +1852,7 @@ Proxy an EAM work order into KAIROS event ingestion. Forwards raw body to FastAP
 
 ---
 
-## 12. Error Codes
+## 14. Error Codes
 
 | HTTP Status | When |
 |------------|------|
@@ -1431,7 +1891,7 @@ Proxy an EAM work order into KAIROS event ingestion. Forwards raw body to FastAP
 
 ---
 
-## 13. Auth Quick-Reference
+## 15. Auth Quick-Reference
 
 ```bash
 # Get a token

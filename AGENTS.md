@@ -4,7 +4,7 @@
 - `docs/PROBLEM_STATEMENT.md` — what this platform is for and why it matters. Every decision must trace back to this.
 - `IMPLEMENTATION.md` — full task specs. The contract for every build. Tasks 1–29 defined.
 - `docs/ARCHITECTURE.md` — 13-layer design. Understand the layer a task lives in before touching it.
-- `MEMORY.md` — **current implementation state**: completed task table (tasks 1–18 verified ✅), known pitfalls, key architectural decisions. Read this before starting any task to avoid re-implementing completed work.
+- `MEMORY.md` — **current implementation state**: completed task table (tasks 1–29 verified ✅), known pitfalls, key architectural decisions. Read this before starting any task to avoid re-implementing completed work.
 
 ---
 
@@ -70,7 +70,7 @@ make ps         # Container status
 
 **Safety-critical queries** (pressure limits, interlock sequences, torque specs): explicit refusal, never hedged answers. Sources returned directly.
 
-**Phase discipline:** Phase 2 LLM synthesis lives only in `POST /search/synthesize` — never auto-triggered. Phase 3 push never wired until Phase 2 is stable.
+**Phase discipline:** Phase 2 LLM synthesis lives only in `POST /search/synthesize` — never auto-triggered from routers or workers. Phase 3 proactive push is live — `GET /briefs` delivers event-triggered briefs via the EEMUA 191 governor.
 
 **EEMUA 191 Governor:** call `EventBusService.check_governor(user_id)` before every brief delivery. Hard ceiling ≤6 push events/operator/hour. PTW briefs always exempt.
 

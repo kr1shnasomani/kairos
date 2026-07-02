@@ -368,7 +368,7 @@ class GraphService:
         MATCH (a:Asset {asset_id: $asset_id})-[r:KNOWLEDGE_EDGE]->(target)
         WHERE r.valid_from <= $as_of
           AND (r.valid_to IS NULL OR r.valid_to > $as_of)
-          AND r.authority_level >= $authority_min
+          AND r.authority_level <= $authority_min
         RETURN r, target
         ORDER BY r.authority_level ASC, r.valid_from DESC
         """

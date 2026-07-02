@@ -1,4 +1,4 @@
-**Phase:** 1 — Retrieval Only. Do not wire Phase 2 (LLM synthesis) or Phase 3 (proactive push) into active code paths.
+**Phase:** All 3 phases live. Phase 1 (retrieval), Phase 2 (LLM synthesis via `POST /search/synthesize`), Phase 3 (proactive push via event-driven brief delivery + EEMUA 191 governor).
 
 ### Completed (verified, running)
 | Task | What | Verified By |
@@ -35,7 +35,9 @@
 
 | 27 | Event Correlation — migration `010_compound_events.sql` (`compound_event_id UUID` + index on `operational_events`); `EventBusService.correlate_events(asset_id, event_id, occurred_at, supabase)` queries same-asset events within `DEDUP_WINDOW_MINUTES`, assigns shared UUID to all; called from WO + alarm handlers; `BriefEngine._get_correlated_events()` fetches via `compound_event_id` and appends DCS/PTW/shift context to brief body; `GET /events/{event_id}` returns event + `correlated_event_ids: []` | WO + alarm for P-101 → `compound_event_id=2623de53` linked both; `GET /events/{WO_ID}` → `correlated_event_ids=[alarm_event_id]`; brief body → `[DCS ALARM correlated] Tag: P-101-VIBE-HIGH` ✅ |
 
-### Tasks 1–27 + 29 Complete ✅ — Task 28 Pending
+| 28 | State-Based Push Suppression — `plant_operating_states` table (migration `011_plant_state.sql`); `PLANT_STATE_DEFAULT=normal` in config; `EventBusService.get_plant_state()/check_governor()` with plant-state gate before hourly count; `POST /events/plant-state` (engineer/admin, upserts state+audit_log) + `GET /events/plant-state/{site_id}`; `GET /briefs` suppresses normal-priority briefs during turnaround/shutdown/emergency while always passing critical (PTW) | SITE_001 → turnaround: suppressed_count=3, 0 normal briefs returned; POST PTW → critical brief fa62fcbe delivered (total_pending=1); reset to normal → suppressed_count=0, 4 briefs returned ✅ |
+
+### All 29 Tasks Complete ✅
 Full spec in `IMPLEMENTATION.md`.
 
 ---

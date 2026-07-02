@@ -52,6 +52,7 @@ backend/
 ├── workers/
 │   ├── celery_app.py            # Celery app definition
 │   ├── attribution.py           # Outcome attribution worker
+│   ├── brief_assembly.py        # Delayed brief assembly worker (Task 26)
 │   ├── temporal_worker.py       # Temporal activity worker (ingestion pipeline)
 │   ├── elicitation_worker.py    # Temporal worker (elicitation workflows)
 │   ├── extraction.py            # Extraction pipeline helpers
@@ -67,7 +68,7 @@ backend/
 │   ├── internal/events/relay.go # Redis Stream relay
 │   └── fixtures/sample_assets.json  # 5 demo assets for EAM sync
 ├── db/
-│   ├── migrations/              # Supabase SQL migrations (001–005)
+│   ├── migrations/              # Supabase SQL migrations (001–011)
 │   └── neo4j/init_schema.cypher # Neo4j constraints + indices
 ├── grafana/provisioning/        # Grafana datasources + dashboards
 ├── otel/otel-config.yaml        # OTEL collector config
@@ -75,7 +76,9 @@ backend/
 ├── tempo/tempo.yaml             # Grafana Tempo config
 ├── scripts/
 │   ├── seed_users.py            # Creates 3 Supabase auth test users
-│   └── init_compliance.py       # Seeds 12 regulations into Neo4j
+│   ├── seed_regulations.py      # Seeds 12 regulations into Neo4j
+│   ├── init_neo4j.py            # Neo4j schema constraints + indices
+│   └── init_qdrant.py           # Qdrant collection creation
 └── requirements.txt
 ```
 
@@ -201,13 +204,15 @@ All models live in `backend/api/models/`.
 | `SynthesizeRequest` | Query + context + optional `query_category` |
 | `SynthesizeResponse` | Answer + sources + confidence + `refused` flag |
 | `PromoteQuarantineRequest` | Quarantine promotion payload |
+| `RCAPackRequest` | `asset_id`, `incident_date`, `failure_code`, `include_quarantine` |
+| `RCAPackResponse` | `timeline[]`, `hypotheses[]`, `supporting_documents[]`, `confidence`, `refused`, `synthesis_available` |
 
 ### Brief (`models/brief.py`)
 
 | Model | Purpose |
 |-------|---------|
 | `Brief` | Full brief with headline, body, action_items, warnings, sources |
-| `SourceCitation` | `{document_id, title, authority_level, confidence, snippet}` |
+| `SourceCitation` | `{document_id, document_type, title, authority_level, relevant_excerpt, vault_url, is_quarantine}` |
 | `BriefFeedback` | Rating: `accurate | missing_context | incorrect` |
 
 ### Event (`models/event.py`)
@@ -221,6 +226,9 @@ All events inherit from `BaseEvent` (`event_id`, `source_system`, `site_id`, `oc
 | `ShiftHandoverEvent` | `outgoing_shift_lead_id`, `incoming_shift_lead_id`, `handover_time` | Any |
 | `AlarmEvent` | `alarm_id`, `asset_id`, `alarm_tag`, `severity`, `acknowledged_by` | DCS |
 | `EventAck` | `user_id`, `role`, `signature`, `notes` | API client |
+| `DeviationFlagEvent` | `asset_id`, `description`, `reported_by`, `affected_topology_path` | Field inspector |
+| `DeviationFlagResolveRequest` | `resolution` (`promoted\|disputed`), `moc_warranted`, `notes` | Engineer/admin |
+| `PlantStateEvent` | `site_id`, `state` (`normal\|turnaround\|shutdown\|emergency`), `expires_at` | Engineer/admin |
 
 **`close_notes`** on `WorkOrderEvent` is used by the attribution worker to check execution compliance (keyword matching).
 
@@ -245,6 +253,7 @@ Key methods:
 - `get_blast_radius(document_id)` — graph traversal for downstream impact of a document change
 - `create_concept_node(props)` — Concept:Regulation seed
 - `link_concept_to_asset(concept_id, asset_id, props)` — Compliance framework linkage
+- `get_event_timeline(asset_id, window_start_iso)` — queries Event nodes linked to an asset within a date window; returns chronological list for RCA pack assembly
 
 **All 6 properties required on every KNOWLEDGE_EDGE write:**
 `valid_from`, `valid_to`, `authority_level`, `document_id`, `confidence`, `verification_status`
@@ -292,10 +301,11 @@ LLM synthesis + embedding. Never originates knowledge — only assembles retriev
 
 Assembles operator briefs from 5 parallel graph+vector+ES+Supabase queries.
 
-- `assemble_work_order_brief(event)` — pulls failure history, open conflicts, procedures, quarantine flags
-- `assemble_ptw_brief(event)` — adds isolation topology, regulatory requirements
+- `assemble_work_order_brief(event)` — pulls failure history, open conflicts, procedures, quarantine flags; appends correlated DCS alarms / PTW context via `_get_correlated_events()`
+- `assemble_ptw_brief(event)` — adds isolation topology, regulatory requirements; revokes any pending WO brief task for the same asset before assembling
 - `assemble_shift_handover_brief(event)` — pulls active WOs, alarms, open PTWs
 - `deliver(brief, redis)` — saves to `briefs` table, publishes to `REDIS_STREAM_BRIEFS`, records `kairos.briefs.delivered` metric. 4-hour asset cool-down: same (recipient, asset) within 4h returns existing brief_id.
+- `_get_correlated_events(event_id)` — fetches all events sharing the same `compound_event_id` via Supabase; appends DCS alarm tags and PTW IDs to brief body
 
 ### `EventBusService` (`services/event_bus.py`)
 
@@ -304,22 +314,24 @@ Redis Streams producer + EEMUA 191 push governor.
 - `publish(stream, payload)` — `XADD` to any stream
 - `publish_work_order(payload)` — `kairos:events:work_orders`
 - `publish_ptw(payload)` — `kairos:events:ptw`
-- `is_duplicate(asset_id, event_type)` — Redis TTL key check (10-min dedup window)
-- `check_governor(user_id, priority)` — returns True if brief can be sent. PTW (`priority="critical"`) always passes. Otherwise checks hourly rolling counter.
+- `is_duplicate(asset_id, event_type)` — Redis TTL key check (`DEDUP_WINDOW_MINUTES` window, default 10 min)
+- `correlate_events(asset_id, event_id, occurred_at, supabase)` — groups same-asset events within `DEDUP_WINDOW_MINUTES` into a shared `compound_event_id`; updates all correlated rows in `operational_events`
+- `check_governor(user_id, priority, site_id, supabase)` — returns True if brief can be sent. PTW (`priority="critical"`) always passes. Otherwise: (1) checks plant state gate — `turnaround/shutdown/emergency` suppresses non-critical; (2) checks hourly rolling counter vs `MAX_PUSH_PER_USER_PER_HOUR`
+- `get_plant_state(site_id, supabase)` — queries `plant_operating_states` ordered by `set_at DESC`, checks `expires_at`; returns `PLANT_STATE_DEFAULT` if no active state
 - `record_push(user_id)` — increments hourly counter with 3600s TTL
-- `get_governor_state(user_id)` — returns `{state, push_count_last_hour}`
+- `get_governor_state(user_id)` — returns `{state, push_count_last_hour, ceiling, next_delivery_allowed_at}`
 
 Records `kairos.governor.suppressed` metric when suppressing.
 
 ### `NERService` (`services/ner.py`)
 
-Named entity recognition for the extraction pipeline.
-- `extract_entities(text, document_type)` — runs spaCy/HuggingFace NER; returns `[(entity, entity_type, confidence)]`
+Named entity recognition for the extraction pipeline. Cloud-first: NIM primary, Ollama fallback, regex last resort.
+- `extract_entities(text, document_type)` — tries NIM `mistralai/ministral-14b-instruct-2512` via JSON-prompted chat completions; falls back to Ollama `llama3.1:8b`; falls back to regex ASSET_TAG pattern matching. Returns `[(entity, entity_type, confidence)]`
 
 ### `OCRService` (`services/ocr.py`)
 
-OCR for the extraction pipeline.
-- `extract_text(file_bytes, mime_type)` — uses PyMuPDF for PDFs; fallback for images
+OCR for the extraction pipeline. Cloud-first for scanned documents; zero-API-cost fast path for native digital PDFs.
+- `extract_text(file_bytes, mime_type)` — **Fast path:** PyMuPDF native text extraction for digital PDFs (no API call). **Cloud path:** NIM `nvidia/nemotron-ocr-v2` for scanned documents and images (base64 encoded, JSON prompt via NIM chat completions endpoint). Returns `(text, confidence)`
 
 ### `metrics` (`services/metrics.py`)
 
@@ -374,7 +386,19 @@ Triggered by `POST /elicitation/{work_order_id}/responses`. Stores Q&A pairs as 
 
 App defined in `workers/celery_app.py`. Broker and result backend: `redis://kairos-redis:6379/1`.
 
-Three queues: `ingestion`, `extraction`, `attribution`.
+Four queues: `ingestion`, `extraction`, `attribution`, `transcription`.
+
+### Brief Assembly Worker (`workers/brief_assembly.py`)
+
+Task: `workers.brief_assembly.assemble_brief(event_type, event_dict)` on the `ingestion` queue.
+
+Triggered by `POST /events/work-order` and `POST /events/shift-handover` via `apply_async(countdown=LATE_ARRIVAL_WINDOW_MINUTES*60)`. The countdown (default 5 min) gives correlated events time to arrive before the brief is assembled.
+
+**Redis pending key:** `kairos:brief_pending:{asset_id}` — stores the Celery task ID so a subsequent PTW event for the same asset can revoke the pending WO brief task before assembling the PTW brief immediately.
+
+Uses lazy imports (all service clients created inside the async task body) to avoid Celery fork-time import conflicts.
+
+---
 
 ### Attribution Worker (`workers/attribution.py`)
 
@@ -430,21 +454,26 @@ Basic Auth via `PI_WEBAPI_USERNAME` / `PI_WEBAPI_PASSWORD`.
 
 ### Supabase PostgreSQL (migrations in `db/migrations/`)
 
+Migrations in `db/migrations/` (001–011):
+
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `assets` | MDM backbone — mirrors Neo4j for relational queries | `asset_id` (PK), `criticality`, `eam_source`, `identity_confirmed_by` |
 | `asset_alias_map` | Tag alias resolution | `canonical_asset_id`, `alias`, `confidence`, `confirmed` |
-| `documents` | Immutable vault registry | `document_id`, `sha256_hash` (UNIQUE), `authority_level`, `vault_url`, `status` |
+| `documents` | Immutable vault registry | `document_id`, `sha256_hash` (UNIQUE), `authority_level`, `vault_url`, `status`, `occurred_at` (TIMESTAMPTZ for timestamp drift) |
 | `document_asset_links` | Document↔Asset many-to-many | `document_id`, `asset_id` |
-| `extraction_jobs` | Pipeline stage tracking | `job_id`, `document_id`, `pipeline_stage`, `ocr_confidence`, `entity_count` |
-| `operational_events` | Event log (WO, PTW, alarm, handover) | `event_id`, `event_type`, `asset_id`, `payload` (JSONB), `redis_stream_id` |
-| `briefs` | Delivered operator briefs | `brief_id`, `recipient_user_id`, `priority`, `headline`, `sources` (JSONB), `requires_countersignature` |
-| `brief_feedback` | Operator feedback on brief accuracy | `brief_id`, `rating` (`accurate|missing_context|incorrect`) |
+| `extraction_jobs` | Pipeline stage tracking | `job_id`, `document_id`, `pipeline_stage`, `ocr_confidence`, `entity_count`, `timestamp_drift_detected` (BOOLEAN) |
+| `operational_events` | Event log (WO, PTW, alarm, handover, deviation-flag) | `event_id`, `event_type`, `asset_id`, `payload` (JSONB), `redis_stream_id`, `compound_event_id` (UUID — event correlation) |
+| `briefs` | Delivered operator briefs | `brief_id`, `recipient_user_id`, `priority`, `headline`, `body`, `sources` (JSONB), `requires_countersignature`, `delivery_frozen` (BOOLEAN — physical deviation gate) |
+| `brief_feedback` | Operator feedback on brief accuracy | `brief_id`, `rating` (`accurate\|missing_context\|incorrect`), `notes`, `submitted_by` |
 | `knowledge_conflicts` | Dual-track governance conflicts | `conflict_id`, `track`, `parameter`, `source_a/b`, `severity`, `status` |
-| `quarantine_items` | Unverified facts pending human review | `item_id`, `asset_id`, `review_status`, `session_context` (JSONB) |
+| `quarantine_items` | Unverified facts pending human review | `item_id`, `asset_id`, `review_status`, `input_type` (`deviation_flag\|voice_note\|ner_extraction\|elicitation_response`), `session_context` (JSONB) |
 | `moc_items` | Management of Change records | `moc_id`, `document_id`, `status`, `resolution` |
 | `audit_log` | Immutable audit trail | `action`, `entity_type`, `entity_id`, `performed_by`, `details` (JSONB) |
 | `elicitation_sessions` | Micro-interview Q&A sessions | `session_id`, `work_order_id`, `questions` (JSONB), `status` |
+| `ner_annotations` | Human NER correction annotations (active learning) | `annotation_id`, `document_id`, `entity_type`, `original_value`, `corrected_value`, `is_correct`, `submitted_by` |
+| `knowledge_conflict_overrides` | Circuit breaker override log | `id`, `entity_type`, `override_type` (`annotation_correction\|quarantine_rejection`), `document_id`, `recorded_at` |
+| `plant_operating_states` | Site plant state history (turnaround / shutdown / emergency) | `id`, `site_id`, `state` (CHECK: `normal\|turnaround\|shutdown\|emergency`), `set_by`, `set_at`, `expires_at` |
 
 **RLS policies (migration 004):**
 - `briefs` — service-role key bypasses; user JWTs see only own rows (`recipient_user_id = auth.uid()` or `site-{site_id}`)
@@ -575,7 +604,9 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 |-----|---------|-------------|
 | `MAX_PUSH_PER_USER_PER_HOUR` | `6` | Hard ceiling per operator |
 | `BRIEF_COOLDOWN_HOURS` | `4` | Same (recipient, asset) cool-down |
-| `DEDUP_WINDOW_MINUTES` | `10` | Event deduplication window |
+| `DEDUP_WINDOW_MINUTES` | `10` | Event dedup window + event correlation window |
+| `LATE_ARRIVAL_WINDOW_MINUTES` | `5` | Countdown (seconds) before delayed brief assembly fires |
+| `PLANT_STATE_DEFAULT` | `normal` | Fallback plant state when no active record exists for a site |
 
 ### Go Connector
 
@@ -681,9 +712,14 @@ All logs via `structlog`. Never use `print()` or stdlib `logging`. Log events in
 - `telemetry.setup` — OTEL endpoint confirmed on startup
 - `kairos.startup` — env + version
 - `governor.suppressed` — user_id, count, ceiling
+- `governor.plant_state_suppression` — user_id, site_id, plant_state, suppressed count
 - `brief_engine.delivered` — brief_id, recipient, priority
 - `attribution.complete` — event_id, asset_id, genuine_failure, action
 - `ingest.complete` — document_id, sha256, job_id, workflow
+- `event_bus.compound_event_linked` — compound_event_id, event_ids
+- `events.ptw_revoked_pending_brief` — asset_id, revoked task ID
+- `timestamp_drift_detected` — document_id, drift_minutes, source_ts, ingested_ts
+- `rca_pack.generated` — asset_id, failure_code, timeline_count, synthesis_available
 
 ---
 
@@ -733,7 +769,7 @@ make ps           # Container status
 docker exec kairos-backend-api python scripts/seed_users.py
 
 # Seed compliance regulations into Neo4j
-docker exec kairos-backend-api python scripts/init_compliance.py
+docker exec kairos-backend-api python scripts/seed_regulations.py
 
 # AST parse check before waiting on Docker
 python3 -c "import ast; ast.parse(open('backend/api/routers/events.py').read())"
