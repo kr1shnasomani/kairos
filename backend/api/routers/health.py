@@ -6,7 +6,6 @@ import asyncio
 from fastapi import APIRouter, Response, status
 from pydantic import BaseModel
 
-from api.config import settings
 from api.dependencies import Neo4jDep, QdrantDep, ElasticsearchDep, RedisDep, TemporalDep
 
 router = APIRouter()

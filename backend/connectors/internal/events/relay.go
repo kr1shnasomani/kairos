@@ -46,9 +46,7 @@ func (r *StreamRelay) EnsureGroups(ctx context.Context) error {
 // Consume reads messages from all registered streams
 func (r *StreamRelay) Consume(ctx context.Context, handler func(stream string, msg redis.XMessage) error) error {
 	streams := make([]string, 0, len(r.StreamKeys)*2)
-	for _, s := range r.StreamKeys {
-		streams = append(streams, s)
-	}
+	streams = append(streams, r.StreamKeys...)
 	for range r.StreamKeys {
 		streams = append(streams, ">")
 	}

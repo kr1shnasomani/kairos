@@ -396,7 +396,7 @@ class BriefEngine:
                 "Confirm no active PTW items conflict with tag-out scope",
                 "Update CMMS with expected return date before work commences",
             ],
-            warnings=[f"Open MoC items exist for this asset"] if moc_items else [],
+            warnings=["Open MoC items exist for this asset"] if moc_items else [],
             quarantine_flags=[],
             sources=[],
             confidence=0.85,

@@ -10,7 +10,6 @@ Outputs per-entity-type precision, recall, F1 and overall metrics to stdout.
 import argparse
 import asyncio
 import json
-import os
 import sys
 
 sys.path.insert(0, "/app")

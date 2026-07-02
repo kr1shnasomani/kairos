@@ -210,7 +210,7 @@ async def run_ocr(
         all_elements = (
             [{"element_group": "equipment_nodes", **e} for e in topology.get("equipment_nodes", [])]
             + [{"element_group": "isolation_valves", **v} for v in topology.get("isolation_valves", [])]
-            + [{"element_group": "instrumentation_loops", **l} for l in topology.get("instrumentation_loops", [])]
+            + [{"element_group": "instrumentation_loops", **loop} for loop in topology.get("instrumentation_loops", [])]
             + [{"element_group": "isolation_boundaries", **b} for b in topology.get("isolation_boundaries", [])]
         )
 
@@ -599,7 +599,9 @@ async def link_to_graph(
             except Exception as exc:
                 log.warning("link.edge_create_failed", asset_id=canonical_id, document_id=document_id, error=str(exc))
         else:
-            # Unresolved: register as unconfirmed alias candidate (if we have a parent asset) + quarantine
+            # Unresolved: register as unconfirmed alias candidate (if we have a parent asset) + quarantine.
+            # Still create a graph edge from the explicitly-passed asset_id so the document
+            # appears in that asset's knowledge even when NER can't confirm the specific tag.
             if asset_id:
                 try:
                     normalized = raw_tag.strip().upper().replace(" ", "")
@@ -614,6 +616,24 @@ async def link_to_graph(
                     )
                 except Exception as exc:
                     log.warning("link.alias_insert_failed", alias=raw_tag, error=str(exc))
+
+                try:
+                    await graph.create_knowledge_edge(
+                        source_id=asset_id,
+                        source_label="Asset",
+                        target_id=document_id,
+                        target_label="Document",
+                        relationship_type="DOCUMENTED_BY",
+                        valid_from=canonical_valid_from,
+                        authority_level=authority_level,
+                        document_id=document_id,
+                        confidence=confidence,
+                        verification_status="unverified",
+                    )
+                    edges_created += 1
+                    log.info("link.fallback_edge_created", asset_id=asset_id, document_id=document_id, unresolved_tag=raw_tag)
+                except Exception as exc:
+                    log.warning("link.fallback_edge_failed", asset_id=asset_id, document_id=document_id, error=str(exc))
 
             await asyncio.to_thread(
                 lambda e=entity, rt=raw_tag: supabase.table("quarantine_items").insert({

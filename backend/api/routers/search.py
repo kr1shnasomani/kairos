@@ -4,13 +4,11 @@ Hybrid retrieval: exact match (ES) + semantic vector (Qdrant) + graph traversal 
 """
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Query
-
-import asyncio
 
 from api.dependencies import (
     CurrentUserDep,

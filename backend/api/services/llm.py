@@ -4,7 +4,6 @@ Implements the synthesis layer with mandatory source citation enforcement
 and explicit refusal for safety-critical parameter queries.
 """
 
-import json
 import re
 from typing import Any, Dict, List, Optional
 

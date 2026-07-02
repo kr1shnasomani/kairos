@@ -9,7 +9,6 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from api.dependencies import CurrentUserDep, Neo4jDep
-from api.services.graph import GraphService
 
 router = APIRouter()
 

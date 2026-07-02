@@ -4,7 +4,6 @@ Provides shared clients as FastAPI dependencies (injected per-request or applica
 """
 
 import asyncio
-from functools import lru_cache
 from typing import Annotated
 
 import redis.asyncio as aioredis
@@ -12,7 +11,7 @@ import structlog
 from elasticsearch import AsyncElasticsearch
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+
 from neo4j import AsyncDriver, AsyncGraphDatabase
 from qdrant_client import AsyncQdrantClient
 from supabase import Client, create_client

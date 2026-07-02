@@ -33,7 +33,7 @@ def assemble_brief(event_type: str, event_dict: dict) -> str:
 async def _assemble(event_type: str, event_dict: dict) -> str:
     from api.config import Settings
     from api.services.brief_engine import BriefEngine
-    from api.models.event import WorkOrderEvent, PTWEvent, ShiftHandoverEvent, AlarmEvent
+    from api.models.event import WorkOrderEvent, PTWEvent, ShiftHandoverEvent
     from neo4j import AsyncGraphDatabase
     from qdrant_client import AsyncQdrantClient
     from elasticsearch import AsyncElasticsearch

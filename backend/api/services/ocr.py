@@ -5,7 +5,6 @@ Fast path: PyMuPDF native text extraction for digital PDFs (no API call needed).
 """
 
 import base64
-import io
 import structlog
 from typing import Any, Dict, List, Optional
 

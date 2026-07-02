@@ -5,7 +5,6 @@ Implements EEMUA 191 push governor logic.
 
 import asyncio
 import json
-import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional

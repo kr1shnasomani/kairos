@@ -9,7 +9,6 @@ import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import shortuuid
 import structlog
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 

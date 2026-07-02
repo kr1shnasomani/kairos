@@ -4,7 +4,6 @@ Generates graph-derived questions for each equipment family in an off-boarding p
 """
 
 import asyncio
-import os
 import re
 import sys
 

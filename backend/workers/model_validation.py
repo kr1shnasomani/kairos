@@ -4,7 +4,6 @@ Evaluates NER model accuracy against human-verified ground truth entities.
 """
 
 import asyncio
-import os
 import sys
 sys.path.insert(0, "/app")
 

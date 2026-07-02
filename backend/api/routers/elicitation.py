@@ -17,7 +17,6 @@ from pydantic import BaseModel
 
 from api.config import get_settings
 from api.dependencies import CurrentUserDep, SupabaseDep, TemporalDep
-from api.dependencies import require_role
 
 log = structlog.get_logger(__name__)
 router = APIRouter()
@@ -295,7 +294,7 @@ async def create_offboarding_programme(
         # Count by equipment_class, take top 6
         class_counts: Dict[str, int] = {}
         for row in (assets_result.data or []):
-            ec = row.get("equipment_class") or "GENERAL"
+            ec = (row.get("equipment_class") or "GENERAL").strip().upper()
             class_counts[ec] = class_counts.get(ec, 0) + 1
         equipment_families = [k for k, _ in sorted(class_counts.items(), key=lambda x: -x[1])][:6]
 
@@ -304,7 +303,7 @@ async def create_offboarding_programme(
         all_assets = await asyncio.to_thread(
             lambda: supabase.table("assets").select("equipment_class").execute()
         )
-        site_classes = [r["equipment_class"] for r in (all_assets.data or []) if r.get("equipment_class")]
+        site_classes = [(r["equipment_class"] or "").strip().upper() for r in (all_assets.data or []) if r.get("equipment_class")]
         for cls in site_classes:
             if cls not in equipment_families:
                 equipment_families.append(cls)

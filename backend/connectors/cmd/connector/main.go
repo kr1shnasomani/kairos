@@ -316,7 +316,10 @@ func receiveWorkOrder(c *gin.Context) {
 	respBody, _ := io.ReadAll(resp.Body)
 
 	var result interface{}
-	json.Unmarshal(respBody, &result)
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		c.Data(resp.StatusCode, "application/json", respBody)
+		return
+	}
 	c.JSON(resp.StatusCode, result)
 }
 
