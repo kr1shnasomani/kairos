@@ -35,28 +35,30 @@
 ## Documentation Index
 
 1. `docs/ARCHITECTURE.md`: The complete 13-layer platform design, constraints, and architecture.
-2. `IMPLEMENTATION.md`: Full 34-task implementation spec (the contract for the backend).
+2. `docs/IMPLEMENTATION.md`: Full 34-task implementation spec (the contract for the backend).
 3. `docs/API.md`: Complete REST API reference for all 34 tasks.
-4. `docs/BACKEND.md`: Services, workers, DB schema, config, and infra reference.
-5. `AGENTS.md` / `CLAUDE.md`: Coding guardrails, rules, and required skills for contribution.
+4. `docs/BACKEND.md`: Services, workers, config, and infra reference.
+5. `docs/DATABASE.md`: Full schema reference — Neo4j, Supabase, Qdrant, Elasticsearch, Redis.
+6. `docs/FRONTEND.md`: Frontend routes, components, API wiring, auth flow, and fixture data.
+7. `AGENTS.md` / `CLAUDE.md`: Coding guardrails, rules, and required skills for contribution.
 
 ## Repository Structure
 
 ```text
 kairos/
-├── backend/
+├── backend/              # Python app (Docker build context)
 │   ├── api/              # FastAPI application (routers, services, models)
-│   ├── workers/          # Celery async task workers
+│   ├── workers/          # Celery + Temporal activity workers
 │   ├── workflows/        # Temporal.io durable workflows
 │   ├── connectors/       # Go OT + EAM connector service
-│   ├── db/               # Schema migrations (Neo4j, Supabase)
-│   ├── policies/         # OPA Rego governance policies
-│   ├── otel/             # OpenTelemetry collector config
-│   ├── grafana/          # Grafana provisioning
 │   └── scripts/          # Init + seed scripts
+├── db/                   # Database schemas (Neo4j Cypher + Supabase SQL migrations)
+├── fixtures/             # Shared mock data (PID topology, EAM assets)
+├── infra/                # Infrastructure configs (Grafana, OPA, OTEL, Tempo, Temporal)
+├── frontend/             # Next.js Point-of-Action Web App
 ├── docs/                 # Technical and product documentation
-├── frontend/             # Next.js 14 Point-of-Action Web App
-├── docker-compose.yml    # Main local infrastructure definition
+├── tests/                # Integration test suite
+├── docker-compose.yml    # Full local infrastructure definition
 ├── Makefile              # Project lifecycle commands
 └── README.md
 ```
@@ -87,7 +89,7 @@ make dev
 ```
 
 This single command automatically builds and launches:
-- **Core App**: `kairos-backend-api`, `kairos-temporal-worker`, `kairos-backend-go`, `kairos-frontend`
+- **Core App**: `kairos-backend-api`, `kairos-celery-worker`, `kairos-temporal-activity-worker`, `kairos-elicitation-worker`, `kairos-backend-go`, `kairos-frontend`
 - **Databases**: `kairos-neo4j`, `kairos-qdrant`, `kairos-elasticsearch`, `kairos-redis`, `kairos-temporal-postgres`
 - **Infrastructure**: `kairos-temporal`, `kairos-temporal-ui`, `kairos-opa`, `kairos-vault`, `kairos-grafana`, `kairos-otel-collector`
 

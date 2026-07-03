@@ -2,18 +2,18 @@
 
 ## Essential Reading (load before anything else)
 - `docs/PROBLEM_STATEMENT.md` — what this platform is for and why it matters. Every decision must trace back to this.
-- `IMPLEMENTATION.md` — full task specs. The contract for every build. Tasks 1–34 defined.
+- `docs/IMPLEMENTATION.md` — full task specs. The contract for every build. Tasks 1–34 defined.
 - `docs/ARCHITECTURE.md` — 13-layer design. Understand the layer a task lives in before touching it.
-- `MEMORY.md` — **current implementation state**: completed task table (tasks 1–34 verified ✅), known pitfalls, key architectural decisions. Read this before starting any task to avoid re-implementing completed work.
+- `docs/MEMORY.md` — **current implementation state**: completed task table (tasks 1–34 verified ✅), known pitfalls, key architectural decisions. Read this before starting any task to avoid re-implementing completed work.
 
 ---
 
 ## Task Protocol (follow every time, no exceptions)
 
 ### 1 — Full Context Before Writing Anything
-- Read the full task spec in `IMPLEMENTATION.md`.
+- Read the full task spec in `docs/IMPLEMENTATION.md`.
 - Read every file you will touch, end-to-end. Trace the call chain: router → service → db/external.
-- Check `MEMORY.md` completed table — don't re-implement verified work.
+- Check `docs/MEMORY.md` completed table — don't re-implement verified work.
 - Identify which architecture layer the task lives in (`docs/ARCHITECTURE.md`).
 
 ### 2 — Plan
@@ -30,10 +30,10 @@
 - Stay in scope. If something unrelated is broken, note it — don't fix it mid-task.
 
 ### 4 — Verify End-to-End (nothing is done until this passes)
-- Run the exact test cases from `IMPLEMENTATION.md` spec via live HTTP calls against the running stack.
+- Run the exact test cases from `docs/IMPLEMENTATION.md` spec via live HTTP calls against the running stack.
 - Read container logs: `docker logs kairos-backend-api 2>&1 | tail -30`. No silent errors allowed.
 - Confirm writes in the actual database (Supabase/Neo4j/Qdrant/ES) — not just the HTTP response.
-- Update `MEMORY.md` completed table with a concrete "Verified By" entry.
+- Update `docs/MEMORY.md` completed table with a concrete "Verified By" entry.
 - Delete any temp files, test scripts, or scratch PDFs created during the task.
 
 ---
