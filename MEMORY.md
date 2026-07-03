@@ -152,10 +152,25 @@ After `make nuke`, run in order:
 
 ---
 
-## Integration Test Suite (151 passed, 1 skipped)
+## Integration Test Suite (150 passed, 1 skipped, 1 flaky)
 
 **Run:** `docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120`
 **Full docs:** `docs/TESTS.md`
+
+`test_rca_pack_refused_on_low_confidence_safety` — flaky: times out when Temporal/LLM cold-starts after a container rebuild. Run it in isolation with `--timeout=300` after services stabilize.
+
+---
+
+## Repo Structure (post-restructure)
+
+`backend/` is Python-only. Infra configs and shared data live at the repo root:
+- `db/` — Neo4j schema + Supabase migrations (was `backend/db/`)
+- `fixtures/` — mock data (`pid_topology_mock.json`) (was `backend/fixtures/`)
+- `infra/` — grafana, otel, policies, tempo, temporal configs (was `backend/{grafana,otel,policies,tempo,temporal}/`)
+
+All 4 Python containers (`kairos-backend-api`, `kairos-celery-worker`, `kairos-temporal-activity-worker`, `kairos-elicitation-worker`) mount `./fixtures:/app/fixtures` and `./db:/app/db` so existing code paths remain valid with no Python changes.
+
+`kairos-temporal-worker` renamed to `kairos-celery-worker` (it runs Celery, not Temporal activities).
 
 ### Files
 `tests/conftest.py`, `test_health.py`, `test_auth.py`, `test_assets.py`, `test_documents.py`, `test_db_writes.py`, `test_annotations.py`, `test_events.py`, `test_briefs.py`, `test_search.py`, `test_governance.py`, `test_compliance.py`, `test_elicitation.py`, `test_audit_log.py`, `test_ot_connector.py`

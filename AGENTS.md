@@ -86,7 +86,7 @@ make ps         # Container status
 - Pydantic model for every request and response shape.
 - `async/await` throughout. No blocking I/O in async handlers.
 - Never `SELECT *`. Never wildcard CORS `"*"` in production.
-- Never touch `frontend/` — deferred.
+- `frontend/` is a Next.js app owned by a separate team — don't touch it unless explicitly asked.
 
 ---
 
@@ -100,11 +100,11 @@ make ps         # Container status
 | Services | `backend/api/services/*.py` |
 | Pydantic models | `backend/api/models/*.py` |
 | Temporal workflow | `backend/workflows/document_pipeline.py` |
-| Temporal worker | `backend/workers/temporal_worker.py` |
+| Temporal activity worker | `backend/workers/temporal_worker.py` |
 | Celery worker | `backend/workers/celery_app.py` |
 | Go OT connectors | `backend/connectors/` |
-| Neo4j schema | `backend/db/neo4j/init_schema.cypher` |
-| Supabase migrations | `backend/db/migrations/` |
+| Neo4j schema | `db/neo4j/init_schema.cypher` |
+| Supabase migrations | `db/migrations/` |
 
 ---
 

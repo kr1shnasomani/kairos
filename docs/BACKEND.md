@@ -38,52 +38,59 @@ Three-phase architecture:
 ## 2. Repository Layout
 
 ```
-backend/
-├── api/
-│   ├── main.py                  # FastAPI app factory + lifespan
-│   ├── config.py                # All settings (pydantic-settings, env vars)
-│   ├── dependencies.py          # DI: Neo4j, Qdrant, ES, Redis, Supabase, Auth
-│   ├── middleware/
-│   │   ├── opa.py               # OPA policy enforcement middleware
-│   │   └── telemetry.py         # OTEL tracing + metrics setup
-│   ├── models/                  # Pydantic request/response schemas
-│   ├── routers/                 # One file per domain layer
-│   ├── services/                # All business logic (no logic in routers)
-│   └── utils/
-│       └── failure_families.py  # Shared FAILURE_FAMILIES dict (recurring detection)
-├── workers/
-│   ├── celery_app.py            # Celery app definition
-│   ├── attribution.py           # Outcome attribution worker
-│   ├── brief_assembly.py        # Delayed brief assembly worker
-│   ├── model_validation.py      # NER model gate evaluation worker
-│   ├── offboarding.py           # Off-boarding interview question generation worker
-│   ├── temporal_worker.py       # Temporal activity worker (ingestion pipeline)
-│   ├── elicitation_worker.py    # Temporal worker (elicitation workflows)
-│   └── voice_transcription.py   # Groq Whisper transcription + NER Celery task
-├── workflows/
-│   ├── document_pipeline.py     # DocumentIngestionWorkflow + all 7 activities
-│   ├── elicitation_workflow.py  # MicroInterviewWorkflow
-│   └── elicitation.py          # ElicitationService (question generation)
-├── connectors/                  # Go service — OT historian + EAM sync
-│   ├── cmd/connector/main.go    # Entry point, all HTTP handlers
-│   ├── internal/ot/client.go    # PIWebAPIClient + MockHistorianClient
-│   ├── internal/eam/client.go   # EAM connector interface + SAP stub
-│   ├── internal/events/relay.go # Redis Stream relay
-│   └── fixtures/sample_assets.json  # 5 demo assets for EAM sync
-├── db/
+kairos/                          # repo root
+├── backend/                     # Python app (Docker build context)
+│   ├── api/
+│   │   ├── main.py                  # FastAPI app factory + lifespan
+│   │   ├── config.py                # All settings (pydantic-settings, env vars)
+│   │   ├── dependencies.py          # DI: Neo4j, Qdrant, ES, Redis, Supabase, Auth
+│   │   ├── middleware/
+│   │   │   ├── opa.py               # OPA policy enforcement middleware
+│   │   │   └── telemetry.py         # OTEL tracing + metrics setup
+│   │   ├── models/                  # Pydantic request/response schemas
+│   │   ├── routers/                 # One file per domain layer
+│   │   ├── services/                # All business logic (no logic in routers)
+│   │   └── utils/
+│   │       └── failure_families.py  # Shared FAILURE_FAMILIES dict (recurring detection)
+│   ├── workers/
+│   │   ├── celery_app.py            # Celery app definition
+│   │   ├── attribution.py           # Outcome attribution worker
+│   │   ├── brief_assembly.py        # Delayed brief assembly worker
+│   │   ├── model_validation.py      # NER model gate evaluation worker
+│   │   ├── offboarding.py           # Off-boarding interview question generation worker
+│   │   ├── temporal_worker.py       # Temporal activity worker (ingestion pipeline)
+│   │   ├── elicitation_worker.py    # Temporal worker (elicitation workflows)
+│   │   └── voice_transcription.py   # Groq Whisper transcription + NER Celery task
+│   ├── workflows/
+│   │   ├── document_pipeline.py     # DocumentIngestionWorkflow + all 7 activities
+│   │   ├── elicitation_workflow.py  # MicroInterviewWorkflow
+│   │   └── elicitation.py          # ElicitationService (question generation)
+│   ├── connectors/                  # Go service — OT historian + EAM sync
+│   │   ├── cmd/connector/main.go    # Entry point, all HTTP handlers
+│   │   ├── internal/ot/client.go    # PIWebAPIClient + MockHistorianClient
+│   │   ├── internal/eam/client.go   # EAM connector interface + SAP stub
+│   │   ├── internal/events/relay.go # Redis Stream relay
+│   │   └── fixtures/sample_assets.json  # 5 demo assets for EAM sync
+│   ├── scripts/
+│   │   ├── seed_users.py            # Creates 3 Supabase auth test users
+│   │   ├── seed_regulations.py      # Seeds 12 regulations into Neo4j
+│   │   ├── init_neo4j.py            # Neo4j schema constraints + indices
+│   │   ├── init_qdrant.py           # Qdrant collection creation
+│   │   └── run_model_validation.py  # Manual model gate trigger script
+│   └── requirements.txt
+├── db/                          # Database schemas (mounted into Python containers)
 │   ├── migrations/              # Supabase SQL migrations (001–015)
 │   └── neo4j/init_schema.cypher # Neo4j constraints + indices
-├── grafana/provisioning/        # Grafana datasources + dashboards
-├── otel/otel-config.yaml        # OTEL collector config
-├── policies/kairos.rego         # OPA RBAC rules
-├── tempo/tempo.yaml             # Grafana Tempo config
-├── scripts/
-│   ├── seed_users.py            # Creates 3 Supabase auth test users
-│   ├── seed_regulations.py      # Seeds 12 regulations into Neo4j
-│   ├── init_neo4j.py            # Neo4j schema constraints + indices
-│   ├── init_qdrant.py           # Qdrant collection creation
-│   └── run_model_validation.py  # Manual model gate trigger script
-└── requirements.txt
+├── fixtures/                    # Shared mock data (mounted into Python containers)
+│   └── pid_topology_mock.json
+├── infra/                       # Infrastructure configs (one dir per service)
+│   ├── grafana/provisioning/    # Grafana datasources + dashboards
+│   ├── otel/otel-config.yaml    # OTEL collector config
+│   ├── policies/kairos.rego     # OPA RBAC rules
+│   ├── tempo/tempo.yaml         # Grafana Tempo config
+│   └── temporal/dynamicconfig.yaml
+├── frontend/                    # Next.js UI (separate Docker build context)
+└── tests/                       # Pytest test suite (mounted into backend-api)
 ```
 
 ---
@@ -95,7 +102,7 @@ All services run as Docker containers. Start with `make dev` (or `docker compose
 | Container | Image | Port(s) | Purpose |
 |-----------|-------|---------|---------|
 | `kairos-backend-api` | Python 3.12 (local build) | `8000` | FastAPI REST API |
-| `kairos-temporal-worker` | Python 3.12 (local build) | — | Celery workers (ingestion, extraction, attribution, elicitation, transcription, validation) |
+| `kairos-celery-worker` | Python 3.12 (local build) | — | Celery workers (ingestion, extraction, attribution, elicitation, transcription, validation) |
 | `kairos-temporal-activity-worker` | Python 3.12 (local build) | — | Temporal activity worker (document pipeline) |
 | `kairos-elicitation-worker` | Python 3.12 (local build) | — | Temporal worker (elicitation workflows) |
 | `kairos-backend-go` | Go 1.22 | `8090` | OT historian + EAM connector |
@@ -857,7 +864,7 @@ python3 -c "import ast; ast.parse(open('backend/api/routers/events.py').read())"
 docker logs kairos-backend-api 2>&1 | tail -30
 
 # Check Celery worker
-docker logs kairos-temporal-worker 2>&1 | tail -30
+docker logs kairos-celery-worker 2>&1 | tail -30
 
 # Check Temporal activity worker
 docker logs kairos-temporal-activity-worker 2>&1 | tail -20
