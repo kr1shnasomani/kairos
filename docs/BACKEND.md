@@ -256,7 +256,7 @@ Key methods:
 - `list_assets(site_id, equipment_class, skip, limit)` — paginated
 - `get_asset_hierarchy(asset_id)` — PARENT_OF traversal up to 10 levels
 - `get_asset_knowledge_at(asset_id, as_of)` — KNOWLEDGE_EDGE traversal with optional time-travel
-- `create_knowledge_edge(asset_id, document_id, rel_type, props)` — writes edge with all 6 required properties
+- `create_knowledge_edge(asset_id, document_id, rel_type, props)` — writes edge with all 6 required properties. `valid_to` defaults to the open-ended sentinel `_OPEN_VALID_TO` (see below) when not supplied; it is never stored as `null`.
 - `merge_document_node(document_id, props)` — MERGE Document node
 - `detect_conflict(asset_id, parameter, new_value, new_authority)` — dual-track conflict detection
 - `get_blast_radius(document_id)` — graph traversal for downstream impact of a document change
@@ -267,6 +267,12 @@ Key methods:
 
 **All 6 properties required on every KNOWLEDGE_EDGE write:**
 `valid_from`, `valid_to`, `authority_level`, `document_id`, `confidence`, `verification_status`
+
+**`_OPEN_VALID_TO` sentinel (`datetime(9999, 12, 31, 23, 59, 59, tzinfo=timezone.utc)`):**
+Neo4j silently drops properties set to `null`. Storing `valid_to=None` would cause the key to disappear from `edge.keys()`, silently violating the six-property rule. Instead, `create_knowledge_edge()` stores `(valid_to or self._OPEN_VALID_TO).isoformat()` — the far-future sentinel signals "currently active / no supersession date" without dropping the property.
+
+**"Active edge" query pattern:**
+All Cypher queries that filter for currently-active edges use `(r.valid_to IS NULL OR r.valid_to > datetime())`, not `r.valid_to IS NULL` alone. The `IS NULL` branch covers legacy edges written before the sentinel was introduced; the `> datetime()` branch covers all new sentinel edges. Affected files: `graph.py` (`detect_conflict`, `close_validity_windows`), `compliance.py` (3 call sites), `brief_engine.py`, `offboarding.py`, `elicitation_workflow.py`.
 
 ### `SearchService` (`services/search_service.py`)
 
@@ -282,7 +288,7 @@ Results merged and authority-ranked: level 1 (Regulatory) > level 5 (Field).
 ### `SearchEngineService` (`services/search_engine.py`)
 
 Wraps Elasticsearch.
-- `ensure_indices()` — creates `kairos_documents` and `kairos_assets` indices on startup
+- `ensure_indices()` — creates `kairos_documents`, `kairos_assets`, and `kairos_events` indices on startup
 - `search_documents(query, asset_id, limit)` — ES full-text search with highlight
 - `index_document(doc_id, content, metadata)` — index a document chunk
 
@@ -356,7 +362,9 @@ Named entity recognition for the extraction pipeline. Cloud-first: NIM primary, 
 
 OCR for the extraction pipeline. Cloud-first for scanned documents; zero-API-cost fast path for native digital PDFs.
 
-- `extract_text(file_bytes, mime_type)` — **Fast path:** PyMuPDF native text extraction for digital PDFs. **Cloud path:** NIM `nvidia/nemotron-ocr-v2` for scanned documents and images.
+- `extract_text(file_bytes, mime_type)` — **Fast paths:** plain text (`text/plain`) decoded directly as UTF-8; digital PDFs via PyMuPDF native extraction. **Cloud path:** `nvidia/nemotron-ocr-v2` for scanned documents and images.
+
+> **Important:** The OCR model uses the NVIDIA CV API (`https://ai.api.nvidia.com/v1/cv/<model>`), NOT the chat completions endpoint (`integrate.api.nvidia.com`). Request format uses `"input": [{"type": "image_url", "url": "data:..."}]`. Response format is `{"data": [{"text_detections": [{"label": "..."}]}]}`. Inline image limit: 180KB base64 — larger pages are skipped (assets API needed). Pages are rasterized at 96 DPI to stay under this limit.
 
 ### `metrics` (`services/metrics.py`)
 
@@ -414,7 +422,7 @@ Triggered by `POST /elicitation/{work_order_id}/responses`. Stores Q&A pairs as 
 
 App defined in `workers/celery_app.py`. Broker and result backend: `redis://kairos-redis:6379/1`.
 
-Five queues: `ingestion`, `extraction`, `attribution`, `transcription`, `elicitation`, `validation`.
+Six queues: `ingestion`, `extraction`, `attribution`, `transcription`, `elicitation`, `validation`.
 
 All workers use **lazy imports** inside the task body (never at module level) to avoid Celery fork-time conflicts.
 
@@ -596,6 +604,7 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 | `SUPABASE_URL` | Project URL |
 | `SUPABASE_ANON_KEY` | Anon key (used for auth verification only) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS — backend only) |
+| `SUPABASE_JWT_SECRET` | JWT secret for ES256 token verification |
 | `SUPABASE_STORAGE_BUCKET` | `kairos-vault` |
 
 > **Critical:** Never use the service-role key for `auth.sign_in_with_password()` or `auth.get_user()`. Always use a fresh `create_client(url, ANON_KEY)` for auth operations.
@@ -624,6 +633,7 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 | `ELASTICSEARCH_URL` | `http://localhost:9200` |
 | `ELASTICSEARCH_INDEX_ASSETS` | `kairos_assets` |
 | `ELASTICSEARCH_INDEX_DOCUMENTS` | `kairos_documents` |
+| `ELASTICSEARCH_INDEX_EVENTS` | `kairos_events` |
 
 ### Redis
 
@@ -632,6 +642,7 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 | `REDIS_URL` | `redis://localhost:6379` |
 | `REDIS_DB_CACHE` | `0` |
 | `REDIS_DB_CELERY` | `1` |
+| `REDIS_DB_STREAMS` | `2` |
 | `REDIS_STREAM_BRIEFS` | `kairos:events:briefs` |
 | `REDIS_STREAM_WORK_ORDERS` | `kairos:events:work_orders` |
 | `REDIS_STREAM_TAG_OUT` | `kairos:events:tag_out` |

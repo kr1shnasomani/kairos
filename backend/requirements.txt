@@ -73,4 +73,5 @@ shortuuid==1.0.13
 # --- Testing ---
 pytest==8.2.2
 pytest-asyncio==0.23.7
+pytest-timeout==2.3.1
 setuptools<70.0.0

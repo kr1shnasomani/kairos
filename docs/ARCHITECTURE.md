@@ -109,9 +109,11 @@ This is the cognitive core of KAIROS. Every piece of knowledge stored in the gra
 
 **Node types:** Assets (equipment, systems, facilities), Events (failures, inspections, incidents, maintenance actions), Documents (procedures, manuals, regulations, standards), Concepts (failure modes, regulatory clauses, process parameters), Persons (personnel with authority levels and domain expertise), and Organizations (sites, departments, external vendors, regulatory bodies).
 
-**Edge properties — every edge in the graph carries all five:**
+**Edge properties — every edge in the graph carries all six:**
 
 - **Validity window:** valid_from and valid_to timestamps. A fact about a pressure limit is only true for the period that the governing procedure was in effect. When the procedure is superseded, the fact's validity window closes. The old fact is not deleted; its window is closed. Time-travel queries can retrieve the exact state of knowledge at any historical moment.
+
+  **Open-ended edge sentinel:** Neo4j silently drops properties whose value is `null` at write time. Storing `valid_to=null` to indicate "still active" would mean the property is absent from the edge's property map — violating the rule that all six properties must be present on every write. Open-ended edges therefore store the sentinel value `9999-12-31T23:59:59Z` as `valid_to` instead of null. Cypher queries checking whether an edge is currently active must accommodate both the sentinel and any legacy null edges: `(r.valid_to IS NULL OR r.valid_to > datetime())`.
 
   Timestamp normalization is a first-class ingestion requirement. Brownfield plants commonly operate EAM, DMS, SCADA, and email archive systems whose server clocks are not synchronized to a common NTP source. A work order timestamp from SAP PM that is four hours ahead of the maintenance log timestamp from a different system will produce incorrect temporal ordering in the graph, corrupting time-travel RCA queries. The ingestion pipeline applies a timestamp alignment pass before committing any validity window to the graph: cross-referencing timestamps from the same event across multiple source systems, detecting drift, flagging discrepancies beyond a configurable tolerance for human review, and normalizing to a site-canonical time reference derived from the most authoritative available source (typically the historian, which is the most precisely clock-synchronized system in an industrial plant).
 
@@ -191,7 +193,7 @@ Before any operational event reaches the trigger governance subsystem, it passes
 
 The normalization layer performs three operations before any event enters the priority queue. First, deduplication: events that share a canonical asset ID and event type within a configurable time window (default 10 minutes) are collapsed to a single authoritative event, with the event from the highest-authority source system taking precedence. Second, correlation: events from different source systems that refer to the same physical action (e.g., a PTW issuance and the associated DCS tag-out confirmation) are linked as a single compound event, enriching the brief content without generating separate deliveries. Third, delay compensation: events that arrive out of sequence due to system propagation delays are buffered and reordered before being committed to the trigger queue. The normalization layer maintains a configurable late-arrival window (default 5 minutes) during which out-of-order events are held before the trigger queue is committed.
 
-**Subscribed event sources (via Kafka integration):**
+**Subscribed event sources (via Redis Streams):**
 
 - Work order creation (CMMS/EAM): a technician is about to be assigned to work on specific equipment
 - Permit-to-Work generation: isolation work, hot work, confined space entry, or high-pressure line work is about to begin
@@ -320,7 +322,7 @@ The history of failed industrial knowledge platforms is substantially a history 
 
 A work order is created in the facility's CMMS for Asset EQ-101 (a critical rotating asset in a manufacturing plant), assigned to a field technician, failure code: mechanical seal failure.
 
-The event subscription layer detects the work order creation event via Kafka within seconds. Layer 8 identifies this as a knowledge-relevant event for the assigned technician. The reasoning engine queries the temporal graph for EQ-101's complete history: 4 prior seal failures in 8 years, OEM recommendation for the current seal variant (last updated 18 months ago — note the update), two similar assets in the same production unit with a combined 3 additional seal failures, a quarantined field observation from 6 months ago noting unusual vibration before the last seal failure, a pending compliance item for seal replacement documentation in the next regulatory audit, and current telemetry from the historian showing thermal cycling that matches the pre-failure signature from the previous incident.
+The event subscription layer detects the work order creation event via Redis Streams within seconds. Layer 8 identifies this as a knowledge-relevant event for the assigned technician. The reasoning engine queries the temporal graph for EQ-101's complete history: 4 prior seal failures in 8 years, OEM recommendation for the current seal variant (last updated 18 months ago — note the update), two similar assets in the same production unit with a combined 3 additional seal failures, a quarantined field observation from 6 months ago noting unusual vibration before the last seal failure, a pending compliance item for seal replacement documentation in the next regulatory audit, and current telemetry from the historian showing thermal cycling that matches the pre-failure signature from the previous incident.
 
 Layer 11 synthesizes a brief: "EQ-101 has failed on mechanical seal 4 times. The previous failure (14 months ago) was preceded by the same thermal cycling pattern currently visible in telemetry. The OEM updated the seal specification 18 months ago — confirm you have the current seal variant (P/N [current] not the previous P/N [old]). A field technician noted unusual vibration before the last failure; this was not formally investigated. Consider checking bearing housing clearances during this repair. Audit requires seal replacement documentation before [date]." Three source documents are linked. One quarantined observation is flagged as unverified.
 
@@ -445,8 +447,8 @@ Cross-site pattern detection requires knowledge to flow from local data planes t
 |-------|------|-------|
 | Document vault | **Supabase Storage** | S3-compatible, free tier, stores all original files immutably |
 | Relational DB | **Supabase PostgreSQL** | Auth, workflows, review queues, audit logs — all in one |
-| Knowledge graph | **Neo4j AuraDB** | Free tier (200MB), property graph with Cypher query support |
-| Vector search | **Qdrant Cloud** | Free tier (1GB), payload filtering handles keyword needs alongside semantic search |
+| Knowledge graph | **Neo4j 5.20 Community** | Docker (`kairos-neo4j`), property graph with Cypher query support |
+| Vector search | **Qdrant** | Docker (`kairos-qdrant`), payload filtering handles keyword needs alongside semantic search |
 | Exact search | **Elasticsearch** (Docker) | Tag numbers, clause references, document ID lookup |
 | Cache | **Redis** (Docker) | Hot asset views, brief delivery, event streaming via Redis Streams |
 
@@ -565,7 +567,7 @@ KAIROS enters with the MDM import. The asset skeleton is established. The immuta
 
 Value delivered immediately: a single search interface over all ingested documents, with multilingual support, returning results ranked by recency and authority. For a plant operating across 7 to 12 disconnected document systems, this alone eliminates the majority of the time spent hunting for documents. The perception engine runs asynchronously, building its extraction outputs in the background. Workers experience faster document discovery from day one without waiting for a complete knowledge graph.
 
-Infrastructure footprint at this phase: modest. Three Kubernetes nodes handle the vault, search index, vector store, and API layer. Kafka handles the ingestion stream. Neo4j is provisioned but sparsely populated.
+Infrastructure footprint at this phase: modest. Three Kubernetes nodes handle the vault, search index, vector store, and API layer. Redis Streams handles the ingestion stream. Neo4j is provisioned but sparsely populated.
 
 ### Days 31 to 60: Entity Mapping and Asset-Centric Organization
 

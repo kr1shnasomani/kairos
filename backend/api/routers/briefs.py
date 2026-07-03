@@ -211,15 +211,21 @@ async def submit_feedback(
     cited in the brief. Task 16 attribution worker performs the actual adjustment.
     """
     user_id = current_user.get("user_id", "")
-    await asyncio.to_thread(
-        lambda: supabase.table("brief_feedback").insert({
-            "brief_id": brief_id,
-            "submitted_by": user_id,
-            "rating": payload.rating,
-            "notes": payload.notes,
-            "submitted_at": payload.submitted_at.isoformat(),
-        }).execute()
-    )
+    try:
+        await asyncio.to_thread(
+            lambda: supabase.table("brief_feedback").insert({
+                "brief_id": brief_id,
+                "submitted_by": user_id,
+                "rating": payload.rating,
+                "notes": payload.notes,
+                "submitted_at": payload.submitted_at.isoformat(),
+            }).execute()
+        )
+    except Exception as exc:
+        detail = getattr(exc, "details", None) or str(exc)
+        if "23503" in str(detail) or "23503" in str(exc):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Brief {brief_id} not found.")
+        raise
 
     if payload.rating == "incorrect":
         asyncio.create_task(_recheck_brief_sources(brief_id, user_id, supabase))

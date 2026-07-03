@@ -1,6 +1,6 @@
 """
 Graph service — Neo4j temporal graph operations (Layer 4).
-All write operations enforce the five mandatory edge properties.
+All write operations enforce the six mandatory edge properties.
 """
 
 from datetime import datetime, timezone
@@ -214,7 +214,7 @@ class GraphService:
         cypher = f"""
         MATCH (src:{source_label} {{{src_field}: $source_id}})-[r:KNOWLEDGE_EDGE]->(existing)
         WHERE r.relationship_type = $relationship_type
-          AND r.valid_to IS NULL
+          AND (r.valid_to IS NULL OR r.valid_to > datetime())
           AND r.document_id <> $new_document_id
           AND r.verification_status <> 'superseded'
         RETURN r.edge_id AS edge_id, r.document_id AS document_id,
@@ -250,6 +250,10 @@ class GraphService:
             "sla_hours": sla_hours,
         }
 
+    # Sentinel: stored as valid_to when the edge has no expiry yet.
+    # Neo4j drops null properties, so we use far-future to guarantee the key exists.
+    _OPEN_VALID_TO = datetime(9999, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+
     async def create_knowledge_edge(
         self,
         source_id: str,
@@ -257,7 +261,7 @@ class GraphService:
         target_id: str,
         target_label: str,
         relationship_type: str,
-        # Five mandatory edge properties:
+        # Six mandatory edge properties:
         valid_from: datetime,
         authority_level: int,
         document_id: str,
@@ -266,7 +270,7 @@ class GraphService:
         valid_to: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """
-        Creates a temporal knowledge edge with all five mandatory properties.
+        Creates a temporal knowledge edge with all six mandatory properties.
         Labels must be from the known node label set (validated against whitelist).
         Returns {"edge_id": str, "conflict": dict|None} — conflict is non-None when
         an existing active edge for the same (source, relationship_type) was found.
@@ -314,7 +318,7 @@ class GraphService:
                 relationship_type=relationship_type,
                 edge_id=edge_id,
                 valid_from=valid_from.isoformat(),
-                valid_to=valid_to.isoformat() if valid_to else None,
+                valid_to=(valid_to or self._OPEN_VALID_TO).isoformat(),
                 authority_level=authority_level,
                 document_id=document_id,
                 confidence=confidence,
@@ -340,7 +344,7 @@ class GraphService:
         """
         cypher = """
         MATCH ()-[r:KNOWLEDGE_EDGE {document_id: $document_id}]-()
-        WHERE r.valid_to IS NULL
+        WHERE (r.valid_to IS NULL OR r.valid_to > datetime())
         SET r.valid_to = $valid_to, r.verification_status = 'superseded'
         RETURN count(r) AS closed
         """

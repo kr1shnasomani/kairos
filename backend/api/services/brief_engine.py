@@ -686,7 +686,7 @@ class BriefEngine:
         cypher = """
         MATCH (a:Asset {asset_id: $asset_id})-[r:KNOWLEDGE_EDGE]->(n)
         WHERE r.relationship_type = 'pid_topology'
-          AND r.valid_to IS NULL
+          AND (r.valid_to IS NULL OR r.valid_to > datetime())
           AND r.valid_from <= $as_of
         RETURN n.concept_id AS element, n.type AS type
         LIMIT 20
