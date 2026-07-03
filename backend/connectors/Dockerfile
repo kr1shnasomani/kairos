@@ -8,6 +8,7 @@ COPY . .
 RUN go build -o /kairos-connector ./cmd/connector/...
 
 FROM alpine:3.20
+# hadolint ignore=DL3018
 RUN apk --no-cache add ca-certificates
 WORKDIR /app
 COPY --from=builder /kairos-connector .

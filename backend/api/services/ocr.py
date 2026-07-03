@@ -120,7 +120,7 @@ class OCRService:
                     log.info("ocr.no_detections", model=self.model)
                     return ""
                 lines = [d.get("label") or d.get("text") or "" for d in detections]
-                return "\n".join(l for l in lines if l).strip()
+                return "\n".join(line for line in lines if line).strip()
         except httpx.HTTPStatusError as exc:
             log.error("ocr.nim_error", status=exc.response.status_code, body=exc.response.text[:200])
             return ""
