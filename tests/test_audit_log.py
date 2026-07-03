@@ -64,6 +64,16 @@ async def test_audit_log_filter_combined(admin_client):
         assert item["action"] == "brief_acknowledged"
 
 
+async def test_audit_log_filter_entity_id(admin_client, shared_asset_id):
+    """entity_id filter works — returns only entries for the given entity."""
+    r = await admin_client.get("/audit-log/", params={"entity_id": shared_asset_id})
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body["items"], list)
+    for item in body["items"]:
+        assert item["entity_id"] == shared_asset_id
+
+
 async def test_audit_log_pagination(admin_client):
     r1 = await admin_client.get("/audit-log/", params={"limit": 5, "offset": 0})
     r2 = await admin_client.get("/audit-log/", params={"limit": 5, "offset": 5})

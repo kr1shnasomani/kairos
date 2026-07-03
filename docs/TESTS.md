@@ -236,7 +236,10 @@ Queries Neo4j, Qdrant, and Elasticsearch directly after the document pipeline co
 | `test_ingest_tag_out` / dedup | LOTO tag-out + deduplication |
 | `test_ingest_inspection_complete_passed` | High confidence → `quarantine_item_id=null` |
 | `test_ingest_inspection_complete_low_confidence_quarantined` | confidence < 0.7 → quarantine |
-| `test_deviation_flag_and_resolve` | Flag deviation → resolve with disputed/confirmed/moc_warranted |
+| `test_deviation_flag_and_resolve` | Flag deviation → resolve with `disputed` resolution |
+| `test_deviation_flag_resolve_promoted` | `resolution=promoted` + `moc_warranted=False` → `briefs_unfrozen` in response, `moc_id=null` |
+| `test_deviation_flag_resolve_moc_warranted` | `resolution=promoted` + `moc_warranted=True` → `moc_id` starts with `MOC-` |
+| `test_ingest_inspection_with_document_id` | Inspection with `document_id` → INSPECTION_RECORD Neo4j edge → `edge_id` non-null |
 | `test_set_and_get_plant_state` | Plant state gate: normal/turnaround/shutdown/emergency |
 
 > **Dedup isolation:** Tests that assert deduplication behavior create fresh unique assets with `uid()` to avoid bleeding from `shared_asset_id`.
@@ -248,9 +251,12 @@ Queries Neo4j, Qdrant, and Elasticsearch directly after the document pipeline co
 | `test_governor_ceiling_is_6` | Hard ceiling is exactly 6 pushes/operator/hour |
 | `test_governor_state_is_valid_value` | State is one of: normal / suppressed |
 | `test_get_governor_status_endpoint` | `/briefs/governor/status` responds with push count + ceiling |
+| `test_get_briefs_unacknowledged_only_default` | `?unacknowledged_only=True` returns only pending briefs |
+| `test_get_briefs_all_including_acknowledged` | `?unacknowledged_only=False` includes all briefs |
 | `test_brief_not_found_returns_404` | GET `/briefs/{uuid}` with non-existent UUID → 404 |
 | `test_ack_nonexistent_brief_returns_404` | POST `.../ack` for non-existent brief → 404 |
 | `test_brief_feedback_requires_rating` | Feedback with valid rating → 200/404/422, never 500 |
+| `test_ack_brief_via_ptw` | PTW with `issuing_engineer_id=service-kairos-connector` → `brief_id` returned immediately → ack → 200 with `status` field |
 | `test_attribution_worker_queues_recheck` | `rating=incorrect` on a real brief → `confidence_recheck_queued` row in `audit_log` |
 
 > **UUID requirement:** Brief, conflict, and quarantine endpoints use PostgreSQL UUID columns. Tests use `str(uuid4())` for fake IDs — plain strings cause Postgres parse errors → 500.
@@ -274,7 +280,7 @@ Queries Neo4j, Qdrant, and Elasticsearch directly after the document pipeline co
 
 > **LLM timeouts:** Synthesize and RCA pack tests use `timeout=120.0` per-request — LLM calls can be slow.
 
-### `test_governance.py` — Governance Layer (Tasks 21-25, 34, Layer 7, 20 tests)
+### `test_governance.py` — Governance Layer (Tasks 21-25, 34, Layer 7, 22 tests)
 | Test | What it verifies |
 |---|---|
 | `test_list_conflicts_shape` | Conflicts list → items/total envelope |
@@ -292,7 +298,9 @@ Queries Neo4j, Qdrant, and Elasticsearch directly after the document pipeline co
 | `test_sla_report_shape` | SLA escalation report fields present |
 | `test_circuit_breaker_shape` | SPC circuit breaker states per asset class |
 | `test_list_moc_shape` | GET /governance/moc → items/total envelope |
+| `test_get_conflict_detail` | GET `/governance/conflicts/{id}` → 200 with `conflict` + `blast_radius` fields (skipped if no conflicts) |
 | `test_moc_webhook_bad_payload` | Malformed webhook payload → 400 |
+| `test_moc_webhook_valid_payload` | Valid MoC webhook (created via deviation flag resolve) → 200, `moc_id` + `resolution` in response |
 | `test_blast_radius_nonexistent_doc` | Blast radius for unknown doc → 200 empty (not 404) |
 | `test_validation_corpus_stats` | Corpus coverage stats by entity type |
 | `test_model_gate_history` | GET /governance/model-gate/history → items/total |
@@ -329,17 +337,18 @@ Queries Neo4j, Qdrant, and Elasticsearch directly after the document pipeline co
 
 > **Voice dedup is async:** The dedup check reads from `quarantine_items` which is populated by the Celery transcription worker. Both uploads correctly return 202 but the second may not yet show `status=duplicate` synchronously.
 
-### `test_audit_log.py` — Audit Trail (Task 25, Layer 7, 8 tests)
+### `test_audit_log.py` — Audit Trail (Task 25, Layer 7, 9 tests)
 | Test | What it verifies |
 |---|---|
-| `test_audit_log_shape` | GET /audit-log/ → items/total envelope |
-| `test_audit_log_filter_entity_type` | `?entity_type=document` returns only document entries |
-| `test_audit_log_filter_action` | `?action=confidence_recheck_queued` filters correctly |
+| `test_audit_log_shape` | GET /audit-log/ → items/total/limit/offset envelope |
+| `test_audit_log_filter_entity_type` | `?entity_type=brief` returns only brief entries |
+| `test_audit_log_filter_action` | `?action=brief_acknowledged` filters correctly |
 | `test_audit_log_filter_performed_by` | `?performed_by=` filter works |
-| `test_audit_log_pagination_page1` | Page 1 returns first N entries |
-| `test_audit_log_pagination_page2` | Page 2 entries don't overlap with page 1 |
-| `test_audit_log_no_results_empty_list` | Unknown entity → empty items, not 404 |
-| `test_audit_log_requires_auth` | No token → 401 |
+| `test_audit_log_has_entries_after_asset_write` | Log is non-empty after test setup actions |
+| `test_audit_log_entry_fields` | Each entry has `action`, `entity_type`, `performed_by` |
+| `test_audit_log_filter_combined` | Combined `entity_type` + `action` filter works |
+| `test_audit_log_filter_entity_id` | `?entity_id=` filter returns only entries for that entity |
+| `test_audit_log_pagination` | Page 1 and page 2 entries don't overlap |
 
 ### `test_ot_connector.py` — Go OT Connector (Task 17, Layer 5, 8 tests)
 Hits the **Go service at port 8090** (`http://kairos-backend-go:8090` inside Docker, `http://localhost:8090` from host).

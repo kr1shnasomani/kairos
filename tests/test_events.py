@@ -318,6 +318,69 @@ async def test_deviation_flag_resolve_invalid_resolution(admin_client, shared_as
     assert r2.status_code == 400
 
 
+async def test_deviation_flag_resolve_promoted(admin_client, shared_asset_id):
+    """resolution=promoted → 200, resolution field is promoted, briefs_unfrozen in response."""
+    r = await admin_client.post("/events/deviation-flag", json={
+        "asset_id": shared_asset_id,
+        "description": "Topology confirmed changed — bypass valve installed",
+    })
+    assert r.status_code == 202
+    item_id = r.json()["item_id"]
+
+    r2 = await admin_client.post(f"/events/deviation-flag/{item_id}/resolve", json={
+        "resolution": "promoted",
+        "moc_warranted": False,
+        "notes": "Physical change verified by engineer",
+    })
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["resolution"] == "promoted"
+    assert "briefs_unfrozen" in body
+    assert body["moc_id"] is None
+
+
+async def test_deviation_flag_resolve_moc_warranted(admin_client, shared_asset_id):
+    """moc_warranted=True → 200 and moc_id is returned in response."""
+    r = await admin_client.post("/events/deviation-flag", json={
+        "asset_id": shared_asset_id,
+        "description": "Topology change requiring management of change sign-off",
+    })
+    assert r.status_code == 202
+    item_id = r.json()["item_id"]
+
+    r2 = await admin_client.post(f"/events/deviation-flag/{item_id}/resolve", json={
+        "resolution": "promoted",
+        "moc_warranted": True,
+        "notes": "Confirmed — new bypass loop added to P&ID",
+    })
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["resolution"] == "promoted"
+    assert body["moc_id"] is not None
+    assert body["moc_id"].startswith("MOC-")
+
+
+async def test_ingest_inspection_with_document_id(admin_client, shared_asset_id):
+    """Inspection with document_id provided → INSPECTION_RECORD Neo4j edge → edge_id not null."""
+    r = await admin_client.post("/events/inspection-complete", json={
+        "event_id": uid(),
+        "source_system": "inspection_app",
+        "site_id": "SITE_001",
+        "occurred_at": _now(),
+        "received_at": _now(),
+        "asset_id": shared_asset_id,
+        "inspection_type": "thickness_measurement",
+        "result": "passed",
+        "performed_by": "TECH-001",
+        "confidence": 0.92,
+        "document_id": f"DOC-INSP-{uid()}",  # triggers INSPECTION_RECORD edge in Neo4j
+    })
+    assert r.status_code == 202
+    body = r.json()
+    assert body["status"] == "accepted"
+    assert body["edge_id"] is not None  # non-null only when document_id provided
+
+
 # ---------------------------------------------------------------------------
 # Plant state
 # ---------------------------------------------------------------------------

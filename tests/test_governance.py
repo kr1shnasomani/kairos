@@ -214,9 +214,57 @@ async def test_list_moc_shape(admin_client):
     assert "total" in body
 
 
+async def test_get_conflict_detail(admin_client):
+    """GET /governance/conflicts/{id} returns conflict detail + blast_radius; skip if no conflicts."""
+    r = await admin_client.get("/governance/conflicts")
+    assert r.status_code == 200
+    items = r.json()["items"]
+    if not items:
+        pytest.skip("No conflicts in DB")
+    conflict_id = items[0]["conflict_id"]
+
+    r2 = await admin_client.get(f"/governance/conflicts/{conflict_id}")
+    assert r2.status_code == 200
+    body = r2.json()
+    assert "conflict" in body
+    assert "blast_radius" in body
+    assert body["conflict"]["conflict_id"] == conflict_id
+
+
 async def test_moc_webhook_bad_payload(admin_client):
     r = await admin_client.post("/governance/moc/webhook", json={"moc_id": "FAKE"})
     assert r.status_code == 400
+
+
+async def test_moc_webhook_valid_payload(admin_client, shared_asset_id):
+    """Valid MoC webhook payload → 200 with moc_id and resolution in response."""
+    # Create a moc item via deviation flag resolve with moc_warranted=True
+    r1 = await admin_client.post("/events/deviation-flag", json={
+        "asset_id": shared_asset_id,
+        "description": "Webhook test — topology change confirmed",
+    })
+    assert r1.status_code == 202
+    item_id = r1.json()["item_id"]
+
+    r2 = await admin_client.post(f"/events/deviation-flag/{item_id}/resolve", json={
+        "resolution": "promoted",
+        "moc_warranted": True,
+        "notes": "MoC warranted by inspection evidence",
+    })
+    assert r2.status_code == 200
+    moc_id = r2.json().get("moc_id")
+    assert moc_id is not None, "moc_warranted=True should return a moc_id"
+
+    # Test that the webhook accepts the moc_id with a valid status
+    r3 = await admin_client.post("/governance/moc/webhook", json={
+        "moc_id": moc_id,
+        "status": "rejected",
+        "approved_by": "test-runner",
+    })
+    assert r3.status_code == 200
+    body = r3.json()
+    assert body["moc_id"] == moc_id
+    assert body["resolution"] == "rejected"
 
 
 # ---------------------------------------------------------------------------

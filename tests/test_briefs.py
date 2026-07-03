@@ -72,11 +72,60 @@ async def test_brief_feedback_requires_rating(admin_client):
     assert r.status_code in (200, 404, 422)
 
 
+async def test_ack_brief_via_ptw(admin_client):
+    """
+    POST PTW with issuing_engineer_id=service-kairos-connector assembles a brief immediately.
+    ACK that brief → 200 with status field present.
+    PTW briefs have requires_countersignature=True → status=pending_countersignature.
+    """
+    from datetime import datetime, timezone
+    from tests.conftest import uid as _uid
+
+    # Use a fresh asset so 4h cool-down (per recipient+asset) never triggers
+    fresh_asset_id = f"ASSET-ACK-{_uid()}"
+    ra = await admin_client.post("/assets/", json={
+        "asset_id": fresh_asset_id,
+        "tag_number": f"TAG-ACK-{_uid()}",
+        "name": "Brief Ack Test Asset",
+        "equipment_class": "PUMP",
+        "criticality": "critical",
+        "site_id": "SITE_001",
+        "facility_id": "FAC_001",
+        "eam_source": "test",
+        "confirmed_by_user_id": "test-runner",
+    })
+    assert ra.status_code == 201
+
+    now = datetime.now(timezone.utc).isoformat()
+    r = await admin_client.post("/events/ptw", json={
+        "event_id": _uid(),
+        "source_system": "PTW_system",
+        "site_id": "SITE_001",
+        "occurred_at": now,
+        "received_at": now,
+        "ptw_id": f"PTW-ACK-{_uid()}",
+        "work_area": "Ack Test Bay",
+        "asset_ids": [fresh_asset_id],
+        "ptw_type": "isolation",
+        "issuing_engineer_id": "service-kairos-connector",  # matches admin_client user_id
+    })
+    assert r.status_code == 202
+    brief_id = r.json().get("brief_id")
+    assert brief_id is not None, "PTW handler must return brief_id immediately"
+
+    r2 = await admin_client.post(f"/briefs/{brief_id}/ack")
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["brief_id"] == brief_id
+    assert "status" in body  # "acknowledged" or "pending_countersignature" for PTW
+
+
 async def test_attribution_worker_queues_recheck(admin_client):
     """
     Attribution worker: rating=incorrect on a real brief → audit_log row with
     action=confidence_recheck_queued (Task 16, Task 13).
     """
+    import asyncio
     from datetime import datetime, timezone
 
     # Ingest a work order so a brief gets assembled
@@ -112,6 +161,9 @@ async def test_attribution_worker_queues_recheck(admin_client):
         "submitted_at": datetime.now(timezone.utc).isoformat(),
     })
     assert feedback_r.status_code == 200
+
+    # _recheck_brief_sources is fire-and-forget; give it a moment to write to DB
+    await asyncio.sleep(1)
 
     # Verify audit_log has the recheck entry
     log_r = await admin_client.get("/audit-log/", params={

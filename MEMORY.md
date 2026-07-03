@@ -152,7 +152,7 @@ After `make nuke`, run in order:
 
 ---
 
-## Integration Test Suite (145 tests, 1 skipped)
+## Integration Test Suite (151 passed, 1 skipped)
 
 **Run:** `docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120`
 **Full docs:** `docs/TESTS.md`
