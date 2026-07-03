@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+/* ============================================================
+   KAIROS — "Paper" theme. ONE UI, TWO PALETTES.
+   Light is default; [data-theme="dark"] recolors, never restructures.
+   Brand: Kairos Orange. Status scale is separate from the accent.
+   ============================================================ */
+
+:root {
+  /* surfaces + text (light / default) */
+  --canvas: #f5f2ec;      /* warm cream page ground */
+  --surface: #fdfcfa;     /* card */
+  --surface-2: #ffffff;   /* raised / inset */
+  --line: #e6e1d6;        /* hairline border */
+  --ink: #1c1a17;         /* primary text */
+  --muted: #6e6a62;       /* secondary text */
+
+  /* brand */
+  --accent: #e8501f;      /* Kairos Orange — actions, focus, identity */
+  --accent-soft: #fbe8df; /* accent wash */
+  --on-accent: #ffffff;
+
+  /* semantic status — authority / verification / severity */
+  --danger: #d92d20;
+  --caution: #f5a623;
+  --verified: #2e7d46;
+  --info: #2563eb;
+
+  --radius: 8px;
+  --radius-lg: 12px;
+}
+
+:root[data-theme="dark"] {
+  --canvas: #14110e;      /* warm near-black (not blue-black) */
+  --surface: #1e1a16;
+  --surface-2: #241f1a;
+  --line: #332c24;
+  --ink: #ede9e2;
+  --muted: #9a9186;
+
+  --accent: #f15a2b;      /* nudged brighter for dark legibility */
+  --accent-soft: #3a241a;
+  --on-accent: #ffffff;
+
+  --danger: #e4574c;
+  --caution: #f5a623;
+  --verified: #4fa96b;
+  --info: #5b8def;
+}
+
+/* Map tokens → Tailwind v4 utilities (bg-surface, text-ink, border-line, …) */
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-danger: var(--danger);
+  --color-caution: var(--caution);
+  --color-verified: var(--verified);
+  --color-info: var(--info);
+
+  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-card: var(--radius-lg);
+}
+
+* {
+  border-color: var(--line);
+}
+
+html {
+  color-scheme: light;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings carry the warm editorial serif — used with restraint */
+h1, h2, h3, .font-display {
+  font-family: var(--font-serif);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+/* Numerals, tags, codes line up and read as data */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  letter-spacing: -0.02em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}

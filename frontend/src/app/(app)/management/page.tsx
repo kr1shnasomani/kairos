@@ -1,0 +1,93 @@
+import { StatusBadge } from "@/components/ui";
+
+export const metadata = { title: "Overview — Kairos" };
+
+const KPIS = [
+  { label: "Knowledge coverage", value: "78%", sub: "of registered assets", color: "var(--accent)" },
+  { label: "Open conflicts", value: "3", sub: "1 safety-critical", color: "var(--danger)" },
+  { label: "Compliance posture", value: "61%", sub: "audit-ready", color: "var(--caution)" },
+  { label: "Cross-site alerts", value: "2", sub: "pattern matches", color: "var(--info)" },
+];
+
+const COVERAGE = [
+  { klass: "Rotating equipment", pct: 88 },
+  { klass: "Static / vessels", pct: 74 },
+  { klass: "Instrumentation", pct: 69 },
+  { klass: "Electrical", pct: 52 },
+];
+
+const ALERTS = [
+  { text: "Seal thermal-cycling pattern seen at 3 sister pumps (P-101, P-204, P-311)", tone: "caution" as const, tag: "Cross-site" },
+  { text: "Feed-water hardness excursions driving fouling across HX-3xx series", tone: "caution" as const, tag: "Cross-site" },
+  { text: "OISD-117 §6.4 relief-device evidence blocked on 2 assets", tone: "danger" as const, tag: "Compliance" },
+];
+
+const SERVICES = ["Neo4j", "Qdrant", "Elasticsearch", "Redis", "Supabase"];
+
+export default function ManagementPage() {
+  return (
+    <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
+      <header>
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Cross-functional</p>
+        <h1 className="mt-1 text-[28px] font-semibold leading-tight">Plant overview</h1>
+        <p className="mt-1.5 text-[13.5px] text-muted">Situational awareness across knowledge, conflicts, and compliance.</p>
+      </header>
+
+      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {KPIS.map((k) => (
+          <div key={k.label} className="rounded-xl border border-line bg-surface p-4">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">{k.label}</p>
+            <p className="tabular mt-1.5 text-[28px] font-semibold leading-none" style={{ color: k.color }}>{k.value}</p>
+            <p className="mt-1.5 text-[11.5px] text-muted">{k.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <section className="rounded-xl border border-line bg-surface p-5">
+          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Coverage by asset class</h2>
+          <div className="mt-4 space-y-3.5">
+            {COVERAGE.map((c) => (
+              <div key={c.klass}>
+                <div className="flex items-center justify-between text-[12.5px]">
+                  <span>{c.klass}</span>
+                  <span className="tabular text-muted">{c.pct}%</span>
+                </div>
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-line">
+                  <div className="h-full rounded-full bg-accent" style={{ width: `${c.pct}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-line bg-surface p-5">
+          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Cross-site &amp; compliance alerts</h2>
+          <ul className="mt-4 space-y-3">
+            {ALERTS.map((a) => (
+              <li key={a.text} className="flex flex-col gap-1.5">
+                <StatusBadge tone={a.tone}>{a.tag}</StatusBadge>
+                <span className="text-[13px] leading-relaxed text-ink">{a.text}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+
+      <section className="mt-4 rounded-xl border border-line bg-surface p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">System health</h2>
+          <StatusBadge tone="verified">All services up</StatusBadge>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {SERVICES.map((s) => (
+            <span key={s} className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2.5 py-1 text-[12px]">
+              <span className="size-1.5 rounded-full bg-verified" aria-hidden="true" />
+              {s}
+            </span>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
