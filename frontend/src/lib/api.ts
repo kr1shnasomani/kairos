@@ -109,7 +109,8 @@ export async function getComplianceGaps(framework?: string): Promise<Fetched<Com
   try {
     const qs = framework && framework !== "All" ? `?framework=${encodeURIComponent(framework)}` : "";
     const data = await getJson<ComplianceGapsResponse>(`/compliance/gaps${qs}`);
-    if (!data.items) throw new Error("no items");
+    // Empty live gaps → show the curated story (demo-primary), matching getAssets/getBriefs.
+    if (!data.items || data.items.length === 0) throw new Error("empty");
     return { data, source: "live" };
   } catch {
     return { data: complianceFixture, source: "demo" };
@@ -218,7 +219,11 @@ export async function synthesize(query: string): Promise<CopilotAnswer> {
 
 export async function getRcaPack(assetId: string, failureCode: string): Promise<RcaPack> {
   try {
-    const live = await postJson<Partial<RcaPack>>("/search/rca-pack", { asset_id: assetId, failure_code: failureCode });
+    const live = await postJson<Partial<RcaPack>>("/search/rca-pack", {
+      asset_id: assetId,
+      failure_code: failureCode,
+      incident_date: new Date().toISOString(),
+    });
     if (!live.timeline) throw new Error("no timeline");
     return {
       asset_id: assetId,
