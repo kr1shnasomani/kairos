@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "./theme-toggle";
 import { getMe, logout } from "@/lib/auth";
+import { getToken } from "@/lib/api";
 import type { Role, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -152,19 +153,29 @@ function SidebarContent({ onNavigate, role, user, onSignOut }: { onNavigate?: ()
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [authed, setAuthed] = useState<boolean | null>(null);
   const router = useRouter();
 
+  // Auth guard: no token → back to /login. With a token, load the profile.
   useEffect(() => {
+    if (!getToken()) {
+      router.replace("/login");
+      return;
+    }
+    setAuthed(true);
     getMe().then(setUser);
-  }, []);
+  }, [router]);
 
   const role: Role = user?.role ?? "engineer";
 
   function signOut() {
     logout();
     setUser(null);
-    router.push("/login");
+    router.replace("/login");
   }
+
+  // Hold render until the token check passes (avoids a flash of the app before redirect).
+  if (authed !== true) return null;
 
   return (
     <div className="flex min-h-screen">
