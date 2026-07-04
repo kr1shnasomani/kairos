@@ -2,9 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ThemeToggle } from "./theme-toggle";
+import { getMe } from "@/lib/auth";
+import type { Role, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+// Staff surfaces (Assure group + RCA) are hidden from field workers. Dev-bypass (no session)
+// defaults to engineer, so an unauthenticated demo still sees everything.
+const STAFF: Role[] = ["engineer", "reliability", "admin"];
 
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
@@ -31,23 +37,25 @@ function Icon({ name, className = "size-[18px]" }: { name: IconName; className?:
   );
 }
 
-const NAV: { group: string; items: { href: string; label: string; icon: IconName }[] }[] = [
+type NavItem = { href: string; label: string; icon: IconName; roles?: Role[] };
+
+const NAV: { group: string; items: NavItem[] }[] = [
   {
     group: "Operate",
     items: [
       { href: "/briefs", label: "Briefs", icon: "briefs" },
       { href: "/copilot", label: "Copilot", icon: "copilot" },
       { href: "/assets", label: "Assets", icon: "assets" },
-      { href: "/rca", label: "RCA", icon: "rca" },
+      { href: "/rca", label: "RCA", icon: "rca", roles: STAFF },
     ],
   },
   {
     group: "Assure",
     items: [
-      { href: "/compliance", label: "Compliance", icon: "compliance" },
-      { href: "/governance", label: "Governance", icon: "governance" },
-      { href: "/documents", label: "Documents", icon: "documents" },
-      { href: "/management", label: "Overview", icon: "management" },
+      { href: "/compliance", label: "Compliance", icon: "compliance", roles: STAFF },
+      { href: "/governance", label: "Governance", icon: "governance", roles: STAFF },
+      { href: "/documents", label: "Documents", icon: "documents", roles: STAFF },
+      { href: "/management", label: "Overview", icon: "management", roles: STAFF },
     ],
   },
 ];
@@ -63,8 +71,17 @@ function KairosMark({ size = 30 }: { size?: number }) {
   );
 }
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; role: Role; user: User | null }) {
   const pathname = usePathname();
+  const sections = NAV
+    .map((s) => ({ ...s, items: s.items.filter((it) => !it.roles || it.roles.includes(role)) }))
+    .filter((s) => s.items.length > 0);
+
+  const email = user?.email ?? null;
+  const name = email ? email.split("@")[0] : "Dev user";
+  const initials = (email ? email.slice(0, 2) : "DV").toUpperCase();
+  const roleLine = user ? `${user.role[0].toUpperCase()}${user.role.slice(1)} · ${user.site_id}` : "Engineer · dev";
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2.5 px-4 py-4">
@@ -73,7 +90,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-2">
-        {NAV.map((section) => (
+        {sections.map((section) => (
           <div key={section.group}>
             <p className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
               {section.group}
@@ -105,13 +122,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-3">
-        <div className="flex items-center gap-2 px-1">
-          <span className="grid size-7 place-items-center rounded-full bg-accent text-[11px] font-bold text-on-accent">
-            RS
+        <div className="flex min-w-0 items-center gap-2 px-1">
+          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-bold text-on-accent">
+            {initials}
           </span>
-          <div className="leading-tight">
-            <p className="text-xs font-semibold">R. Shah</p>
-            <p className="text-[11px] text-muted">Engineer · SITE_001</p>
+          <div className="min-w-0 leading-tight">
+            <p className="truncate text-xs font-semibold">{name}</p>
+            <p className="truncate text-[11px] text-muted">{roleLine}</p>
           </div>
         </div>
         <ThemeToggle />
@@ -122,13 +139,20 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    getMe().then(setUser);
+  }, []);
+
+  const role: Role = user?.role ?? "engineer";
 
   return (
     <div className="flex min-h-screen">
       {/* Desktop sidebar */}
       <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block">
         <div className="sticky top-0 h-screen">
-          <SidebarContent />
+          <SidebarContent role={role} user={user} />
         </div>
       </aside>
 
@@ -141,7 +165,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setDrawer(false)}
           />
           <div className="absolute inset-y-0 left-0 w-[244px] border-r border-line bg-surface">
-            <SidebarContent onNavigate={() => setDrawer(false)} />
+            <SidebarContent onNavigate={() => setDrawer(false)} role={role} user={user} />
           </div>
         </div>
       )}

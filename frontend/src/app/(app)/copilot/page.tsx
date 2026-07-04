@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { answerFor, SUGGESTIONS, type CopilotAnswer } from "@/lib/copilot";
+import { SUGGESTIONS, type CopilotAnswer } from "@/lib/copilot";
+import { synthesize } from "@/lib/api";
 import { AuthorityBadge, SourceChip, StatusBadge } from "@/components/ui";
 
 interface Turn {
@@ -25,10 +26,10 @@ export default function CopilotPage() {
     const id = Date.now();
     setInput("");
     setTurns((t) => [...t, { id, query: q, answer: null }]);
-    // Fixture stand-in for /search + /search/synthesize while backend is offline.
-    setTimeout(() => {
-      setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer: answerFor(q) } : turn)));
-    }, 650);
+    // Live POST /search/synthesize; falls back to the curated fixture answer when offline.
+    synthesize(q).then((answer) => {
+      setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer } : turn)));
+    });
   }
 
   const empty = turns.length === 0;

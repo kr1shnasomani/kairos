@@ -1,44 +1,27 @@
-// Fixture compliance data — stands in for GET /compliance/gaps + /dashboard while offline.
-// Frameworks seeded per MEMORY: OISD-117 + ISO 45001.
+import type { ComplianceGap, ComplianceGapsResponse } from "./types";
 
-export type GapStatus = "open" | "covered" | "blocked";
-export type GapSeverity = "high" | "medium" | "low";
+// Fixture compliance data — stands in for GET /compliance/gaps while offline.
+// Shape mirrors the live endpoint (backend/api/routers/compliance.py): each item is a detected
+// gap (an asset + regulation with no verified procedure edge). severity is derived from the
+// regulation's authority_level: 1→critical, 2→major, else minor. There is no "covered" state —
+// coverage means the gap simply does not appear. Frameworks use backend IDs (underscores).
 
-export interface ComplianceGap {
-  gap_id: string;
-  framework: string;
-  clause: string;
-  requirement: string;
-  asset_id: string;
-  status: GapStatus;
-  severity: GapSeverity;
-}
+const gaps: ComplianceGap[] = [
+  { concept_id: "REG-OISD-6.4", framework: "OISD_117", clause_id: "6.4", requirement_text: "Relief-device set pressure documented and current", authority_level: 1, asset_id: "P-101", equipment_class: "Centrifugal pump", severity: "critical" },
+  { concept_id: "REG-OISD-9.1", framework: "OISD_117", clause_id: "9.1", requirement_text: "Isolation procedure verified against current P&ID", authority_level: 1, asset_id: "V-247", equipment_class: "Control valve", severity: "critical" },
+  { concept_id: "REG-OISD-7.2", framework: "OISD_117", clause_id: "7.2", requirement_text: "Seal replacement records for rotating equipment", authority_level: 2, asset_id: "EQ-101", equipment_class: "Rotating equipment", severity: "major" },
+  { concept_id: "REG-OISD-4.3", framework: "OISD_117", clause_id: "4.3", requirement_text: "Inspection interval within regulatory limit", authority_level: 2, asset_id: "HX-301", equipment_class: "Shell-and-tube exchanger", severity: "major" },
+  { concept_id: "REG-ISO-8.1.2", framework: "ISO_45001", clause_id: "8.1.2", requirement_text: "Hazard elimination evidence for confined-space work", authority_level: 1, asset_id: "V-247", equipment_class: "Control valve", severity: "critical" },
+  { concept_id: "REG-ISO-9.1.1", framework: "ISO_45001", clause_id: "9.1.1", requirement_text: "Monitoring records for operational controls", authority_level: 2, asset_id: "P-101", equipment_class: "Centrifugal pump", severity: "major" },
+  { concept_id: "REG-ISO-7.5", framework: "ISO_45001", clause_id: "7.5", requirement_text: "Documented information controlled and versioned", authority_level: 3, asset_id: "EQ-101", equipment_class: "Rotating equipment", severity: "minor" },
+  { concept_id: "REG-ISO-10.2", framework: "ISO_45001", clause_id: "10.2", requirement_text: "Nonconformity and corrective-action tracking", authority_level: 3, asset_id: "HX-301", equipment_class: "Shell-and-tube exchanger", severity: "minor" },
+];
 
-export interface ComplianceSummary {
-  total: number;
-  open: number;
-  covered: number;
-  blocked: number;
-  frameworks: string[];
-  audit_ready_pct: number;
-  gaps: ComplianceGap[];
-}
-
-export const complianceSummary: ComplianceSummary = {
-  total: 18,
-  open: 7,
-  covered: 9,
-  blocked: 2,
-  frameworks: ["OISD-117", "ISO 45001"],
-  audit_ready_pct: 61,
-  gaps: [
-    { gap_id: "G-01", framework: "OISD-117", clause: "6.4", requirement: "Relief-device set pressure documented and current", asset_id: "P-101", status: "blocked", severity: "high" },
-    { gap_id: "G-02", framework: "OISD-117", clause: "7.2", requirement: "Seal replacement records for rotating equipment", asset_id: "EQ-101", status: "open", severity: "high" },
-    { gap_id: "G-03", framework: "OISD-117", clause: "9.1", requirement: "Isolation procedure verified against current P&ID", asset_id: "V-247", status: "open", severity: "medium" },
-    { gap_id: "G-04", framework: "OISD-117", clause: "4.3", requirement: "Inspection interval within regulatory limit", asset_id: "HX-301", status: "covered", severity: "medium" },
-    { gap_id: "G-05", framework: "ISO 45001", clause: "8.1.2", requirement: "Hazard elimination evidence for confined-space work", asset_id: "V-247", status: "open", severity: "high" },
-    { gap_id: "G-06", framework: "ISO 45001", clause: "7.5", requirement: "Documented information controlled and versioned", asset_id: "EQ-101", status: "covered", severity: "low" },
-    { gap_id: "G-07", framework: "ISO 45001", clause: "9.1.1", requirement: "Monitoring records for operational controls", asset_id: "P-101", status: "blocked", severity: "medium" },
-    { gap_id: "G-08", framework: "ISO 45001", clause: "10.2", requirement: "Nonconformity and corrective-action tracking", asset_id: "HX-301", status: "open", severity: "low" },
-  ],
+export const complianceFixture: ComplianceGapsResponse = {
+  items: gaps,
+  total: gaps.length,
+  limit: 100,
+  offset: 0,
+  framework: null,
+  last_scan: "demo",
 };

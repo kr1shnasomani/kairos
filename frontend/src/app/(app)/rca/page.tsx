@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import type { RcaPack } from "@/lib/types";
-import { rcaFor, RCA_PRESETS } from "@/lib/rca";
+import { RCA_PRESETS } from "@/lib/rca";
+import { getRcaPack } from "@/lib/api";
 import { AuthorityBadge, Button, SourceChip, StatusBadge } from "@/components/ui";
 
 function fmtTime(iso: string): string {
@@ -28,10 +29,11 @@ export default function RcaPage() {
     setCode(c);
     setLoading(true);
     setPack(null);
-    setTimeout(() => {
-      setPack(rcaFor(a, c));
+    // Live POST /search/rca-pack; falls back to the curated fixture pack when offline.
+    getRcaPack(a, c).then((p) => {
+      setPack(p);
       setLoading(false);
-    }, 650);
+    });
   }
 
   return (

@@ -65,6 +65,39 @@ export function SourceChip({
   );
 }
 
+/** Centered confirm dialog over a dimmed backdrop — refero: Airtable/Jasper/The Org confirm modals.
+ *  Used for consequential writes (promote/dispute). Backdrop + Esc dismiss; actions live in children. */
+export function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4" role="dialog" aria-modal="true" aria-label={title}>
+      <button className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl border border-line bg-surface p-5 shadow-xl">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-[14.5px] font-semibold">{title}</h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="grid size-7 place-items-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div className="mt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 type ButtonVariant = "primary" | "ghost";
 
 export function Button({

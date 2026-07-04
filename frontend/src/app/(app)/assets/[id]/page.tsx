@@ -1,20 +1,19 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getAsset } from "@/lib/assets";
+import { getAssetDetail } from "@/lib/api";
 import { AuthorityBadge, SourceChip, StatusBadge } from "@/components/ui";
 
-const CRIT_TONE = { high: "danger", medium: "caution", low: "verified" } as const;
 const VERIF_TONE = { verified: "verified", unverified: "caution", disputed: "danger" } as const;
 
 export default async function AssetDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const a = getAsset(id);
+  const { data: a, source } = await getAssetDetail(id);
   if (!a) notFound();
 
   const stats = [
-    { label: "Open work orders", value: a.open_work_orders },
-    { label: "Compliance gaps", value: a.compliance_gaps },
-    { label: "Last inspection", value: a.last_inspection },
+    { label: "Open work orders", value: a.open_work_orders ?? "—" },
+    { label: "Compliance gaps", value: a.compliance_gaps ?? "—" },
+    { label: "Last inspection", value: a.last_inspection ?? "—" },
   ];
 
   return (
@@ -29,7 +28,16 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
       <header className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <h1 className="tabular text-[26px] font-semibold text-accent">{a.asset_id}</h1>
         <span className="text-[16px]">{a.name}</span>
-        <StatusBadge tone={CRIT_TONE[a.criticality]}>{a.criticality} criticality</StatusBadge>
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: a.criticalityColor }}>
+          <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+          {a.criticalityLabel}
+        </span>
+        {source === "demo" && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
+            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
+            Demo data
+          </span>
+        )}
       </header>
       <p className="mt-1.5 text-[13px] text-muted">
         {a.equipment_class}{a.parent && <> · {a.parent}</>}
@@ -44,20 +52,27 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
         ))}
       </div>
 
-      <section className="mt-6">
-        <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Tag aliases</h2>
-        <div className="mt-2.5 flex flex-wrap gap-2">
-          {a.aliases.map((al) => (
-            <span key={al} className="rounded-md border border-line bg-surface-2 px-2 py-1 text-[12px] text-muted">{al}</span>
-          ))}
-        </div>
-      </section>
+      {a.aliases.length > 0 && (
+        <section className="mt-6">
+          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Tag aliases</h2>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            {a.aliases.map((al) => (
+              <span key={al} className="rounded-md border border-line bg-surface-2 px-2 py-1 text-[12px] text-muted">{al}</span>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="mt-6">
         <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Knowledge</h2>
         <div className="mt-3 space-y-2.5">
-          {a.knowledge.map((k) => (
-            <article key={k.source_doc} className="rounded-xl border border-line bg-surface p-4">
+          {a.knowledge.length === 0 && (
+            <p className="rounded-xl border border-line bg-surface px-4 py-6 text-center text-[13px] text-muted">
+              No knowledge edges recorded for this asset yet.
+            </p>
+          )}
+          {a.knowledge.map((k, i) => (
+            <article key={`${k.source_doc}-${i}`} className="rounded-xl border border-line bg-surface p-4">
               <p className="text-[13.5px] leading-relaxed text-ink">{k.claim}</p>
               <div className="mt-2.5 flex flex-wrap items-center gap-2">
                 <AuthorityBadge level={k.authority_level} />
