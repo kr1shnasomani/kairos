@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "./theme-toggle";
-import { getMe } from "@/lib/auth";
+import { getMe, logout } from "@/lib/auth";
 import type { Role, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -71,7 +71,7 @@ function KairosMark({ size = 30 }: { size?: number }) {
   );
 }
 
-function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; role: Role; user: User | null }) {
+function SidebarContent({ onNavigate, role, user, onSignOut }: { onNavigate?: () => void; role: Role; user: User | null; onSignOut: () => void }) {
   const pathname = usePathname();
   const sections = NAV
     .map((s) => ({ ...s, items: s.items.filter((it) => !it.roles || it.roles.includes(role)) }))
@@ -131,7 +131,19 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
             <p className="truncate text-[11px] text-muted">{roleLine}</p>
           </div>
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <button
+            onClick={onSignOut}
+            aria-label="Sign out"
+            title="Sign out"
+            className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -140,6 +152,7 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     getMe().then(setUser);
@@ -147,12 +160,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const role: Role = user?.role ?? "engineer";
 
+  function signOut() {
+    logout();
+    setUser(null);
+    router.push("/login");
+  }
+
   return (
     <div className="flex min-h-screen">
       {/* Desktop sidebar */}
       <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block">
         <div className="sticky top-0 h-screen">
-          <SidebarContent role={role} user={user} />
+          <SidebarContent role={role} user={user} onSignOut={signOut} />
         </div>
       </aside>
 
@@ -165,7 +184,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setDrawer(false)}
           />
           <div className="absolute inset-y-0 left-0 w-[244px] border-r border-line bg-surface">
-            <SidebarContent onNavigate={() => setDrawer(false)} role={role} user={user} />
+            <SidebarContent onNavigate={() => setDrawer(false)} role={role} user={user} onSignOut={signOut} />
           </div>
         </div>
       )}
