@@ -1,5 +1,38 @@
 # KAIROS — Agent Context
 
+## Token-Saving Workflow (default for all agents — read first)
+
+Prefer the smallest effective context. Default loop:
+**SymDex locate → minimal file read → small patch → RTK validate → Caveman summary.**
+
+Active-lane note: `frontend/` (Next.js) is now an **active** work area. The "never touch `frontend/`"
+guardrail lower down applies to *backend* agents only; backend rules remain authoritative for backend work.
+
+### 1. RTK — for noisy terminal commands
+Use RTK for build, test, lint, typecheck, Docker, `curl`, and `git diff/status/log`.
+Do not paste full logs. Report only: command, result, cause, relevant files, next fix.
+
+### 2. SymDex — before reading many files
+Use SymDex to locate routes, components, symbols, API clients, styling/theme files, tests, and docs.
+Do not scan the whole repo when SymDex can point to the files you need.
+
+### 3. Caveman — for final summaries
+Use Caveman-style output for final **implementation** summaries: changed files, validation results,
+blockers only — short and factual. Do NOT use Caveman for architecture/product reasoning.
+
+Other skills/tools may be used when clearly better for the task — but don't load extras unnecessarily;
+if you use one, say briefly why.
+
+### Rules
+- Prefer the smallest effective context. Make the smallest safe change.
+- Preserve existing architecture and style. Do not add dependencies unless necessary.
+- Do not touch unrelated files. Do not commit unless explicitly asked.
+- Use `docs/demo/LIVE_VERIFICATION.md` as the reference for current live backend/API verification status.
+  Do NOT modify it unless explicitly asked for a new live-verification run.
+- If RTK or SymDex is unavailable, fall back to normal commands/search but keep the same token-saving behavior.
+
+---
+
 ## Essential Reading (load before anything else)
 - `docs/PROBLEM_STATEMENT.md` — what this platform is for and why it matters. Every decision must trace back to this.
 - `IMPLEMENTATION.md` — full task specs. The contract for every build. Tasks 1–34 defined.
