@@ -16,7 +16,8 @@ Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · Docker
 | UI | React 19, Tailwind CSS 4, custom design tokens |
 | Language | TypeScript (strict) |
 | Auth | Supabase-backed via `POST /auth/login` |
-| API | `fetch` against `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`) |
+| API (browser) | `fetch` against `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`) |
+| API (SSR) | `fetch` against `API_INTERNAL_URL` (`http://kairos-backend-api:8000` in Docker) |
 | Container | `node:20-alpine`; `npm ci` at build time; `src/` + `public/` hot-reloaded via volume mount |
 
 ---
@@ -25,45 +26,60 @@ Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · Docker
 
 ```
 frontend/
+├── public/
+│   └── logo.jpeg                    # Brand logo — served at /logo.jpeg; favicon source
 ├── src/
 │   ├── app/
-│   │   ├── layout.tsx               # Root layout — globals, font, theme
+│   │   ├── icon.jpeg                # Auto-favicon (Next.js App Router convention)
+│   │   ├── layout.tsx               # Root layout — globals, font, theme, favicon metadata
 │   │   ├── page.tsx                 # Root redirect → /briefs
 │   │   ├── globals.css              # Design tokens (CSS vars: --accent, --ink, --muted, etc.)
+│   │   ├── not-found.tsx            # On-theme 404 page
 │   │   ├── login/page.tsx           # Login screen (real auth → POST /auth/login)
 │   │   └── (app)/                   # Authenticated route group
 │   │       ├── layout.tsx           # Wraps all authenticated pages in <AppShell>
+│   │       ├── loading.tsx          # Shared page skeleton (Next.js Suspense boundary)
+│   │       ├── error.tsx            # Shared error boundary (role=alert + reset)
 │   │       ├── briefs/
 │   │       │   ├── page.tsx         # Brief inbox (live + fixture fallback)
-│   │       │   └── [id]/page.tsx    # Brief detail
-│   │       ├── copilot/page.tsx     # Knowledge copilot chat (fixture stand-in)
+│   │       │   └── [id]/page.tsx    # Brief detail + ack + feedback
+│   │       ├── copilot/page.tsx     # Knowledge copilot (live POST /search/synthesize + fixture fallback)
 │   │       ├── assets/
-│   │       │   ├── page.tsx         # Asset list (fixture)
-│   │       │   └── [id]/page.tsx    # Asset detail + knowledge edges (fixture)
-│   │       ├── rca/page.tsx         # Root Cause Analysis pack (fixture)
-│   │       ├── compliance/page.tsx  # Compliance gaps + dashboard (fixture)
-│   │       ├── governance/page.tsx  # Stub — conflicts, quarantine, MoC, SLA
-│   │       ├── documents/page.tsx   # Stub — document list + status
-│   │       └── management/page.tsx  # Overview dashboard (stub)
+│   │       │   ├── page.tsx         # Asset list (live GET /assets/ + fixture fallback)
+│   │       │   └── [id]/page.tsx    # Asset detail + aliases + knowledge (live + fixture fallback)
+│   │       ├── rca/page.tsx         # RCA pack (live POST /search/rca-pack + fixture fallback)
+│   │       ├── compliance/page.tsx  # Compliance gaps + dashboard (live + fixture fallback)
+│   │       ├── governance/
+│   │       │   ├── page.tsx         # Governance hub — links to conflicts + quarantine
+│   │       │   ├── conflicts/page.tsx   # Conflict list + resolve action (live + fixture fallback)
+│   │       │   └── quarantine/page.tsx  # Quarantine list + promote/dispute (live + fixture fallback, role-gated)
+│   │       ├── documents/
+│   │       │   ├── page.tsx         # Document registry (live GET /documents/ + fixture fallback)
+│   │       │   └── [id]/page.tsx    # Document detail + supersede chain (live + fixture fallback)
+│   │       └── management/page.tsx  # Overview dashboard (fixture)
 │   ├── components/
-│   │   ├── app-shell.tsx            # Sidebar nav + mobile drawer + user chip
+│   │   ├── app-shell.tsx            # Sidebar nav + mobile drawer + user chip + auth guard + sign-out
 │   │   ├── brief-card.tsx           # Single brief row in the inbox
 │   │   ├── brief-inbox.tsx          # List of BriefCards with priority grouping
 │   │   ├── brief-detail.tsx         # Full brief view with sources + ack form
+│   │   ├── skeleton.tsx             # Shared PageSkeleton component
 │   │   ├── stub.tsx                 # Placeholder component for unbuilt pages
 │   │   ├── theme-toggle.tsx         # Light/dark toggle
-│   │   └── ui.tsx                   # Shared primitives: AuthorityBadge, StatusBadge, SourceChip
+│   │   ├── use-role.ts              # useRole() hook — reads role from live user profile
+│   │   └── ui.tsx                   # Shared primitives: AuthorityBadge, StatusBadge, SourceChip, Modal, Button
 │   └── lib/
-│       ├── api.ts                   # fetch helpers, getBriefs, getBrief, postJson, ackBrief, sendBriefFeedback
+│       ├── api.ts                   # All fetch helpers — SSR-aware API_BASE, live+fixture fetchers, postJson
 │       ├── auth.ts                  # login(), getMe(), logout() — Supabase token lifecycle
-│       ├── types.ts                 # All API-derived TypeScript types
+│       ├── types.ts                 # All API-derived TypeScript types (single source of truth)
 │       ├── fixtures.ts              # fixtureBriefs — demo BriefsResponse for offline mode
 │       ├── assets.ts                # Fixture Asset[] + getAsset() helper
-│       ├── compliance.ts            # Fixture ComplianceSummary (OISD-117 + ISO 45001 gaps)
+│       ├── compliance.ts            # Live/fixture ComplianceGapsResponse (OISD-117 + ISO 45001)
 │       ├── copilot.ts               # Fixture CopilotAnswer map + answerFor() matcher
+│       ├── documents.ts             # Fixture DocumentsResponse + getDocumentFixture()
+│       ├── governance.ts            # Fixture conflictsFixture + quarantineFixture
 │       ├── rca.ts                   # Fixture RcaPack presets + rcaFor() matcher
-│       └── utils.ts                 # cn() — className merge utility
-├── Dockerfile                       # node:20-alpine; npm ci at build; dev server at runtime
+│       └── utils.ts                 # cn(), relativeTime(), triggerLabel(), criticalityMeta()
+├── Dockerfile                       # node:20-alpine; NEXT_TELEMETRY_DISABLED=1; npm ci at build
 ├── .dockerignore
 └── package.json
 ```
@@ -77,15 +93,18 @@ frontend/
 | `/` | Redirect to `/briefs` | Live |
 | `/login` | Email + password login | Live (real auth) |
 | `/briefs` | Brief inbox | Live with fixture fallback |
-| `/briefs/[id]` | Brief detail + ack | Live with fixture fallback |
-| `/copilot` | Knowledge Q&A chat | Fixture stand-in |
-| `/assets` | Asset list | Fixture |
-| `/assets/[id]` | Asset detail + knowledge | Fixture |
-| `/rca` | RCA pack generator | Fixture |
-| `/compliance` | Compliance gaps + audit readiness | Fixture |
-| `/governance` | Conflicts, quarantine, MoC, SLA | Stub |
-| `/documents` | Document list + ingestion status | Stub |
-| `/management` | Platform overview | Stub |
+| `/briefs/[id]` | Brief detail + ack + feedback | Live with fixture fallback |
+| `/copilot` | Knowledge Q&A chat | Live with fixture fallback |
+| `/assets` | Asset list | Live with fixture fallback |
+| `/assets/[id]` | Asset detail + aliases + knowledge | Live with fixture fallback |
+| `/rca` | RCA pack generator | Live with fixture fallback |
+| `/compliance` | Compliance gaps + audit readiness | Live with fixture fallback |
+| `/governance` | Hub → conflicts + quarantine | Live (hub page) |
+| `/governance/conflicts` | Conflict list + resolve | Live with fixture fallback |
+| `/governance/quarantine` | Quarantine list + promote/dispute | Live with fixture fallback (role-gated) |
+| `/documents` | Document registry | Live with fixture fallback |
+| `/documents/[id]` | Document detail + supersede chain | Live with fixture fallback |
+| `/management` | Platform overview | Fixture |
 
 ---
 
@@ -97,7 +116,9 @@ frontend/
 
 **Assure group:** Compliance · Governance · Documents · Overview
 
-Active route highlighted with `bg-accent-soft text-accent`. User chip at the bottom (hardcoded to "R. Shah / Engineer / SITE_001" — pending real auth integration).
+Active route highlighted with `bg-accent-soft text-accent`. User chip at the bottom shows the live authenticated user's name, role, and site from `GET /auth/me`. Sign-out button clears tokens and redirects to `/login`. Staff-only routes (RCA, Compliance, Governance, Documents, Overview) are hidden for `field_worker` role.
+
+The sidebar logo is `public/logo.jpeg` (the Kairos orange brand mark), rendered as a 30px rounded square.
 
 ---
 
@@ -113,7 +134,9 @@ POST /auth/login  →  { access_token, refresh_token, user_id }
 
 Tokens stored in `localStorage` under keys `kairos-token` and `kairos-refresh`. `getMe()` calls `GET /auth/me` with `Authorization: Bearer <token>`. `logout()` clears both keys.
 
-**Login page** (`/login`) pre-fills `engineer@kairos.local / KairosEngineer123!` for dev convenience. All three seeded roles work:
+**Auth guard** in `AppShell`: no token → redirect to `/login`. `/login` redirects already-authenticated users to `/briefs`.
+
+**Login page** (`/login`) pre-fills `engineer@kairos.local / KairosEngineer123!` for dev convenience:
 
 | Email | Password | Role |
 |-------|----------|------|
@@ -123,50 +146,80 @@ Tokens stored in `localStorage` under keys `kairos-token` and `kairos-refresh`. 
 
 Seed with: `docker exec kairos-backend-api python scripts/seed_users.py`
 
-**Current gap:** The app routes to `/briefs` on successful login but does not yet gate pages by role or attach the Bearer token to non-write API calls. Server-side reads currently rely on the backend's dev-bypass (no auth header = dev-user).
-
 ---
 
 ## 6. API Client
 
 **File:** `src/lib/api.ts`
 
+### SSR-aware base URL
+
+Server components (assets, briefs, documents, governance/conflicts) run `fetch()` inside the Docker container. `API_BASE` resolves differently depending on environment:
+
+```typescript
+export const API_BASE =
+  typeof window === "undefined"
+    ? (process.env.API_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000")
+    : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000");
+```
+
+| Context | URL used |
+|---------|----------|
+| Browser (client components) | `NEXT_PUBLIC_API_URL` = `http://localhost:8000` |
+| Server (SSR inside container) | `API_INTERNAL_URL` = `http://kairos-backend-api:8000` |
+
+### Exports
+
 | Export | Purpose |
 |--------|---------|
-| `API_BASE` | `NEXT_PUBLIC_API_URL` env var, falls back to `http://localhost:8000` |
-| `getToken()` | Reads `kairos-token` from localStorage |
-| `getJson<T>(path)` | Unauthenticated GET with 4s timeout |
+| `API_BASE` | SSR-aware base URL (see above) |
+| `getToken()` | Reads `kairos-token` from localStorage; returns null server-side |
+| `getJson<T>(path)` | Unauthenticated GET — 1500ms abort timeout for fast fixture fallback |
 | `postJson<T>(path, body)` | Authenticated POST — attaches Bearer token if present |
-| `getBriefs()` | `GET /briefs/?unacknowledged_only=false&limit=20` → falls back to `fixtureBriefs` on error or empty |
-| `getBrief(id)` | `GET /briefs/{id}` → falls back to fixture match |
+| `getBriefs()` | `GET /briefs/?unacknowledged_only=false&limit=20` |
+| `getBrief(id)` | `GET /briefs/{id}` |
+| `getAssets()` | `GET /assets/?limit=100` |
+| `getAsset(id)` | `GET /assets/{id}` |
+| `getAssetAliases(id)` | `GET /assets/{id}/aliases` |
+| `getAssetKnowledge(id)` | `GET /assets/{id}/knowledge` |
+| `getComplianceGaps(fw?)` | `GET /compliance/gaps` |
+| `getConflicts()` | `GET /governance/conflicts?limit=50` |
+| `getQuarantine()` | `GET /governance/quarantine?limit=50` |
+| `resolveConflict(id, body)` | `POST /governance/conflicts/{id}/resolve` |
+| `promoteQuarantine(id, body)` | `POST /governance/quarantine/{id}/promote` |
+| `disputeQuarantine(id, reason)` | `POST /governance/quarantine/{id}/dispute` |
+| `getDocuments()` | `GET /documents/?limit=50` |
+| `getDocument(id)` | `GET /documents/{id}` |
+| `synthesize(query)` | `POST /search/synthesize` |
+| `getRcaPack(assetId, code)` | `POST /search/rca-pack` |
 | `ackBrief(id, body)` | `POST /briefs/{id}/ack` |
 | `sendBriefFeedback(id, rating, notes)` | `POST /briefs/{id}/feedback` |
 
-**Fixture fallback pattern** (Briefs only, all other pages use fixtures directly):
-- Backend unreachable → fixture
-- Backend returns empty `briefs[]` → fixture (governor suppression or cold start)
-- Backend returns data → live, tagged `source: "live"`
+### Fixture fallback pattern
 
-A `source: "demo"` badge appears in the brief inbox when running on fixture data.
+Every fetcher follows `try { live } catch { fixture }`. If the backend is unreachable, returns too-empty results, or times out (1500ms), the page falls back to curated demo data tagged `source: "demo"`. A source chip in the UI indicates when demo data is active.
 
 ---
 
 ## 7. Types
 
-**File:** `src/lib/types.ts` — single source of truth derived from `docs/API.md`.
+**File:** `src/lib/types.ts` — single source of truth derived from the backend Pydantic shapes.
 
 Key types:
 
 | Type | Description |
 |------|-------------|
-| `Role` | `"admin" \| "engineer" \| "field_worker"` |
+| `Role` | `"admin" \| "engineer" \| "reliability" \| "field_worker"` |
 | `AuthorityLevel` | `1–5` (lower = higher authority, per Architecture Layer 4) |
-| `Brief` | Full brief shape including sources, warnings, countersignature flag |
+| `Brief` | Full brief shape including sources, warnings, countersignature flag, freeze state |
 | `BriefsResponse` | Brief list + `governor_state` + `suppressed_count` + `next_delivery_allowed_at` |
 | `GovernorState` | `push_count_last_hour`, `ceiling`, `state` |
+| `Asset` / `AssetDetail` | Asset list item vs full detail with `open_work_orders_count`, `compliance_gap_count` |
+| `KnowledgeConflict` / `QuarantineItem` | Governance types with `sla_due_at`, `is_overdue` |
+| `VaultDocument` | Document with `vault_url`, `ocr_confidence`, supersede chain |
 | `SynthesizeResponse` | Copilot answer shape from `POST /search/synthesize` |
 | `RcaPack` | Timeline + hypotheses + supporting docs from `POST /search/rca-pack` |
-| `ListEnvelope<T>` | `{ items, total, limit, offset }` — standard list shape for assets/governance/compliance |
+| `ListEnvelope<T>` | `{ items, total, limit, offset }` — standard list shape |
 
 ---
 
@@ -179,42 +232,59 @@ Key types:
 | `AuthorityBadge` | `level: AuthorityLevel` | Coloured badge: L1=verified green → L5=unverified orange |
 | `StatusBadge` | `tone: "verified" \| "caution" \| "danger" \| "neutral"` | Pill badge |
 | `SourceChip` | `quarantine?: boolean` | Document ID chip; orange ring if quarantine |
+| `Modal` | `open, onClose, title, children` | Overlay modal for promote/dispute actions |
+| `Button` | `variant, size, onClick` | Primary/ghost button with active press state |
+
+**File:** `src/components/use-role.ts`
+
+`useRole()` — reads role from live user profile via `getMe()`. `PROMOTE_ROLES` exports the list of roles that can promote quarantine items (`["admin", "engineer"]`).
+
+**File:** `src/components/skeleton.tsx`
+
+`PageSkeleton` — shared loading placeholder used by `(app)/loading.tsx`.
 
 ---
 
 ## 9. Fixture Data
 
 All fixture modules mirror the exact API shapes. They serve two purposes:
-1. Offline/demo mode when the backend is unreachable
-2. Stand-in while live API wiring is incomplete for a given page
+1. Offline/demo mode when the backend is unreachable or returns empty data
+2. Stand-in for management overview (not yet wired live)
 
 | Module | Stands in for |
 |--------|--------------|
 | `fixtures.ts` | `GET /briefs/` |
 | `assets.ts` | `GET /assets/`, `GET /assets/{id}`, `GET /assets/{id}/knowledge` |
 | `compliance.ts` | `GET /compliance/gaps`, `GET /compliance/dashboard` |
-| `copilot.ts` | `GET /search/` + `POST /search/synthesize` |
+| `copilot.ts` | `POST /search/synthesize` |
+| `documents.ts` | `GET /documents/`, `GET /documents/{id}` |
+| `governance.ts` | `GET /governance/conflicts`, `GET /governance/quarantine` |
 | `rca.ts` | `POST /search/rca-pack` |
 
 Fixture assets: `P-101` (Feed Pump A), `EQ-101` (Reactor Feed Unit), `V-247` (Isolation Valve), `HX-301` (Heat Exchanger).
 
 ---
 
-## 10. Live vs Stub — Page-by-Page
+## 10. Live vs Demo — Page-by-Page
 
-| Page | Live API calls | What's stubbed |
-|------|---------------|---------------|
-| `/login` | `POST /auth/login` ✅ | Role-aware routing after login |
-| `/briefs` | `GET /briefs/` ✅ | — |
-| `/briefs/[id]` | `GET /briefs/{id}` ✅ · `POST .../ack` ✅ · `POST .../feedback` ✅ | — |
-| `/copilot` | none | `GET /search/` + `POST /search/synthesize` |
-| `/assets` | none | `GET /assets/` |
-| `/assets/[id]` | none | `GET /assets/{id}`, `/aliases`, `/knowledge` |
-| `/rca` | none | `POST /search/rca-pack` |
-| `/compliance` | none | `GET /compliance/dashboard`, `/gaps`, `/frameworks` |
-| `/governance` | none | `GET /governance/conflicts`, `/quarantine`, `/moc`, `/sla-report`, `POST .../promote` |
-| `/documents` | none | `GET /documents/` |
-| `/management` | none | Aggregate from `/health/detailed`, `/assets/`, `/briefs/`, `/compliance/dashboard` |
+| Page | Live API calls | Demo fallback |
+|------|---------------|----------------|
+| `/login` | `POST /auth/login` ✅ | — |
+| `/briefs` | `GET /briefs/` ✅ | `fixtureBriefs` (governor suppression / empty) |
+| `/briefs/[id]` | `GET /briefs/{id}` ✅ · `POST .../ack` ✅ · `POST .../feedback` ✅ | fixture match by id |
+| `/copilot` | `POST /search/synthesize` ✅ | `answerFor()` (empty live answer / backend down) |
+| `/assets` | `GET /assets/?limit=100` ✅ | `fixtureAssets` |
+| `/assets/[id]` | `GET /assets/{id}` ✅ · `/aliases` ✅ · `/knowledge` ✅ | fixture match by id |
+| `/rca` | `POST /search/rca-pack` ✅ | `rcaFor()` (backend 5xx / no timeline) |
+| `/compliance` | `GET /compliance/gaps` ✅ | `complianceFixture` (empty live gaps) |
+| `/governance` | — | hub page (static links) |
+| `/governance/conflicts` | `GET /governance/conflicts` ✅ · `POST .../resolve` ✅ | `conflictsFixture` |
+| `/governance/quarantine` | `GET /governance/quarantine` ✅ · `POST .../promote` ✅ · `POST .../dispute` ✅ | `quarantineFixture` |
+| `/documents` | `GET /documents/?limit=50` ✅ | `documentsFixture` |
+| `/documents/[id]` | `GET /documents/{id}` ✅ | `getDocumentFixture(id)` |
+| `/management` | — | fixture (aggregate wiring deferred) |
+
+Write contracts (resolve/promote/dispute) are role-gated: `field_worker` sees read-only view; action buttons are hidden via `useRole()`.
 
 ---
 
@@ -230,14 +300,14 @@ Defined in `globals.css` as CSS custom properties, available to all Tailwind uti
 | `--line` | Border colour |
 | `--ink` | Primary text |
 | `--muted` | Secondary text |
-| `--accent` | Brand colour (blue) |
+| `--accent` | Brand colour (Kairos Orange) |
 | `--accent-soft` | Tinted accent background |
 | `--on-accent` | Text on accent backgrounds |
 | `--verified` | Green (authority verified) |
 | `--caution` | Amber (unverified / warning) |
 | `--danger` | Red (refused / critical) |
 
-Light and dark values are set via `[data-theme=light]` / `[data-theme=dark]` on `<html>`.
+Light and dark values are set via `[data-theme=light]` / `[data-theme=dark]` on `<html>`. Theme is persisted in `localStorage` under `kairos-theme`.
 
 ---
 
@@ -245,6 +315,7 @@ Light and dark values are set via `[data-theme=light]` / `[data-theme=dark]` on 
 
 ```dockerfile
 FROM node:20-alpine
+ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci                      # deps installed at image build time
@@ -261,25 +332,27 @@ volumes:
   # node_modules stays inside the image layer
 ```
 
-**Env var:**
+**Env vars:**
 ```
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost:8000   # browser → host port-mapping
+API_INTERNAL_URL=http://kairos-backend-api:8000  # SSR → Docker internal network
+NODE_ENV=development
 ```
 
 Healthcheck polls `http://localhost:3000` every 30s; 90s start period for initial `npm run dev` boot.
 
+**Rebuild required** when `package.json` or `package-lock.json` changes:
+```bash
+docker compose up -d --no-deps --build kairos-frontend
+```
+
 ---
 
-## 13. Wiring Remaining Pages (To-Do)
+## 13. Remaining Work
 
-Priority order for live wiring:
-
-1. **Copilot** — `GET /search/?q=...` then `POST /search/synthesize` with the search hits as context. Map `SynthesizeResponse` into `CopilotAnswer`. Attach Bearer token on the POST.
-2. **Assets list** — `GET /assets/?limit=50` → `ListEnvelope<Asset>`. Replace fixture `assets` array.
-3. **Asset detail** — parallel: `GET /assets/{id}`, `GET /assets/{id}/aliases`, `GET /assets/{id}/knowledge`.
-4. **RCA** — `POST /search/rca-pack` with `{ asset_id, incident_date, failure_code }`. `refused=true` → show refusal UI already in place in fixtures.
-5. **Compliance** — `GET /compliance/dashboard` + `GET /compliance/gaps` → replace `complianceSummary` fixture.
-6. **Governance** — remove `<Stub>`, wire `GET /governance/conflicts` + `/quarantine` + `/moc` + `/sla-report`. Add `POST .../promote` action (admin/engineer only).
-7. **Documents** — `GET /documents/?limit=50`. Link to `GET /documents/{id}/status` for pipeline state.
-8. **Management** — fan-out: `/health/detailed`, `/assets/?limit=1` (total), `/briefs/`, `/compliance/dashboard`.
-9. **Auth gates** — call `getMe()` on mount in `AppShell`; redirect to `/login` if null; show real user name/role/site in the user chip; hide write actions for `field_worker` role.
+| Item | Notes |
+|------|-------|
+| `/management` live wiring | Fan-out: `/health/detailed`, `/assets/?limit=1`, `/briefs/`, `/compliance/dashboard` |
+| MoC + SLA views in governance | `GET /governance/moc` + `/governance/sla-report` — endpoints exist, pages not yet built |
+| Role-aware nav for `field_worker` | Nav already hides staff routes; write actions already gated — no further work needed |
+| Bearer token on SSR reads | Server components currently rely on backend dev-bypass (no auth header). Wire `getToken()` equivalent for server-side when auth hardening is needed |

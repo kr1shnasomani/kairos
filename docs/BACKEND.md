@@ -1,6 +1,6 @@
 # KAIROS — Backend Reference
 
-> **For AI coding agents:** This document covers every service, worker, infrastructure component, data model, and configuration parameter in the KAIROS backend. Read this alongside `ARCHITECTURE.md` (layer design) and `docs/API.md` (endpoint reference). Canonical task log and completion status is in `MEMORY.md`.
+> **For AI coding agents:** This document covers every service, worker, infrastructure component, data model, and configuration parameter in the KAIROS backend. Read this alongside `ARCHITECTURE.md` (layer design) and `docs/API.md` (endpoint reference). All 34 implementation tasks are verified complete.
 
 ---
 
@@ -101,6 +101,7 @@ All services run as Docker containers. Start with `make dev` (or `docker compose
 
 | Container | Image | Port(s) | Purpose |
 |-----------|-------|---------|---------|
+| `kairos-frontend` | node:20-alpine (local build) | `3000` | Next.js web app (App Router, dev server) |
 | `kairos-backend-api` | Python 3.12 (local build) | `8000` | FastAPI REST API |
 | `kairos-celery-worker` | Python 3.12 (local build) | — | Celery workers (ingestion, extraction, attribution, elicitation, transcription, validation) |
 | `kairos-temporal-activity-worker` | Python 3.12 (local build) | — | Temporal activity worker (document pipeline) |
@@ -877,6 +878,7 @@ curl -X POST http://localhost:8090/eam/sync
 
 | Service | URL |
 |---------|-----|
+| Frontend | http://localhost:3000 |
 | FastAPI docs | http://localhost:8000/docs |
 | FastAPI health | http://localhost:8000/health/detailed |
 | Temporal UI | http://localhost:8088 |

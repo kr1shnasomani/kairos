@@ -1,52 +1,26 @@
 # KAIROS — Agent Context
 
-## Token-Saving Workflow (default for all agents — read first)
+## Documentation
 
-Prefer the smallest effective context. Default loop:
-**SymDex locate → minimal file read → small patch → RTK validate → Caveman summary.**
+| Doc | Path |
+|-----|------|
+| Problem & why | `docs/PROBLEM_STATEMENT.md` |
+| 13-layer architecture | `docs/ARCHITECTURE.md` |
+| REST API reference | `docs/API.md` |
+| Backend services & infra | `docs/BACKEND.md` |
+| Database schemas | `docs/DATABASE.md` |
+| Frontend routes & wiring | `docs/FRONTEND.md` |
+| Integration test suite | `docs/TESTS.md` |
 
-Active-lane note: `frontend/` (Next.js) is now an **active** work area. The "never touch `frontend/`"
-guardrail lower down applies to *backend* agents only; backend rules remain authoritative for backend work.
-
-### 1. RTK — for noisy terminal commands
-Use RTK for build, test, lint, typecheck, Docker, `curl`, and `git diff/status/log`.
-Do not paste full logs. Report only: command, result, cause, relevant files, next fix.
-
-### 2. SymDex — before reading many files
-Use SymDex to locate routes, components, symbols, API clients, styling/theme files, tests, and docs.
-Do not scan the whole repo when SymDex can point to the files you need.
-
-### 3. Caveman — for final summaries
-Use Caveman-style output for final **implementation** summaries: changed files, validation results,
-blockers only — short and factual. Do NOT use Caveman for architecture/product reasoning.
-
-Other skills/tools may be used when clearly better for the task — but don't load extras unnecessarily;
-if you use one, say briefly why.
-
-### Rules
-- Prefer the smallest effective context. Make the smallest safe change.
-- Preserve existing architecture and style. Do not add dependencies unless necessary.
-- Do not touch unrelated files. Do not commit unless explicitly asked.
-- Use `docs/demo/LIVE_VERIFICATION.md` as the reference for current live backend/API verification status.
-  Do NOT modify it unless explicitly asked for a new live-verification run.
-- If RTK or SymDex is unavailable, fall back to normal commands/search but keep the same token-saving behavior.
-
----
-
-## Essential Reading (load before anything else)
-- `docs/PROBLEM_STATEMENT.md` — what this platform is for and why it matters. Every decision must trace back to this.
-- `docs/IMPLEMENTATION.md` — full task specs. The contract for every build. Tasks 1–34 defined.
-- `docs/ARCHITECTURE.md` — 13-layer design. Understand the layer a task lives in before touching it.
-- `docs/MEMORY.md` — **current implementation state**: completed task table (tasks 1–34 verified ✅), known pitfalls, key architectural decisions. Read this before starting any task to avoid re-implementing completed work.
+**All 34 implementation tasks verified complete.** Read `§ Reference` at the bottom for known pitfalls and model architecture before touching any sensitive area.
 
 ---
 
 ## Task Protocol (follow every time, no exceptions)
 
 ### 1 — Full Context Before Writing Anything
-- Read the full task spec in `docs/IMPLEMENTATION.md`.
 - Read every file you will touch, end-to-end. Trace the call chain: router → service → db/external.
-- Check `docs/MEMORY.md` completed table — don't re-implement verified work.
+- All 34 tasks complete — check `§ Reference` at the bottom for known pitfalls before touching sensitive areas.
 - Identify which architecture layer the task lives in (`docs/ARCHITECTURE.md`).
 
 ### 2 — Plan
@@ -63,11 +37,10 @@ if you use one, say briefly why.
 - Stay in scope. If something unrelated is broken, note it — don't fix it mid-task.
 
 ### 4 — Verify End-to-End (nothing is done until this passes)
-- Run the exact test cases from `docs/IMPLEMENTATION.md` spec via live HTTP calls against the running stack.
-- Read container logs: `docker logs kairos-backend-api 2>&1 | tail -30`. No silent errors allowed.
+- Make live HTTP calls against the running stack. Read container logs: `docker logs kairos-backend-api 2>&1 | tail -30`. No silent errors allowed.
 - Confirm writes in the actual database (Supabase/Neo4j/Qdrant/ES) — not just the HTTP response.
-- Update `docs/MEMORY.md` completed table with a concrete "Verified By" entry.
 - Delete any temp files, test scripts, or scratch PDFs created during the task.
+- **Frontend work:** use `docs/demo/LIVE_VERIFICATION.md` as the reference for current live backend/API verification status. Do not modify it unless explicitly asked for a new live-verification run.
 
 ---
 
@@ -83,7 +56,7 @@ make init-all   # First-time: Neo4j constraints + Qdrant collections
 make logs       # Tail all service logs
 make ps         # Container status
 ```
-**Ports:** API `8000` · Neo4j `7474/7687` · Qdrant `6333` · ES `9200` · Redis `6379` · Temporal `7233` · Temporal UI `8088` · Grafana `3001`
+**Ports:** API `8000` · Frontend `3000` · Neo4j `7474/7687` · Qdrant `6333` · ES `9200` · Redis `6379` · Temporal `7233` · Temporal UI `8088` · Grafana `3001`
 
 ---
 
@@ -153,3 +126,53 @@ make ps         # Container status
 All 59 skills are in `.claude/skills/` (symlinked from `.agents/skills/`). Full index: `.agents/SKILL_MANIFEST.md`.
 Before starting any task, search `.agents/SKILL_MANIFEST.md` for skills matching your domain — don't guess, scan. Key domains: `neo4j`, `qdrant`, `temporal`, `fastapi`, `elasticsearch`, `redis`, `supabase`, `grafana`, `celery`, `golang`, `python`, `opentelemetry`, `docker`.
 Invoke matching skills before writing code in that domain. Skills give current API patterns — don't rely on training data for library-specific calls.
+
+---
+
+## Reference
+
+### Cloud-First Model Architecture (finalized — do not revert)
+
+All inference runs via cloud API. No local model packages except the YOLO/ultralytics stack (untouchable — drawing parser).
+
+| Concern | Primary | Fallback |
+|---------|---------|---------|
+| LLM synthesis | NIM `meta/llama-3.3-70b-instruct` | Ollama `qwen2.5:14b` |
+| NER | NIM `mistralai/ministral-14b-instruct-2512` | Ollama `llama3.1:8b` → regex |
+| OCR | NIM `nvidia/nemotron-ocr-v2` | PyMuPDF fast path (native digital PDFs only) |
+| Embeddings | Jina AI `jina-embeddings-v3` (1024-dim) | Ollama `nomic-embed-text` |
+| STT (voice) | Groq `whisper-large-v3` | none |
+
+All model names live in `.env`: `NVIDIA_NIM_MODEL`, `NVIDIA_NIM_NER_MODEL`, `NVIDIA_NIM_OCR_MODEL`, `OLLAMA_NER_MODEL`, `GROQ_WHISPER_MODEL`, `JINA_EMBED_MODEL`. Do not add local model packages — `requirements-ml.txt` is deleted.
+
+### Known Pitfalls
+
+**Celery workers — lazy imports only.** `import sys; sys.path.insert(0, "/app")` at file top; import services inside the task body, never at module level.
+**`asset_id` in `quarantine_items` — use `None`, not `""`.** FK constraint to `assets`. Empty string fails; unknown asset → SQL NULL.
+**Supabase auth — never call auth on the global service-role client.** Use a fresh anon client for `POST /auth/login` and `/refresh`.
+**NIM env changes — force recreate, not restart.** `docker compose up -d --no-deps --force-recreate kairos-backend-api`.
+**Internal service auth.** Go connector uses `INTERNAL_API_KEY` Bearer token (`kairos-internal-dev-key`). FastAPI returns `role=admin` without hitting Supabase.
+**`quarantine_items.input_type` CHECK constraint.** Must DROP + re-add to add new values. Current: `field_observation`, `voice_note`, `elicitation_response`, `deviation_flag`, `offboarding_response`.
+**`audit_log` column is `timestamp`, not `created_at`.** Any `.order("created_at")` query fails.
+**`workflow.logger` in Temporal is stdlib, not structlog.** Use f-strings, not keyword args.
+**Work order dedup key — `asset_id:event_type`, 10-minute window.** Tests must use unique `asset_id` per run.
+**Site-wide briefs — addressed to `site-{site_id}`.** New brief types must set `user_id = f"site-{site_id}"` in `BriefEngine.deliver()`.
+**Celery queues — all six must be registered:** `--queues=ingestion,extraction,attribution,transcription,elicitation,validation`.
+**NIM 70B timeout in dev.** Returns `synthesis_available=false` with raw sources. Check that field before assuming LLM output.
+**NIM OCR uses a different base URL.** `https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-ocr-v2` — not `integrate.api.nvidia.com`. Payload: `{"input": [{"type": "image_url", "url": "data:..."}]}`.
+**`valid_to` on KNOWLEDGE_EDGE — use sentinel, never NULL.** `GraphService.create_knowledge_edge()` defaults to `datetime(9999, 12, 31, ...)`. Active queries: `(r.valid_to IS NULL OR r.valid_to > datetime())`.
+**`pid_drawing` bypasses OCR.** Loads `fixtures/pid_topology_mock.json`. `GET /documents/{id}/topology` only works for `pid_drawing` docs — others return 404.
+**Frontend SSR routing.** `API_INTERNAL_URL=http://kairos-backend-api:8000` for server components; `NEXT_PUBLIC_API_URL=http://localhost:8000` for browser clients.
+
+### Post-Volume-Reset Steps
+
+After `make nuke`, run in order:
+1. `make init-all`
+2. `docker exec kairos-backend-api python scripts/seed_regulations.py`
+3. `docker exec kairos-backend-api python scripts/seed_users.py`
+
+**Tests:** `docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120` — 150 passed, 1 flaky. See `docs/TESTS.md`.
+
+**CI/CD:** 5 workflows in `.github/workflows/`. Release: `git tag v{version} && git push origin v{version}`. Package: `ghcr.io/kr1shnasomani/kairos`. `tests.yml` needs 7 GitHub Secrets (deferred — `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, `GROQ_API_KEY`, `NVIDIA_NIM_API_KEY`, `JINA_API_KEY`).
+
+**Supabase:** project `ernffgrvdcikwwhkhiix`, bucket `kairos-vault` (private, max 500 MB, immutable).

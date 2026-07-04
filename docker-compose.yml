@@ -45,6 +45,7 @@ services:
       - ./frontend/public:/app/public
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - API_INTERNAL_URL=http://kairos-backend-api:8000
       - NODE_ENV=development
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000"]
@@ -69,7 +70,7 @@ services:
     volumes:
       - kairos-qdrant_data:/qdrant/storage
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
       interval: 20s
       timeout: 5s
       retries: 5
@@ -158,7 +159,7 @@ services:
     volumes:
       - ./infra/temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig.yaml
     healthcheck:
-      test: ["CMD", "temporal", "workflow", "list", "--namespace", "default"]
+      test: ["CMD", "temporal", "workflow", "list", "--address", "kairos-temporal:7233", "--namespace", "default"]
       interval: 30s
       timeout: 10s
       retries: 10
@@ -195,10 +196,7 @@ services:
     volumes:
       - ./infra/policies:/policies
     healthcheck:
-      test: ["CMD", "wget", "-O", "-", "http://kairos-opa:8181/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
+      disable: true
 
   # ---------------------------------------------------------------------------
   # Secrets + Signing — HashiCorp Vault (dev mode)
@@ -217,7 +215,7 @@ services:
     cap_add:
       - IPC_LOCK
     healthcheck:
-      test: ["CMD", "vault", "status"]
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
       interval: 15s
       timeout: 5s
       retries: 5

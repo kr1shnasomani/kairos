@@ -63,12 +63,8 @@ const NAV: { group: string; items: NavItem[] }[] = [
 
 function KairosMark({ size = 30 }: { size?: number }) {
   return (
-    <span className="grid place-items-center rounded-lg bg-accent" style={{ width: size, height: size }} aria-hidden="true">
-      <svg width={size * 0.62} height={size * 0.62} viewBox="0 0 26 26" fill="none">
-        <path d="M4 15.5 L9 20 L22 5" stroke="var(--on-accent)" strokeWidth="3.4" strokeLinecap="square" />
-        <path d="M13 20 L18.5 8 L21.5 20 Z" fill="var(--on-accent)" />
-      </svg>
-    </span>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src="/logo.jpeg" alt="Kairos" className="rounded-lg object-cover" style={{ width: size, height: size }} aria-hidden="true" />
   );
 }
 

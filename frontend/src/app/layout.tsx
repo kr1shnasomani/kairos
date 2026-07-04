@@ -23,6 +23,7 @@ export const metadata: Metadata = {
   title: "KAIROS — Operational Intelligence",
   description:
     "The right knowledge to the right person at the moment of action. Governed industrial operational intelligence.",
+  icons: { icon: "/logo.jpeg", apple: "/logo.jpeg" },
 };
 
 // Apply the saved theme before paint to avoid a flash. Light is the default.

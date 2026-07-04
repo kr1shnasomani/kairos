@@ -27,7 +27,12 @@ import { criticalityMeta } from "./utils";
 // dev-user / engineer (docs/API.md §Auth). When the backend is unreachable we
 // fall back to fixtures so the UI is always demoable.
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Server components run inside the container — use the internal Docker hostname.
+// Browser clients use the public URL (host port-mapped).
+export const API_BASE =
+  typeof window === "undefined"
+    ? (process.env.API_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000")
+    : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000");
 
 const TOKEN_KEY = "kairos-token";
 

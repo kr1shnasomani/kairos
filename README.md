@@ -40,7 +40,7 @@
 4. `docs/BACKEND.md`: Services, workers, config, and infra reference.
 5. `docs/DATABASE.md`: Full schema reference — Neo4j, Supabase, Qdrant, Elasticsearch, Redis.
 6. `docs/FRONTEND.md`: Frontend routes, components, API wiring, auth flow, and fixture data.
-7. `AGENTS.md` / `CLAUDE.md`: Coding guardrails, rules, and required skills for contribution.
+7. `AGENTS.md` / `CLAUDE.md`: Coding guardrails, rules, required skills, known pitfalls, model architecture, and infrastructure notes for contribution.
 
 ## Repository Structure
 
