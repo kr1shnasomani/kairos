@@ -1,0 +1,24 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'backend/**'
+      - '!backend/connectors/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'backend/**'
+      - '!backend/connectors/**'
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build the Docker image
+      run: docker build ./backend --file backend/Dockerfile --tag kairos:ci-${{ github.sha }}

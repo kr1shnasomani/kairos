@@ -28,26 +28,30 @@ services:
       NEO4J_dbms_memory_heap_initial__size: "512m"
       NEO4J_dbms_memory_heap_max__size: "1G"
   # ---------------------------------------------------------------------------
-  # Layer 12: Frontend — Next.js
+  # Layer 12: Frontend — Next.js (dev server, hot-reload)
+  # UI: http://localhost:3000
+  # Built from frontend/Dockerfile — deps installed at image build time.
+  # Only src/ and public/ are mounted for hot-reload; node_modules stays in image.
   # ---------------------------------------------------------------------------
   kairos-frontend:
-    image: node:20-alpine
+    build:
+      context: ./frontend
     container_name: kairos-frontend
     restart: unless-stopped
     ports:
       - "3000:3000"
-    command: ["sh", "-c", "echo 'Frontend placeholder' && tail -f /dev/null"]
     volumes:
-      - kairos-neo4j_data:/data
-      - kairos-neo4j_logs:/logs
-      - kairos-neo4j_plugins:/plugins
-      - ./backend/db/kairos-neo4j:/docker-entrypoint-initdb.d
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NODE_ENV=development
     healthcheck:
-      test: ["CMD", "wget", "-O", "-", "http://localhost:7474/db/neo4j/cluster/available"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 90s
 
   # ---------------------------------------------------------------------------
   # Layer 11: Vector Search — Qdrant
@@ -152,7 +156,7 @@ services:
       kairos-temporal-postgres:
         condition: service_healthy
     volumes:
-      - ./backend/temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig.yaml
+      - ./infra/temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig.yaml
     healthcheck:
       test: ["CMD", "temporal", "workflow", "list", "--namespace", "default"]
       interval: 30s
@@ -189,7 +193,7 @@ services:
       - "--log-level=info"
       - "/policies"
     volumes:
-      - ./backend/policies:/policies
+      - ./infra/policies:/policies
     healthcheck:
       test: ["CMD", "wget", "-O", "-", "http://kairos-opa:8181/health"]
       interval: 15s
@@ -232,7 +236,7 @@ services:
       - "4318:4318"   # OTLP HTTP
       - "8889:8889"   # Prometheus metrics exporter
     volumes:
-      - ./backend/otel/otel-config.yaml:/etc/otelcol-contrib/config.yaml
+      - ./infra/otel/otel-config.yaml:/etc/otelcol-contrib/config.yaml
     depends_on:
       - kairos-tempo
 
@@ -249,7 +253,7 @@ services:
       - "3200:3200"   # Tempo HTTP API
     command: ["-config.file=/etc/tempo.yaml"]
     volumes:
-      - ./backend/tempo/tempo.yaml:/etc/tempo.yaml
+      - ./infra/tempo/tempo.yaml:/etc/tempo.yaml
       - kairos-tempo_data:/var/tempo
     healthcheck:
       test: ["CMD", "wget", "-O", "-", "http://localhost:3200/ready"]
@@ -273,7 +277,7 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - kairos-grafana_data:/var/lib/grafana
-      - ./backend/grafana/provisioning:/etc/grafana/provisioning
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
     depends_on:
       - kairos-tempo
     healthcheck:
@@ -294,6 +298,10 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ./tests:/app/tests
+      - ./pytest.ini:/app/pytest.ini
+      - ./fixtures:/app/fixtures
+      - ./db:/app/db
     environment:
       - NEO4J_URI=bolt://kairos-neo4j:7687
       - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
@@ -305,6 +313,8 @@ services:
       - CELERY_BROKER_URL=redis://kairos-redis:6379/1
       - CELERY_RESULT_BACKEND=redis://kairos-redis:6379/1
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://kairos-otel-collector:4317
+      - OT_CONNECTOR_URL=http://kairos-backend-go:8090
+      - PYTHONPATH=/app
     env_file:
       - .env
     depends_on:
@@ -317,13 +327,15 @@ services:
   # ---------------------------------------------------------------------------
   # Layer 7: Task Execution — Celery Workers (Hot-reload)
   # ---------------------------------------------------------------------------
-  kairos-temporal-worker:
+  kairos-celery-worker:
     build:
       context: ./backend
-    container_name: kairos-temporal-worker
+    container_name: kairos-celery-worker
     restart: unless-stopped
     volumes:
       - ./backend:/app
+      - ./fixtures:/app/fixtures
+      - ./db:/app/db
     environment:
       - NEO4J_URI=bolt://kairos-neo4j:7687
       - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
@@ -352,6 +364,8 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend:/app
+      - ./fixtures:/app/fixtures
+      - ./db:/app/db
     environment:
       - NEO4J_URI=bolt://kairos-neo4j:7687
       - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
@@ -382,6 +396,8 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend:/app
+      - ./fixtures:/app/fixtures
+      - ./db:/app/db
     environment:
       - NEO4J_URI=bolt://kairos-neo4j:7687
       - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}

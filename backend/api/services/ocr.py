@@ -1,7 +1,11 @@
 """
 OCR service — Layer 3: Multimodal Perception Engine.
-Primary: NVIDIA NIM Nemotron-OCR-v2 (cloud API).
-Fast path: PyMuPDF native text extraction for digital PDFs (no API call needed).
+Primary: NVIDIA NIM Nemotron-OCR-v2 via the CV API (https://ai.api.nvidia.com/v1/cv/<model>).
+Fast path: plain text and native digital PDFs need no API call.
+
+NOTE: The OCR model uses a DIFFERENT base URL and request format than the chat/LLM models.
+- LLM/NER: https://integrate.api.nvidia.com/v1/chat/completions  (OpenAI-compatible)
+- OCR/CV:  https://ai.api.nvidia.com/v1/cv/<model-name>           (CV API)
 """
 
 import base64
@@ -12,8 +16,9 @@ import httpx
 
 log = structlog.get_logger(__name__)
 
-_NIM_CHAT_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
-_OCR_PROMPT = "Extract all text from this image exactly as it appears. Preserve layout and structure."
+# CV API — model name is part of the URL path, not the payload
+_NIM_CV_BASE = "https://ai.api.nvidia.com/v1/cv"
+_NIM_IMAGE_SIZE_LIMIT = 180_000  # base64 chars; larger images need the assets API
 
 
 class OCRService:
@@ -28,6 +33,19 @@ class OCRService:
         mime_type: str = "application/pdf",
         language_hint: Optional[str] = None,
     ) -> Dict[str, Any]:
+        # Fast path: plain text files — decode directly, no API cost
+        if mime_type in ("text/plain", "text/markdown", "text/csv"):
+            text = file_bytes.decode("utf-8", errors="replace").strip()
+            if text:
+                return {
+                    "text": text,
+                    "blocks": [{"text": text, "confidence": 1.0, "page": 1, "extraction_method": "native_text"}],
+                    "overall_confidence": 1.0,
+                    "requires_review": False,
+                    "block_count": 1,
+                    "extraction_method": "native_text",
+                }
+
         # Fast path: native text from digital PDFs — no API cost
         if mime_type == "application/pdf":
             native = self._extract_native_pdf(file_bytes)
@@ -69,33 +87,40 @@ class OCRService:
             return ""
 
         b64 = base64.b64encode(img_bytes).decode()
+        if len(b64) > _NIM_IMAGE_SIZE_LIMIT:
+            log.warning("ocr.image_too_large", b64_len=len(b64), limit=_NIM_IMAGE_SIZE_LIMIT,
+                        hint="Use assets API for images >180KB base64")
+            return ""
+
+        # CV API: model name in URL, "input" array (not chat messages format)
+        url = f"{_NIM_CV_BASE}/{self.model}"
         payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": f"data:{img_mime};base64,{b64}"}},
-                        {"type": "text", "text": _OCR_PROMPT},
-                    ],
-                }
-            ],
-            "max_tokens": 4096,
-            "temperature": 0.0,
+            "input": [
+                {"type": "image_url", "url": f"data:{img_mime};base64,{b64}"}
+            ]
         }
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
-                    _NIM_CHAT_URL,
+                    url,
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
+                        "Accept": "application/json",
                         "Content-Type": "application/json",
                     },
                     json=payload,
                 )
                 resp.raise_for_status()
-                return resp.json()["choices"][0]["message"]["content"].strip()
+                body = resp.json()
+                # CV API response: {"data": [{"index": 0, "text_detections": [...]}]}
+                # Each detection has a "label" field with the detected text
+                detections = body.get("data", [{}])[0].get("text_detections", [])
+                if not detections:
+                    log.info("ocr.no_detections", model=self.model)
+                    return ""
+                lines = [d.get("label") or d.get("text") or "" for d in detections]
+                return "\n".join(line for line in lines if line).strip()
         except httpx.HTTPStatusError as exc:
             log.error("ocr.nim_error", status=exc.response.status_code, body=exc.response.text[:200])
             return ""
@@ -140,7 +165,8 @@ class OCRService:
                 doc = fitz.open(stream=file_bytes, filetype="pdf")
                 pages = []
                 for page in doc:
-                    pix = page.get_pixmap(dpi=150)
+                    # 96 DPI keeps base64 under the 180KB CV API inline limit for typical A4
+                    pix = page.get_pixmap(dpi=96)
                     pages.append((pix.tobytes("png"), "image/png"))
                 doc.close()
                 return pages

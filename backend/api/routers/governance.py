@@ -226,7 +226,7 @@ async def promote_quarantine_item(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Quarantine item has no asset_id — cannot link to graph.")
 
     ctx = item.get("session_context") or {}
-    document_id = ctx.get("document_id", f"PROMOTED-{item_id}")
+    document_id = ctx.get("document_id") or f"PROMOTED-{item_id}"
     now = datetime.now(timezone.utc)
 
     graph = GraphService(driver)
