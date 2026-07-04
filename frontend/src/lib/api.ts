@@ -198,6 +198,9 @@ export async function synthesize(query: string): Promise<CopilotAnswer> {
       safety_critical: boolean;
       model?: string;
     }>("/search/synthesize", { query });
+    // KB unseeded → live answers null/empty with no refusal. Don't render a blank bubble;
+    // fall back to the curated answer (demo-primary). A genuine safety refusal is kept.
+    if (!live.refused && !live.answer?.trim()) return answerFor(query);
     return {
       answer: live.answer,
       sources: (live.sources ?? []).map((s) => ({
