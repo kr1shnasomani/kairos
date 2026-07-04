@@ -52,6 +52,24 @@ export function authorityLabel(level: AuthorityLevel): string {
   return `L${level} · ${AUTHORITY_NAMES[level]}`;
 }
 
+/** Criticality display — accepts both fixture (high/medium/low) and live
+ *  (safety_critical/critical/non_critical) vocabularies. */
+export function criticalityMeta(c: string): { label: string; color: string } {
+  switch (c) {
+    case "safety_critical":
+    case "high":
+      return { label: "Safety-critical", color: "var(--danger)" };
+    case "critical":
+    case "medium":
+      return { label: "Critical", color: "var(--caution)" };
+    case "non_critical":
+    case "low":
+      return { label: "Non-critical", color: "var(--muted)" };
+    default:
+      return { label: c, color: "var(--muted)" };
+  }
+}
+
 /** Human label for a trigger_event_type like "work_order_created". */
 export function triggerLabel(t: string): string {
   return t

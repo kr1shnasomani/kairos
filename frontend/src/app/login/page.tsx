@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { login } from "@/lib/auth";
+import { getToken } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,6 +12,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState("KairosEngineer123!");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Already signed in → skip the login page.
+  useEffect(() => {
+    if (getToken()) router.replace("/briefs");
+  }, [router]);
 
   // Real login → POST /auth/login (Supabase). Stores tokens, then routes in.
   async function signIn(e: React.FormEvent) {
