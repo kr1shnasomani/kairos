@@ -108,10 +108,10 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-[13px] font-semibold transition-colors disabled:opacity-50",
+        "inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-[13px] font-semibold transition duration-100 active:translate-y-px disabled:pointer-events-none disabled:opacity-50",
         variant === "primary"
-          ? "bg-accent text-on-accent hover:brightness-105"
-          : "border border-line text-ink hover:bg-surface-2",
+          ? "bg-accent text-on-accent hover:brightness-105 active:brightness-95"
+          : "border border-line text-ink hover:bg-surface-2 active:brightness-95",
         className,
       )}
       {...props}
