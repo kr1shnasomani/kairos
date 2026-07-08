@@ -158,6 +158,17 @@ After `make nuke`: `make init-all` → `seed_regulations.py` → `seed_users.py`
 
 ---
 
+## Frontend Build Status
+
+| Tasks | Components | TypeScript | Browser verified |
+|---|---|---|---|
+| 1–4 Foundation (types · api · globals.css · layout · theme) | `ui.tsx` · `theme-toggle.tsx` · `app-shell.tsx` | ✅ clean | ⏳ not yet — needs `make dev` + visual pass |
+| 5–7 Field core (briefs page · inbox · card · detail) | `brief-inbox.tsx` · `brief-card.tsx` · `brief-detail.tsx` | ✅ clean | ⏳ not yet — needs `make dev` + visual pass |
+
+**Before marking any task browser-verified:** run `make dev`, load each route in Chrome, confirm DemoChip shows for fixture data, PTW dual-sign flow works, frozen/caution banners render, GovernorPill appears in sidebar, ContrastToggle switches palette, FieldBottomTabs show only on `field_worker` role at mobile width.
+
+---
+
 ## Tooling & Project Reference
 
 - **`gh`** — GitHub CLI: PRs, issues, CI status.

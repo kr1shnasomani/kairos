@@ -16,5 +16,11 @@ export function useRole(): Role {
   return role;
 }
 
-/** Roles allowed to promote a quarantine item (backend require_role). */
+/** Roles allowed to promote a quarantine item. */
 export const PROMOTE_ROLES: Role[] = ["reliability", "admin", "engineer"];
+/** Roles allowed to resolve conflicts and deviation flags. */
+export const RESOLVE_ROLES: Role[] = ["engineer", "reliability", "admin"];
+/** Roles with admin-level access (model gate, plant state, MDM bootstrap). */
+export const ADMIN_ROLES: Role[] = ["admin"];
+/** Field worker personas — mobile-first, read-only on staff surfaces. */
+export const FIELD_ROLES: Role[] = ["field_worker"];

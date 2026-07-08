@@ -26,8 +26,8 @@ export const metadata: Metadata = {
   icons: { icon: "/logo.jpeg", apple: "/logo.jpeg" },
 };
 
-// Apply the saved theme before paint to avoid a flash. Light is the default.
-const themeInit = `(function(){try{var t=localStorage.getItem('kairos-theme');if(t==='dark'||t==='light'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();`;
+// Apply saved theme + contrast before paint to avoid a flash.
+const themeInit = `(function(){try{var t=localStorage.getItem('kairos-theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);var c=localStorage.getItem('kairos-contrast');if(c==='high')document.documentElement.setAttribute('data-contrast','high');}catch(e){}})();`;
 
 export default function RootLayout({
   children,

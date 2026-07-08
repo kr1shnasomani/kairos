@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ThemeToggle } from "./theme-toggle";
+import { ThemeToggle, ContrastToggle } from "./theme-toggle";
 import { getMe, logout } from "@/lib/auth";
-import { getToken } from "@/lib/api";
-import type { Role, User } from "@/lib/types";
+import { getToken, getGovernorState } from "@/lib/api";
+import type { Role, User, GovernorEventState } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { PhaseBadge } from "./ui";
 
 // Staff surfaces (Assure group + RCA) are hidden from field workers. Dev-bypass (no session)
 // defaults to engineer, so an unauthenticated demo still sees everything.
@@ -68,6 +69,29 @@ function KairosMark({ size = 30 }: { size?: number }) {
   );
 }
 
+function GovernorPill({ userId }: { userId: string }) {
+  const [gov, setGov] = useState<GovernorEventState | null>(null);
+  useEffect(() => {
+    getGovernorState(userId).then((r) => { if (r.data) setGov(r.data); });
+  }, [userId]);
+  if (!gov) return null;
+  const suppressed = gov.state === "suppressed";
+  return (
+    <div
+      title={`Governor: ${gov.push_count_last_hour}/${gov.ceiling} briefs/hr`}
+      className={cn(
+        "mx-3 my-1 flex items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px]",
+        suppressed
+          ? "bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-danger"
+          : "bg-surface-2 text-muted",
+      )}
+    >
+      <span className="font-semibold">{suppressed ? "Governor · suppressed" : "Governor · active"}</span>
+      <span className="tabular font-medium">{gov.push_count_last_hour}/{gov.ceiling}</span>
+    </div>
+  );
+}
+
 function SidebarContent({ onNavigate, role, user, onSignOut }: { onNavigate?: () => void; role: Role; user: User | null; onSignOut: () => void }) {
   const pathname = usePathname();
   const sections = NAV
@@ -81,9 +105,12 @@ function SidebarContent({ onNavigate, role, user, onSignOut }: { onNavigate?: ()
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2.5 px-4 py-4">
-        <KairosMark />
-        <span className="text-[15px] font-semibold tracking-tight">Kairos</span>
+      <div className="flex items-center justify-between gap-2 px-4 py-4">
+        <div className="flex items-center gap-2.5">
+          <KairosMark />
+          <span className="text-[15px] font-semibold tracking-tight">Kairos</span>
+        </div>
+        <PhaseBadge />
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-2">
@@ -118,6 +145,8 @@ function SidebarContent({ onNavigate, role, user, onSignOut }: { onNavigate?: ()
         ))}
       </nav>
 
+      {user && <GovernorPill userId={user.user_id} />}
+
       <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-3">
         <div className="flex min-w-0 items-center gap-2 px-1">
           <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-bold text-on-accent">
@@ -129,6 +158,7 @@ function SidebarContent({ onNavigate, role, user, onSignOut }: { onNavigate?: ()
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <ContrastToggle />
           <ThemeToggle />
           <button
             onClick={onSignOut}
@@ -146,13 +176,59 @@ function SidebarContent({ onNavigate, role, user, onSignOut }: { onNavigate?: ()
   );
 }
 
+/** Bottom tab bar for field workers — thumb-reachable, ≥44px targets. */
+function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut: () => void }) {
+  const tabs = [
+    { href: "/briefs", label: "Briefs", icon: "briefs" as IconName },
+    { href: "/copilot", label: "Copilot", icon: "copilot" as IconName },
+    { href: "/assets", label: "Assets", icon: "assets" as IconName },
+    { href: "/field/voice", label: "Voice", icon: "search" as IconName },
+  ] as const;
+
+  return (
+    <nav
+      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface"
+      aria-label="Field navigation"
+    >
+      {tabs.map((tab) => {
+        const active = pathname === tab.href || pathname.startsWith(tab.href + "/");
+        return (
+          <Link
+            key={tab.href}
+            href={tab.href}
+            className={cn(
+              "flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-[10px] font-semibold transition-colors",
+              active ? "text-accent" : "text-muted hover:text-ink",
+            )}
+            aria-current={active ? "page" : undefined}
+          >
+            <Icon name={tab.icon} className="size-5" />
+            {tab.label}
+          </Link>
+        );
+      })}
+      {/* Me tab */}
+      <button
+        onClick={onSignOut}
+        className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-[10px] font-semibold text-muted transition-colors hover:text-ink"
+        aria-label="Sign out"
+      >
+        <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+        </svg>
+        Me
+      </button>
+    </nav>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authed, setAuthed] = useState<boolean | null>(null);
   const router = useRouter();
+  const pathname = usePathname();
 
-  // Auth guard: no token → back to /login. With a token, load the profile.
   useEffect(() => {
     if (!getToken()) {
       router.replace("/login");
@@ -163,6 +239,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   const role: Role = user?.role ?? "engineer";
+  const isField = role === "field_worker";
 
   function signOut() {
     logout();
@@ -170,20 +247,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
-  // Hold render until the token check passes (avoids a flash of the app before redirect).
   if (authed !== true) return null;
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar — all roles */}
       <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block">
         <div className="sticky top-0 h-screen">
           <SidebarContent role={role} user={user} onSignOut={signOut} />
         </div>
       </aside>
 
-      {/* Mobile drawer */}
-      {drawer && (
+      {/* Mobile: field workers get a bottom tab bar, others get a hamburger drawer */}
+      {!isField && drawer && (
         <div className="fixed inset-0 z-40 md:hidden">
           <button
             className="absolute inset-0 bg-black/40"
@@ -196,24 +272,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile top bar */}
-        <header className="flex items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden">
-          <button
-            className="grid size-9 place-items-center rounded-lg border border-line text-muted"
-            aria-label="Open menu"
-            onClick={() => setDrawer(true)}
-          >
-            <Icon name="menu" />
-          </button>
-          <div className="flex items-center gap-2">
-            <KairosMark size={26} />
-            <span className="text-sm font-semibold">Kairos</span>
-          </div>
-        </header>
+      <div className={cn("flex min-w-0 flex-1 flex-col", isField && "pb-[56px] md:pb-0")}>
+        {/* Non-field mobile top bar */}
+        {!isField && (
+          <header className="flex items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden">
+            <button
+              className="grid size-9 place-items-center rounded-lg border border-line text-muted"
+              aria-label="Open menu"
+              onClick={() => setDrawer(true)}
+            >
+              <Icon name="menu" />
+            </button>
+            <div className="flex items-center gap-2">
+              <KairosMark size={26} />
+              <span className="text-sm font-semibold">Kairos</span>
+            </div>
+          </header>
+        )}
 
         <main className="min-w-0 flex-1">{children}</main>
       </div>
+
+      {/* Field bottom tab bar — mobile only */}
+      {isField && (
+        <div className="md:hidden">
+          <FieldBottomTabs pathname={pathname} onSignOut={signOut} />
+        </div>
+      )}
     </div>
   );
 }

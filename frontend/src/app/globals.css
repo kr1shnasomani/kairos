@@ -120,3 +120,37 @@ h1, h2, h3, .font-display {
   background: var(--accent-soft);
   color: var(--ink);
 }
+
+/* ── Sunlight / high-contrast palette (data-contrast="high") ──────────────
+   Same structural tokens, raised contrast for outdoor legibility.
+   One UI, three palettes. Never a separate dark/contrast markup tree. */
+[data-contrast="high"] {
+  --canvas: #edeae0;
+  --surface: #ffffff;
+  --surface-2: #f0ede4;
+  --line: #b8b0a0;
+  --ink: #080706;
+  --muted: #3c3830;
+  --accent: #c03a10;
+  --accent-soft: #f6d3c5;
+  --on-accent: #ffffff;
+  --danger: #b02218;
+  --caution: #c07808;
+  --verified: #1e6030;
+  --info: #1a50c8;
+}
+
+[data-contrast="high"][data-theme="dark"] {
+  --canvas: #000000;
+  --surface: #0c0a08;
+  --surface-2: #161210;
+  --line: #504840;
+  --ink: #ffffff;
+  --muted: #c8c0b0;
+  --accent: #ff6030;
+  --accent-soft: #3c1a0a;
+  --danger: #ff5040;
+  --caution: #ffb020;
+  --verified: #48d880;
+  --info: #60a0ff;
+}

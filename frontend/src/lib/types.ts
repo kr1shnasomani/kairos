@@ -40,7 +40,9 @@ export interface Brief {
   delivery_frozen: boolean;
   frozen?: boolean;
   freeze_reason?: string | null;
+  freeze_deviation_flag_id?: string | null;
   delivered_at: string;
+  acknowledged_at?: string | null;
 }
 
 export interface GovernorState {
@@ -282,4 +284,324 @@ export interface AssetKnowledgeResponse {
   as_of: string;
   fact_count: number;
   facts: AssetKnowledgeFact[];
+}
+
+// --- Compliance dashboard (GET /compliance/dashboard) ---
+export interface ComplianceDashboard {
+  total_gaps: number;
+  by_severity: Record<string, number>;
+  by_framework: Record<string, number>;
+  last_scan: string;
+}
+
+// --- Governance: SLA report (GET /governance/sla-report) ---
+export interface OverdueConflict {
+  conflict_id: string;
+  asset_id: string;
+  parameter: string;
+  track: ConflictTrack;
+  severity: string;
+  overdue_by_hours: number;
+  escalated: boolean;
+}
+
+export interface OverdueQuarantineItem {
+  item_id: string;
+  asset_id: string | null;
+  input_type: string;
+  submitted_at: string;
+  overdue_by_hours: number;
+}
+
+export interface SlaReport {
+  total_conflicts: number;
+  on_time_conflicts: number;
+  overdue_conflicts: OverdueConflict[];
+  total_quarantine: number;
+  on_time_quarantine: number;
+  overdue_quarantine: OverdueQuarantineItem[];
+  generated_at: string;
+}
+
+// --- Governance: MoC (GET /governance/moc) ---
+export type MocStatus = "pending" | "approved" | "rejected";
+
+export interface MocItem {
+  moc_id: string;
+  asset_id: string;
+  parameter: string;
+  source_a: ConflictSource;
+  source_b: ConflictSource;
+  blast_radius_count: number;
+  status: MocStatus;
+  created_at: string;
+  draft_content?: string | null;
+}
+
+export interface MocResponse {
+  items: MocItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// --- Governance: circuit breaker (GET /governance/circuit-breaker) ---
+export type CircuitBreakerStatus = "ok" | "halted";
+
+export interface CircuitBreakerEntry {
+  asset_class: string;
+  status: CircuitBreakerStatus;
+  z_score: number;
+  override_count_7d: number;
+  halted_since: string | null;
+}
+
+export interface CircuitBreakerState {
+  entries: CircuitBreakerEntry[];
+  generated_at: string;
+}
+
+// --- Governance: model gate ---
+export interface ModelGateResult {
+  run_id: string;
+  task_id?: string | null;
+  precision: number;
+  recall: number;
+  f1: number;
+  passed: boolean;
+  corpus_size: number;
+  run_at: string;
+}
+
+export interface ModelGateHistory {
+  history: ModelGateResult[];
+}
+
+export interface ModelGateRunResponse {
+  task_id: string;
+  status: string;
+}
+
+export interface ValidationCorpusStats {
+  total: number;
+  by_entity_type: Record<string, number>;
+  by_asset_class: Record<string, number>;
+  last_updated: string;
+}
+
+// --- Governance: blast radius ---
+export interface BlastRadiusItem {
+  item_id: string;
+  item_type: string;
+  description: string;
+  asset_id?: string;
+  flagged_for_review: boolean;
+}
+
+export interface BlastRadiusReport {
+  document_id: string;
+  affected_count: number;
+  items: BlastRadiusItem[];
+  generated_at: string;
+}
+
+// --- Annotations (POST /annotations, GET /annotations) ---
+export interface Annotation {
+  annotation_id: string;
+  document_id: string;
+  entity_text: string;
+  entity_type: string;
+  corrected_type?: string | null;
+  is_correct: boolean;
+  span_start?: number | null;
+  span_end?: number | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface AnnotationStats {
+  total: number;
+  corrections_this_week: number;
+  top_corrected_entity_types: Array<{ type: string; count: number }>;
+}
+
+// --- Elicitation (GET /elicitation/{wo}/questions) ---
+export interface ElicitationQuestion {
+  question_id: string;
+  question_text: string;
+  context: string;
+  options?: string[] | null;
+  question_type: "multiple_choice" | "free_text";
+}
+
+export interface ElicitationSession {
+  session_id: string;
+  work_order_id: string;
+  asset_id?: string | null;
+  questions: ElicitationQuestion[];
+  status: "pending" | "in_progress" | "completed";
+  created_at: string;
+}
+
+// --- Offboarding (GET /elicitation/offboarding) ---
+export type OffboardingSessionStatus = "pending" | "questions_ready" | "completed";
+
+export interface OffboardingSession {
+  session_id: string;
+  programme_id: string;
+  session_number: number;
+  equipment_family: string;
+  focus_failure_modes: string[];
+  scheduled_date: string;
+  status: OffboardingSessionStatus;
+}
+
+export interface OffboardingProgramme {
+  programme_id: string;
+  personnel_id: string;
+  personnel_email: string;
+  retirement_date: string;
+  sessions: OffboardingSession[];
+  sessions_completed: number;
+  sessions_total: number;
+  created_at: string;
+}
+
+// --- Operational events (GET /events/{id}, POST /events/*) ---
+export type EventPriority = "critical" | "high" | "normal" | "low";
+
+export interface OperationalEvent {
+  event_id: string;
+  event_type: string;
+  event_subtype?: string | null;
+  asset_id?: string | null;
+  site_id?: string | null;
+  occurred_at: string;
+  priority: EventPriority;
+  payload: Record<string, unknown>;
+  brief_id?: string | null;
+  correlated_event_ids?: string[];
+  acknowledged: boolean;
+  acknowledged_by?: string | null;
+  acknowledged_at?: string | null;
+}
+
+export interface EventsResponse {
+  items: OperationalEvent[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// --- Plant state (GET /events/plant-state/{site_id}) ---
+export type PlantOperatingState = "normal" | "turnaround" | "shutdown" | "emergency";
+
+export interface PlantState {
+  site_id: string;
+  state: PlantOperatingState;
+  set_by: string;
+  set_at: string;
+  expires_at?: string | null;
+}
+
+// --- Governor state (GET /events/governor-state/{user_id}) ---
+export interface GovernorEventState {
+  user_id: string;
+  push_count_last_hour: number;
+  ceiling: number;
+  state: GovernorStateValue;
+  suppressed_count: number;
+  next_delivery_allowed_at: string | null;
+}
+
+// --- Document pipeline status (GET /documents/{id}/status) ---
+export type DocumentPipelineStage =
+  | "queued" | "ocr" | "ner" | "graph_linking" | "indexing"
+  | "complete" | "review_required" | "failed";
+
+export interface DocumentStatus {
+  document_id: string;
+  stage: DocumentPipelineStage;
+  updated_at: string;
+  details?: string | null;
+}
+
+// --- P&ID topology (GET /documents/{id}/topology) ---
+export interface TopologyNode {
+  node_id: string;
+  node_type: string;
+  label: string;
+  verification_status: "verified" | "unverified" | "disputed";
+  properties?: Record<string, unknown>;
+}
+
+export interface TopologyEdge {
+  edge_id: string;
+  source_id: string;
+  target_id: string;
+  edge_type: string;
+  label?: string;
+}
+
+export interface TopologyGraph {
+  document_id: string;
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+  generated_at: string;
+}
+
+// --- Audit log (GET /audit-log) ---
+export interface AuditLogEntry {
+  log_id: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  performed_by: string;
+  timestamp: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface AuditLogResponse {
+  items: AuditLogEntry[];
+  total: number;
+}
+
+// --- Health (GET /health/detailed) ---
+export interface ServiceHealth {
+  name: string;
+  status: "healthy" | "degraded" | "down";
+  latency_ms?: number | null;
+  details?: string | null;
+}
+
+export interface HealthDetailed {
+  overall: "healthy" | "degraded" | "down";
+  services: ServiceHealth[];
+  checked_at: string;
+}
+
+// --- Audit pack (GET /compliance/audit-pack) ---
+export interface AuditPackClause {
+  clause_id: string;
+  requirement_text: string;
+  documents: VaultDocument[];
+  confidence: number;
+  requires_review: boolean;
+  cleared: boolean;
+  reviewed_by?: string | null;
+}
+
+export interface AuditPack {
+  framework: string;
+  clauses: AuditPackClause[];
+  generated_at: string;
+}
+
+// --- OT instrumentation coverage (GET /ot/coverage/{asset_id}) ---
+export interface OtCoverage {
+  asset_id: string;
+  has_direct_sensors: boolean;
+  sensor_tags: string[];
+  coverage_type: "direct" | "macro" | "none";
+  last_reading?: string | null;
 }
