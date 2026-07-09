@@ -76,12 +76,20 @@ export default function CompliancePage() {
             High-recall gap detection: every asset + regulation without a verified procedure is flagged.
           </p>
         </div>
-        <Link
-          href="/compliance/audit-pack"
-          className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-on-accent transition-opacity hover:opacity-90"
-        >
-          Assemble audit pack
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/compliance/nonconformance"
+            className="inline-flex h-9 items-center rounded-lg border border-line px-3.5 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-2"
+          >
+            Non-conformance
+          </Link>
+          <Link
+            href="/compliance/audit-pack"
+            className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-on-accent transition-opacity hover:opacity-90"
+          >
+            Assemble audit pack
+          </Link>
+        </div>
       </header>
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-muted">

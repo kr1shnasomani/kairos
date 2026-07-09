@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { KnowledgeGraph } from "@/components/knowledge-graph";
 import type { KnowledgeGraphData, GraphEdgeData } from "@/lib/types";
 import { getKnowledgeGraph } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, nowMs } from "@/lib/utils";
 
 const EXAMPLE_ASSETS = ["P-101", "EQ-101", "V-247"];
 
@@ -20,7 +20,7 @@ function ValidityTimeline({ edges }: { edges: GraphEdgeData[] }) {
   if (edges.length === 0) return null;
 
   const SENTINEL_YEAR = 9999;
-  const futureMs = Date.now() + 365 * 24 * 60 * 60 * 1000;
+  const futureMs = nowMs() + 365 * 24 * 60 * 60 * 1000;
 
   const starts = edges.map((e) => new Date(e.valid_from).getTime());
   const ends = edges.map((e) => {
@@ -137,7 +137,7 @@ export default function GraphPage() {
     setAsOf(val);
   }
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = new Date(nowMs()).toISOString().split("T")[0];
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-8 sm:px-8 sm:py-10">

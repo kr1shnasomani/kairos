@@ -9,13 +9,29 @@ export default async function DocumentsPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <header>
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Immutable evidence vault</p>
-        <h1 className="mt-1 text-[28px] font-semibold leading-tight">Documents</h1>
-        <p className="mt-1.5 text-[13.5px] text-muted">
-          Every source is stored byte-for-byte and never deleted — superseding closes a validity window, it
-          does not erase.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Immutable evidence vault</p>
+          <h1 className="mt-1 text-[28px] font-semibold leading-tight">Documents</h1>
+          <p className="mt-1.5 text-[13.5px] text-muted">
+            Every source is stored byte-for-byte and never deleted — superseding closes a validity window, it
+            does not erase.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/documents/compare"
+            className="inline-flex h-9 items-center rounded-lg border border-line px-3.5 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-2"
+          >
+            Compare
+          </Link>
+          <Link
+            href="/documents/ingest"
+            className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-on-accent transition-opacity hover:opacity-90"
+          >
+            Ingest document
+          </Link>
+        </div>
       </header>
 
       <div className="mt-3 flex items-center gap-3 text-[12px] text-muted">

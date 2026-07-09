@@ -18,10 +18,18 @@ export default async function AssetsPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <header>
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Asset-centric truth</p>
-        <h1 className="mt-1 text-[28px] font-semibold leading-tight">Assets</h1>
-        <p className="mt-1.5 text-[13.5px] text-muted">Every piece of knowledge orbits a canonical asset.</p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Asset-centric truth</p>
+          <h1 className="mt-1 text-[28px] font-semibold leading-tight">Assets</h1>
+          <p className="mt-1.5 text-[13.5px] text-muted">Every piece of knowledge orbits a canonical asset.</p>
+        </div>
+        <Link
+          href="/assets/bootstrap"
+          className="inline-flex h-9 items-center rounded-lg border border-line px-3.5 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-2"
+        >
+          Identity confirmation
+        </Link>
       </header>
 
       <div className="mt-3 flex items-center gap-3 text-[12px] text-muted">

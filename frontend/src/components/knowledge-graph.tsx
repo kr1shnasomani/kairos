@@ -251,18 +251,23 @@ export function KnowledgeGraph({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
-    setSelectedNode(null);
-    setSelectedEdge(null);
-    getKnowledgeGraph(assetId, asOf).then(({ data }) => {
+    let alive = true;
+    const load = async () => {
+      setLoading(true);
+      setSelectedNode(null);
+      setSelectedEdge(null);
+      const { data } = await getKnowledgeGraph(assetId, asOf);
+      if (!alive) return;
       setGraphData(data);
       if (data) {
         setNodes(buildRFNodes(data));
         setEdges(buildRFEdges(data));
       }
       setLoading(false);
-    });
-  }, [assetId, asOf]);
+    };
+    load();
+    return () => { alive = false; };
+  }, [assetId, asOf, setNodes, setEdges]);
 
   const onNodeClick = useCallback<NodeMouseHandler>((_evt, node) => {
     setSelectedNode(node.data as unknown as GraphNodeData);

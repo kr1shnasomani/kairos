@@ -19,6 +19,26 @@ export function relativeTime(iso: string): string {
   return `${day}d ago`;
 }
 
+/** Current epoch ms. Lives here (not in render) so components stay pure — reading
+ *  the clock during render is non-deterministic and hydration-unsafe. */
+export function nowMs(): number {
+  return Date.now();
+}
+
+/** SLA countdown label + tone class for a due timestamp. */
+export function slaCountdown(sla_due_at: string): { label: string; tone: string } {
+  const hoursLeft = Math.floor((new Date(sla_due_at).getTime() - Date.now()) / 3600000);
+  const tone = hoursLeft < 4 ? "text-danger" : hoursLeft < 24 ? "text-caution" : "text-muted";
+  const label = hoursLeft < 24 ? `${hoursLeft}h left` : `${Math.floor(hoursLeft / 24)}d left`;
+  return { label, tone };
+}
+
+/** Compact "halted since" duration, e.g. "7h" / "2d". */
+export function haltedDuration(since: string): string {
+  const hrs = Math.round((Date.now() - new Date(since).getTime()) / 3600000);
+  return hrs < 24 ? `${hrs}h` : `${Math.round(hrs / 24)}d`;
+}
+
 export interface PriorityMeta {
   label: string;
   /** CSS var color token name */

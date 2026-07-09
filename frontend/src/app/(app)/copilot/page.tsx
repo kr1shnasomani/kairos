@@ -32,6 +32,7 @@ export default function CopilotPage() {
   const [input, setInput] = useState("");
   const [asOf, setAsOf] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+  const nextId = useRef(0);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -40,7 +41,7 @@ export default function CopilotPage() {
   function ask(query: string) {
     const q = query.trim();
     if (!q) return;
-    const id = Date.now();
+    const id = nextId.current++;
     setInput("");
     setTurns((t) => [...t, { id, query: q, asOf: asOf || undefined, answer: null }]);
     synthesize(q, asOf || undefined).then((answer) => {

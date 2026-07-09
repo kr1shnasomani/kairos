@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { AuthorityLevel, QuarantineItem } from "@/lib/types";
 import { getQuarantine, promoteQuarantine, disputeQuarantine, type DataSource } from "@/lib/api";
-import { relativeTime, triggerLabel } from "@/lib/utils";
+import { relativeTime, triggerLabel, slaCountdown } from "@/lib/utils";
 import { FilterTabs, Modal, StatusBadge } from "@/components/ui";
 import { useRole, PROMOTE_ROLES } from "@/components/use-role";
 
@@ -16,10 +16,7 @@ const SESSION_TYPES = new Set(["elicitation_response", "offboarding_response", "
 function SlaChip({ sla_due_at, is_overdue, resolved }: { sla_due_at: string | null; is_overdue: boolean; resolved: boolean }) {
   if (!sla_due_at || resolved) return null;
   if (is_overdue) return <span className="tabular text-[11px] font-semibold text-danger">SLA overdue</span>;
-  const msLeft = new Date(sla_due_at).getTime() - Date.now();
-  const hoursLeft = Math.floor(msLeft / 3600000);
-  const tone = hoursLeft < 4 ? "text-danger" : hoursLeft < 24 ? "text-caution" : "text-muted";
-  const label = hoursLeft < 24 ? `${hoursLeft}h left` : `${Math.floor(hoursLeft / 24)}d left`;
+  const { label, tone } = slaCountdown(sla_due_at);
   return <span className={`tabular text-[11px] font-semibold ${tone}`}>{label}</span>;
 }
 

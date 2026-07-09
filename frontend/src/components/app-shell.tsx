@@ -17,7 +17,8 @@ const STAFF: Role[] = ["engineer", "reliability", "admin"];
 
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
-  | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph" | "audit";
+  | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph" | "audit"
+  | "events" | "offboarding";
 
 function Icon({ name, className = "size-[18px]" }: { name: IconName; className?: string }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -34,6 +35,8 @@ function Icon({ name, className = "size-[18px]" }: { name: IconName; className?:
     close: <path d="M6 6l12 12M18 6L6 18" />,
     graph: <><circle cx="5" cy="12" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="19" cy="19" r="2" /><path d="M7 11.5l10-5M7 12.5l10 5" /></>,
     audit: <><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /><path d="M10 13h4M10 17h4M8 9h.01" /></>,
+    events: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
+    offboarding: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M17 11l4-4M21 11l-4-4" /></>,
   };
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -53,6 +56,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { href: "/assets", label: "Assets", icon: "assets" },
       { href: "/rca", label: "RCA", icon: "rca", roles: STAFF },
       { href: "/graph", label: "Graph", icon: "graph", roles: STAFF },
+      { href: "/events", label: "Events", icon: "events", roles: STAFF },
     ],
   },
   {
@@ -62,6 +66,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { href: "/governance", label: "Governance", icon: "governance", roles: STAFF },
       { href: "/audit", label: "Audit trail", icon: "audit", roles: STAFF },
       { href: "/documents", label: "Documents", icon: "documents", roles: STAFF },
+      { href: "/offboarding", label: "Off-boarding", icon: "offboarding", roles: STAFF },
       { href: "/management", label: "Overview", icon: "management", roles: STAFF },
     ],
   },
@@ -252,6 +257,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       router.replace("/login");
       return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-once auth gate reading the persisted token
     setAuthed(true);
     getMe().then(setUser);
     // Service worker registration

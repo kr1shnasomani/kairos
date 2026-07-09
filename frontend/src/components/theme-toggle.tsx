@@ -9,7 +9,9 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
   const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
+    // Mount-once sync of the pre-hydration <html data-theme> into React state.
     const current = document.documentElement.getAttribute("data-theme");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading external DOM state on mount is what effects are for
     if (current === "dark" || current === "light") setTheme(current);
   }, []);
 
@@ -51,6 +53,8 @@ export function ContrastToggle({ className = "" }: { className?: string }) {
   const [high, setHigh] = useState(false);
 
   useEffect(() => {
+    // Mount-once sync of the pre-hydration <html data-contrast> into React state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading external DOM state on mount is what effects are for
     setHigh(document.documentElement.getAttribute("data-contrast") === "high");
   }, []);
 

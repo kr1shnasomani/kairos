@@ -1,14 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import dynamic from "next/dynamic";
 import { getAssetDetail } from "@/lib/api";
 import { AuthorityBadge, SourceChip, StatusBadge } from "@/components/ui";
-
-// React Flow must not SSR — load client-only.
-const KnowledgeGraph = dynamic(
-  () => import("@/components/knowledge-graph").then((m) => m.KnowledgeGraph),
-  { ssr: false, loading: () => <div className="h-[340px] animate-pulse rounded-xl bg-surface-2" /> }
-);
+// React Flow must not SSR — imported from the client-only lazy module.
+import { KnowledgeGraph } from "@/components/lazy";
 
 const VERIF_TONE = { verified: "verified", unverified: "caution", disputed: "danger" } as const;
 

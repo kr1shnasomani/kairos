@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { CircuitBreakerState, CircuitBreakerEntry } from "@/lib/types";
 import { getCircuitBreaker } from "@/lib/api";
 import { StatusBadge } from "@/components/ui";
+import { haltedDuration } from "@/lib/utils";
 
 const FIXTURE: CircuitBreakerState = {
   generated_at: new Date().toISOString(),
@@ -32,10 +33,9 @@ function ZScoreBar({ z }: { z: number }) {
 }
 
 function HaltedDuration({ since }: { since: string }) {
-  const hrs = Math.round((Date.now() - new Date(since).getTime()) / 3600000);
   return (
     <span className="tabular text-[11.5px] text-danger">
-      {hrs < 24 ? `${hrs}h` : `${Math.round(hrs / 24)}d`} halted
+      {haltedDuration(since)} halted
     </span>
   );
 }

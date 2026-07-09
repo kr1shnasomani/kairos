@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { Conflict } from "@/lib/types";
 import { getConflicts, resolveConflict, type DataSource } from "@/lib/api";
-import { authorityLabel, relativeTime } from "@/lib/utils";
+import { authorityLabel, relativeTime, slaCountdown } from "@/lib/utils";
 import { FilterTabs, StatusBadge } from "@/components/ui";
 
 // ── SLA countdown ─────────────────────────────────────────────────────────────
@@ -14,10 +14,7 @@ function SlaChip({ sla_due_at, is_overdue }: { sla_due_at: string | null; is_ove
   if (is_overdue) {
     return <span className="tabular text-[11px] font-semibold text-danger">SLA overdue</span>;
   }
-  const msLeft = new Date(sla_due_at).getTime() - Date.now();
-  const hoursLeft = Math.floor(msLeft / 3600000);
-  const tone = hoursLeft < 4 ? "text-danger" : hoursLeft < 24 ? "text-caution" : "text-muted";
-  const label = hoursLeft < 24 ? `${hoursLeft}h left` : `${Math.floor(hoursLeft / 24)}d left`;
+  const { label, tone } = slaCountdown(sla_due_at);
   return <span className={`tabular text-[11px] font-semibold ${tone}`}>{label}</span>;
 }
 

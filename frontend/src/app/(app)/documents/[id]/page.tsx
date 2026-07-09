@@ -1,19 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import dynamic from "next/dynamic";
 import { getDocument } from "@/lib/api";
 import { authorityLabel, relativeTime, triggerLabel } from "@/lib/utils";
 import { AuthorityBadge, SourceChip, StatusBadge, Timeline, type TimelineEvent } from "@/components/ui";
+import { BlastRadiusPanel, SupersedeAction } from "@/components/lazy";
 import type { VaultDocument } from "@/lib/types";
-
-const BlastRadiusPanel = dynamic(
-  () => import("@/components/blast-radius-panel").then((m) => m.BlastRadiusPanel),
-  { ssr: false, loading: () => null }
-);
-const SupersedeAction = dynamic(
-  () => import("@/components/supersede-action").then((m) => m.SupersedeAction),
-  { ssr: false, loading: () => null }
-);
 
 function fmtSize(bytes?: number): string {
   if (!bytes) return "—";

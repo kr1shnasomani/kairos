@@ -4,6 +4,7 @@ import type {
   ComplianceDashboard,
   ComplianceGapsResponse,
   AssetsResponse,
+  AssetSummary,
   ConflictsResponse,
   QuarantineResponse,
   PromoteQuarantineRequest,
@@ -694,6 +695,19 @@ export async function getOtCoverage(assetId: string): Promise<Fetched<OtCoverage
   } catch {
     return { data: null, source: "demo" };
   }
+}
+
+// --- MDM: confirm a provisional asset identity (Task 20c) ---
+// Deterministic human confirmation — never AI-inferred. Sets identity_confirmed_by
+// server-side; the asset becomes canonical and linkable.
+export function confirmAssetIdentity(body: {
+  asset_id: string;
+  name: string;
+  equipment_class: string;
+  identity_confirmed_by: string;
+  site_id?: string;
+}) {
+  return postJson<AssetSummary>("/assets", body);
 }
 
 // --- Document ingest (multipart) ---
