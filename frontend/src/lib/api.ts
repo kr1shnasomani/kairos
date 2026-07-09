@@ -250,7 +250,7 @@ export function disputeQuarantine(itemId: string, reason: string) {
 // --- Copilot (POST /search/synthesize) + RCA (POST /search/rca-pack) ---
 // Both are read-oriented POSTs. Live first, fixture on any error (backend down / refusal path).
 
-export async function synthesize(query: string): Promise<CopilotAnswer> {
+export async function synthesize(query: string, asOf?: string): Promise<CopilotAnswer> {
   try {
     const live = await postJson<{
       answer: string | null;
@@ -260,7 +260,7 @@ export async function synthesize(query: string): Promise<CopilotAnswer> {
       refusal_reason?: string;
       safety_critical: boolean;
       model?: string;
-    }>("/search/synthesize", { query });
+    }>("/search/synthesize", asOf ? { query, as_of: asOf } : { query });
     // KB unseeded → live answers null/empty with no refusal. Don't render a blank bubble;
     // fall back to the curated answer (demo-primary). A genuine safety refusal is kept.
     if (!live.refused && !live.answer?.trim()) return answerFor(query);

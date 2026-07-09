@@ -12,6 +12,15 @@ export interface CopilotSource {
   is_quarantine?: boolean;
 }
 
+export interface ExtractedEntity {
+  entity_text: string;
+  entity_type: string;
+  document_id: string;
+  confidence: number;
+  span_start?: number;
+  span_end?: number;
+}
+
 export interface CopilotAnswer {
   answer: string | null;
   sources: CopilotSource[];
@@ -20,6 +29,7 @@ export interface CopilotAnswer {
   refusal_reason?: string;
   safety_critical: boolean;
   model?: string;
+  entities?: ExtractedEntity[];
 }
 
 export const SUGGESTIONS = [
@@ -57,6 +67,11 @@ const SEAL: CopilotAnswer = {
   refused: false,
   safety_critical: false,
   model: "meta/llama-3.3-70b-instruct",
+  entities: [
+    { entity_text: "EQ-101", entity_type: "Asset", document_id: "DOC-P101-FAILURE-HIST", confidence: 0.96 },
+    { entity_text: "MS-4471-B", entity_type: "Part", document_id: "OEM-BULL-MS44-r3", confidence: 0.89 },
+    { entity_text: "thermal cycling", entity_type: "FailureMode", document_id: "DOC-P101-FAILURE-HIST", confidence: 0.61 },
+  ],
 };
 
 const PRESSURE_REFUSAL: CopilotAnswer = {
@@ -104,6 +119,13 @@ const ISOLATION: CopilotAnswer = {
   refused: false,
   safety_critical: false,
   model: "meta/llama-3.3-70b-instruct",
+  entities: [
+    { entity_text: "V-247", entity_type: "Asset", document_id: "TOPO-PL3-S2", confidence: 0.97 },
+    { entity_text: "XV-203", entity_type: "Valve", document_id: "TOPO-PL3-S2", confidence: 0.93 },
+    { entity_text: "XV-204", entity_type: "Valve", document_id: "TOPO-PL3-S2", confidence: 0.91 },
+    { entity_text: "PG-18", entity_type: "Instrument", document_id: "TOPO-PL3-S2", confidence: 0.54 },
+    { entity_text: "18-month inspection", entity_type: "Procedure", document_id: "TOPO-PL3-S2", confidence: 0.65 },
+  ],
 };
 
 const GENERIC: CopilotAnswer = {
