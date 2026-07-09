@@ -1,8 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import dynamic from "next/dynamic";
 import { getDocument } from "@/lib/api";
 import { authorityLabel, relativeTime, triggerLabel } from "@/lib/utils";
 import { AuthorityBadge, SourceChip, StatusBadge } from "@/components/ui";
+
+const BlastRadiusPanel = dynamic(
+  () => import("@/components/blast-radius-panel").then((m) => m.BlastRadiusPanel),
+  { ssr: false, loading: () => null }
+);
 
 function fmtSize(bytes?: number): string {
   if (!bytes) return "—";
@@ -56,6 +62,18 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
         ))}
       </div>
 
+      {d.document_type === "pid_drawing" && (
+        <div className="mt-4 flex items-center justify-between rounded-xl border border-line bg-surface px-4 py-3">
+          <p className="text-[12.5px] text-muted">P&ID topology available for this drawing.</p>
+          <Link
+            href={`/documents/${d.document_id}/topology`}
+            className="text-[12.5px] font-medium text-accent hover:underline"
+          >
+            View topology →
+          </Link>
+        </div>
+      )}
+
       {d.status === "superseded" && d.version_chain && (
         <div className="mt-4 rounded-xl border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_9%,var(--surface))] p-4">
           <p className="text-[12.5px]">
@@ -93,6 +111,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
           </Row>
         </div>
       </section>
+      <BlastRadiusPanel documentId={d.document_id} />
     </div>
   );
 }
