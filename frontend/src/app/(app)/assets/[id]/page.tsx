@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import dynamic from "next/dynamic";
 import { getAssetDetail } from "@/lib/api";
 import { AuthorityBadge, SourceChip, StatusBadge } from "@/components/ui";
+
+// React Flow must not SSR — load client-only.
+const KnowledgeGraph = dynamic(
+  () => import("@/components/knowledge-graph").then((m) => m.KnowledgeGraph),
+  { ssr: false, loading: () => <div className="h-[340px] animate-pulse rounded-xl bg-surface-2" /> }
+);
 
 const VERIF_TONE = { verified: "verified", unverified: "caution", disputed: "danger" } as const;
 
@@ -82,6 +89,21 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
             </article>
           ))}
         </div>
+      </section>
+
+      <section className="mt-8">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
+            Knowledge graph
+          </h2>
+          <Link
+            href={`/graph?asset=${a.asset_id}`}
+            className="text-[12px] text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            Open full graph →
+          </Link>
+        </div>
+        <KnowledgeGraph assetId={a.asset_id} height={340} />
       </section>
     </div>
   );

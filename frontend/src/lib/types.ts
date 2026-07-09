@@ -605,3 +605,31 @@ export interface OtCoverage {
   coverage_type: "direct" | "macro" | "none";
   last_reading?: string | null;
 }
+
+// --- Knowledge graph (Tasks 15-16) ---
+export interface GraphNodeData {
+  id: string;
+  label: string;
+  kind: string; // Asset | Event | Document | Concept | Person | Organization | …
+  properties: Record<string, unknown>;
+}
+
+export interface GraphEdgeData {
+  id: string;
+  source: string;
+  target: string;
+  label: string;
+  authority_level: number;
+  verification_status: "verified" | "unverified" | "disputed" | "superseded";
+  valid_from: string;
+  valid_to: string; // "9999-…" sentinel = currently open
+  document_id: string;
+  confidence: number;
+}
+
+export interface KnowledgeGraphData {
+  asset_id: string;
+  as_of: string;
+  nodes: GraphNodeData[];
+  edges: GraphEdgeData[];
+}

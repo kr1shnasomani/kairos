@@ -39,6 +39,9 @@ import type {
   HealthDetailed,
   AuditPack,
   OtCoverage,
+  GraphNodeData,
+  GraphEdgeData,
+  KnowledgeGraphData,
 } from "./types";
 import { fixtureBriefs } from "./fixtures";
 import { complianceFixture } from "./compliance";
@@ -789,5 +792,102 @@ export async function getAssetDetail(id: string): Promise<Fetched<AssetDetailVie
       },
       source: "demo",
     };
+  }
+}
+
+// --- Knowledge graph (Tasks 15-16, GET /assets/{id}/knowledge?as_of=) -------
+
+function graphNodeKind(target: Record<string, unknown>): string {
+  const t = target as Record<string, unknown>;
+  const labels = Array.isArray(t.labels) ? (t.labels as string[])[0] : undefined;
+  return String(t.__type__ ?? t.type ?? labels ?? "Concept");
+}
+
+function graphNodeLabel(target: Record<string, unknown>): string {
+  const t = target as Record<string, string>;
+  return t.name ?? t.title ?? t.asset_id ?? t.document_id ?? t.event_type ?? "Unknown";
+}
+
+function graphNodeId(target: Record<string, unknown>, i: number): string {
+  const t = target as Record<string, string>;
+  return String(t.id ?? t.asset_id ?? t.document_id ?? t.name ?? `node-${i}`);
+}
+
+function normVerifStatus(v: unknown): GraphEdgeData["verification_status"] {
+  if (v === "verified" || v === "disputed" || v === "superseded") return v;
+  return "unverified";
+}
+
+function fixtureKnowledgeGraph(assetId: string): KnowledgeGraphData {
+  const asset = getAssetFixture(assetId) ?? fixtureAssets[0];
+  const nodesMap = new Map<string, GraphNodeData>();
+  nodesMap.set(asset.asset_id, { id: asset.asset_id, label: `${asset.asset_id} — ${asset.name}`, kind: "Asset", properties: {} });
+  const edges: GraphEdgeData[] = asset.knowledge.map((k, i) => {
+    const docId = `doc:${k.source_doc}`;
+    if (!nodesMap.has(docId)) {
+      nodesMap.set(docId, { id: docId, label: k.source_doc, kind: "Document", properties: {} });
+    }
+    const claimId = `claim:${i}`;
+    nodesMap.set(claimId, { id: claimId, label: k.claim.slice(0, 40) + (k.claim.length > 40 ? "…" : ""), kind: "Concept", properties: {} });
+    return {
+      id: `e-${i}`,
+      source: asset.asset_id,
+      target: claimId,
+      label: "has_fact",
+      authority_level: k.authority_level,
+      verification_status: normVerifStatus(k.verification),
+      valid_from: "2020-01-01T00:00:00",
+      valid_to: "9999-12-31T23:59:59",
+      document_id: k.source_doc,
+      confidence: k.verification === "verified" ? 0.92 : k.verification === "disputed" ? 0.45 : 0.61,
+    };
+  });
+  return {
+    asset_id: asset.asset_id,
+    as_of: new Date().toISOString(),
+    nodes: Array.from(nodesMap.values()),
+    edges,
+  };
+}
+
+export async function getKnowledgeGraph(
+  assetId: string,
+  asOf?: string
+): Promise<Fetched<KnowledgeGraphData>> {
+  try {
+    const qs = asOf ? `?as_of=${encodeURIComponent(asOf)}` : "";
+    const raw = await getJson<AssetKnowledgeResponse>(`/assets/${assetId}/knowledge${qs}`);
+    const nodesMap = new Map<string, GraphNodeData>();
+    nodesMap.set(assetId, { id: assetId, label: assetId, kind: "Asset", properties: {} });
+    const edges: GraphEdgeData[] = raw.facts.map((f, i) => {
+      const tId = graphNodeId(f.target, i);
+      if (!nodesMap.has(tId)) {
+        nodesMap.set(tId, {
+          id: tId,
+          label: graphNodeLabel(f.target),
+          kind: graphNodeKind(f.target),
+          properties: f.target,
+        });
+      }
+      const e = f.edge as Record<string, unknown>;
+      return {
+        id: `e-${i}`,
+        source: assetId,
+        target: tId,
+        label: String(e.parameter ?? e.relationship_type ?? "related_to"),
+        authority_level: Number(e.authority_level ?? 5),
+        verification_status: normVerifStatus(e.verification_status),
+        valid_from: String(e.valid_from ?? "2020-01-01T00:00:00"),
+        valid_to: String(e.valid_to ?? "9999-12-31T23:59:59"),
+        document_id: String(e.document_id ?? ""),
+        confidence: Number(e.confidence ?? 0),
+      };
+    });
+    return {
+      data: { asset_id: assetId, as_of: raw.as_of, nodes: Array.from(nodesMap.values()), edges },
+      source: "live",
+    };
+  } catch {
+    return { data: fixtureKnowledgeGraph(assetId), source: "demo" };
   }
 }
