@@ -5,6 +5,10 @@ import { SUGGESTIONS, type CopilotAnswer } from "@/lib/copilot";
 import { synthesize } from "@/lib/api";
 import { AuthorityBadge, SourceChip, StatusBadge } from "@/components/ui";
 
+// Web Speech API — not available in all browsers; typed as any to avoid lib conflicts.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SpeechRecogAny = any;
+
 interface Turn {
   id: number;
   query: string;
@@ -168,6 +172,37 @@ function Composer({
   onChange: (v: string) => void;
   onSubmit: () => void;
 }) {
+  const [listening, setListening] = useState(false);
+  const recogRef = useRef<SpeechRecogAny>(null);
+  const hasSpeech =
+    typeof window !== "undefined" &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+
+  function toggleVoice() {
+    if (listening) {
+      recogRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const win = window as any;
+    const SR = win.SpeechRecognition ?? win.webkitSpeechRecognition;
+    const r = new SR();
+    r.lang = "en-IN";
+    r.interimResults = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    r.onresult = (e: any) => {
+      const transcript = e.results[0]?.[0]?.transcript ?? "";
+      if (transcript) onChange((value ? value + " " : "") + transcript);
+    };
+    r.onend = () => setListening(false);
+    r.onerror = () => setListening(false);
+    r.start();
+    recogRef.current = r;
+    setListening(true);
+  }
+
   return (
     <form
       onSubmit={(e) => {
@@ -183,13 +218,50 @@ function Composer({
         className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-muted"
         aria-label="Ask the copilot"
       />
+      {hasSpeech && (
+        <button
+          type="button"
+          onClick={toggleVoice}
+          aria-label={listening ? "Stop listening" : "Speak your question"}
+          aria-pressed={listening}
+          className={`grid size-9 shrink-0 place-items-center rounded-xl transition-colors ${
+            listening
+              ? "bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] text-danger"
+              : "text-muted hover:bg-surface-2 hover:text-ink"
+          }`}
+        >
+          <svg
+            width="17"
+            height="17"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M12 1a4 4 0 0 0-4 4v7a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4z" />
+            <path d="M19 11a7 7 0 0 1-14 0M12 18v3M9 21h6" />
+          </svg>
+        </button>
+      )}
       <button
         type="submit"
         disabled={!value.trim()}
         aria-label="Send"
         className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent text-on-accent transition-opacity disabled:opacity-40"
       >
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg
+          width="17"
+          height="17"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
           <path d="M22 2 11 13M22 2l-7 20-4-9-9-4z" />
         </svg>
       </button>

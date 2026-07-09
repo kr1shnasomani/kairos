@@ -5,8 +5,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ThemeToggle, ContrastToggle } from "./theme-toggle";
 import { getMe, logout } from "@/lib/auth";
-import { getToken, getGovernorState } from "@/lib/api";
-import type { Role, User, GovernorEventState } from "@/lib/types";
+import { getToken, getGovernorState, getPlantState } from "@/lib/api";
+import { flushQueue, getQueueLength } from "@/lib/idb";
+import type { Role, User, GovernorEventState, PlantState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { PhaseBadge } from "./ui";
 
@@ -92,7 +93,7 @@ function GovernorPill({ userId }: { userId: string }) {
   );
 }
 
-function SidebarContent({ onNavigate, role, user, onSignOut }: { onNavigate?: () => void; role: Role; user: User | null; onSignOut: () => void }) {
+function SidebarContent({ onNavigate, role, user, onSignOut, queueCount }: { onNavigate?: () => void; role: Role; user: User | null; onSignOut: () => void; queueCount: number }) {
   const pathname = usePathname();
   const sections = NAV
     .map((s) => ({ ...s, items: s.items.filter((it) => !it.roles || it.roles.includes(role)) }))
@@ -158,6 +159,15 @@ function SidebarContent({ onNavigate, role, user, onSignOut }: { onNavigate?: ()
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {queueCount > 0 && (
+            <span
+              title={`${queueCount} write${queueCount !== 1 ? "s" : ""} queued offline`}
+              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--caution)_18%,transparent)] px-1 text-[10px] font-bold text-caution"
+              aria-label={`${queueCount} pending sync`}
+            >
+              {queueCount}
+            </span>
+          )}
           <ContrastToggle />
           <ThemeToggle />
           <button
@@ -226,6 +236,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authed, setAuthed] = useState<boolean | null>(null);
+  const [queueCount, setQueueCount] = useState(0);
+  const [plantState, setPlantState] = useState<PlantState | null>(null);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -236,7 +248,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     setAuthed(true);
     getMe().then(setUser);
+    // Service worker registration
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+    // Queue length on load
+    getQueueLength().then(setQueueCount);
+    // Flush write queue on reconnect
+    async function onOnline() {
+      await flushQueue();
+      const n = await getQueueLength();
+      setQueueCount(n);
+    }
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
   }, [router]);
+
+  useEffect(() => {
+    if (user?.site_id) {
+      getPlantState(user.site_id).then((r) => {
+        if (r.data && r.data.state !== "normal") setPlantState(r.data);
+        else setPlantState(null);
+      });
+    }
+  }, [user]);
 
   const role: Role = user?.role ?? "engineer";
   const isField = role === "field_worker";
@@ -254,7 +289,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Desktop sidebar — all roles */}
       <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block">
         <div className="sticky top-0 h-screen">
-          <SidebarContent role={role} user={user} onSignOut={signOut} />
+          <SidebarContent role={role} user={user} onSignOut={signOut} queueCount={queueCount} />
         </div>
       </aside>
 
@@ -267,7 +302,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setDrawer(false)}
           />
           <div className="absolute inset-y-0 left-0 w-[244px] border-r border-line bg-surface">
-            <SidebarContent onNavigate={() => setDrawer(false)} role={role} user={user} onSignOut={signOut} />
+            <SidebarContent onNavigate={() => setDrawer(false)} role={role} user={user} onSignOut={signOut} queueCount={queueCount} />
           </div>
         </div>
       )}
@@ -290,6 +325,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </header>
         )}
 
+        {/* Plant operating state banner */}
+        {plantState && (
+          <div
+            role="alert"
+            className={cn(
+              "flex items-center gap-3 px-5 py-2.5 text-[13px] font-semibold",
+              plantState.state === "emergency"
+                ? "bg-danger text-white"
+                : "bg-[color-mix(in_srgb,var(--caution)_18%,var(--surface))] text-caution",
+            )}
+          >
+            <span className="size-2 shrink-0 animate-pulse rounded-full bg-current" aria-hidden="true" />
+            {plantState.state.charAt(0).toUpperCase() + plantState.state.slice(1)} mode active
+            {" — only critical briefs are being delivered"}
+          </div>
+        )}
         <main className="min-w-0 flex-1">{children}</main>
       </div>
 
