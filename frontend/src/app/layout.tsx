@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Newsreader } from "next/font/google";
+import { Geist, Geist_Mono, Newsreader, Noto_Sans_Devanagari } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -17,6 +17,13 @@ const newsreader = Newsreader({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
   style: ["normal", "italic"],
+});
+
+// Multi-script fallback for Hindi/Hinglish/Devanagari content (Layer 3)
+const notoDevanagari = Noto_Sans_Devanagari({
+  variable: "--font-noto-devanagari",
+  subsets: ["devanagari"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -38,7 +45,7 @@ export default function RootLayout({
     <html
       lang="en"
       data-theme="light"
-      className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable} h-full`}
+      className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable} ${notoDevanagari.variable} h-full`}
       suppressHydrationWarning
     >
       <head>

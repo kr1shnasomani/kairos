@@ -14,17 +14,42 @@ const BlastRadiusPanel = dynamic(
   { ssr: false, loading: () => null }
 );
 
-const FIXTURE: MocItem = {
-  moc_id: "MOC-2024-001",
-  asset_id: "P-101",
-  parameter: "operating_pressure",
-  source_a: { value: "12.5 bar", document_id: "DOC-OEM-001" },
-  source_b: { value: "14.0 bar", document_id: "DOC-INSP-007" },
-  blast_radius_count: 7,
-  status: "pending",
-  created_at: new Date(Date.now() - 86400000).toISOString(),
-  draft_content: "EWR Draft: Operating pressure discrepancy on P-101. Source OEM-001 records 12.5 bar; recent inspection DOC-INSP-007 records 14.0 bar. Recommend engineering review of seal ratings before next scheduled maintenance window.",
-};
+const FIXTURES: MocItem[] = [
+  {
+    moc_id: "MOC-2024-001",
+    asset_id: "P-101",
+    parameter: "operating_pressure",
+    source_a: { value: "12.5 bar", document_id: "DOC-OEM-001" },
+    source_b: { value: "14.0 bar", document_id: "DOC-INSP-007" },
+    blast_radius_count: 7,
+    status: "pending",
+    created_at: new Date(Date.now() - 86400000).toISOString(),
+    draft_content: "EWR Draft: Operating pressure discrepancy on P-101. Source OEM-001 records 12.5 bar; recent inspection DOC-INSP-007 records 14.0 bar. Recommend engineering review of seal ratings before next scheduled maintenance window.",
+  },
+  {
+    moc_id: "MOC-2024-002",
+    asset_id: "V-247",
+    parameter: "relief_valve_setpoint",
+    source_a: { value: "16 bar", document_id: "DOC-PROC-003" },
+    source_b: { value: "18 bar", document_id: "DOC-OEM-008" },
+    blast_radius_count: 3,
+    status: "pending",
+    created_at: new Date(Date.now() - 172800000).toISOString(),
+    draft_content: null,
+  },
+  {
+    moc_id: "MOC-2024-003",
+    asset_id: "EQ-101",
+    parameter: "maintenance_interval_days",
+    source_a: { value: "90", document_id: "DOC-PROC-011" },
+    source_b: { value: "120", document_id: "DOC-OEM-002" },
+    blast_radius_count: 2,
+    status: "approved",
+    created_at: new Date(Date.now() - 432000000).toISOString(),
+    draft_content: null,
+  },
+];
+const FIXTURE_MAP = new Map(FIXTURES.map((f) => [f.moc_id, f]));
 
 const STATUS_TONE: Record<string, "caution" | "verified" | "danger"> = {
   pending: "caution",
@@ -44,7 +69,7 @@ export default function MocDetailPage() {
     let alive = true;
     getMoc(id).then(({ data, source }) => {
       if (!alive) return;
-      setMoc(data ?? (id === "MOC-2024-001" ? FIXTURE : null));
+      setMoc(data ?? FIXTURE_MAP.get(id) ?? null);
       setSource(data ? source : "demo");
     });
     return () => { alive = false; };
@@ -150,6 +175,7 @@ export default function MocDetailPage() {
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Engineer note (optional)"
+              aria-label="Engineer note"
               className="h-9 rounded-lg border border-line bg-surface px-3 text-[12.5px] outline-none focus:border-accent"
             />
             {error && <p className="text-[12px] text-danger">{error}</p>}

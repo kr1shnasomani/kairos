@@ -13,8 +13,8 @@ import {
   type Node,
   type Edge,
   type NodeProps,
-  type OnNodeClick,
-  type OnEdgeClick,
+  type NodeMouseHandler,
+  type EdgeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { getKnowledgeGraph, getOtCoverage } from "@/lib/api";
@@ -61,7 +61,7 @@ function edgeStyle(e: GraphEdgeData): React.CSSProperties {
 // ── Custom node — MUST be at module scope + wrapped in memo ──────────────────
 
 const KairosNode = memo(function KairosNode({ data, selected }: NodeProps) {
-  const nd = data as GraphNodeData;
+  const nd = data as unknown as GraphNodeData;
   const color = kindColor(nd.kind);
   return (
     <>
@@ -69,14 +69,14 @@ const KairosNode = memo(function KairosNode({ data, selected }: NodeProps) {
       <div
         style={{ borderColor: color }}
         className={cn(
-          "min-w-[90px] max-w-[150px] rounded-xl border-2 bg-white px-3 py-2 text-center shadow-sm",
+          "min-w-[90px] max-w-[150px] rounded-xl border-2 bg-surface px-3 py-2 text-center shadow-sm",
           selected && "ring-2 ring-offset-1"
         )}
       >
         <p className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color }}>
           {nd.kind}
         </p>
-        <p className="mt-0.5 truncate text-[11.5px] font-semibold leading-snug text-gray-800">
+        <p className="mt-0.5 truncate text-[11.5px] font-semibold leading-snug text-ink">
           {nd.label}
         </p>
       </div>
@@ -96,7 +96,7 @@ function buildRFNodes(graph: KnowledgeGraphData): Node[] {
   const nodes: Node[] = [];
   // Center node
   const center = graph.nodes.find((n) => n.id === graph.asset_id) ?? graph.nodes[0];
-  nodes.push({ id: center.id, type: "kairos", position: { x: 0, y: 0 }, data: center, draggable: true });
+  nodes.push({ id: center.id, type: "kairos", position: { x: 0, y: 0 }, data: center as unknown as Record<string, unknown>, draggable: true });
   // Satellite nodes
   others.forEach((n, i) => {
     const angle = (i / count) * 2 * Math.PI - Math.PI / 2;
@@ -105,7 +105,7 @@ function buildRFNodes(graph: KnowledgeGraphData): Node[] {
       id: n.id,
       type: "kairos",
       position: { x: Math.cos(angle) * r, y: Math.sin(angle) * r },
-      data: n,
+      data: n as unknown as Record<string, unknown>,
       draggable: true,
     });
   });
@@ -125,7 +125,7 @@ function buildRFEdges(graph: KnowledgeGraphData): Edge[] {
       height: 14,
       color: e.verification_status === "disputed" ? "#e5484d" : authorityStrokeColor(e.authority_level),
     },
-    data: e,
+    data: e as unknown as Record<string, unknown>,
   }));
 }
 
@@ -243,8 +243,8 @@ export function KnowledgeGraph({
   asOf?: string;
   height?: number;
 }) {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [graphData, setGraphData] = useState<KnowledgeGraphData | null>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNodeData | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdgeData | null>(null);
@@ -264,13 +264,13 @@ export function KnowledgeGraph({
     });
   }, [assetId, asOf]);
 
-  const onNodeClick = useCallback<OnNodeClick>((_evt, node) => {
-    setSelectedNode(node.data as GraphNodeData);
+  const onNodeClick = useCallback<NodeMouseHandler>((_evt, node) => {
+    setSelectedNode(node.data as unknown as GraphNodeData);
     setSelectedEdge(null);
   }, []);
 
-  const onEdgeClick = useCallback<OnEdgeClick>((_evt, edge) => {
-    setSelectedEdge((edge.data as GraphEdgeData) ?? null);
+  const onEdgeClick = useCallback<EdgeMouseHandler>((_evt, edge) => {
+    setSelectedEdge((edge.data as unknown as GraphEdgeData) ?? null);
     setSelectedNode(null);
   }, []);
 

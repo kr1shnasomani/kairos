@@ -409,6 +409,7 @@ function PromoteForm({ busy, onCancel, onSubmit }: {
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Notes (optional)"
+        aria-label="Notes"
         className="h-8 rounded-lg border border-line bg-surface px-2 text-[12.5px] outline-none focus:border-accent"
       />
       <div className="flex items-center gap-2">
@@ -445,6 +446,7 @@ function DisputeForm({ busy, onCancel, onSubmit }: {
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         placeholder="Reason for dispute"
+        aria-label="Reason for dispute"
         className="h-8 rounded-lg border border-line bg-surface px-2 text-[12.5px] outline-none focus:border-accent"
       />
       <div className="flex items-center gap-2">

@@ -65,7 +65,7 @@
   --color-info: var(--info);
 
   --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist-sans), var(--font-noto-devanagari), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
 
   --radius-card: var(--radius-lg);

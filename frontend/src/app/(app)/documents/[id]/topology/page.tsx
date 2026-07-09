@@ -15,7 +15,7 @@ import {
   type Node,
   type Edge,
   type NodeProps,
-  type OnNodeClick,
+  type NodeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { getDocumentTopology } from "@/lib/api";
@@ -24,50 +24,51 @@ import { cn } from "@/lib/utils";
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 
+// Canvas hex: React Flow cannot resolve CSS custom properties at paint time
 const NODE_COLORS: Record<string, string> = {
-  Pump: "#3b82f6",
-  Vessel: "#5e6ad2",
-  Equipment: "#5e6ad2",
-  Valve: "#30a46c",
-  Instrument: "#e79d13",
-  Separator: "#5e6ad2",
+  Pump: "#3b82f6", Vessel: "#5e6ad2", Equipment: "#5e6ad2",
+  Valve: "#30a46c", Instrument: "#e79d13", Separator: "#5e6ad2",
 };
-const DEFAULT_COLOR = "#8b8d98";
-
 function nodeColor(type: string, status: TopologyNode["verification_status"]): string {
   if (status === "disputed") return "#e5484d";
   if (status === "unverified") return "#e79d13";
-  return NODE_COLORS[type] ?? DEFAULT_COLOR;
+  return NODE_COLORS[type] ?? "#8b8d98";
+}
+
+// DOM vars: outside canvas, must use CSS variables
+const NODE_VARS: Record<string, string> = {
+  Pump: "var(--info)", Vessel: "var(--accent)", Equipment: "var(--accent)",
+  Valve: "var(--verified)", Instrument: "var(--caution)", Separator: "var(--accent)",
+};
+function nodeVar(type: string, status: TopologyNode["verification_status"]): string {
+  if (status === "disputed") return "var(--danger)";
+  if (status === "unverified") return "var(--caution)";
+  return NODE_VARS[type] ?? "var(--muted)";
 }
 
 // ── Custom node ───────────────────────────────────────────────────────────────
 
 const TopoNode = memo(function TopoNode({ data, selected }: NodeProps) {
-  const n = data as TopologyNode;
+  const n = data as unknown as TopologyNode;
   const color = nodeColor(n.node_type, n.verification_status);
   const dashed = n.verification_status === "unverified";
   return (
     <>
       <Handle type="target" position={Position.Top} style={{ opacity: 0, pointerEvents: "none" }} />
       <div
-        style={{
-          borderColor: color,
-          borderStyle: dashed ? "dashed" : "solid",
-          backgroundColor: n.verification_status === "unverified"
-            ? "#fefce8"
-            : n.verification_status === "disputed"
-            ? "#fff1f2"
-            : "#ffffff",
-        }}
+        style={{ borderColor: color, borderStyle: dashed ? "dashed" : "solid" }}
         className={cn(
           "min-w-[90px] max-w-[150px] rounded-xl border-2 px-3 py-2 text-center shadow-sm",
+          n.verification_status === "unverified" && "bg-[color-mix(in_srgb,var(--caution)_8%,var(--surface))]",
+          n.verification_status === "disputed"   && "bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface))]",
+          n.verification_status === "verified"   && "bg-surface",
           selected && "ring-2 ring-offset-1"
         )}
       >
         <p className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color }}>
           {n.node_type}
         </p>
-        <p className="mt-0.5 truncate text-[11.5px] font-semibold leading-snug text-gray-800">
+        <p className="mt-0.5 truncate text-[11.5px] font-semibold leading-snug text-ink">
           {n.label}
         </p>
         {n.verification_status !== "verified" && (
@@ -118,7 +119,7 @@ function buildLayout(topo: TopologyGraph): { nodes: Node[]; edges: Edge[] } {
   const others = topo.nodes.filter((n) => n.node_id !== center.node_id);
 
   const rfNodes: Node[] = [
-    { id: center.node_id, type: "topo", position: { x: 0, y: 0 }, data: center, draggable: true },
+    { id: center.node_id, type: "topo", position: { x: 0, y: 0 }, data: center as unknown as Record<string, unknown>, draggable: true },
     ...others.map((n, i) => {
       const angle = (i / (others.length || 1)) * 2 * Math.PI - Math.PI / 2;
       const r = 280;
@@ -126,14 +127,14 @@ function buildLayout(topo: TopologyGraph): { nodes: Node[]; edges: Edge[] } {
         id: n.node_id,
         type: "topo",
         position: { x: Math.cos(angle) * r, y: Math.sin(angle) * r },
-        data: n,
+        data: n as unknown as Record<string, unknown>,
         draggable: true,
       };
     }),
   ];
 
   const rfEdges: Edge[] = topo.edges.map((e) => {
-    const color = EDGE_TYPE_COLOR[e.edge_type] ?? DEFAULT_COLOR;
+    const color = EDGE_TYPE_COLOR[e.edge_type] ?? "#8b8d98";
     const isLoop = e.edge_type === "instrumentation_loop";
     return {
       id: e.edge_id,
@@ -151,7 +152,7 @@ function buildLayout(topo: TopologyGraph): { nodes: Node[]; edges: Edge[] } {
 // ── Side panel ────────────────────────────────────────────────────────────────
 
 function NodeDetail({ node, onClose }: { node: TopologyNode; onClose: () => void }) {
-  const color = nodeColor(node.node_type, node.verification_status);
+  const color = nodeVar(node.node_type, node.verification_status);
   return (
     <div className="absolute right-3 top-3 z-10 w-64 rounded-xl border border-line bg-surface shadow-lg">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -188,21 +189,22 @@ function NodeDetail({ node, onClose }: { node: TopologyNode; onClose: () => void
 
 // ── Legend ────────────────────────────────────────────────────────────────────
 
+const TOPO_LEGEND = [
+  { cssVar: "var(--verified)", label: "Verified" },
+  { cssVar: "var(--caution)", dashed: true, label: "Unverified" },
+  { cssVar: "var(--danger)", label: "Disputed" },
+  { cssVar: "var(--info)", label: "Flow connection" },
+  { cssVar: "var(--caution)", dashed: true, label: "Instrumentation loop" },
+] satisfies { cssVar: string; dashed?: boolean; label: string }[];
+
 function TopoLegend() {
   return (
     <div className="flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-muted">
-      {[
-        { color: "#30a46c", label: "Verified" },
-        { color: "#e79d13", dashed: true, label: "Unverified" },
-        { color: "#e5484d", label: "Disputed" },
-        { color: "#5e6ad2", label: "Flow connection" },
-        { color: "#e79d13", dashed: true, label: "Instrumentation loop" },
-      ].map(({ color, dashed, label }) => (
+      {TOPO_LEGEND.map(({ cssVar, dashed, label }) => (
         <div key={label} className="flex items-center gap-1.5">
-          <span
-            className="inline-block h-2 w-6 rounded-full"
-            style={{ backgroundColor: color, opacity: dashed ? 0.6 : 1, ...(dashed ? { borderTop: `2px dashed ${color}`, backgroundColor: "transparent" } : {}) }}
-          />
+          {dashed
+            ? <span className="inline-block h-2 w-6 border-t-2 border-dashed" style={{ borderColor: cssVar }} />
+            : <span className="inline-block h-2 w-6 rounded-full" style={{ backgroundColor: cssVar }} />}
           {label}
         </div>
       ))}
@@ -214,8 +216,8 @@ function TopoLegend() {
 
 export default function TopologyPage() {
   const { id } = useParams<{ id: string }>();
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [topo, setTopo] = useState<TopologyGraph | null>(null);
   const [selectedNode, setSelectedNode] = useState<TopologyNode | null>(null);
   const [loading, setLoading] = useState(true);
@@ -233,8 +235,8 @@ export default function TopologyPage() {
     });
   }, [id]);
 
-  const onNodeClick = useCallback<OnNodeClick>((_evt, node) => {
-    setSelectedNode(node.data as TopologyNode);
+  const onNodeClick = useCallback<NodeMouseHandler>((_evt, node) => {
+    setSelectedNode(node.data as unknown as TopologyNode);
   }, []);
 
   const onPaneClick = useCallback(() => setSelectedNode(null), []);
@@ -314,7 +316,7 @@ export default function TopologyPage() {
           </h2>
           <div className="divide-y divide-line rounded-xl border border-line overflow-hidden">
             {topo.nodes.map((n) => {
-              const color = nodeColor(n.node_type, n.verification_status);
+              const color = nodeVar(n.node_type, n.verification_status);
               return (
                 <div key={n.node_id} className="flex items-center gap-3 px-4 py-3 bg-surface">
                   <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: color }} aria-hidden="true" />

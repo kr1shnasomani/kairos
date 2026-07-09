@@ -32,6 +32,8 @@ export default function CompliancePage() {
       setGaps(gapsResult.data?.items ?? []);
       setSource(gapsResult.source);
       if (dashResult.data) setDashboard(dashResult.data);
+    }).catch(() => {
+      // ponytail: individual api fns catch internally; this guards unexpected JS throws
     });
     return () => { alive = false; };
   }, []);

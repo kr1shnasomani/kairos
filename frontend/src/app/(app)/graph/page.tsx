@@ -8,11 +8,10 @@ import { cn } from "@/lib/utils";
 
 const EXAMPLE_ASSETS = ["P-101", "EQ-101", "V-247"];
 
-// Authority stroke color (hex, for CSS background-color in bars).
 function authorityColor(level: number): string {
-  if (level <= 2) return "#30a46c";
-  if (level === 3) return "#3b82f6";
-  return "#e79d13";
+  if (level <= 2) return "var(--verified)";
+  if (level === 3) return "var(--info)";
+  return "var(--caution)";
 }
 
 // ── Validity timeline bars (Task 16) ─────────────────────────────────────────
@@ -90,29 +89,25 @@ function ValidityTimeline({ edges }: { edges: GraphEdgeData[] }) {
 
 // ── Legend ────────────────────────────────────────────────────────────────────
 
+const LEGEND_ITEMS = [
+  { var: "var(--verified)", label: "L1–L2 verified" },
+  { var: "var(--info)",     label: "L3 standard" },
+  { var: "var(--caution)",  label: "L4–L5 field" },
+  { var: "var(--muted)",    label: "Unverified", dashed: true },
+  { var: "var(--danger)",   label: "Disputed" },
+] satisfies { var: string; label: string; dashed?: boolean }[];
+
 function GraphLegend() {
   return (
     <div className="flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-muted">
-      <div className="flex items-center gap-1.5">
-        <span className="inline-block h-2 w-6 rounded-full bg-[#30a46c]" />
-        L1–L2 verified
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span className="inline-block h-2 w-6 rounded-full bg-[#3b82f6]" />
-        L3 standard
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span className="inline-block h-2 w-6 rounded-full bg-[#e79d13]" />
-        L4–L5 field
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span className="inline-block h-2 w-6 border-t-2 border-dashed border-[#8b8d98]" />
-        Unverified
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span className="inline-block h-2 w-6 rounded-full bg-[#e5484d]" />
-        Disputed
-      </div>
+      {LEGEND_ITEMS.map(({ var: c, label, dashed }) => (
+        <div key={label} className="flex items-center gap-1.5">
+          {dashed
+            ? <span className="inline-block h-2 w-6 border-t-2 border-dashed" style={{ borderColor: c }} />
+            : <span className="inline-block h-2 w-6 rounded-full" style={{ backgroundColor: c }} />}
+          {label}
+        </div>
+      ))}
     </div>
   );
 }
@@ -126,7 +121,9 @@ export default function GraphPage() {
   const [graphData, setGraphData] = useState<KnowledgeGraphData | null>(null);
 
   useEffect(() => {
-    getKnowledgeGraph(assetId, asOf || undefined).then(({ data }) => setGraphData(data));
+    let alive = true;
+    getKnowledgeGraph(assetId, asOf || undefined).then(({ data }) => { if (alive) setGraphData(data); });
+    return () => { alive = false; };
   }, [assetId, asOf]);
 
   function handleLoadGraph(id: string) {

@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function NotFound() {
   return (
-    <main className="grid min-h-screen place-items-center px-5">
+    <main className="grid min-h-dvh place-items-center px-5">
       <div className="w-full max-w-sm text-center">
         <span className="mx-auto grid size-12 place-items-center rounded-xl bg-accent" aria-hidden="true">
           <svg width="26" height="26" viewBox="0 0 26 26" fill="none">

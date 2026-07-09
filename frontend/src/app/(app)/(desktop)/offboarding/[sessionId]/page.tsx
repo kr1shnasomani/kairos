@@ -187,7 +187,7 @@ function Interview({
                           )}
                           aria-hidden="true"
                         >
-                          {sel && <span className="size-1.5 rounded-full bg-white" />}
+                          {sel && <span className="size-1.5 rounded-full bg-on-accent" />}
                         </span>
                         {opt}
                       </label>

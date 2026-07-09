@@ -33,7 +33,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center px-5">
+    <main className="grid min-h-dvh place-items-center px-5">
       <div className="absolute right-5 top-5">
         <ThemeToggle />
       </div>

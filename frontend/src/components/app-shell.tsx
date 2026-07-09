@@ -77,7 +77,9 @@ function KairosMark({ size = 30 }: { size?: number }) {
 function GovernorPill({ userId }: { userId: string }) {
   const [gov, setGov] = useState<GovernorEventState | null>(null);
   useEffect(() => {
-    getGovernorState(userId).then((r) => { if (r.data) setGov(r.data); });
+    let alive = true;
+    getGovernorState(userId).then((r) => { if (alive && r.data) setGov(r.data); });
+    return () => { alive = false; };
   }, [userId]);
   if (!gov) return null;
   const suppressed = gov.state === "suppressed";
@@ -289,10 +291,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (authed !== true) return null;
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-dvh">
       {/* Desktop sidebar — all roles */}
       <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block">
-        <div className="sticky top-0 h-screen">
+        <div className="sticky top-0 h-dvh">
           <SidebarContent role={role} user={user} onSignOut={signOut} queueCount={queueCount} />
         </div>
       </aside>

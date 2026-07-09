@@ -27,9 +27,19 @@ const SURFACES = [
     live: true,
     desc: "Governance SLA state across conflicts and quarantine. Overdue items with countdown timers, escalation flags, and on-time metrics.",
   },
+  {
+    href: "/governance/circuit-breaker",
+    title: "Circuit breaker",
+    live: true,
+    desc: "SPC governor state by asset class. Z-score anomaly gates halt ingestion until admin review or human-verified resolution.",
+  },
+  {
+    href: "/governance/model-gate",
+    title: "Model gate",
+    live: true,
+    desc: "Precision / recall gate against the validation corpus. Failed runs block model promotion. Trigger manual runs or inspect history.",
+  },
 ];
-
-const DEFERRED = ["Circuit breaker", "Model gate"];
 
 export default function GovernancePage() {
   return (
@@ -59,15 +69,6 @@ export default function GovernancePage() {
             <p className="mt-2 text-[13px] leading-relaxed text-muted">{s.desc}</p>
           </Link>
         ))}
-      </div>
-
-      <div className="mt-6 rounded-xl border border-dashed border-line bg-surface p-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Also in this plane</p>
-        <div className="mt-2.5 flex flex-wrap gap-2">
-          {DEFERRED.map((d) => (
-            <span key={d} className="rounded-md border border-line bg-surface-2 px-2 py-1 text-[12px] text-muted">{d}</span>
-          ))}
-        </div>
       </div>
     </div>
   );

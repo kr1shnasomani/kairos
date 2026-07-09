@@ -34,11 +34,11 @@ const BlastNode = memo(function BlastNode({ data }: NodeProps) {
   return (
     <div
       style={{ borderColor: color }}
-      className={`min-w-[80px] max-w-[130px] rounded-xl border-2 px-2.5 py-1.5 text-center shadow-sm ${d.isCenter ? "bg-[#eef0fb]" : "bg-white"}`}
+      className={`min-w-[80px] max-w-[130px] rounded-xl border-2 px-2.5 py-1.5 text-center shadow-sm ${d.isCenter ? "bg-[color-mix(in_srgb,var(--accent)_8%,var(--surface))]" : "bg-surface"}`}
     >
       <p className="text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color }}>{d.itemType}</p>
-      <p className="mt-0.5 truncate text-[10.5px] font-semibold leading-snug text-gray-800">{d.label}</p>
-      {d.flagged && <p className="mt-0.5 text-[8.5px] text-[#e5484d] font-semibold">FLAGGED</p>}
+      <p className="mt-0.5 truncate text-[10.5px] font-semibold leading-snug text-ink">{d.label}</p>
+      {d.flagged && <p className="mt-0.5 text-[8.5px] font-semibold text-danger">FLAGGED</p>}
     </div>
   );
 });
@@ -103,11 +103,13 @@ export function BlastRadiusPanel({ documentId }: { documentId: string }) {
   const [report, setReport] = useState<BlastRadiusReport | null>(null);
   const [isDemo, setIsDemo] = useState(false);
   const [open, setOpen] = useState(false);
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   useEffect(() => {
+    let alive = true;
     getBlastRadius(documentId).then(({ data, source }) => {
+      if (!alive) return;
       const resolved = data ?? fixtureReport(documentId);
       setReport(resolved);
       setIsDemo(source === "demo" || !data);
@@ -117,6 +119,7 @@ export function BlastRadiusPanel({ documentId }: { documentId: string }) {
         setEdges(e);
       }
     });
+    return () => { alive = false; };
   }, [documentId]);
 
   if (!report) return null;

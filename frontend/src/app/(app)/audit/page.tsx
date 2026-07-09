@@ -182,6 +182,7 @@ export default function AuditPage() {
             value={entityIdInput}
             onChange={(e) => setEntityIdInput(e.target.value)}
             placeholder="Filter by entity ID…"
+            aria-label="Filter by entity ID"
             className="tabular h-8 w-44 rounded-lg border border-line bg-surface px-3 text-[12.5px] outline-none focus:border-accent"
           />
           <button

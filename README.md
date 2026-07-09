@@ -32,6 +32,34 @@
 
 **For a deep dive into the 13-Layer Architecture, Knowledge Graph Mechanics, OT Virtualization, and Governance Tracks, please see our detailed [ARCHITECTURE.md](./docs/ARCHITECTURE.md).**
 
+## Frontend
+
+The web app (`frontend/`) is a **Next.js 16 / React 19 / Tailwind CSS v4 / TypeScript strict** point-of-action interface. It covers every Layer 12 persona (field, engineer, compliance, management) across **36 implementation tasks** and 40+ routes. All routes fall back gracefully to fixture data when the backend is offline, showing a `Demo data` chip wherever live data is unavailable.
+
+**Key surfaces:**
+
+| Group | Routes | What it does |
+|---|---|---|
+| Field | `/briefs`, `/briefs/[id]`, `/field/elicitation/*`, `/field/deviation`, `/offboarding/*` | Mobile-first brief inbox, PTW dual sign-off, micro-interview, knowledge transfer |
+| Copilot | `/copilot` | Phase-gated synthesis with `RefusalCard` + voice input |
+| Engineer | `/assets/[id]`, `/graph`, `/rca`, `/documents/[id]`, `/timeline`, `/documents/[id]/topology` | Knowledge graph canvas (React Flow), P&ID topology, time-travel, RCA |
+| Documents | `/documents`, `/documents/ingest`, `/documents/compare` | Registry, ingestion pipeline, side-by-side comparison |
+| Governance | `/governance/conflicts`, `/governance/quarantine`, `/governance/moc/*`, `/governance/sla`, `/governance/circuit-breaker`, `/governance/model-gate` | Conflict resolution, quarantine review, MoC approval, SPC, model gate |
+| Compliance | `/compliance`, `/compliance/audit-pack`, `/compliance/nonconformance` | Compliance cockpit, audit-pack assembly, non-conformance tracking |
+| Management | `/management`, `/management/cross-site`, `/management/plant-state` | Live KPIs, cross-site pattern alerts, plant-state control (admin-gated) |
+| Operational | `/events`, `/events/[id]`, `/audit` | Event surfaces, acknowledgment, immutable audit trail |
+
+**Technical highlights:**
+- Offline shell + IndexedDB sync queue (Service Worker, no library)
+- Voice capture via native `MediaRecorder` API → Whisper transcription
+- React Flow knowledge graph + P&ID topology viewer with blast-radius panel
+- EEMUA governor pill, Phase 1/2/3 deployment badge, demo-data honesty chip
+- One component, two palettes (light / dark / high-contrast sunlight mode)
+- Devanagari / multi-script font stack for Hindi/Hinglish field data
+- WCAG AA accessible: `aria-label` on every icon-only control, `focus-visible`, live regions
+
+See [`docs/FRONTEND.md`](./docs/FRONTEND.md) for the full route table, component inventory, and API wiring reference.
+
 ## Documentation Index
 
 1. `docs/ARCHITECTURE.md`: The complete 13-layer platform design, constraints, and architecture.

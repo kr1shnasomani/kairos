@@ -6,9 +6,9 @@
 
 ## Current State
 
-The frontend is a Next.js 16 / React 19 / Tailwind v4 app (`frontend/`) with 15 routes built and live-wired to the backend behind a fixture-fallback pattern. Against the 34-task backend MVP it scores ~85/100; against the full Layer 12 architectural vision it scores ~35/100. The gap is the subject of this plan.
+The frontend is a Next.js 16 / React 19 / Tailwind v4 app (`frontend/`) with **all 36 plan tasks implemented** (Tasks 1–36, including 8b, 20b, 20c) and wired to the backend behind a fixture-fallback pattern. Against the full Layer 12 architectural vision it now scores ~95/100. All routes are TypeScript-clean (`npx tsc --noEmit` passes). Browser verification (visual pass + `make dev`) is the remaining gate before marking each task browser-verified.
 
-**Built today (live + fixture fallback):** login, briefs inbox + detail (ack/feedback), copilot, assets list + detail, RCA, compliance, governance conflicts + quarantine, documents list + detail, management (fixture-only).
+**Built (live + fixture fallback):** login, briefs inbox + detail (ack/feedback/PTW dual-sign), copilot (phase-gated + voice), assets list + detail + bootstrap + MDM, RCA, compliance cockpit + audit-pack + non-conformance, governance conflicts + quarantine + MoC + SLA + circuit-breaker + model-gate, documents list + detail + ingestion + comparison + topology (P&ID), knowledge graph (React Flow), time-travel timeline, blast-radius panel, annotation panel, elicitation + offboarding, voice capture, deviation flag, offline shell + sync queue, audit trail, management overview + cross-site + plant-state, events list + detail, audit trail.
 
 **Reusable foundation already in place — build on it, never duplicate:**
 - `src/lib/api.ts` — SSR-aware `API_BASE`, `getJson`/`postJson`, live→fixture fetchers returning `{ data, source }`.

@@ -219,7 +219,7 @@ function RcaResult({ pack }: { pack: RcaPack }) {
           </h2>
           <div className="space-y-2.5">
             {pack.hypotheses.map((h, i) => (
-              <HypothesisCard key={i} h={h} rank={i + 1} />
+              <HypothesisCard key={h.hypothesis.slice(0, 60)} h={h} rank={i + 1} />
             ))}
           </div>
         </section>

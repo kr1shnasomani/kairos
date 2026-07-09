@@ -59,14 +59,16 @@ frontend/
 │   │       └── management/page.tsx  # Overview dashboard (fixture)
 │   ├── components/
 │   │   ├── app-shell.tsx            # Sidebar nav + mobile drawer + user chip + auth guard + sign-out
+│   │   ├── blast-radius-panel.tsx   # React Flow mini-graph showing documents/assets affected by a conflict
 │   │   ├── brief-card.tsx           # Single brief row in the inbox
 │   │   ├── brief-inbox.tsx          # List of BriefCards with priority grouping
 │   │   ├── brief-detail.tsx         # Full brief view with sources + ack form
+│   │   ├── knowledge-graph.tsx      # React Flow temporal asset graph (Layer 4)
 │   │   ├── skeleton.tsx             # Shared PageSkeleton component
 │   │   ├── stub.tsx                 # Placeholder component for unbuilt pages
 │   │   ├── theme-toggle.tsx         # Light/dark toggle
-│   │   ├── use-role.ts              # useRole() hook — reads role from live user profile
-│   │   └── ui.tsx                   # Shared primitives: AuthorityBadge, StatusBadge, SourceChip, Modal, Button
+│   │   ├── use-role.ts              # ADMIN_ROLES, PROMOTE_ROLES, RESOLVE_ROLES constants + useRole() hook
+│   │   └── ui.tsx                   # Shared primitives: AuthorityBadge, StatusBadge, FilterTabs, Modal, Button, RefusalCard
 │   └── lib/
 │       ├── api.ts                   # All fetch helpers — SSR-aware API_BASE, live+fixture fetchers, postJson
 │       ├── auth.ts                  # login(), getMe(), logout() — Supabase token lifecycle
@@ -99,12 +101,22 @@ frontend/
 | `/assets/[id]` | Asset detail + aliases + knowledge | Live with fixture fallback |
 | `/rca` | RCA pack generator | Live with fixture fallback |
 | `/compliance` | Compliance gaps + audit readiness | Live with fixture fallback |
-| `/governance` | Hub → conflicts + quarantine | Live (hub page) |
+| `/governance` | Hub → all 6 governance surfaces | Live (hub page) |
 | `/governance/conflicts` | Conflict list + resolve | Live with fixture fallback |
-| `/governance/quarantine` | Quarantine list + promote/dispute | Live with fixture fallback (role-gated) |
+| `/governance/quarantine` | Quarantine list + promote/dispute/request-info | Live with fixture fallback (role-gated) |
+| `/governance/moc` | Management of Change queue | Live with fixture fallback |
+| `/governance/moc/[id]` | MoC detail + source comparison + engineer sign-off | Live with fixture fallback (admin-gated write) |
+| `/governance/sla` | SLA report — overdue conflicts + quarantine | Live with fixture fallback |
+| `/governance/circuit-breaker` | SPC circuit-breaker state by asset class | Live with fixture fallback |
+| `/governance/model-gate` | Model gate — P/R/F1 history + validation corpus | Live with fixture fallback |
 | `/documents` | Document registry | Live with fixture fallback |
 | `/documents/[id]` | Document detail + supersede chain | Live with fixture fallback |
-| `/management` | Platform overview | Fixture |
+| `/documents/[id]/topology` | P&ID topology graph (React Flow) | Live with fixture fallback |
+| `/graph` | Temporal knowledge graph (React Flow) | Live with fixture fallback |
+| `/audit` | Audit trail — entity/action log | Live with fixture fallback |
+| `/management` | Plant overview — KPIs, alerts, system health | Live with fixture fallback |
+| `/management/cross-site` | Cross-site pattern alerts | Demo fixture (Layer-13 API in roadmap) |
+| `/management/plant-state` | Plant operating-state control | Live with fixture fallback (admin-gated write) |
 
 ---
 
@@ -114,7 +126,9 @@ frontend/
 
 **Operate group:** Briefs · Copilot · Assets · RCA
 
-**Assure group:** Compliance · Governance · Documents · Overview
+**Assure group:** Compliance · Governance · Documents · Graph · Audit trail
+
+**Manage group:** Overview (management)
 
 Active route highlighted with `bg-accent-soft text-accent`. User chip at the bottom shows the live authenticated user's name, role, and site from `GET /auth/me`. Sign-out button clears tokens and redirects to `/login`. Staff-only routes (RCA, Compliance, Governance, Documents, Overview) are hidden for `field_worker` role.
 
@@ -194,6 +208,21 @@ export const API_BASE =
 | `getRcaPack(assetId, code)` | `POST /search/rca-pack` |
 | `ackBrief(id, body)` | `POST /briefs/{id}/ack` |
 | `sendBriefFeedback(id, rating, notes)` | `POST /briefs/{id}/feedback` |
+| `getMoc(id)` | `GET /governance/moc/{id}` |
+| `getMocs()` | `GET /governance/moc` |
+| `approveMoc(id, note?)` | `POST /governance/moc/{id}/approve` |
+| `getSlaReport()` | `GET /governance/sla-report` |
+| `getCircuitBreaker()` | `GET /governance/circuit-breaker` |
+| `getModelGateHistory()` | `GET /governance/model-gate/history` |
+| `runModelGate()` | `POST /governance/model-gate/run` |
+| `getValidationCorpusStats()` | `GET /governance/validation-corpus/stats` |
+| `getKnowledgeGraph(assetId, asOf?)` | `GET /graph/asset/{id}?as_of=…` |
+| `getAuditLog(entityId?, type?)` | `GET /audit/log` |
+| `getDocumentTopology(id)` | `GET /documents/{id}/topology` |
+| `getPlantState(siteId)` | `GET /events/plant-state/{site_id}` |
+| `setPlantState(body)` | `POST /events/plant-state` |
+| `getComplianceDashboard()` | `GET /compliance/dashboard` |
+| `getBlastRadius(documentId)` | `GET /governance/blast-radius/{doc_id}` |
 
 ### Fixture fallback pattern
 
@@ -348,11 +377,40 @@ docker compose up -d --no-deps --build kairos-frontend
 
 ---
 
-## 13. Remaining Work
+## 13. CI/CD
+
+`.github/workflows/frontend.yml` runs on every push/PR that touches `frontend/` or the workflow file itself. Four jobs, all path-filtered:
+
+| Job | Command | What it checks |
+|-----|---------|----------------|
+| `typecheck` | `npx tsc --noEmit` | TypeScript strict — zero errors required |
+| `lint` | `npm run lint` | ESLint (Next.js config) — zero errors required |
+| `build` | `npm run build` | Full Next.js production build — catches missing imports, invalid RSC boundaries |
+| `audit` | `npm audit --audit-level=high` | Dependency CVEs at high/critical severity |
+
+All four jobs run in parallel on `ubuntu-latest` with `node:20` and `npm ci` from the lockfile. No secrets are needed for these checks.
+
+---
+
+## 14. Quality Status
+
+| Check | Status |
+|-------|--------|
+| TypeScript strict (`tsc --noEmit`) | ✅ 0 errors |
+| No `console.log` in src | ✅ clean |
+| No hardcoded hex in DOM (canvas exempt) | ✅ clean |
+| No `key={index}` on dynamic lists | ✅ clean |
+| `useEffect` cleanup (`alive` pattern) | ✅ all async effects have cleanup |
+| `h-screen` → `h-dvh` | ✅ converted |
+| Token colors only (no `bg-white`, `text-gray-*`) | ✅ clean |
+| `@xyflow/react` in `package-lock.json` | ✅ resolved |
+| All 36 FE tasks TypeScript-clean | ✅ verified in container |
+
+---
+
+## 15. Remaining Work
 
 | Item | Notes |
 |------|-------|
-| `/management` live wiring | Fan-out: `/health/detailed`, `/assets/?limit=1`, `/briefs/`, `/compliance/dashboard` |
-| MoC + SLA views in governance | `GET /governance/moc` + `/governance/sla-report` — endpoints exist, pages not yet built |
-| Role-aware nav for `field_worker` | Nav already hides staff routes; write actions already gated — no further work needed |
-| Bearer token on SSR reads | Server components currently rely on backend dev-bypass (no auth header). Wire `getToken()` equivalent for server-side when auth hardening is needed |
+| Bearer token on SSR reads | Server components rely on backend dev-bypass. Wire `getToken()` for SSR when `NEXT_PUBLIC_AUTH_STRICT=true` |
+| Browser verification pass | Run `make dev`, load every route in Chrome, confirm DemoChip, PTW flow, GovernorPill, ContrastToggle |

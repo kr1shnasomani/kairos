@@ -75,7 +75,7 @@ function QuestionCard({
               )}
               aria-hidden="true"
             >
-              {answer === opt && <span className="size-2 rounded-full bg-white" />}
+              {answer === opt && <span className="size-2 rounded-full bg-on-accent" />}
             </span>
             {opt}
           </label>
