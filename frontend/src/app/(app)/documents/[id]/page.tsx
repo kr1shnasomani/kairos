@@ -3,10 +3,15 @@ import { notFound } from "next/navigation";
 import dynamic from "next/dynamic";
 import { getDocument } from "@/lib/api";
 import { authorityLabel, relativeTime, triggerLabel } from "@/lib/utils";
-import { AuthorityBadge, SourceChip, StatusBadge } from "@/components/ui";
+import { AuthorityBadge, SourceChip, StatusBadge, Timeline, type TimelineEvent } from "@/components/ui";
+import type { VaultDocument } from "@/lib/types";
 
 const BlastRadiusPanel = dynamic(
   () => import("@/components/blast-radius-panel").then((m) => m.BlastRadiusPanel),
+  { ssr: false, loading: () => null }
+);
+const SupersedeAction = dynamic(
+  () => import("@/components/supersede-action").then((m) => m.SupersedeAction),
   { ssr: false, loading: () => null }
 );
 
@@ -17,10 +22,36 @@ function fmtSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function buildVersionChain(old: VaultDocument, newer: VaultDocument): TimelineEvent[] {
+  return [
+    {
+      id: old.document_id,
+      timestamp: relativeTime(old.ingested_at),
+      label: old.document_id,
+      description: old.file_name,
+      tone: "neutral",
+      meta: "superseded",
+    },
+    {
+      id: newer.document_id,
+      timestamp: relativeTime(newer.ingested_at),
+      label: newer.document_id,
+      description: newer.file_name,
+      tone: "verified",
+      meta: "active",
+    },
+  ];
+}
+
 export default async function DocumentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { data: d, source } = await getDocument(id);
   if (!d) notFound();
+
+  // Fetch the superseding doc to build the version chain timeline
+  const supersedingDoc = d.version_chain
+    ? await getDocument(d.version_chain).then(({ data }) => data).catch(() => null)
+    : null;
 
   const meta: { label: string; value: React.ReactNode }[] = [
     { label: "Type", value: triggerLabel(d.document_type) },
@@ -111,6 +142,43 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
           </Row>
         </div>
       </section>
+
+      {/* Version chain */}
+      {supersedingDoc && (
+        <section className="mt-6">
+          <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-muted">
+            Version chain
+          </h2>
+          <Timeline
+            events={buildVersionChain(d, supersedingDoc)}
+          />
+          <div className="mt-3 rounded-xl border border-line bg-surface p-4 text-[12.5px]">
+            <p className="font-semibold text-muted mb-2">Metadata comparison</p>
+            <div className="grid grid-cols-2 gap-4">
+              {(["authority_level", "source_system", "ingested_at", "document_type"] as const).map((k) => (
+                <div key={k}>
+                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted mb-1 capitalize">
+                    {k.replace(/_/g, " ")}
+                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[11.5px] text-muted line-through">{String(d[k] ?? "—")}</span>
+                    <span className="text-[11.5px] font-semibold text-ink">{String(supersedingDoc[k] ?? "—")}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Supersede action (engineer/admin, client-side role gate) */}
+      <div className="mt-6 flex items-center justify-between">
+        <p className="text-[12px] text-muted">
+          Superseded documents are retained in the vault. This action is irreversible.
+        </p>
+        <SupersedeAction documentId={d.document_id} />
+      </div>
+
       <BlastRadiusPanel documentId={d.document_id} />
     </div>
   );

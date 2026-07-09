@@ -15,9 +15,21 @@ const SURFACES = [
     live: true,
     desc: "Unverified field inputs awaiting human review. Promote to the canonical graph or dispute — a one-way gate, never auto-promoted.",
   },
+  {
+    href: "/governance/moc",
+    title: "Management of Change",
+    live: true,
+    desc: "Auto-drafted EWR items for engineering-track conflicts. Engineer sign-off closes the old edge and clears downstream warning banners.",
+  },
+  {
+    href: "/governance/sla",
+    title: "SLA report",
+    live: true,
+    desc: "Governance SLA state across conflicts and quarantine. Overdue items with countdown timers, escalation flags, and on-time metrics.",
+  },
 ];
 
-const DEFERRED = ["Blast-radius", "Management of Change", "SLA report", "Circuit breaker"];
+const DEFERRED = ["Circuit breaker", "Model gate"];
 
 export default function GovernancePage() {
   return (

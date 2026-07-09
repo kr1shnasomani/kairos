@@ -286,12 +286,18 @@ export async function synthesize(query: string, asOf?: string): Promise<CopilotA
   }
 }
 
-export async function getRcaPack(assetId: string, failureCode: string): Promise<RcaPack> {
+export async function getRcaPack(
+  assetId: string,
+  failureCode: string,
+  incidentDate?: string,
+  includeQuarantine?: boolean
+): Promise<RcaPack> {
   try {
     const live = await postJson<Partial<RcaPack>>("/search/rca-pack", {
       asset_id: assetId,
       failure_code: failureCode,
-      incident_date: new Date().toISOString(),
+      incident_date: incidentDate ?? new Date().toISOString(),
+      ...(includeQuarantine !== undefined && { include_quarantine: includeQuarantine }),
     });
     if (!live.timeline) throw new Error("no timeline");
     return {
@@ -377,6 +383,10 @@ export async function getMoc(mocId: string): Promise<Fetched<MocItem | null>> {
   } catch {
     return { data: null, source: "demo" };
   }
+}
+
+export async function approveMoc(mocId: string, note?: string): Promise<void> {
+  await postJson(`/governance/moc/${mocId}/approve`, { note: note || undefined });
 }
 
 // --- Governance: circuit breaker ---

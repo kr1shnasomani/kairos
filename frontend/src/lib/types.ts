@@ -88,6 +88,7 @@ export interface RcaHypothesis {
   hypothesis: string;
   evidence_weight: number;
   sources: string[];
+  refused?: boolean;
 }
 
 export interface RcaSupportingDoc {
@@ -133,6 +134,7 @@ export interface ComplianceGap {
   equipment_class?: string | null;
   site_id?: string | null;
   severity: GapSeverity;
+  suggested_remediation?: string | null;
 }
 
 export interface ComplianceGapsResponse {

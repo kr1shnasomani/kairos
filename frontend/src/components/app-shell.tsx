@@ -17,7 +17,7 @@ const STAFF: Role[] = ["engineer", "reliability", "admin"];
 
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
-  | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph";
+  | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph" | "audit";
 
 function Icon({ name, className = "size-[18px]" }: { name: IconName; className?: string }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -33,6 +33,7 @@ function Icon({ name, className = "size-[18px]" }: { name: IconName; className?:
     menu: <path d="M4 6h16M4 12h16M4 18h16" />,
     close: <path d="M6 6l12 12M18 6L6 18" />,
     graph: <><circle cx="5" cy="12" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="19" cy="19" r="2" /><path d="M7 11.5l10-5M7 12.5l10 5" /></>,
+    audit: <><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /><path d="M10 13h4M10 17h4M8 9h.01" /></>,
   };
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -59,6 +60,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/compliance", label: "Compliance", icon: "compliance", roles: STAFF },
       { href: "/governance", label: "Governance", icon: "governance", roles: STAFF },
+      { href: "/audit", label: "Audit trail", icon: "audit", roles: STAFF },
       { href: "/documents", label: "Documents", icon: "documents", roles: STAFF },
       { href: "/management", label: "Overview", icon: "management", roles: STAFF },
     ],
