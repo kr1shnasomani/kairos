@@ -22,120 +22,150 @@
 ![NVIDIA_NIM](https://img.shields.io/badge/NVIDIA_NIM-LLM_Synthesis-76B900?style=for-the-badge&logo=nvidia&logoColor=white)
 ![Grafana](https://img.shields.io/badge/Grafana-Observability-F46800?style=for-the-badge&logo=grafana&logoColor=white)
 
-> **[🚀 Jump to Setup Instructions](#quick-start)** | **[📖 Read the Architecture Design](./docs/ARCHITECTURE.md)**
+**[Quick Start](#quick-start)** · **[Architecture](./docs/ARCHITECTURE.md)** · **[Documentation](#documentation)**
 
 </div>
 
-## What is KAIROS?
+---
 
-**KAIROS** is an industrial operational intelligence platform built on the insight that the most dangerous knowledge gaps in industrial operations are the ones nobody knows to query. It is a system that continuously monitors the operational pulse of any asset-intensive facility, interprets it against a governed temporal knowledge graph, and delivers the right knowledge to the right person at the precise moment it is needed, without being asked.
+## Overview
 
-**For a deep dive into the 13-Layer Architecture, Knowledge Graph Mechanics, OT Virtualization, and Governance Tracks, please see our detailed [ARCHITECTURE.md](./docs/ARCHITECTURE.md).**
+Asset-intensive facilities run on knowledge scattered across a dozen disconnected systems — P&IDs in one place, maintenance history in another, procedures in a third, inspection records and regulatory filings elsewhere. The most dangerous gaps are the ones nobody knows to query.
 
-## Frontend
+**KAIROS** unifies that fragmented knowledge into a single governed, temporal knowledge graph and delivers the right information to the right person at the moment it is needed — proactively, with a source citation for every claim. It ingests heterogeneous documents (manuals, drawings, scanned forms, spreadsheets), extracts and links entities, tracks how knowledge changes over time, and surfaces answers, briefs, and compliance evidence on any device.
 
-The web app (`frontend/`) is a **Next.js 16 / React 19 / Tailwind CSS v4 / TypeScript strict** point-of-action interface. It covers every Layer 12 persona (field, engineer, compliance, management) across **36 implementation tasks** and 40+ routes. All routes fall back gracefully to fixture data when the backend is offline, showing a `Demo data` chip wherever live data is unavailable.
+The design principle throughout: **never assert without provenance, never auto-promote unverified input, and refuse rather than hedge on safety-critical questions.**
 
-**Key surfaces:**
+## Key Capabilities
 
-| Group | Routes | What it does |
-|---|---|---|
-| Field | `/briefs`, `/briefs/[id]`, `/field/elicitation/*`, `/field/deviation`, `/offboarding/*` | Mobile-first brief inbox, PTW dual sign-off, micro-interview, knowledge transfer |
-| Copilot | `/copilot` | Phase-gated synthesis with `RefusalCard` + voice input |
-| Engineer | `/assets/[id]`, `/graph`, `/rca`, `/documents/[id]`, `/timeline`, `/documents/[id]/topology` | Knowledge graph canvas (React Flow), P&ID topology, time-travel, RCA |
-| Documents | `/documents`, `/documents/ingest`, `/documents/compare` | Registry, ingestion pipeline, side-by-side comparison |
-| Governance | `/governance/conflicts`, `/governance/quarantine`, `/governance/moc/*`, `/governance/sla`, `/governance/circuit-breaker`, `/governance/model-gate` | Conflict resolution, quarantine review, MoC approval, SPC, model gate |
-| Compliance | `/compliance`, `/compliance/audit-pack`, `/compliance/nonconformance` | Compliance cockpit, audit-pack assembly, non-conformance tracking |
-| Management | `/management`, `/management/cross-site`, `/management/plant-state` | Live KPIs, cross-site pattern alerts, plant-state control (admin-gated) |
-| Operational | `/events`, `/events/[id]`, `/audit` | Event surfaces, acknowledgment, immutable audit trail |
+- **Universal document ingestion** — PDFs, engineering drawings, scanned/handwritten forms, and multi-script (Hindi/Hinglish) text flow through an OCR → NER → graph-linking → indexing pipeline into an immutable, SHA-256-deduplicated vault.
+- **Temporal knowledge graph** — every fact is an edge carrying validity windows, authority level, source document, confidence, and verification status, so you can query *what was known on any past date* and see how knowledge was superseded.
+- **Expert copilot** — hybrid retrieval (graph + vector + exact) with mandatory citations, confidence scoring, phase-gated synthesis, and explicit refusal on safety-critical queries.
+- **Proactive briefs** — operational events (work orders, PTWs, tag-outs, inspections, alarms) assemble contextual briefs, governed by an EEMUA-191 push ceiling and plant-state suppression.
+- **Governed accuracy** — dual-track conflict resolution, human-only quarantine promotion, Management-of-Change workflow, SLA escalation, an SPC circuit breaker, and a Layer 0 model gate.
+- **Compliance cockpit** — regulatory clauses mapped against current procedures, gap detection, and human-signed audit-evidence packs.
+- **Point-of-action interface** — a mobile-first field app and a desktop engineering workspace built from one component set in three palettes (light / dark / sunlight high-contrast), fully offline-capable with a background sync queue.
 
-**Technical highlights:**
-- Offline shell + IndexedDB sync queue (Service Worker, no library)
-- Voice capture via native `MediaRecorder` API → Whisper transcription
-- React Flow knowledge graph + P&ID topology viewer with blast-radius panel
-- EEMUA governor pill, Phase 1/2/3 deployment badge, demo-data honesty chip
-- One component, two palettes (light / dark / high-contrast sunlight mode)
-- Devanagari / multi-script font stack for Hindi/Hinglish field data
-- WCAG AA accessible: `aria-label` on every icon-only control, `focus-visible`, live regions
+## Architecture
 
-See [`docs/FRONTEND.md`](./docs/FRONTEND.md) for the full route table, component inventory, and API wiring reference.
+KAIROS is a 13-layer platform spanning perception, knowledge modelling, retrieval, governance, and delivery. A FastAPI core orchestrates five datastores, durable Temporal workflows, Celery workers, and Go OT connectors, with a Next.js interface on top.
 
-## Documentation Index
-
-1. `docs/ARCHITECTURE.md`: The complete 13-layer platform design, constraints, and architecture.
-2. `docs/IMPLEMENTATION.md`: Full 34-task implementation spec (the contract for the backend).
-3. `docs/API.md`: Complete REST API reference for all 34 tasks.
-4. `docs/BACKEND.md`: Services, workers, config, and infra reference.
-5. `docs/DATABASE.md`: Full schema reference — Neo4j, Supabase, Qdrant, Elasticsearch, Redis.
-6. `docs/FRONTEND.md`: Frontend routes, components, API wiring, auth flow, and fixture data.
-7. `AGENTS.md` / `CLAUDE.md`: Coding guardrails, rules, required skills, known pitfalls, model architecture, and infrastructure notes for contribution.
-
-## Repository Structure
-
-```text
-kairos/
-├── backend/              # Python app (Docker build context)
-│   ├── api/              # FastAPI application (routers, services, models)
-│   ├── workers/          # Celery + Temporal activity workers
-│   ├── workflows/        # Temporal.io durable workflows
-│   ├── connectors/       # Go OT + EAM connector service
-│   └── scripts/          # Init + seed scripts
-├── db/                   # Database schemas (Neo4j Cypher + Supabase SQL migrations)
-├── fixtures/             # Shared mock data (PID topology, EAM assets)
-├── infra/                # Infrastructure configs (Grafana, OPA, OTEL, Tempo, Temporal)
-├── frontend/             # Next.js Point-of-Action Web App
-├── docs/                 # Technical and product documentation
-├── tests/                # Integration test suite
-├── docker-compose.yml    # Full local infrastructure definition
-├── Makefile              # Project lifecycle commands
-└── README.md
+```
+Documents / Events / Voice
+        │
+   Perception (OCR · NER · topology)  ── NVIDIA NIM · Groq Whisper · Jina
+        │
+   Temporal Knowledge Graph (Neo4j)  ◄──►  Vector (Qdrant) · Exact (Elasticsearch)
+        │
+   Governance (conflicts · quarantine · MoC · model gate)
+        │
+   Retrieval & Synthesis (copilot · RCA · briefs)  ── EEMUA governor
+        │
+   Point-of-Action Interface (Next.js · field + desktop)
 ```
 
-## Prerequisites
+For the full design — layer breakdown, knowledge-graph mechanics, OT virtualization, and the governance tracks — see **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**.
 
-1. Docker Desktop
-2. Make
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Backend** | FastAPI (Python 3.12), Temporal, Celery, Go (Gin) OT connectors |
+| **Datastores** | Neo4j (graph), Qdrant (vector), Elasticsearch (exact), Redis (streams/cache), Supabase (Postgres · Auth · Storage) |
+| **AI models** | NVIDIA NIM (LLM · NER · OCR), Groq Whisper (STT), Jina (embeddings) — cloud-only |
+| **Frontend** | Next.js 16, React 19, Tailwind CSS v4, TypeScript strict |
+| **Platform** | Docker Compose, OPA (authz), Vault (secrets), OpenTelemetry → Grafana / Prometheus / Tempo |
 
 ## Quick Start
 
-The entire infrastructure runs 100% inside Docker (no local Python, Node, or Go dependencies required).
+The entire stack runs inside Docker — no local Python, Node, or Go required.
 
-### 1. Clone & Configure
+**Prerequisites:** Docker Desktop · Make
 
 ```bash
+# 1. Clone and configure
 git clone https://github.com/kr1shnasomani/kairos.git
 cd kairos
-cp .env.example .env
-```
+cp .env.example .env          # add cloud keys (NIM, Groq, Supabase) when ready
 
-*(Edit `.env` to add any cloud service keys like NVIDIA NIM or Supabase when ready.)*
-
-### 2. Boot the Platform
-
-```bash
+# 2. Boot the full platform
 make dev
+
+# 3. Initialize datastores and seed reference data (first run, or after `make nuke`)
+make init-all
+make seed                     # regulatory framework + demo users
+
+# 4. Load the golden demo dataset (optional but recommended)
+make load-dataset             # ingest the sample corpus through the real pipeline
+#   make load-dataset ARGS=--fast   # structured backbone + events only (fast)
 ```
 
-This single command automatically builds and launches:
-- **Core App**: `kairos-backend-api`, `kairos-celery-worker`, `kairos-temporal-activity-worker`, `kairos-elicitation-worker`, `kairos-backend-go`, `kairos-frontend`
-- **Databases**: `kairos-neo4j`, `kairos-qdrant`, `kairos-elasticsearch`, `kairos-redis`, `kairos-temporal-postgres`
-- **Infrastructure**: `kairos-temporal`, `kairos-temporal-ui`, `kairos-opa`, `kairos-vault`, `kairos-grafana`, `kairos-otel-collector`
+Then open the frontend at **[http://localhost:3000](http://localhost:3000)**.
 
-*(To stop the platform gracefully, press `Ctrl+C` or run `make stop`)*
+To reset to a clean, deterministic state at any time: `make nuke && make dev && make init-all && make seed && make load-dataset`.
 
 ## Local URLs
 
-Once `make dev` finishes booting up, everything is instantly available locally:
-
-| Service | Local URL | Credentials (Dev) |
+| Service | URL | Credentials (dev) |
 |---|---|---|
-| **API Docs (FastAPI)** | [http://localhost:8000/docs](http://localhost:8000/docs) | - |
-| **Neo4j Browser** | [http://localhost:7474](http://localhost:7474) | `neo4j` / `kairos_dev_password` |
-| **Qdrant Dashboard**| [http://localhost:6333/dashboard](http://localhost:6333/dashboard) | - |
-| **Temporal UI** | [http://localhost:8088](http://localhost:8088) | - |
-| **Grafana** | [http://localhost:3001](http://localhost:3001) | `admin` / `kairos_dev_password` |
-| **Vault UI** | [http://localhost:8200](http://localhost:8200) | Token: `kairos-dev-root-token` |
-| **Frontend** | [http://localhost:3000](http://localhost:3000) | - |
+| **Frontend** | [localhost:3000](http://localhost:3000) | — |
+| **API docs (FastAPI)** | [localhost:8000/docs](http://localhost:8000/docs) | — |
+| **Neo4j Browser** | [localhost:7474](http://localhost:7474) | `neo4j` / `kairos_dev_password` |
+| **Qdrant Dashboard** | [localhost:6333/dashboard](http://localhost:6333/dashboard) | — |
+| **Temporal UI** | [localhost:8088](http://localhost:8088) | — |
+| **Grafana** | [localhost:3001](http://localhost:3001) | `admin` / `kairos_dev_password` |
+| **Vault UI** | [localhost:8200](http://localhost:8200) | Token: `kairos-dev-root-token` |
+
+## Project Structure
+
+```text
+kairos/
+├── backend/            # Python app (Docker build context)
+│   ├── api/            # FastAPI application (routers, services, models)
+│   ├── workers/        # Celery + Temporal activity workers
+│   ├── workflows/      # Temporal durable workflows
+│   ├── connectors/     # Go OT + EAM connector service
+│   └── scripts/        # Init, seed, dataset-load, and cleanup scripts
+├── frontend/           # Next.js point-of-action web app
+├── dataset/            # Golden demo + benchmark corpus (docs, events, telemetry)
+├── db/                 # Neo4j Cypher schema + Supabase SQL migrations
+├── fixtures/           # Shared mock data (P&ID topology, EAM assets)
+├── infra/              # Grafana, OPA, OTEL, Tempo, Temporal configs
+├── tests/              # Integration test suite
+├── docs/               # Technical and product documentation
+├── docker-compose.yml  # Full local infrastructure
+├── Makefile            # Project lifecycle commands
+└── README.md
+```
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`docs/PROBLEM_STATEMENT.md`](./docs/PROBLEM_STATEMENT.md) | The problem KAIROS solves |
+| [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | The complete 13-layer platform design |
+| [`docs/API.md`](./docs/API.md) | REST API reference |
+| [`docs/BACKEND.md`](./docs/BACKEND.md) | Services, workers, scripts, and infra |
+| [`docs/DATABASE.md`](./docs/DATABASE.md) | Schema reference across all five stores |
+| [`docs/FRONTEND.md`](./docs/FRONTEND.md) | Routes, components, API wiring, auth flow |
+| [`docs/DATASET.md`](./docs/DATASET.md) | The golden demo corpus and how to load it |
+| [`docs/TESTS.md`](./docs/TESTS.md) | Integration test suite and data hygiene |
+| [`AGENTS.md`](./AGENTS.md) | Contributor guardrails, conventions, and pitfalls |
+
+## Development
+
+```bash
+# Backend integration tests (stack must be running)
+docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120
+
+# Remove integration-test residue from the databases
+make purge-test-data
+
+# Frontend checks (from frontend/)
+npx tsc --noEmit && npm run lint && npm run build
+```
+
+The test suite cleans up after itself — every test-created entity is purged at the end of the session (see [`docs/TESTS.md`](./docs/TESTS.md)). CI runs typecheck, lint, build, and dependency audit on every change.
 
 ## License
 

@@ -39,6 +39,11 @@ export function haltedDuration(since: string): string {
   return hrs < 24 ? `${hrs}h` : `${Math.round(hrs / 24)}d`;
 }
 
+/** Whole hours a deadline is past (0 if not yet due). Keeps clock reads out of render. */
+export function overdueHours(deadline: string): number {
+  return Math.max(0, Math.floor((Date.now() - new Date(deadline).getTime()) / 3600000));
+}
+
 export interface PriorityMeta {
   label: string;
   /** CSS var color token name */

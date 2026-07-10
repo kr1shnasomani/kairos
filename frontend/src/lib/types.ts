@@ -290,39 +290,39 @@ export interface AssetKnowledgeResponse {
 
 // --- Compliance dashboard (GET /compliance/dashboard) ---
 export interface ComplianceDashboard {
-  total_gaps: number;
-  by_severity: Record<string, number>;
-  by_framework: Record<string, number>;
-  last_scan: string;
+  total_gaps: { critical: number; major: number; minor: number };
+  by_framework: Record<string, Record<string, number>>;
+  by_asset_class: Record<string, Record<string, number>>;
+  last_updated?: string;
 }
 
 // --- Governance: SLA report (GET /governance/sla-report) ---
+// Shape mirrors the backend exactly — this endpoint is an *escalation* report:
+// it exposes only overdue items + escalation counts, not on-time/total tallies.
 export interface OverdueConflict {
   conflict_id: string;
-  asset_id: string;
-  parameter: string;
   track: ConflictTrack;
-  severity: string;
-  overdue_by_hours: number;
-  escalated: boolean;
+  asset_id: string | null;
+  sla_deadline: string;
+  escalated_at: string | null;
+  status: string;
 }
 
 export interface OverdueQuarantineItem {
   item_id: string;
   asset_id: string | null;
   input_type: string;
-  submitted_at: string;
-  overdue_by_hours: number;
+  sla_due_at: string;
+  escalated_at: string | null;
 }
 
 export interface SlaReport {
-  total_conflicts: number;
-  on_time_conflicts: number;
+  checked_at: string;
+  escalated_this_run: { conflicts: number; quarantine_items: number };
   overdue_conflicts: OverdueConflict[];
-  total_quarantine: number;
-  on_time_quarantine: number;
-  overdue_quarantine: OverdueQuarantineItem[];
-  generated_at: string;
+  overdue_conflicts_total: number;
+  overdue_quarantine_items: OverdueQuarantineItem[];
+  overdue_quarantine_total: number;
 }
 
 // --- Governance: MoC (GET /governance/moc) ---
@@ -348,19 +348,19 @@ export interface MocResponse {
 }
 
 // --- Governance: circuit breaker (GET /governance/circuit-breaker) ---
-export type CircuitBreakerStatus = "ok" | "halted";
-
+// Mirrors the backend: one entry per asset_class with override records, `halted`
+// a boolean (z_score > 2.0). No halted_since / generated_at are exposed.
 export interface CircuitBreakerEntry {
   asset_class: string;
-  status: CircuitBreakerStatus;
+  halted: boolean;
   z_score: number;
   override_count_7d: number;
-  halted_since: string | null;
+  reason: string;
 }
 
 export interface CircuitBreakerState {
-  entries: CircuitBreakerEntry[];
-  generated_at: string;
+  states: CircuitBreakerEntry[];
+  halted_count: number;
 }
 
 // --- Governance: model gate ---
@@ -384,11 +384,11 @@ export interface ModelGateRunResponse {
   status: string;
 }
 
+// Mirrors GET /governance/validation-corpus/stats — no by_asset_class breakdown.
 export interface ValidationCorpusStats {
-  total: number;
+  total_corpus_size: number;
   by_entity_type: Record<string, number>;
-  by_asset_class: Record<string, number>;
-  last_updated: string;
+  last_updated_at: string | null;
 }
 
 // --- Governance: blast radius ---

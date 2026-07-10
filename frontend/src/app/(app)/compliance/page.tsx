@@ -40,10 +40,10 @@ export default function CompliancePage() {
 
   const frameworks = useMemo(() => Array.from(new Set(gaps.map((g) => g.framework))), [gaps]);
 
-  const counts = useMemo(() => {
-    const base = dashboard?.by_severity ?? {};
+  const counts = useMemo<Record<GapSeverity, number>>(() => {
+    if (dashboard?.total_gaps) return dashboard.total_gaps;
     return SEV_ORDER.reduce<Record<GapSeverity, number>>(
-      (acc, s) => ({ ...acc, [s]: base[s] ?? gaps.filter((g) => g.severity === s).length }),
+      (acc, s) => ({ ...acc, [s]: gaps.filter((g) => g.severity === s).length }),
       { critical: 0, major: 0, minor: 0 },
     );
   }, [gaps, dashboard]);
@@ -56,8 +56,9 @@ export default function CompliancePage() {
     });
   }, [gaps, frameworkFilter, severityFilter]);
 
-  const totalGaps = dashboard?.total_gaps ?? gaps.length;
-  const lastScan = dashboard?.last_scan ?? null;
+  const totalGaps = counts.critical + counts.major + counts.minor || gaps.length;
+  const lastScanRaw = dashboard?.last_updated;
+  const lastScan = lastScanRaw && lastScanRaw !== "realtime" ? lastScanRaw : null;
 
   const tiles = [
     { label: "Total gaps", value: totalGaps, color: "var(--accent)" },

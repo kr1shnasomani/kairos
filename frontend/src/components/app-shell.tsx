@@ -18,7 +18,7 @@ const STAFF: Role[] = ["engineer", "reliability", "admin"];
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
   | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph" | "audit"
-  | "events" | "offboarding";
+  | "events" | "offboarding" | "projects";
 
 function Icon({ name, className = "size-[18px]" }: { name: IconName; className?: string }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -37,6 +37,7 @@ function Icon({ name, className = "size-[18px]" }: { name: IconName; className?:
     audit: <><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /><path d="M10 13h4M10 17h4M8 9h.01" /></>,
     events: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
     offboarding: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M17 11l4-4M21 11l-4-4" /></>,
+    projects: <><path d="M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 12l9 4 9-4M3 17l9 4 9-4" /></>,
   };
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -66,6 +67,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { href: "/governance", label: "Governance", icon: "governance", roles: STAFF },
       { href: "/audit", label: "Audit trail", icon: "audit", roles: STAFF },
       { href: "/documents", label: "Documents", icon: "documents", roles: STAFF },
+      { href: "/projects", label: "Projects", icon: "projects", roles: STAFF },
       { href: "/offboarding", label: "Off-boarding", icon: "offboarding", roles: STAFF },
       { href: "/management", label: "Overview", icon: "management", roles: STAFF },
     ],
@@ -260,9 +262,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-once auth gate reading the persisted token
     setAuthed(true);
     getMe().then(setUser);
-    // Service worker registration
+    // Service worker: production only. In dev it caches the app shell and fights
+    // HMR — stale chunk hashes trigger a hard reload that re-serves the stale
+    // cache, an infinite refresh loop. Unregister any stale SW so dev self-heals.
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {});
+      if (process.env.NODE_ENV === "production") {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      } else {
+        navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()));
+      }
     }
     // Queue length on load
     getQueueLength().then(setQueueCount);

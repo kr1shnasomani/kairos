@@ -5,16 +5,15 @@ import { useEffect, useState } from "react";
 import type { CircuitBreakerState, CircuitBreakerEntry } from "@/lib/types";
 import { getCircuitBreaker } from "@/lib/api";
 import { StatusBadge } from "@/components/ui";
-import { haltedDuration } from "@/lib/utils";
 
 const FIXTURE: CircuitBreakerState = {
-  generated_at: new Date().toISOString(),
-  entries: [
-    { asset_class: "Pump",       status: "ok",     z_score: 1.2,  override_count_7d: 0, halted_since: null },
-    { asset_class: "Valve",      status: "halted",  z_score: 3.8,  override_count_7d: 4, halted_since: new Date(Date.now() - 7200000).toISOString() },
-    { asset_class: "Instrument", status: "ok",     z_score: 0.6,  override_count_7d: 1, halted_since: null },
-    { asset_class: "Vessel",     status: "ok",     z_score: 1.9,  override_count_7d: 2, halted_since: null },
-    { asset_class: "Separator",  status: "halted",  z_score: 4.1,  override_count_7d: 7, halted_since: new Date(Date.now() - 43200000).toISOString() },
+  halted_count: 2,
+  states: [
+    { asset_class: "Pump",       halted: false, z_score: 1.2, override_count_7d: 0, reason: "within_normal_range" },
+    { asset_class: "Valve",      halted: true,  z_score: 3.8, override_count_7d: 4, reason: "z_score_exceeded" },
+    { asset_class: "Instrument", halted: false, z_score: 0.6, override_count_7d: 1, reason: "within_normal_range" },
+    { asset_class: "Vessel",     halted: false, z_score: 1.9, override_count_7d: 2, reason: "within_normal_range" },
+    { asset_class: "Separator",  halted: true,  z_score: 4.1, override_count_7d: 7, reason: "z_score_exceeded" },
   ],
 };
 
@@ -32,25 +31,13 @@ function ZScoreBar({ z }: { z: number }) {
   );
 }
 
-function HaltedDuration({ since }: { since: string }) {
-  return (
-    <span className="tabular text-[11.5px] text-danger">
-      {haltedDuration(since)} halted
-    </span>
-  );
-}
-
 function CircuitRow({ e }: { e: CircuitBreakerEntry }) {
-  const halted = e.status === "halted";
   return (
-    <div className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 ${halted ? "bg-[color-mix(in_srgb,var(--danger)_5%,var(--surface))]" : "bg-surface"}`}>
+    <div className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 ${e.halted ? "bg-[color-mix(in_srgb,var(--danger)_5%,var(--surface))]" : "bg-surface"}`}>
       <span className="tabular w-28 shrink-0 text-[13px] font-semibold text-ink">{e.asset_class}</span>
-      <StatusBadge tone={halted ? "danger" : "verified"}>{e.status}</StatusBadge>
+      <StatusBadge tone={e.halted ? "danger" : "verified"}>{e.halted ? "halted" : "ok"}</StatusBadge>
       <ZScoreBar z={e.z_score} />
       <span className="tabular text-[11.5px] text-muted">{e.override_count_7d} override{e.override_count_7d !== 1 ? "s" : ""}/7d</span>
-      <span className="ml-auto">
-        {halted && e.halted_since ? <HaltedDuration since={e.halted_since} /> : null}
-      </span>
     </div>
   );
 }
@@ -69,8 +56,10 @@ export default function CircuitBreakerPage() {
     return () => { alive = false; };
   }, []);
 
-  const halted = state?.entries.filter((e) => e.status === "halted") ?? [];
-  const ok = state?.entries.filter((e) => e.status === "ok") ?? [];
+  // Defensive: `states` may be absent on a partial response — never crash the render.
+  const states = state?.states ?? [];
+  const halted = states.filter((e) => e.halted);
+  const ok = states.filter((e) => !e.halted);
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
@@ -97,18 +86,13 @@ export default function CircuitBreakerPage() {
             Demo data
           </span>
         )}
-        {state && (
-          <span className="text-[11.5px] text-muted">
-            Generated {new Date(state.generated_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
-          </span>
-        )}
       </div>
 
       {/* KPI row */}
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-line bg-surface p-3.5">
           <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">Total classes</p>
-          <p className="tabular mt-1.5 text-[26px] font-semibold leading-none text-ink">{state?.entries.length ?? "—"}</p>
+          <p className="tabular mt-1.5 text-[26px] font-semibold leading-none text-ink">{state ? states.length : "—"}</p>
         </div>
         <div className="rounded-xl border border-[color-mix(in_srgb,var(--danger)_30%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_5%,var(--surface))] p-3.5">
           <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">Halted</p>
@@ -129,6 +113,10 @@ export default function CircuitBreakerPage() {
             ))}
           </span>
         </div>
+      ) : states.length === 0 ? (
+        <div className="mt-5 rounded-xl border border-line bg-surface px-4 py-8 text-center text-[13px] text-muted">
+          No asset class has recorded extraction overrides — all ingestion paths are open.
+        </div>
       ) : (
         <div className="mt-5 overflow-hidden rounded-xl border border-line divide-y divide-line">
           {[...halted, ...ok].map((e) => (
@@ -139,7 +127,7 @@ export default function CircuitBreakerPage() {
 
       <div className="mt-4 rounded-xl border border-dashed border-line bg-surface p-4 text-[12.5px] text-muted">
         <span className="font-semibold text-ink">What triggers a halt?</span>{" "}
-        A z-score ≥ 3.5σ on ingested values for an asset class. Overrides by field workers increment the counter; ≥ 5 overrides/7d
+        A z-score ≥ 2.0σ on ingested values for an asset class. Overrides by field workers increment the counter; ≥ 5 overrides/7d
         auto-escalates to admin review. Only admins can manually clear a halt.
       </div>
     </div>

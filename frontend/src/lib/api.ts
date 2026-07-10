@@ -23,6 +23,7 @@ import type {
   ModelGateRunResponse,
   ValidationCorpusStats,
   BlastRadiusReport,
+  BlastRadiusItem,
   Annotation,
   AnnotationStats,
   ElicitationQuestion,
@@ -35,6 +36,8 @@ import type {
   GovernorEventState,
   DocumentStatus,
   TopologyGraph,
+  TopologyNode,
+  TopologyEdge,
   AuditLogEntry,
   AuditLogResponse,
   HealthDetailed,
@@ -426,7 +429,36 @@ export async function getValidationCorpusStats(): Promise<Fetched<ValidationCorp
 // --- Governance: blast radius ---
 export async function getBlastRadius(documentId: string): Promise<Fetched<BlastRadiusReport | null>> {
   try {
-    const data = await getJson<BlastRadiusReport>(`/governance/blast-radius/${documentId}`);
+    // Backend returns { document_id, affected_count, affected: [{edge, target}] }.
+    // Normalise the edge/target pairs into the flat BlastRadiusItem shape the UI expects.
+    const raw = await getJson<{
+      document_id: string;
+      affected_count: number;
+      affected?: Array<{ edge?: Record<string, unknown>; target?: Record<string, unknown> }>;
+    }>(`/governance/blast-radius/${documentId}`);
+    const items: BlastRadiusItem[] = (raw.affected ?? []).map((a, i) => {
+      const edge = a.edge ?? {};
+      const target = a.target ?? {};
+      return {
+        item_id: (edge.edge_id as string) ?? `br-${i}`,
+        item_type: (target.element_type as string) ?? (edge.relationship_type as string) ?? "fact",
+        description:
+          (target.label as string) ??
+          (target.name as string) ??
+          (target.fact_text as string) ??
+          (target.concept_id as string) ??
+          (target.asset_id as string) ??
+          "Linked node",
+        asset_id: (target.asset_id as string) ?? undefined,
+        flagged_for_review: edge.verification_status !== "verified",
+      };
+    });
+    const data: BlastRadiusReport = {
+      document_id: raw.document_id,
+      affected_count: raw.affected_count ?? items.length,
+      items,
+      generated_at: new Date().toISOString(),
+    };
     return { data, source: "live" };
   } catch {
     return { data: null, source: "demo" };
@@ -493,7 +525,8 @@ export function submitElicitationResponses(
 
 export function submitVoiceNote(workOrderId: string, blob: Blob, submittedBy: string) {
   const form = new FormData();
-  form.append("audio", blob, "recording.webm");
+  // Endpoint expects the field named "file" (UploadFile param in elicitation router).
+  form.append("file", blob, "recording.webm");
   form.append("submitted_by", submittedBy);
   const token = getToken();
   return fetch(`${API_BASE}/elicitation/${workOrderId}/voice`, {
@@ -629,9 +662,67 @@ export async function getGovernorState(userId: string): Promise<Fetched<Governor
 }
 
 // --- Documents: additional endpoints ---
+// Backend groups P&ID elements into category arrays (equipment_nodes, isolation_valves,
+// isolation_boundaries, instrumentation_loops) with no explicit edges. Flatten into the
+// flat {nodes, edges} the viewer expects; synthesise edges from boundary→isolation refs.
+const EQUIP_TYPE_MAP: Record<string, string> = { pump: "Pump", vessel: "Vessel" };
+
 export async function getDocumentTopology(documentId: string): Promise<Fetched<TopologyGraph | null>> {
   try {
-    const data = await getJson<TopologyGraph>(`/documents/${documentId}/topology`);
+    const raw = await getJson<{
+      document_id: string;
+      verification_status?: string;
+      extracted_at?: string;
+      topology?: {
+        equipment_nodes?: Array<Record<string, unknown>>;
+        isolation_valves?: Array<Record<string, unknown>>;
+        isolation_boundaries?: Array<Record<string, unknown>>;
+        instrumentation_loops?: Array<Record<string, unknown>>;
+      };
+    }>(`/documents/${documentId}/topology`);
+
+    const status = (["verified", "unverified", "disputed"].includes(raw.verification_status ?? "")
+      ? raw.verification_status
+      : "unverified") as TopologyNode["verification_status"];
+    const t = raw.topology ?? {};
+    const nodes: TopologyNode[] = [];
+    const tagToId = new Map<string, string>(); // tag / boundary_id / loop_id → node_id
+
+    for (const e of t.equipment_nodes ?? []) {
+      const id = String(e.id);
+      const tag = String(e.tag ?? id);
+      tagToId.set(tag, id);
+      nodes.push({ node_id: id, node_type: EQUIP_TYPE_MAP[String(e.equipment_class)] ?? "Equipment", label: tag, verification_status: status, properties: e });
+    }
+    for (const v of t.isolation_valves ?? []) {
+      const id = String(v.id);
+      const tag = String(v.tag ?? id);
+      tagToId.set(tag, id);
+      nodes.push({ node_id: id, node_type: "Valve", label: tag, verification_status: status, properties: v });
+    }
+    for (const l of t.instrumentation_loops ?? []) {
+      const id = String(l.id);
+      const label = String(l.loop_id ?? id);
+      tagToId.set(label, id);
+      nodes.push({ node_id: id, node_type: "Instrument", label, verification_status: status, properties: l });
+    }
+    const edges: TopologyEdge[] = [];
+    for (const b of t.isolation_boundaries ?? []) {
+      const id = String(b.id);
+      nodes.push({ node_id: id, node_type: "Boundary", label: String(b.boundary_id ?? id), verification_status: status, properties: b });
+      const refs = [...((b.primary_isolations as string[]) ?? []), ...((b.bleed_vents as string[]) ?? [])];
+      for (const tag of refs) {
+        const targetId = tagToId.get(tag);
+        if (targetId) edges.push({ edge_id: `${id}-${targetId}`, source_id: id, target_id: targetId, edge_type: "isolation", label: "isolates" });
+      }
+    }
+
+    const data: TopologyGraph = {
+      document_id: raw.document_id,
+      nodes,
+      edges,
+      generated_at: raw.extracted_at ?? new Date().toISOString(),
+    };
     return { data, source: "live" };
   } catch {
     return { data: null, source: "demo" };

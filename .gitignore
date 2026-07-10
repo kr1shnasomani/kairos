@@ -144,3 +144,6 @@ logs/
 
 # --- HuggingFace downloads ---
 /backend/.cache/huggingface/
+
+# Local .env backups (may contain secrets)
+.env.bak.*

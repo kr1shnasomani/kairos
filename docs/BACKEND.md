@@ -76,7 +76,9 @@ kairos/                          # repo root
 │   │   ├── seed_regulations.py      # Seeds 12 regulations into Neo4j
 │   │   ├── init_neo4j.py            # Neo4j schema constraints + indices
 │   │   ├── init_qdrant.py           # Qdrant collection creation
-│   │   └── run_model_validation.py  # Manual model gate trigger script
+│   │   ├── run_model_validation.py  # Manual model gate trigger script
+│   │   ├── load_demo_dataset.py     # Load dataset/ via the real API pipeline (`make load-dataset`)
+│   │   └── purge_test_data.py       # Delete test-prefixed rows from all stores (`make purge-test-data`)
 │   └── requirements.txt
 ├── db/                          # Database schemas (mounted into Python containers)
 │   ├── migrations/              # Supabase SQL migrations (001–015)

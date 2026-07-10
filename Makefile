@@ -74,6 +74,32 @@ init-all: init-neo4j init-qdrant
 	@echo "All datastores initialized."
 
 # =============================================================================
+# Seeding & golden dataset (Executes inside the API container)
+# =============================================================================
+
+seed:
+	docker compose exec kairos-backend-api python scripts/seed_regulations.py
+	docker compose exec kairos-backend-api python scripts/seed_users.py
+
+# Load the canonical demo corpus (dataset/) through the real ingestion pipeline.
+# Append ARGS=--fast to skip the document pipeline (structured backbone + events only).
+load-dataset:
+	docker compose exec kairos-backend-api python scripts/load_demo_dataset.py $(ARGS)
+
+# Delete integration-test residue (ASSET-TEST/DEDUP/EV/ACK-*, WO-*, DOC-*) from every store.
+purge-test-data:
+	docker compose exec kairos-backend-api python scripts/purge_test_data.py
+
+# Empty the local stores (Neo4j + ES + Qdrant). Supabase is reset via db/maintenance/reset_all_data.sql.
+wipe-local:
+	docker compose exec kairos-backend-api python scripts/wipe_local_stores.py
+
+# One-shot pristine reset of local stores + reload the golden dataset.
+# (Truncate cloud Supabase first with db/maintenance/reset_all_data.sql — done separately.)
+reset-local: wipe-local seed load-dataset
+	@echo "Local stores wiped, reseeded, and reloaded from the golden dataset."
+
+# =============================================================================
 # Tests (Executes inside containers)
 # =============================================================================
 

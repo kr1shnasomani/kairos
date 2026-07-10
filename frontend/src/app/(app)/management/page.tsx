@@ -30,7 +30,10 @@ export default function ManagementPage() {
     Promise.all([getConflicts(), getComplianceDashboard()]).then(([cr, dr]) => {
       if (!alive) return;
       setConflicts(cr.data?.total ?? null);
-      if (dr.data) setCompliance({ total: dr.data.total_gaps, lastScan: dr.data.last_scan });
+      if (dr.data) {
+        const t = dr.data.total_gaps;
+        setCompliance({ total: t.critical + t.major + t.minor, lastScan: dr.data.last_updated ?? "" });
+      }
       setIsDemo(cr.source === "demo" && dr.source === "demo");
     }).catch(() => { if (alive) setIsDemo(true); });
     return () => { alive = false; };

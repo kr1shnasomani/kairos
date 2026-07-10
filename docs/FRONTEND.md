@@ -109,14 +109,27 @@ frontend/
 | `/governance/sla` | SLA report — overdue conflicts + quarantine | Live with fixture fallback |
 | `/governance/circuit-breaker` | SPC circuit-breaker state by asset class | Live with fixture fallback |
 | `/governance/model-gate` | Model gate — P/R/F1 history + validation corpus | Live with fixture fallback |
+| `/compliance/audit-pack` | Audit-evidence pack by clause + human sign-off | Live with fixture fallback |
+| `/compliance/nonconformance` | Non-conformances (conflicts + failed inspections + disputes) | Composed from existing endpoints |
 | `/documents` | Document registry | Live with fixture fallback |
 | `/documents/[id]` | Document detail + supersede chain | Live with fixture fallback |
 | `/documents/[id]/topology` | P&ID topology graph (React Flow) | Live with fixture fallback |
+| `/documents/ingest` | Upload → pipeline-status timeline | Live (role-gated engineer/admin) |
+| `/documents/compare` | Side-by-side version / metadata diff | Live with fixture fallback |
+| `/assets/bootstrap` | MDM asset identity confirmation | Live (admin-gated) |
+| `/projects` | Engineering + procurement registry by equipment class | Composed from documents+assets+events |
 | `/graph` | Temporal knowledge graph (React Flow) | Live with fixture fallback |
 | `/audit` | Audit trail — entity/action log | Live with fixture fallback |
+| `/events` | Operational event surfaces + demo emit forms | Live with fixture fallback |
+| `/events/[id]` | Event detail + ack + correlation | Live with fixture fallback |
+| `/offboarding` · `/offboarding/[sessionId]` | Retiring-expert knowledge-transfer sessions | Live (role-gated engineer/admin) |
 | `/management` | Plant overview — KPIs, alerts, system health | Live with fixture fallback |
 | `/management/cross-site` | Cross-site pattern alerts | Demo fixture (Layer-13 API in roadmap) |
 | `/management/plant-state` | Plant operating-state control | Live with fixture fallback (admin-gated write) |
+
+> Client-only components that must not SSR (React Flow graph, blast-radius, supersede action) are
+> loaded via `dynamic(..., { ssr: false })` from the `"use client"` module `components/lazy.tsx` —
+> Next 16 disallows `ssr: false` directly inside a Server Component page.
 
 ---
 

@@ -20,10 +20,9 @@ const FIXTURE_HISTORY: ModelGateHistory = {
 };
 
 const FIXTURE_CORPUS: ValidationCorpusStats = {
-  total: 142,
+  total_corpus_size: 142,
   by_entity_type: { fact: 68, procedure: 31, asset_spec: 24, regulation_clause: 19 },
-  by_asset_class: { Pump: 42, Valve: 38, Instrument: 29, Vessel: 21, Separator: 12 },
-  last_updated: new Date(Date.now() - 3600000).toISOString(),
+  last_updated_at: new Date(Date.now() - 3600000).toISOString(),
 };
 
 const F1_THRESHOLD = 0.80;
@@ -153,7 +152,7 @@ export default function ModelGatePage() {
         </div>
         <div className="rounded-xl border border-line bg-surface p-3.5">
           <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">Corpus size</p>
-          <p className="tabular mt-1.5 text-[26px] font-semibold leading-none text-ink">{corpus?.total ?? "—"}</p>
+          <p className="tabular mt-1.5 text-[26px] font-semibold leading-none text-ink">{corpus?.total_corpus_size ?? "—"}</p>
         </div>
         <div className="rounded-xl border border-line bg-surface p-3.5">
           <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">Threshold</p>
@@ -187,11 +186,14 @@ export default function ModelGatePage() {
       {corpus && (
         <section className="mt-5">
           <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
-            Validation corpus · {corpus.total} items · updated {relativeTime(corpus.last_updated)}
+            Validation corpus · {corpus.total_corpus_size} items
+            {corpus.last_updated_at && ` · updated ${relativeTime(corpus.last_updated_at)}`}
           </h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-line bg-surface p-4">
-              <p className="mb-2.5 text-[11.5px] font-semibold text-muted">By entity type</p>
+          <div className="rounded-xl border border-line bg-surface p-4">
+            <p className="mb-2.5 text-[11.5px] font-semibold text-muted">By entity type</p>
+            {Object.keys(corpus.by_entity_type ?? {}).length === 0 ? (
+              <p className="text-[12.5px] text-muted">No validation corpus entries yet.</p>
+            ) : (
               <div className="space-y-2">
                 {Object.entries(corpus.by_entity_type).map(([k, v]) => (
                   <div key={k} className="flex items-center justify-between text-[12.5px]">
@@ -200,18 +202,7 @@ export default function ModelGatePage() {
                   </div>
                 ))}
               </div>
-            </div>
-            <div className="rounded-xl border border-line bg-surface p-4">
-              <p className="mb-2.5 text-[11.5px] font-semibold text-muted">By asset class</p>
-              <div className="space-y-2">
-                {Object.entries(corpus.by_asset_class).map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between text-[12.5px]">
-                    <span className="text-ink">{k}</span>
-                    <span className="tabular font-semibold text-muted">{v}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            )}
           </div>
         </section>
       )}

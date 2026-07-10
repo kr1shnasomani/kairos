@@ -65,6 +65,7 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 | Frontend routes & wiring | `docs/FRONTEND.md` |
 | **Frontend implementation plan** | **`docs/FE_IMP.md`** |
 | Integration test suite | `docs/TESTS.md` |
+| Golden demo dataset + loader | `docs/DATASET.md` |
 
 ---
 
@@ -82,12 +83,15 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 
 ```bash
 make dev / stop / nuke / init-all / logs / ps
+make seed                 # seed_regulations.py + seed_users.py
+make load-dataset         # load dataset/ through the real pipeline (ARGS=--fast to skip docs)
+make purge-test-data      # delete ASSET-TEST/DEDUP/EV/ACK-*, WO-*, DOC-* from every store
 docker compose up -d --no-deps --build kairos-frontend          # new npm deps only
 docker compose up -d --no-deps --force-recreate kairos-backend-api  # NIM env changes
 docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120
 ```
 
-After `make nuke`: `make init-all` → `seed_regulations.py` → `seed_users.py`
+After `make nuke`: `make dev` → `make init-all` → `make seed` → `make load-dataset`
 
 ---
 
@@ -137,6 +141,17 @@ After `make nuke`: `make init-all` → `seed_regulations.py` → `seed_users.py`
 | Work-order dedup test flake | Unique `asset_id` per run (10-min dedup window) |
 | Site-wide brief wrong recipient | `user_id = f"site-{site_id}"` in `BriefEngine.deliver()` |
 | NIM OCR wrong base URL | `https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-ocr-v2` |
+| `dynamic(ssr:false)` build error | Not allowed in Server Components (Next 16) — put it in a `"use client"` wrapper (`components/lazy.tsx`) |
+| eslint `react-hooks/purity` | No `Date.now()`/`new Date()` in render — move clock reads to `lib/utils.ts` (e.g. `nowMs`, `slaCountdown`) |
+| eslint `set-state-in-effect` | Wrap async fetch in a `load()`; for mount-once DOM/token sync, scoped `eslint-disable` with a reason |
+| DB junk from tests | Suite purges on teardown; `make purge-test-data` or full rebuild — never UI-filter test rows |
+| `GET /compliance/dashboard` `total_gaps` | Backend returns `{critical,major,minor}` object, not a number — sum the keys; never render it directly. `ComplianceDashboard` type in `types.ts` reflects this. |
+| **Frontend types must mirror the real backend contract** | Several FE types were built speculatively and crashed on live data. Verify against a live `curl` before trusting. Fixed: `SlaReport` (backend is an *escalation* report: `overdue_conflicts[]` + `overdue_quarantine_items[]` + `overdue_*_total` + `escalated_this_run` + `checked_at`; NO on-time/total tallies), `CircuitBreakerState` (`{states[], halted_count}`, entry `halted` is boolean not `status`), `ValidationCorpusStats` (`{total_corpus_size, by_entity_type, last_updated_at}` — NO `by_asset_class`). Guard array reads with `?? []` — `x?.arr.length` still throws when `arr` is undefined. |
+| Blast-radius / topology API is nested | `/governance/blast-radius/{id}` returns `affected:[{edge,target}]` and `/documents/{id}/topology` returns `{topology:{equipment_nodes,isolation_valves,isolation_boundaries,instrumentation_loops}}` — both normalised to the flat `{items}`/`{nodes,edges}` UI shape **inside the `api.ts` fetcher** (adapter pattern), so components stay dumb. |
+| Service worker refresh loop | `public/sw.js` must be registered **production-only** (`app-shell.tsx` gates on `NODE_ENV`; dev actively unregisters). Navigations are **network-first** (cache is offline fallback only) — a cached HTML shell + changed chunk hashes = infinite reload. Bump `SHELL` cache version to bust a poisoned cache. |
+| Turbopack dev 404s-everything | A tight reload loop (e.g. the SW bug above) can corrupt the dev route manifest → every `(app)/*` route 404s while `/` still 307s. `docker restart kairos-frontend` clears it; it is not a code bug. |
+| API boot race on ES | `kairos-backend-api` calls `ensure_indices()` on startup and **exits** if Elasticsearch isn't ready yet. After `make dev`, if the API is down, `docker restart kairos-backend-api` once ES is healthy. |
+| `POST /search/rca-pack` is slow (~90s) | NIM 70B synthesis. Returns 200 with empty `timeline`/`hypotheses` + `synthesis_available:false` when the graph lacks history — the RCA page shows "Synthesis unavailable" honestly (no fabrication). Not a bug. |
 
 ---
 
@@ -151,6 +166,8 @@ After `make nuke`: `make init-all` → `seed_regulations.py` → `seed_users.py`
 | Go OT connectors | `backend/connectors/` |
 | Neo4j schema | `db/neo4j/init_schema.cypher` |
 | Supabase migrations | `db/migrations/` |
+| Seed / dataset / cleanup scripts | `backend/scripts/seed_*.py` · `load_demo_dataset.py` · `purge_test_data.py` |
+| Golden dataset (mounted `/app/dataset`) | `dataset/` · canon: `dataset/00_Reference/00_KAIROS_CANON.md` |
 | Frontend API client | `frontend/src/lib/api.ts` |
 | Frontend types | `frontend/src/lib/types.ts` |
 | Frontend primitives | `frontend/src/components/ui.tsx` |
@@ -162,40 +179,52 @@ After `make nuke`: `make init-all` → `seed_regulations.py` → `seed_users.py`
 
 | Tasks | Components | TypeScript | Browser verified |
 |---|---|---|---|
-| 1–4 Foundation (types · api · globals.css · layout · theme) | `ui.tsx` · `theme-toggle.tsx` · `app-shell.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 5–7 Field core (briefs page · inbox · card · detail) | `brief-inbox.tsx` · `brief-card.tsx` · `brief-detail.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 8 Elicitation micro-interview | `field/elicitation/[workOrderId]/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 8b Off-boarding knowledge transfer | `offboarding/page.tsx` · `offboarding/[sessionId]/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 9 Voice note capture | `VoiceRecorder` component | ✅ clean | ⏳ needs `make dev` |
-| 10 Deviation flag | `field/deviation/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 11 Offline shell + sync queue | Service Worker · IndexedDB · `OfflineQueue` | ✅ clean | ⏳ needs `make dev` |
-| 12 Voice search / Copilot voice | `VoiceRecorder` integration in copilot | ✅ clean | ⏳ needs `make dev` |
-| 13 Copilot phase-gated synthesis | `copilot/page.tsx` with `RefusalCard` | ✅ clean | ⏳ needs `make dev` |
+| 1–4 Foundation (types · api · globals.css · layout · theme) | `ui.tsx` · `theme-toggle.tsx` · `app-shell.tsx` | ✅ clean | ✅ verified |
+| 5–7 Field core (briefs page · inbox · card · detail) | `brief-inbox.tsx` · `brief-card.tsx` · `brief-detail.tsx` | ✅ clean | ✅ verified |
+| 8 Elicitation micro-interview | `field/elicitation/[workOrderId]/page.tsx` | ✅ clean | ⏳ needs field role |
+| 8b Off-boarding knowledge transfer | `offboarding/page.tsx` · `offboarding/[sessionId]/page.tsx` | ✅ clean | ⏳ needs field role |
+| 9 Voice note capture | `VoiceRecorder` component | ✅ clean | ⏳ needs field role |
+| 10 Deviation flag | `field/deviation/page.tsx` | ✅ clean | ⏳ needs field role |
+| 11 Offline shell + sync queue | Service Worker · IndexedDB · `OfflineQueue` | ✅ clean | ⏳ needs field role |
+| 12 Voice search / Copilot voice | `VoiceRecorder` integration in copilot | ✅ clean | ⏳ needs field role |
+| 13 Copilot phase-gated synthesis | `copilot/page.tsx` with `RefusalCard` | ✅ clean | ✅ verified |
 | 14 Inline annotation | `AnnotationPanel` · `POST /annotations` | ✅ clean | ⏳ needs `make dev` |
-| 15 Knowledge graph canvas | `knowledge-graph.tsx` (React Flow) | ✅ clean | ⏳ needs `make dev` |
-| 16 Time-travel timeline | `timeline/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 17 P&ID topology viewer | `topology/page.tsx` · `blast-radius-panel.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 18 Asset bootstrap | `assets/bootstrap/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 19 Document comparison | `documents/compare/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 20 Document detail depth | `documents/[id]/page.tsx` enhancements | ✅ clean | ⏳ needs `make dev` |
-| 20b Document ingestion | `documents/ingest/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 20c MDM identity confirmation | `assets/bootstrap/page.tsx` MDM section | ✅ clean | ⏳ needs `make dev` |
-| 21 Governance conflicts depth | `governance/conflicts/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 22 Quarantine reviewer UI | `governance/quarantine/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 23 Timestamp drift review | `audit/page.tsx` filtered view | ✅ clean | ⏳ needs `make dev` |
-| 24 Compliance cockpit | `compliance/page.tsx` · `compliance/audit-pack/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 25 Audit-pack assembly | `compliance/audit-pack/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 26 Non-conformance tracking | `compliance/nonconformance/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 27 MoC UI | `governance/moc/page.tsx` · `governance/moc/[id]/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 28 SLA report | `governance/sla/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 29 Circuit breaker | `governance/circuit-breaker/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 30 Model gate | `governance/model-gate/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 31 Governance index | `governance/page.tsx` — all 6 surfaces live | ✅ clean | ⏳ needs `make dev` |
-| 32 Management overview | `management/page.tsx` — live KPIs, parallel fetch | ✅ clean | ⏳ needs `make dev` |
-| 33 Cross-site alerts | `management/cross-site/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 34 Plant-state control | `management/plant-state/page.tsx` — admin-gated 2-step confirm | ✅ clean | ⏳ needs `make dev` |
-| 35 Event surfaces | `events/page.tsx` · `events/[id]/page.tsx` | ✅ clean | ⏳ needs `make dev` |
-| 36 A11y + responsive + multi-script sweep | Devanagari font stack · aria-labels · audit/quarantine/moc fixes | ✅ clean | ⏳ needs `make dev` |
+| 15 Knowledge graph canvas | `knowledge-graph.tsx` (React Flow) | ✅ clean | ✅ verified |
+| 16 Time-travel timeline | time-travel input on `graph/page.tsx` | ✅ clean | ✅ verified |
+| 17 P&ID topology viewer | `topology/page.tsx` · `blast-radius-panel.tsx` | ✅ clean | ✅ verified (fixed) |
+| 18 Asset bootstrap | `assets/bootstrap/page.tsx` | ✅ clean | ✅ verified |
+| 19 Document comparison | `documents/compare/page.tsx` | ✅ clean | ✅ verified |
+| 20 Document detail depth | `documents/[id]/page.tsx` enhancements | ✅ clean | ✅ verified (fixed) |
+| 20b Document ingestion | `documents/ingest/page.tsx` | ✅ clean | ✅ verified |
+| 20c MDM identity confirmation | `assets/bootstrap/page.tsx` MDM section | ✅ clean | ✅ verified |
+| 21 Governance conflicts depth | `governance/conflicts/page.tsx` | ✅ clean | ✅ verified |
+| 22 Quarantine reviewer UI | `governance/quarantine/page.tsx` | ✅ clean | ✅ verified |
+| 23 Timestamp drift review | `audit/page.tsx` filtered view | ✅ clean | ✅ verified |
+| 24 Compliance cockpit | `compliance/page.tsx` · `compliance/audit-pack/page.tsx` | ✅ clean | ✅ verified |
+| 25 Audit-pack assembly | `compliance/audit-pack/page.tsx` | ✅ clean | ✅ verified |
+| 26 Non-conformance tracking | `compliance/nonconformance/page.tsx` | ✅ clean | ✅ verified |
+| 27 MoC UI | `governance/moc/page.tsx` · `governance/moc/[id]/page.tsx` | ✅ clean | ✅ verified |
+| 28 SLA report | `governance/sla/page.tsx` | ✅ clean | ✅ verified (fixed) |
+| 29 Circuit breaker | `governance/circuit-breaker/page.tsx` | ✅ clean | ✅ verified (fixed) |
+| 30 Model gate | `governance/model-gate/page.tsx` | ✅ clean | ✅ verified (fixed) |
+| 31 Governance index | `governance/page.tsx` — all 6 surfaces live | ✅ clean | ✅ verified |
+| 32 Management overview | `management/page.tsx` — live KPIs, parallel fetch | ✅ clean | ✅ verified |
+| 33 Cross-site alerts | `management/cross-site/page.tsx` | ✅ clean | ✅ verified |
+| 34 Plant-state control | `management/plant-state/page.tsx` — admin-gated 2-step confirm | ✅ clean | ✅ verified |
+| 35 Event surfaces | `events/page.tsx` · `events/[id]/page.tsx` | ✅ clean | ✅ verified |
+| 36 A11y + responsive + multi-script sweep | Devanagari font stack · aria-labels · audit/quarantine/moc fixes | ✅ clean | ✅ verified (via shell) |
+| 31b Project & procurement registry (FE_IMP Task 31) | `projects/page.tsx` — composes documents+assets+events by equipment class | ✅ clean | ✅ verified |
+| — RCA workspace | `rca/page.tsx` — honest "synthesis unavailable" when graph lacks history | ✅ clean | ✅ verified |
+
+> **Status note (2026-07-11):** Full admin-account browser sweep complete — every desktop route now verified against the golden dataset (10 assets, 20 docs). Six live crashes found + fixed this pass (all frontend-type-vs-backend-contract mismatches, plus one infra bug):
+> 1. **Service-worker refresh loop** — the PWA SW cached the app shell and fought HMR in dev → infinite reload (looked like "page won't load, only refreshes"). Fixed: SW registers **production-only** + unregisters in dev (`app-shell.tsx`); `sw.js` navigations are now **network-first** with `SHELL` bumped to v2. A side effect had corrupted the Turbopack route manifest (all `(app)/*` → 404); `docker restart kairos-frontend` cleared it.
+> 2. **SLA report** crashed (`overdue_quarantine` undefined) — backend is an escalation report (`overdue_quarantine_items`, `overdue_*_total`, `escalated_this_run`, no on-time tallies). Rewrote `SlaReport` type + page.
+> 3. **Circuit breaker** crashed (`state.entries` undefined) — backend is `{states[], halted_count}` with boolean `halted`. Rewrote type + page.
+> 4. **Model gate** crashed (`Object.entries(corpus.by_asset_class)`) — corpus is `{total_corpus_size, by_entity_type, last_updated_at}`, no `by_asset_class`. Rewrote type + page.
+> 5. **Blast radius** (doc + asset detail) crashed (`report.items` undefined) — backend `affected:[{edge,target}]`; normalised in the `getBlastRadius` fetcher.
+> 6. **P&ID topology** crashed (`topo.nodes` undefined) — backend groups elements into 4 category arrays; normalised into `{nodes,edges}` in the `getDocumentTopology` fetcher (synthesises boundary→valve/bleed edges).
+>
+> Field routes (8–12) still require a `field_worker` role + mobile viewport (deferred to the multi-account pass). Frontend CI green: `tsc` (0) + `eslint` (0 errors, 10 warnings) + `next build` all pass.
 
 **Before marking any task browser-verified:** run `make dev`, load each route in Chrome, confirm DemoChip shows for fixture data, PTW dual-sign flow works, frozen/caution banners render, GovernorPill appears in sidebar, ContrastToggle switches palette, FieldBottomTabs show only on `field_worker` role at mobile width.
 
@@ -207,5 +236,5 @@ After `make nuke`: `make init-all` → `seed_regulations.py` → `seed_users.py`
 - **Supabase MCP** (`mcp__claude_ai_Supabase__*`) — SQL, migrations, table inspection. Prefer over `docker exec`.
 
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
-**Tests:** 150 passed, 1 flaky · CI: 6 workflows in `.github/workflows/` (incl. `frontend.yml` — tsc · eslint · build · audit) · Package: `ghcr.io/kr1shnasomani/kairos`  
+**Tests:** 150 passed, 1 flaky · suite self-cleans on teardown (`scripts/purge_test_data.py`) · CI: 6 workflows in `.github/workflows/` (`frontend.yml` — tsc · eslint · build · audit — **green**) · Package: `ghcr.io/kr1shnasomani/kairos`  
 **Release:** `git tag v{version} && git push origin v{version}` · 7 secrets needed in `tests.yml` (deferred)

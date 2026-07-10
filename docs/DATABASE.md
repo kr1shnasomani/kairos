@@ -459,13 +459,13 @@ Private bucket (no public access). All reads require a signed URL.
 | Name | `kairos-vault` |
 | Public | `false` |
 | Max file size | 500 MB |
-| Allowed MIME types | PDF, PNG, JPEG, TIFF, XLS, XLSX, TXT, CSV, octet-stream |
+| Allowed MIME types | PDF, PNG, JPEG, TIFF, XLS, XLSX, TXT, CSV, octet-stream, audio/* (mpeg·wav·webm·mp4·ogg — voice notes, migration 016) |
 
 **Immutability:** Files are never overwritten. A new version creates a new document row linked via `version_chain`. The old file remains permanently.
 
 ### Migrations
 
-All 15 migrations live in `db/migrations/`. Apply via `supabase db push` or run SQL directly via Supabase MCP.
+The full schema is consolidated into a single file, **`db/schema.sql`** — migrations 001–016 folded into their base tables. Apply it to a fresh database to get the current schema. The original ordered migrations are preserved under **`db/migrations/archive/`** as the historical record (the live applied history is also tracked by Supabase in `supabase_migrations.schema_migrations`, timestamp-versioned). Going forward, a schema change is a new migration file **and** a matching edit to `schema.sql`.
 
 | Migration | What It Adds |
 |-----------|-------------|
@@ -484,6 +484,17 @@ All 15 migrations live in `db/migrations/`. Apply via `supabase db push` or run 
 | `013_offboarding_sessions.sql` | `offboarding_sessions` + `offboarding_session_items` tables |
 | `014_validation_corpus.sql` | `validation_corpus` table |
 | `015_sla_tracking.sql` | `escalated_at` + `escalated_to` on `knowledge_conflicts`; `sla_due_at` + `escalated_at` on `quarantine_items` |
+| `016_vault_audio_mime.sql` | Allow `audio/*` MIME types on the `kairos-vault` bucket (voice-note uploads) |
+
+### Maintenance & data hygiene
+
+Ad-hoc operational SQL (not schema changes) lives in `db/maintenance/`, with a running log in
+`db/maintenance/CHANGELOG.md`. Integration tests create entities with known prefixes
+(`ASSET-TEST/DEDUP/EV/ACK-*`, `WO-*`, `DOC-*`); to keep the DB clean:
+
+- `db/maintenance/purge_test_data.sql` — FK-safe Supabase purge (applied 2026-07-10, ~421 rows).
+- `make purge-test-data` — runs `scripts/purge_test_data.py`, clearing the same residue from
+  **Neo4j + Supabase + Elasticsearch**. The test suite also purges its own residue on teardown.
 
 ---
 

@@ -4,11 +4,38 @@ Requires `make dev` to be running before executing the suite.
 """
 
 import os
+import sys
+import asyncio
+from pathlib import Path
+
 import pytest
 import httpx
 from uuid import uuid4
 
 BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+
+# Session teardown purges the test residue these fixtures create (see scripts/purge_test_data.py).
+# In the container PYTHONPATH=/app already exposes `scripts`; on the host shortcut, add backend/.
+try:
+    from scripts.purge_test_data import purge as _purge_test_data
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+    try:
+        from scripts.purge_test_data import purge as _purge_test_data
+    except ImportError:
+        _purge_test_data = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_test_data():
+    """Delete every test-prefixed entity after the suite so runs don't accumulate DB junk."""
+    yield
+    if os.getenv("KAIROS_SKIP_TEST_CLEANUP") or _purge_test_data is None:
+        return
+    try:
+        asyncio.run(_purge_test_data())
+    except Exception as exc:  # cleanup must never fail the suite
+        print(f"[conftest] test-data cleanup skipped: {exc}")
 
 # Static internal key — never expires, returns role=admin.
 # Defined in backend/api/config.py INTERNAL_API_KEY default.

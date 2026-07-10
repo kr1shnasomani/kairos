@@ -133,6 +133,20 @@ from tests.conftest import uid
 # used to generate unique IDs per test run to avoid collisions
 ```
 
+### Data hygiene — automatic teardown
+
+Tests run against the live stack and create ephemeral entities with known id prefixes
+(`ASSET-TEST-`, `ASSET-DEDUP-`, `ASSET-EV-`, `ASSET-ACK-`, `WO-*`, `DOC-*`). A session-scoped
+autouse fixture in `conftest.py` (`_cleanup_test_data`) purges all of them at the end of the run
+via `scripts/purge_test_data.py`, so the suite no longer accumulates junk in Neo4j, Supabase, or
+Elasticsearch.
+
+- Skip cleanup for a run: set `KAIROS_SKIP_TEST_CLEANUP=1`.
+- Clean up manually at any time: `make purge-test-data`.
+- Cleanup never fails the suite — if a store is unreachable it logs and moves on.
+- Do **not** rely on UI-side filtering of test prefixes to keep demos clean; keep the *canonical*
+  state (the golden dataset, see [`DATASET.md`](./DATASET.md)) free of test data by rebuilding.
+
 ---
 
 ## Test files and coverage
