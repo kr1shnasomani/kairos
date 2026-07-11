@@ -465,9 +465,11 @@ Private bucket (no public access). All reads require a signed URL.
 
 ### Migrations
 
-The full schema is consolidated into a single file, **`db/schema.sql`** — migrations 001–016 folded into their base tables. Apply it to a fresh database to get the current schema. The original ordered migrations are preserved under **`db/migrations/archive/`** as the historical record (the live applied history is also tracked by Supabase in `supabase_migrations.schema_migrations`, timestamp-versioned). Going forward, a schema change is a new migration file **and** a matching edit to `schema.sql`.
+The full schema is consolidated into a **single source-of-truth file, `db/schema.sql`** — apply it to a fresh database to get the current schema. The 16 original ordered migrations were folded in and are no longer kept as separate files; the live applied history remains tracked by Supabase in `supabase_migrations.schema_migrations` (timestamp-versioned). Going forward, make a schema change directly in `schema.sql` (and record any ad-hoc live run in `db/maintenance/CHANGELOG.md`).
 
-| Migration | What It Adds |
+The table below is the **schema-evolution changelog** — what each of the 16 folded-in migrations contributed to `schema.sql`:
+
+| Migration | What It Added |
 |-----------|-------------|
 | `001_initial_schema.sql` | All core tables + RLS enable |
 | `002_storage_bucket.sql` | `kairos-vault` bucket + RLS policies |

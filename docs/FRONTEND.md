@@ -27,7 +27,8 @@ Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · Docker
 ```
 frontend/
 ├── public/
-│   └── logo.jpeg                    # Brand logo — served at /logo.jpeg; favicon source
+│   ├── logo.jpeg                    # Brand logo — served at /logo.jpeg; favicon source
+│   └── sw.js                        # Service worker (PWA offline shell) — registered PROD-ONLY
 ├── src/
 │   ├── app/
 │   │   ├── icon.jpeg                # Auto-favicon (Next.js App Router convention)
@@ -36,53 +37,41 @@ frontend/
 │   │   ├── globals.css              # Design tokens (CSS vars: --accent, --ink, --muted, etc.)
 │   │   ├── not-found.tsx            # On-theme 404 page
 │   │   ├── login/page.tsx           # Login screen (real auth → POST /auth/login)
-│   │   └── (app)/                   # Authenticated route group
-│   │       ├── layout.tsx           # Wraps all authenticated pages in <AppShell>
-│   │       ├── loading.tsx          # Shared page skeleton (Next.js Suspense boundary)
-│   │       ├── error.tsx            # Shared error boundary (role=alert + reset)
-│   │       ├── briefs/
-│   │       │   ├── page.tsx         # Brief inbox (live + fixture fallback)
-│   │       │   └── [id]/page.tsx    # Brief detail + ack + feedback
-│   │       ├── copilot/page.tsx     # Knowledge copilot (live POST /search/synthesize + fixture fallback)
-│   │       ├── assets/
-│   │       │   ├── page.tsx         # Asset list (live GET /assets/ + fixture fallback)
-│   │       │   └── [id]/page.tsx    # Asset detail + aliases + knowledge (live + fixture fallback)
-│   │       ├── rca/page.tsx         # RCA pack (live POST /search/rca-pack + fixture fallback)
-│   │       ├── compliance/page.tsx  # Compliance gaps + dashboard (live + fixture fallback)
-│   │       ├── governance/
-│   │       │   ├── page.tsx         # Governance hub — links to conflicts + quarantine
-│   │       │   ├── conflicts/page.tsx   # Conflict list + resolve action (live + fixture fallback)
-│   │       │   └── quarantine/page.tsx  # Quarantine list + promote/dispute (live + fixture fallback, role-gated)
-│   │       ├── documents/
-│   │       │   ├── page.tsx         # Document registry (live GET /documents/ + fixture fallback)
-│   │       │   └── [id]/page.tsx    # Document detail + supersede chain (live + fixture fallback)
-│   │       └── management/page.tsx  # Overview dashboard (fixture)
+│   │   └── (app)/                   # Authenticated route group — wrapped in <AppShell>
+│   │       ├── layout.tsx · loading.tsx · error.tsx   # shell · skeleton · error boundary
+│   │       ├── briefs/{page,[id]/page}                # inbox · detail+ack+feedback
+│   │       ├── copilot/page                           # knowledge copilot (phase-gated synthesis)
+│   │       ├── assets/{page,[id]/page,bootstrap/page} # list · detail · MDM identity confirm
+│   │       ├── rca/page                               # RCA pack generator
+│   │       ├── compliance/{page,audit-pack,nonconformance}
+│   │       ├── governance/{page,conflicts,quarantine,moc,moc/[id],sla,circuit-breaker,model-gate}
+│   │       ├── documents/{page,[id]/page,[id]/topology,compare,ingest}
+│   │       ├── events/{page,[id]/page}                # operational event surfaces
+│   │       ├── projects/page                          # engineering + procurement registry
+│   │       ├── graph/page · audit/page                # temporal graph · audit trail
+│   │       ├── management/{page,cross-site,plant-state}
+│   │       ├── field/{deviation,elicitation/[workOrderId],voice,voice/[workOrderId]}  # mobile field capture
+│   │       └── (desktop)/offboarding/{page,[sessionId]/page}   # retiring-expert knowledge transfer
 │   ├── components/
-│   │   ├── app-shell.tsx            # Sidebar nav + mobile drawer + user chip + auth guard + sign-out
-│   │   ├── blast-radius-panel.tsx   # React Flow mini-graph showing documents/assets affected by a conflict
-│   │   ├── brief-card.tsx           # Single brief row in the inbox
-│   │   ├── brief-inbox.tsx          # List of BriefCards with priority grouping
-│   │   ├── brief-detail.tsx         # Full brief view with sources + ack form
+│   │   ├── app-shell.tsx            # Desktop sidebar + mobile drawer + FieldBottomTabs + auth guard + sign-out
+│   │   ├── lazy.tsx                 # "use client" wrapper holding dynamic(ssr:false) imports (Next 16 rule)
+│   │   ├── blast-radius-panel.tsx   # React Flow mini-graph of nodes a document/change affects
 │   │   ├── knowledge-graph.tsx      # React Flow temporal asset graph (Layer 4)
-│   │   ├── skeleton.tsx             # Shared PageSkeleton component
-│   │   ├── stub.tsx                 # Placeholder component for unbuilt pages
-│   │   ├── theme-toggle.tsx         # Light/dark toggle
-│   │   ├── use-role.ts              # ADMIN_ROLES, PROMOTE_ROLES, RESOLVE_ROLES constants + useRole() hook
-│   │   └── ui.tsx                   # Shared primitives: AuthorityBadge, StatusBadge, FilterTabs, Modal, Button, RefusalCard
+│   │   ├── supersede-action.tsx     # Document supersede form (client, router.refresh on success)
+│   │   ├── voice-recorder.tsx       # Mic capture → Blob (MediaRecorder), used by field voice + copilot
+│   │   ├── brief-card.tsx · brief-inbox.tsx · brief-detail.tsx   # brief inbox pieces
+│   │   ├── theme-toggle.tsx · skeleton.tsx · stub.tsx
+│   │   ├── use-role.ts              # useRole() + ADMIN_ROLES / PROMOTE_ROLES / RESOLVE_ROLES / FIELD_ROLES
+│   │   └── ui.tsx                   # Primitives: AuthorityBadge, StatusBadge, FilterTabs, Modal, Button, RefusalCard, DemoChip
 │   └── lib/
-│       ├── api.ts                   # All fetch helpers — SSR-aware API_BASE, live+fixture fetchers, postJson
-│       ├── auth.ts                  # login(), getMe(), logout() — Supabase token lifecycle
+│       ├── api.ts                   # All fetch helpers — SSR-aware API_BASE, live+fixture fetchers, response normalizers
+│       ├── auth.ts                  # login(), getMe(), logout() — Supabase token lifecycle (kairos-token key)
 │       ├── types.ts                 # All API-derived TypeScript types (single source of truth)
-│       ├── fixtures.ts              # fixtureBriefs — demo BriefsResponse for offline mode
-│       ├── assets.ts                # Fixture Asset[] + getAsset() helper
-│       ├── compliance.ts            # Live/fixture ComplianceGapsResponse (OISD-117 + ISO 45001)
-│       ├── copilot.ts               # Fixture CopilotAnswer map + answerFor() matcher
-│       ├── documents.ts             # Fixture DocumentsResponse + getDocumentFixture()
-│       ├── governance.ts            # Fixture conflictsFixture + quarantineFixture
-│       ├── rca.ts                   # Fixture RcaPack presets + rcaFor() matcher
-│       └── utils.ts                 # cn(), relativeTime(), triggerLabel(), criticalityMeta()
+│       ├── idb.ts                   # IndexedDB offline write-queue (OfflineQueue) — flushed on reconnect
+│       ├── utils.ts                 # cn(), relativeTime(), nowMs(), slaCountdown(), overdueHours(), etc.
+│       ├── fixtures.ts · assets.ts · compliance.ts · copilot.ts · documents.ts · governance.ts · rca.ts   # demo fallbacks
 ├── Dockerfile                       # node:20-alpine; NEXT_TELEMETRY_DISABLED=1; npm ci at build
-├── .dockerignore
+├── DESIGN.md                        # Design system (read before building UI)
 └── package.json
 ```
 
@@ -126,6 +115,15 @@ frontend/
 | `/management` | Plant overview — KPIs, alerts, system health | Live with fixture fallback |
 | `/management/cross-site` | Cross-site pattern alerts | Demo fixture (Layer-13 API in roadmap) |
 | `/management/plant-state` | Plant operating-state control | Live with fixture fallback (admin-gated write) |
+| `/field/deviation` | Physical deviation flag (freezes affected asset briefs) | Live (mobile field capture) |
+| `/field/elicitation/[workOrderId]` | Knowledge-capture micro-interview | Live with fixture fallback (mobile) |
+| `/field/voice` | Ad-hoc voice note — tag an asset/WO, record → quarantine | Live (mobile field capture) |
+| `/field/voice/[workOrderId]` | Voice note tied to a specific work order | Live (mobile field capture) |
+
+> **Field routes** render at mobile width and have **no role gate** (any authenticated user can open
+> them). Only the field bottom-tab navigation is gated to `field_worker` (see §4). The bare
+> `/field/voice` is the destination of the "Voice" bottom tab; `/field/voice/[workOrderId]` is the
+> deep-linked variant reached from a brief or elicitation.
 
 > Client-only components that must not SSR (React Flow graph, blast-radius, supersede action) are
 > loaded via `dynamic(..., { ssr: false })` from the `"use client"` module `components/lazy.tsx` —
@@ -135,17 +133,27 @@ frontend/
 
 ## 4. Navigation
 
-`AppShell` (`components/app-shell.tsx`) renders a 244px sidebar on desktop and a slide-over drawer on mobile.
+`AppShell` (`components/app-shell.tsx`) renders two distinct navigations depending on role and viewport.
 
-**Operate group:** Briefs · Copilot · Assets · RCA
+**Desktop sidebar** (244px, slide-over drawer on mobile) — shown for `admin` / `engineer` / `reliability`:
 
-**Assure group:** Compliance · Governance · Documents · Graph · Audit trail
+- **Operate:** Briefs · Copilot · Assets · RCA · Graph · Events
+- **Assure:** Compliance · Governance · Audit trail · Documents · Projects · Off-boarding
+- **Manage:** Overview (management)
 
-**Manage group:** Overview (management)
+Active route highlighted with `bg-accent-soft text-accent`. User chip at the bottom shows the live authenticated user's name, role, and site from `GET /auth/me`. Sign-out clears tokens and redirects to `/login`. The sidebar logo is `public/logo.jpeg`, a 30px rounded square.
 
-Active route highlighted with `bg-accent-soft text-accent`. User chip at the bottom shows the live authenticated user's name, role, and site from `GET /auth/me`. Sign-out button clears tokens and redirects to `/login`. Staff-only routes (RCA, Compliance, Governance, Documents, Overview) are hidden for `field_worker` role.
+**Field bottom tabs** (`FieldBottomTabs` in `app-shell.tsx`) — shown **only for `field_worker`** at mobile width, replacing the sidebar with a fixed bottom bar:
 
-The sidebar logo is `public/logo.jpeg` (the Kairos orange brand mark), rendered as a 30px rounded square.
+| Tab | Target |
+|---|---|
+| Briefs | `/briefs` |
+| Copilot | `/copilot` |
+| Assets | `/assets` |
+| Voice | `/field/voice` |
+| **Me** | **sign-out** (`onClick={onSignOut}`) — the field app has no profile screen; "Me" logs out |
+
+Role is read from `getMe()` (`FIELD_ROLES = ["field_worker"]`, `isField` gate). Verified against `field_worker@kairos.local`.
 
 ---
 
@@ -235,11 +243,41 @@ export const API_BASE =
 | `getPlantState(siteId)` | `GET /events/plant-state/{site_id}` |
 | `setPlantState(body)` | `POST /events/plant-state` |
 | `getComplianceDashboard()` | `GET /compliance/dashboard` |
-| `getBlastRadius(documentId)` | `GET /governance/blast-radius/{doc_id}` |
+| `getBlastRadius(documentId)` | `GET /governance/blast-radius/{doc_id}` — **normalized** (see below) |
+| `getAuditPack(framework)` | `GET /compliance/audit-pack?framework=…` |
+| `getEvents()` / `getEvent(id)` / `ackEvent(id)` | operational event surfaces |
+| `postTagOut / postAlarm / postShiftHandover / postInspectionComplete / postDeviationFlag` | demo event emitters |
+| `getMocList()` / `getMoc(id)` / `approveMoc(id)` | Management of Change |
+| `ingestDocument(form)` / `getDocumentStatus(id)` / `supersedeDocument(id, form)` | document ingest + pipeline status + supersede |
+| `confirmAssetIdentity(...)` | MDM identity confirmation (asset bootstrap) |
+| `triggerElicitation / getElicitationQuestions / submitElicitationResponses` | field micro-interview |
+| `getOffboardingList / getOffboarding / getOffboardingQuestions / submitOffboardingResponses / createOffboarding` | retiring-expert knowledge transfer |
+| `submitVoiceNote(id, blob, user)` | `POST /elicitation/{id}/voice` (field name `file`) |
+| `createAnnotation / getAnnotations / getAnnotationStats` | inline document annotation |
+| `getGovernorState / getPlantState / setPlantState / getHealthDetailed / getOtCoverage` | ops + system state |
+
+### Response normalizers
+
+Several backend endpoints return a shape that does not match the flat type the UI consumes. Rather than
+scatter mapping logic across components, the **fetcher normalizes the response** (adapter pattern) so
+components stay dumb:
+
+| Fetcher | Backend shape → UI shape |
+|---|---|
+| `getBlastRadius` | `{affected:[{edge,target}]}` → `{items:[{item_id,item_type,description,asset_id,flagged_for_review}]}` |
+| `getDocumentTopology` | `{topology:{equipment_nodes,isolation_valves,isolation_boundaries,instrumentation_loops}}` → flat `{nodes,edges}` (synthesises boundary→valve/bleed edges) |
+| `getOffboardingList` | `{items,total}` → `OffboardingProgramme[]` (unwraps `.items`) |
+
+Types corrected to mirror the real backend contract (verify with a live `curl` before trusting a type):
+`ComplianceDashboard.total_gaps` is `{critical,major,minor}` (an object, not a number); `SlaReport` is an
+escalation report (`overdue_conflicts[]` · `overdue_quarantine_items[]` · `overdue_*_total` ·
+`escalated_this_run` · `checked_at`; no on-time tallies); `CircuitBreakerState` is `{states[],halted_count}`
+with boolean `halted`; `ValidationCorpusStats` is `{total_corpus_size,by_entity_type,last_updated_at}` (no
+`by_asset_class`).
 
 ### Fixture fallback pattern
 
-Every fetcher follows `try { live } catch { fixture }`. If the backend is unreachable, returns too-empty results, or times out (1500ms), the page falls back to curated demo data tagged `source: "demo"`. A source chip in the UI indicates when demo data is active.
+Every fetcher follows `try { live } catch { fixture }`. If the backend is unreachable, returns too-empty results, or times out (1500ms), the page falls back to curated demo data tagged `source: "demo"`. A source chip (`DemoChip`) in the UI indicates when demo data is active. Guard array reads defensively — `x?.arr.length` still throws when `arr` is `undefined`.
 
 ---
 
@@ -421,9 +459,28 @@ All four jobs run in parallel on `ubuntu-latest` with `node:20` and `npm ci` fro
 
 ---
 
-## 15. Remaining Work
+## 15. Progressive Web App / Offline
+
+The offline shell is a **production-only** feature. `public/sw.js` is registered from `AppShell`
+**only when `process.env.NODE_ENV === "production"`**; in development it is actively unregistered,
+because a cached app shell fights Next.js HMR (stale chunk hashes trigger a hard reload that re-serves
+the stale cache — an infinite refresh loop). The service worker uses **network-first for navigations**
+(cache is an offline fallback only) and stale-while-revalidate for static assets; bump the `SHELL`
+cache version to bust a poisoned cache.
+
+The IndexedDB write-queue (`lib/idb.ts`, `OfflineQueue`) is app-level (not the SW) and works in dev:
+writes made offline are queued and flushed on the `online` event; the queued count shows in the shell.
+
+---
+
+## 16. Remaining Work
 
 | Item | Notes |
 |------|-------|
 | Bearer token on SSR reads | Server components rely on backend dev-bypass. Wire `getToken()` for SSR when `NEXT_PUBLIC_AUTH_STRICT=true` |
-| Browser verification pass | Run `make dev`, load every route in Chrome, confirm DemoChip, PTW flow, GovernorPill, ContrastToggle |
+| `/management/cross-site` live data | Cross-site aggregation API is a Layer-13 roadmap item; page renders curated fixtures with a DemoChip |
+| Cross-site live data | `/management/cross-site` renders curated fixtures with a DemoChip; the Layer-13 aggregation API is a roadmap item |
+
+**Browser verification:** ✅ complete. Every desktop route + all field routes verified against the golden
+dataset (admin + `field_worker` sessions). Six live-data crashes were found and fixed during the sweep —
+see the response-normalizer note in §6 and `AGENTS.md` "Known Pitfalls".

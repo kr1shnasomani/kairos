@@ -498,31 +498,42 @@ Get the parsed P&ID / engineering drawing topology for a drawing document.
 
 **Auth required:** Yes
 
-Only available for documents with `document_type = "engineering_drawing"`. Topology is extracted at ingest time by the mock PID topology pipeline — the OCR stage is skipped, and element data is loaded from the embedded fixture.
+Only available for documents with `document_type = "pid_drawing"` — all other types `404` by design. Topology is extracted at ingest time by the mock PID topology pipeline — the OCR stage is skipped, and element data is loaded from the embedded fixture.
 
 **Response `200`:**
 ```json
 {
-  "document_id": "doc-uuid",
-  "drawing_id": "P-2301",
-  "equipment": [
-    {"id": "P-101", "type": "pump", "tag": "P-101"},
-    {"id": "V-201", "type": "vessel", "tag": "V-201"}
-  ],
-  "valves": [
-    {"id": "XV-101", "type": "gate_valve", "connected_to": ["P-101", "V-201"]}
-  ],
-  "loops": [
-    {"loop_id": "LC-1001", "type": "level_control", "instruments": ["LT-1001", "LV-1001"]}
-  ],
-  "boundaries": [
-    {"id": "ISOL-BOUNDARY-1", "description": "Pump isolation boundary"}
-  ],
-  "neo4j_edges_written": 11
+  "document_id": "DOC-TS4FXYKHCQEF",
+  "manifest_item_id": "3c0e469e-…",
+  "verification_status": "unverified",
+  "topology": {
+    "title": "Feed Section P&ID - Pump P-101",
+    "revision": "Rev-4",
+    "drawing_id": "P-2301",
+    "equipment_nodes": [
+      {"id": "TOPO-EQ-001", "tag": "P-101", "type": "centrifugal_pump", "equipment_class": "pump", "service": "Feed Pump A", "design_temp_c": 80, "design_pressure_kpa": 800}
+    ],
+    "isolation_valves": [
+      {"id": "TOPO-VLV-001", "tag": "XV-203", "type": "gate_valve", "service": "P-101 Suction Isolation", "normally_open": true, "last_inspected": "2024-06-15", "inspection_interval_months": 18}
+    ],
+    "isolation_boundaries": [
+      {"id": "TOPO-ISO-001", "boundary_id": "ISO-P101-MAINT", "ptw_type": "mechanical", "primary_isolations": ["XV-203", "XV-204"], "bleed_vents": ["PG-18"], "regulatory_ref": "OISD-117-6.2", "requires_engineer_signoff": true, "requires_double_block_bleed": true}
+    ],
+    "instrumentation_loops": [
+      {"id": "TOPO-LOOP-001", "loop_id": "FIC-3047", "type": "flow_control", "instruments": ["FT-3047", "FIC-3047", "FV-3047"], "design_range_m3h": "0-120", "alarm_low_m3h": 5, "alarm_high_m3h": 110}
+    ]
+  },
+  "extracted_at": "2026-07-10T11:52:56Z"
 }
 ```
 
-**`404`** if not found or topology not yet extracted.
+> ⚠️ Elements are **grouped under a nested `topology` object** in four category arrays
+> (`equipment_nodes`, `isolation_valves`, `isolation_boundaries`, `instrumentation_loops`) — there is no
+> flat `equipment`/`valves`/`loops`/`boundaries` list and no explicit edges. The frontend
+> `getDocumentTopology` fetcher flattens these into `{nodes, edges}`, synthesising boundary→valve/bleed
+> edges from `primary_isolations` + `bleed_vents`.
+
+**`404`** for any non-`pid_drawing` document, or if topology not yet extracted.
 
 ---
 
@@ -1519,26 +1530,27 @@ Get the current SPC circuit breaker state for all monitored entity types.
 
 **Auth required:** Yes
 
-The circuit breaker monitors the ratio of human-overridden extractions to total extractions in a rolling 7-day window. When the override rate exceeds the threshold, the breaker trips to `halted` and new extractions for that entity type are queued for human review rather than written to the graph.
+One state per **asset class** that has recorded extraction overrides in the last 30 days. An asset class trips to `halted: true` when its 7-day override-count z-score exceeds 2.0; new extractions for that class are then queued for human review rather than written to the graph. An empty `states` array means no class has any override records yet (all ingestion paths open).
 
 **Response `200`:**
 ```json
 {
   "states": [
     {
-      "entity_type": "process_parameter",
-      "override_count_7d": 3,
-      "total_extractions_7d": 45,
-      "override_rate": 0.067,
-      "threshold": 0.2,
-      "status": "active"
+      "asset_class": "pump",
+      "halted": false,
+      "z_score": 1.2,
+      "reason": "within_normal_range",
+      "override_count_7d": 3
     }
   ],
   "halted_count": 0
 }
 ```
 
-`status` values: `active | halted`
+> ⚠️ Each state carries `asset_class` + boolean **`halted`** (not `entity_type` / a `status` string).
+> `reason` is `z_score_exceeded | within_normal_range | stats_error`. There is no `override_rate`,
+> `total_extractions_7d`, or `threshold` field.
 
 ---
 
@@ -1551,15 +1563,36 @@ Get the blast-radius report for a proposed document change.
 **Response `200`:**
 ```json
 {
-  "document_id": "doc-uuid",
-  "affected_assets": ["P-101", "V-201"],
-  "affected_facts": 12,
-  "severity": "high",
-  "details": [
-    {"asset_id": "P-101", "rel_type": "HAS_MAX_PRESSURE", "count": 5}
+  "document_id": "DOC-TS4FXYKHCQEF",
+  "affected_count": 11,
+  "affected": [
+    {
+      "edge": {
+        "relationship_type": "CONTAINS_TOPOLOGY_ELEMENT",
+        "edge_id": "DOC-…_CONTAINS_TOPOLOGY_ELEMENT_TOPO-EQ-001_…",
+        "authority_level": 3,
+        "confidence": 0.85,
+        "verification_status": "unverified",
+        "valid_from": "2026-07-10T11:52:56Z",
+        "valid_to": "9999-12-31T23:59:59Z",
+        "document_id": "DOC-TS4FXYKHCQEF"
+      },
+      "target": {
+        "concept_id": "TOPO-EQ-001",
+        "label": "P-101",
+        "element_type": "equipment_nodes",
+        "source_document_id": "DOC-TS4FXYKHCQEF"
+      }
+    }
   ]
 }
 ```
+
+> ⚠️ The payload is `affected: [{edge, target}]` (edge/target node pairs) + `affected_count` — **not**
+> `affected_assets` / `affected_facts` / `severity`. Targets are heterogeneous graph nodes (facts,
+> concepts, assets); read a display label from `target.label ?? target.name ?? target.concept_id`.
+> The frontend `getBlastRadius` fetcher flattens each pair into `{item_id, item_type, description,
+> asset_id, flagged_for_review}` (flagged = edge `verification_status != "verified"`).
 
 ---
 
@@ -1690,20 +1723,24 @@ Compliance posture summary: gap counts by framework, severity, and clearance sta
 **Response `200`:**
 ```json
 {
-  "total_gaps": 18,
-  "cleared": 5,
-  "open": 13,
+  "site_id": null,
+  "total_gaps": {"critical": 12, "major": 40, "minor": 0},
   "by_framework": {
-    "OISD-117": {"total": 10, "cleared": 3, "open": 7},
-    "ISO-45001": {"total": 8, "cleared": 2, "open": 6}
+    "OISD_117": {"critical": 12, "major": 0, "minor": 0},
+    "ISO_45001": {"critical": 0, "major": 40, "minor": 0}
   },
-  "by_severity": {
-    "critical": 4,
-    "high": 6,
-    "medium": 8
-  }
+  "by_asset_class": {
+    "pump": {"critical": 6, "major": 0, "minor": 0},
+    "valve": {"critical": 6, "major": 0, "minor": 0}
+  },
+  "last_updated": "realtime"
 }
 ```
+
+> ⚠️ **`total_gaps` is an object `{critical, major, minor}`, not a number.** Severity buckets are
+> `critical | major | minor` (not `high/medium`). `by_framework` and `by_asset_class` are keyed by
+> those same severity buckets. There are no `cleared` / `open` / `by_severity` fields. Sum the three
+> buckets to get a grand total; never render `total_gaps` directly.
 
 ---
 

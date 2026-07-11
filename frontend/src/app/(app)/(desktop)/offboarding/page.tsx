@@ -52,11 +52,13 @@ export default async function OffboardingPage() {
       ) : (
         <div className="mt-6 flex flex-col gap-3">
           {programmes.map((p) => {
-            const allDone = p.sessions_completed === p.sessions_total;
+            const done = p.sessions_completed ?? 0;
+            const total = p.total_sessions;
+            const allDone = total > 0 && done === total;
             return (
               <Link
-                key={p.programme_id}
-                href={`/offboarding/${p.programme_id}`}
+                key={p.id}
+                href={`/offboarding/${p.id}`}
                 className="group flex flex-col gap-1 rounded-xl border border-line bg-surface p-5 transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))]"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -77,7 +79,7 @@ export default async function OffboardingPage() {
                     <StatusBadge tone="info">In progress</StatusBadge>
                   )}
                 </div>
-                {progressBar(p.sessions_completed, p.sessions_total)}
+                {progressBar(done, total)}
               </Link>
             );
           })}

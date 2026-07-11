@@ -152,6 +152,9 @@ After `make nuke`: `make dev` → `make init-all` → `make seed` → `make load
 | Turbopack dev 404s-everything | A tight reload loop (e.g. the SW bug above) can corrupt the dev route manifest → every `(app)/*` route 404s while `/` still 307s. `docker restart kairos-frontend` clears it; it is not a code bug. |
 | API boot race on ES | `kairos-backend-api` calls `ensure_indices()` on startup and **exits** if Elasticsearch isn't ready yet. After `make dev`, if the API is down, `docker restart kairos-backend-api` once ES is healthy. |
 | `POST /search/rca-pack` is slow (~90s) | NIM 70B synthesis. Returns 200 with empty `timeline`/`hypotheses` + `synthesis_available:false` when the graph lacks history — the RCA page shows "Synthesis unavailable" honestly (no fabrication). Not a bug. |
+| Off-boarding shapes (fully aligned 2026-07-11) | Backend truth: list `{items,total}` (items use `id`, `total_sessions`, `sessions_completed`, `completion_pct`); detail adds `session_items[]` (`id`, `session_number`, `equipment_family`, `status`, `scheduled_for`); the route param `[sessionId]` is really the **programme id** (select session items in-page, don't route per item); questions are a **`string[]`** per item (not structured `ElicitationQuestion`); responses POST `{item_id, responses:[{question_index, answer}]}` to `/offboarding/{programme_id}/responses`. Frontend types + both pages now match. Detail fetches use a **6 s** `getJson` timeout (slow Supabase + per-item counts blew the default 1500 ms → false "not found" / empty questions). Loader seeds a demo programme (`create_offboarding`), so the flow is demoable. |
+| Field routes need `field_worker` role + mobile | Field *pages* have NO role gate (accessible to any auth'd user) and render at mobile viewport. Only the `FieldBottomTabs` nav chrome is gated (`FIELD_ROLES=["field_worker"]` in `use-role.ts`, `isField` in `app-shell.tsx`). **Verified** via `field_worker@kairos.local` login: tabs = Briefs · Copilot · Assets · Voice · **Me (= sign-out)**. The "Voice" tab links to bare `/field/voice` — added a `field/voice/page.tsx` index (ad-hoc capture, asset/WO tag input) since only `[workOrderId]` existed (was a dead 404 link). |
+| Offline shell (Task 11) is prod-only | The SW is now registered production-only (dev refresh-loop fix), so app-shell offline caching only works in a prod build. The IndexedDB write queue (`idb.ts` / `OfflineQueue`) is app-level and still works in dev. |
 
 ---
 
@@ -165,7 +168,7 @@ After `make nuke`: `make dev` → `make init-all` → `make seed` → `make load
 | Celery / Temporal workers | `backend/workers/celery_app.py` · `temporal_worker.py` |
 | Go OT connectors | `backend/connectors/` |
 | Neo4j schema | `db/neo4j/init_schema.cypher` |
-| Supabase migrations | `db/migrations/` |
+| Supabase schema (single source of truth) | `db/schema.sql` · ops SQL in `db/maintenance/` |
 | Seed / dataset / cleanup scripts | `backend/scripts/seed_*.py` · `load_demo_dataset.py` · `purge_test_data.py` |
 | Golden dataset (mounted `/app/dataset`) | `dataset/` · canon: `dataset/00_Reference/00_KAIROS_CANON.md` |
 | Frontend API client | `frontend/src/lib/api.ts` |
@@ -181,14 +184,14 @@ After `make nuke`: `make dev` → `make init-all` → `make seed` → `make load
 |---|---|---|---|
 | 1–4 Foundation (types · api · globals.css · layout · theme) | `ui.tsx` · `theme-toggle.tsx` · `app-shell.tsx` | ✅ clean | ✅ verified |
 | 5–7 Field core (briefs page · inbox · card · detail) | `brief-inbox.tsx` · `brief-card.tsx` · `brief-detail.tsx` | ✅ clean | ✅ verified |
-| 8 Elicitation micro-interview | `field/elicitation/[workOrderId]/page.tsx` | ✅ clean | ⏳ needs field role |
-| 8b Off-boarding knowledge transfer | `offboarding/page.tsx` · `offboarding/[sessionId]/page.tsx` | ✅ clean | ⏳ needs field role |
-| 9 Voice note capture | `VoiceRecorder` component | ✅ clean | ⏳ needs field role |
-| 10 Deviation flag | `field/deviation/page.tsx` | ✅ clean | ⏳ needs field role |
-| 11 Offline shell + sync queue | Service Worker · IndexedDB · `OfflineQueue` | ✅ clean | ⏳ needs field role |
-| 12 Voice search / Copilot voice | `VoiceRecorder` integration in copilot | ✅ clean | ⏳ needs field role |
+| 8 Elicitation micro-interview | `field/elicitation/[workOrderId]/page.tsx` | ✅ clean | ✅ verified (mobile, flow works) |
+| 8b Off-boarding knowledge transfer | `offboarding/page.tsx` · `offboarding/[sessionId]/page.tsx` | ✅ clean | ✅ verified end-to-end (list · detail · interview · submit; seeded demo programme) |
+| 9 Voice note capture | `VoiceRecorder` component | ✅ clean | ✅ verified (mobile, recorder renders) |
+| 10 Deviation flag | `field/deviation/page.tsx` | ✅ clean | ✅ verified (mobile, form renders) |
+| 11 Offline shell + sync queue | Service Worker · IndexedDB · `OfflineQueue` | ✅ clean | ✅ FieldBottomTabs verified (field_worker) · SW offline prod-only |
+| 12 Voice search / Copilot voice | `VoiceRecorder` integration in copilot | ✅ clean | ✅ verified (same recorder) |
 | 13 Copilot phase-gated synthesis | `copilot/page.tsx` with `RefusalCard` | ✅ clean | ✅ verified |
-| 14 Inline annotation | `AnnotationPanel` · `POST /annotations` | ✅ clean | ⏳ needs `make dev` |
+| 14 Inline annotation | `AnnotationPanel` · `POST /annotations` | ✅ clean | ✅ verified (on doc detail) |
 | 15 Knowledge graph canvas | `knowledge-graph.tsx` (React Flow) | ✅ clean | ✅ verified |
 | 16 Time-travel timeline | time-travel input on `graph/page.tsx` | ✅ clean | ✅ verified |
 | 17 P&ID topology viewer | `topology/page.tsx` · `blast-radius-panel.tsx` | ✅ clean | ✅ verified (fixed) |

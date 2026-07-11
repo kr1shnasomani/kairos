@@ -41,7 +41,10 @@ make load-dataset ARGS=--fast     # structured backbone + events only, no docume
 Everything is idempotent — assets `MERGE`, documents dedup by SHA-256 — so re-running is safe.
 
 Loader: `backend/scripts/load_demo_dataset.py`. The file → `document_type` / `authority_level` / `asset_id`
-mapping lives in that script (`DOCS`), derived from `dataset_manifest.csv` and the canon.
+mapping lives in that script (`DOCS`), derived from `dataset_manifest.csv` and the canon. The loader also
+registers a demo **off-boarding programme** (departing expert `ramesh.kumar@kairos.local`, 5 equipment-family
+sessions) via the real `POST /elicitation/offboarding` — idempotent, so re-running it won't duplicate. The
+per-session interview questions are then generated asynchronously by the off-boarding Celery worker (NIM).
 
 ## Using it as a benchmark
 

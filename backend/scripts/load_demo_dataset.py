@@ -168,6 +168,30 @@ def submit_voice(client: httpx.Client) -> None:
     log.info("load.voice", status=r.status_code)
 
 
+def create_offboarding(client: httpx.Client) -> None:
+    """Register a departing expert so the off-boarding knowledge-transfer flow is demoable.
+
+    Idempotent: skips if a programme for this expert already exists. Session questions
+    are generated asynchronously by the offboarding Celery worker (NIM), so they appear
+    a few seconds after the programme is created.
+    """
+    email = "ramesh.kumar@kairos.local"
+    existing = client.get("/elicitation/offboarding", headers=AUTH)
+    if existing.status_code == 200 and any(
+        p.get("personnel_email") == email for p in existing.json().get("items", [])
+    ):
+        log.info("load.offboarding.skip_existing")
+        return
+    body = {
+        "personnel_id": "EXPERT-RKUMAR",
+        "personnel_email": email,
+        "retirement_date": "2026-09-30",
+        "session_interval_days": 7,
+    }
+    r = client.post("/elicitation/offboarding", json=body, headers=AUTH)
+    log.info("load.offboarding", status=r.status_code)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Load the KAIROS golden demo dataset into a running stack.")
     parser.add_argument("--fast", action="store_true", help="Skip the document pipeline + voice (structured backbone + events only).")
@@ -182,6 +206,7 @@ def main() -> None:
         if not args.fast:
             ingest_documents(client)
             submit_voice(client)
+            create_offboarding(client)
     log.info("load.done", fast=args.fast)
 
 

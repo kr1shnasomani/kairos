@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -10,48 +10,40 @@ import {
 } from "@/lib/api";
 import type {
   OffboardingProgramme,
-  OffboardingSession,
-  ElicitationQuestion,
+  OffboardingSessionItem,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button, DemoChip, StatusBadge } from "@/components/ui";
 import { VoiceRecorder } from "@/components/voice-recorder";
 
-// Session list panel
+// Session list panel — selects an item in-page (all items belong to one programme).
 function SessionList({
-  sessions,
+  items,
   activeId,
+  onSelect,
 }: {
-  sessions: OffboardingSession[];
+  items: OffboardingSessionItem[];
   activeId: string;
+  onSelect: (id: string) => void;
 }) {
   return (
     <ol className="flex flex-col gap-1">
-      {sessions.map((s) => (
-        <li key={s.session_id}>
-          <Link
-            href={`/offboarding/${s.session_id}`}
+      {items.map((s) => (
+        <li key={s.id}>
+          <button
+            type="button"
+            onClick={() => onSelect(s.id)}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] transition-colors",
-              s.session_id === activeId
+              "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition-colors",
+              s.id === activeId
                 ? "bg-accent-soft font-semibold text-accent"
                 : "text-muted hover:bg-surface-2 hover:text-ink",
             )}
           >
-            <span className="tabular text-[11px]">
-              Session {s.session_number}
-            </span>
+            <span className="tabular text-[11px]">Session {s.session_number}</span>
             <span className="min-w-0 flex-1 truncate">{s.equipment_family}</span>
             {s.status === "completed" ? (
-              <svg
-                className="size-3.5 shrink-0 text-verified"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                aria-label="Completed"
-              >
+              <svg className="size-3.5 shrink-0 text-verified" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-label="Completed">
                 <path d="M20 6 9 17l-5-5" />
               </svg>
             ) : s.status === "questions_ready" ? (
@@ -59,38 +51,38 @@ function SessionList({
             ) : (
               <span className="size-1.5 shrink-0 rounded-full bg-line" aria-label="Pending" />
             )}
-          </Link>
+          </button>
         </li>
       ))}
     </ol>
   );
 }
 
-// Interview panel for a questions_ready session
+// Interview panel for a questions_ready session item. Offboarding questions are
+// positional free-text strings; answers are keyed by question index.
 function Interview({
-  session,
+  programmeId,
+  item,
   questions,
   onDone,
 }: {
-  session: OffboardingSession;
-  questions: ElicitationQuestion[];
+  programmeId: string;
+  item: OffboardingSessionItem;
+  questions: string[];
   onDone: () => void;
 }) {
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [voiceAnswers, setVoiceAnswers] = useState<Record<string, boolean>>({});
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [voiceAnswers, setVoiceAnswers] = useState<Record<number, boolean>>({});
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const allAnswered = questions.every((q) => (answers[q.question_id] ?? "").trim());
+  const allAnswered = questions.every((_, i) => (answers[i] ?? "").trim());
 
   async function submit() {
     setSubmitting(true);
-    const responses = Object.entries(answers).map(([question_id, answer]) => ({
-      question_id,
-      answer,
-    }));
+    const responses = questions.map((_, i) => ({ question_index: i, answer: answers[i] ?? "" }));
     try {
-      await submitOffboardingResponses(session.session_id, responses);
+      await submitOffboardingResponses(programmeId, item.id, responses);
       setSubmitted(true);
     } catch {
       setSubmitted(true); // offline path — queuing out of scope for desktop
@@ -103,16 +95,7 @@ function Interview({
     return (
       <div className="flex flex-col items-center gap-4 py-16 text-center">
         <div className="grid size-14 place-items-center rounded-full bg-[color-mix(in_srgb,var(--verified)_12%,transparent)]">
-          <svg
-            className="size-7 text-verified"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
+          <svg className="size-7 text-verified" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M20 6 9 17l-5-5" />
           </svg>
         </div>
@@ -121,9 +104,7 @@ function Interview({
           Responses entered the knowledge quarantine. Engineering will review and promote verified
           insights to the knowledge graph.
         </p>
-        <Button variant="ghost" onClick={onDone}>
-          Back to programme
-        </Button>
+        <Button variant="ghost" onClick={onDone}>Back to programme</Button>
       </div>
     );
   }
@@ -131,131 +112,51 @@ function Interview({
   return (
     <div className="flex flex-col gap-7">
       <div>
-        <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
-          {session.equipment_family}
-        </p>
-        <h2 className="mt-0.5 text-[20px] font-semibold">
-          Session {session.session_number} — interview
-        </h2>
-        {session.focus_failure_modes.length > 0 && (
-          <p className="mt-1.5 text-[13px] text-muted">
-            Focus: {session.focus_failure_modes.join(", ")}
-          </p>
-        )}
+        <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">{item.equipment_family}</p>
+        <h2 className="mt-0.5 text-[20px] font-semibold">Session {item.session_number} — interview</h2>
       </div>
 
       <div className="flex flex-col gap-6">
         {questions.map((q, i) => (
-          <div key={q.question_id} className="rounded-xl border border-line bg-surface p-5">
-            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-muted">
-              Q{i + 1}
-            </p>
-            <p className="mt-1 text-[15px] font-semibold leading-snug">{q.question_text}</p>
-            {q.context && (
-              <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">{q.context}</p>
-            )}
+          <div key={i} className="rounded-xl border border-line bg-surface p-5">
+            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-muted">Q{i + 1}</p>
+            <p className="mt-1 text-[15px] font-semibold leading-snug">{q}</p>
 
-            <div className="mt-3">
-              {q.question_type === "multiple_choice" && q.options ? (
-                <div className="flex flex-col gap-2" role="group" aria-label={q.question_text}>
-                  {q.options.map((opt) => {
-                    const sel = answers[q.question_id] === opt;
-                    return (
-                      <label
-                        key={opt}
-                        className={cn(
-                          "flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-[13.5px] transition-colors",
-                          sel
-                            ? "border-accent bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] font-semibold text-accent"
-                            : "border-line hover:border-[color-mix(in_srgb,var(--accent)_30%,var(--line))]",
-                        )}
-                      >
-                        <input
-                          type="radio"
-                          name={`q-${q.question_id}`}
-                          value={opt}
-                          checked={sel}
-                          onChange={() =>
-                            setAnswers((a) => ({ ...a, [q.question_id]: opt }))
-                          }
-                          className="sr-only"
-                        />
-                        <span
-                          className={cn(
-                            "grid size-4 shrink-0 place-items-center rounded-full border-2",
-                            sel ? "border-accent bg-accent" : "border-line",
-                          )}
-                          aria-hidden="true"
-                        >
-                          {sel && <span className="size-1.5 rounded-full bg-on-accent" />}
-                        </span>
-                        {opt}
-                      </label>
-                    );
-                  })}
-                </div>
+            <div className="mt-3 flex flex-col gap-3">
+              <textarea
+                value={answers[i] ?? ""}
+                onChange={(e) => setAnswers((a) => ({ ...a, [i]: e.target.value }))}
+                placeholder="Describe your expert knowledge on this topic…"
+                rows={3}
+                aria-label={q}
+                className="w-full resize-none rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-[13.5px] leading-relaxed outline-none focus-visible:border-accent"
+              />
+              {!voiceAnswers[i] ? (
+                <button
+                  type="button"
+                  onClick={() => setVoiceAnswers((v) => ({ ...v, [i]: true }))}
+                  className="inline-flex items-center gap-1.5 text-[12px] font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+                >
+                  <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                    <path d="M12 1a4 4 0 0 0-4 4v7a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4z" />
+                    <path d="M19 11a7 7 0 0 1-14 0M12 18v3" />
+                  </svg>
+                  Use voice instead
+                </button>
               ) : (
-                <div className="flex flex-col gap-3">
-                  <textarea
-                    value={answers[q.question_id] ?? ""}
-                    onChange={(e) =>
-                      setAnswers((a) => ({ ...a, [q.question_id]: e.target.value }))
-                    }
-                    placeholder="Describe your expert knowledge on this topic…"
-                    rows={3}
-                    aria-label={q.question_text}
-                    className="w-full resize-none rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-[13.5px] leading-relaxed outline-none focus-visible:border-accent"
-                  />
-                  {/* Voice input option */}
-                  {!voiceAnswers[q.question_id] ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setVoiceAnswers((v) => ({ ...v, [q.question_id]: true }))
-                      }
-                      className="inline-flex items-center gap-1.5 text-[12px] font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent"
-                    >
-                      <svg
-                        className="size-3.5"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M12 1a4 4 0 0 0-4 4v7a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4z" />
-                        <path d="M19 11a7 7 0 0 1-14 0M12 18v3" />
-                      </svg>
-                      Use voice instead
-                    </button>
-                  ) : (
-                    <VoiceRecorder
-                      onBlob={(b) => {
-                        // Voice blobs are noted but text field is the submission path;
-                        // for full voice transcription use the /field/voice route.
-                        setAnswers((a) => ({
-                          ...a,
-                          [q.question_id]:
-                            (a[q.question_id] ?? "") + " [voice recording attached]",
-                        }));
-                        void b; // blob handled server-side via the voice endpoint
-                      }}
-                    />
-                  )}
-                </div>
+                <VoiceRecorder
+                  onBlob={(b) => {
+                    setAnswers((a) => ({ ...a, [i]: (a[i] ?? "") + " [voice recording attached]" }));
+                    void b; // full transcription runs via the /field/voice endpoint
+                  }}
+                />
               )}
             </div>
           </div>
         ))}
       </div>
 
-      <Button
-        variant="primary"
-        onClick={submit}
-        disabled={!allAnswered || submitting}
-        className="mt-2 h-[48px] w-full"
-      >
+      <Button variant="primary" onClick={submit} disabled={!allAnswered || submitting} className="mt-2 h-[48px] w-full">
         {submitting ? "Submitting…" : "Submit session responses"}
       </Button>
     </div>
@@ -263,34 +164,60 @@ function Interview({
 }
 
 export default function OffboardingSessionPage() {
-  const { sessionId } = useParams<{ sessionId: string }>();
+  // The route folder is [sessionId], but the value is a *programme* id.
+  const { sessionId: programmeId } = useParams<{ sessionId: string }>();
   const [programme, setProgramme] = useState<OffboardingProgramme | null>(null);
-  const [questions, setQuestions] = useState<ElicitationQuestion[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [questionsByItem, setQuestionsByItem] = useState<Record<string, string[]>>({});
   const [source, setSource] = useState<"live" | "demo">("demo");
+  const [selectedId, setSelectedId] = useState<string>("");
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    getOffboarding(sessionId).then((r) => {
+    let alive = true;
+    getOffboarding(programmeId).then((r) => {
+      if (!alive) return;
       setProgramme(r.data);
       setSource(r.source);
+      setLoaded(true);
     });
-    getOffboardingQuestions(sessionId).then((r) => setQuestions(r.data));
-  }, [sessionId, refreshKey]);
+    getOffboardingQuestions(programmeId).then((r) => { if (alive) setQuestionsByItem(r.data); });
+    return () => { alive = false; };
+  }, [programmeId, refreshKey]);
 
-  const session = programme?.sessions.find((s) => s.session_id === sessionId);
+  const items = useMemo(() => programme?.session_items ?? [], [programme]);
 
-  if (!programme) {
+  // Derive the active session during render: honour an explicit selection, else
+  // default to the first ready item, else the first item. (No setState-in-effect.)
+  const activeId =
+    selectedId && items.some((s) => s.id === selectedId)
+      ? selectedId
+      : (items.find((s) => s.status === "questions_ready") ?? items[0])?.id ?? "";
+  const active = items.find((s) => s.id === activeId);
+  const activeQuestions = active ? (questionsByItem[active.id] ?? []) : [];
+
+  if (!loaded) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center" aria-label="Loading">
         <span className="inline-flex gap-1.5">
           {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="size-2 animate-bounce rounded-full bg-muted"
-              style={{ animationDelay: `${i * 0.15}s` }}
-            />
+            <span key={i} className="size-2 animate-bounce rounded-full bg-muted" style={{ animationDelay: `${i * 0.15}s` }} />
           ))}
         </span>
+      </div>
+    );
+  }
+
+  if (!programme) {
+    return (
+      <div className="mx-auto max-w-lg px-5 py-16 text-center">
+        <p className="text-[16px] font-semibold">Programme not found</p>
+        <p className="mt-1.5 text-[13px] text-muted">
+          This off-boarding programme doesn&apos;t exist or was cancelled.
+        </p>
+        <Link href="/offboarding" className="mt-4 inline-block text-[13px] font-medium text-accent hover:underline">
+          ← Back to programmes
+        </Link>
       </div>
     );
   }
@@ -298,73 +225,47 @@ export default function OffboardingSessionPage() {
   return (
     <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8">
       <div className="mb-4 flex items-center gap-2 text-[13px] text-muted">
-        <Link href="/offboarding" className="hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
-          Offboarding
-        </Link>
+        <Link href="/offboarding" className="hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">Offboarding</Link>
         <span aria-hidden="true">›</span>
         <span className="text-ink">{programme.personnel_email}</span>
         {source === "demo" && <DemoChip />}
       </div>
 
       <div className="grid gap-6 md:grid-cols-[220px_1fr]">
-        {/* Sidebar — session list */}
         <div className="rounded-xl border border-line bg-surface p-4">
-          <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
-            Sessions
+          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Sessions</p>
+          <p className="mb-3 text-[11px] text-muted">
+            Retires {new Date(programme.retirement_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
           </p>
-          <SessionList sessions={programme.sessions} activeId={sessionId} />
+          <SessionList items={items} activeId={activeId} onSelect={setSelectedId} />
         </div>
 
-        {/* Main — session detail or interview */}
         <div>
-          {!session ? (
-            <p className="text-[14px] text-muted">Session not found.</p>
-          ) : session.status === "questions_ready" && questions.length > 0 ? (
+          {!active ? (
+            <p className="text-[14px] text-muted">No sessions in this programme yet.</p>
+          ) : active.status === "questions_ready" && activeQuestions.length > 0 ? (
             <Interview
-              session={session}
-              questions={questions}
+              programmeId={programmeId}
+              item={active}
+              questions={activeQuestions}
               onDone={() => setRefreshKey((k) => k + 1)}
             />
           ) : (
             <div className="rounded-xl border border-line bg-surface p-6">
-              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
-                {session.equipment_family}
-              </p>
-              <h2 className="mt-0.5 text-[18px] font-semibold">
-                Session {session.session_number}
-              </h2>
+              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">{active.equipment_family}</p>
+              <h2 className="mt-0.5 text-[18px] font-semibold">Session {active.session_number}</h2>
               <p className="mt-1 text-[13px] text-muted">
-                Scheduled:{" "}
-                {new Date(session.scheduled_date).toLocaleDateString("en-IN", {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })}
+                Scheduled: {new Date(active.scheduled_for).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}
               </p>
               <div className="mt-4">
-                {session.status === "pending" ? (
+                {active.status === "pending" ? (
                   <StatusBadge tone="neutral">Pending — questions not yet generated</StatusBadge>
-                ) : session.status === "completed" ? (
+                ) : active.status === "completed" ? (
                   <StatusBadge tone="verified">Completed</StatusBadge>
                 ) : (
                   <StatusBadge tone="info">Ready</StatusBadge>
                 )}
               </div>
-              {session.focus_failure_modes.length > 0 && (
-                <div className="mt-4">
-                  <p className="text-[12px] font-semibold text-muted">Focus failure modes</p>
-                  <ul className="mt-1.5 flex flex-wrap gap-1.5">
-                    {session.focus_failure_modes.map((m) => (
-                      <li
-                        key={m}
-                        className="rounded-md border border-line bg-surface-2 px-2 py-1 text-[12px]"
-                      >
-                        {m}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </div>
           )}
         </div>

@@ -142,12 +142,13 @@ export interface Fetched<T> {
   source: DataSource;
 }
 
-async function getJson<T>(path: string): Promise<T> {
+// Default 1500ms fails fast so a down/hanging backend falls back to fixtures quickly.
+// Endpoints that hit slow Supabase queries and have no fixture pass a longer timeout.
+async function getJson<T>(path: string, timeoutMs = 1500): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
     headers: { Accept: "application/json" },
-    // fail fast so a down/hanging backend falls back to fixtures quickly (refused = instant already)
-    signal: AbortSignal.timeout(1500),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
   return (await res.json()) as T;
@@ -550,7 +551,9 @@ export function createOffboarding(body: {
 
 export async function getOffboardingList(): Promise<Fetched<OffboardingProgramme[]>> {
   try {
-    const data = await getJson<OffboardingProgramme[]>("/elicitation/offboarding");
+    // Backend returns { items, total }; tolerate a bare array too.
+    const res = await getJson<{ items?: OffboardingProgramme[] } | OffboardingProgramme[]>("/elicitation/offboarding", 6000);
+    const data = Array.isArray(res) ? res : (res.items ?? []);
     return { data, source: "live" };
   } catch {
     return { data: [], source: "demo" };
@@ -559,29 +562,40 @@ export async function getOffboardingList(): Promise<Fetched<OffboardingProgramme
 
 export async function getOffboarding(programmeId: string): Promise<Fetched<OffboardingProgramme | null>> {
   try {
-    const data = await getJson<OffboardingProgramme>(`/elicitation/offboarding/${programmeId}`);
+    const data = await getJson<OffboardingProgramme>(`/elicitation/offboarding/${programmeId}`, 6000);
     return { data, source: "live" };
   } catch {
     return { data: null, source: "demo" };
   }
 }
 
-export async function getOffboardingQuestions(sessionId: string): Promise<Fetched<ElicitationQuestion[]>> {
+// Backend returns { items: [{ id, questions, ... }] }, where `questions` is a plain
+// string[] of question texts (not structured ElicitationQuestion objects). Normalize
+// into a map keyed by session-item id.
+export async function getOffboardingQuestions(programmeId: string): Promise<Fetched<Record<string, string[]>>> {
   try {
-    const data = await getJson<ElicitationQuestion[]>(`/elicitation/offboarding/${sessionId}/questions`);
-    return { data, source: "live" };
+    const raw = await getJson<{ items?: Array<{ id: string; questions?: string[] }> }>(
+      `/elicitation/offboarding/${programmeId}/questions`,
+      6000,
+    );
+    const map: Record<string, string[]> = {};
+    for (const it of raw.items ?? []) map[it.id] = it.questions ?? [];
+    return { data: map, source: "live" };
   } catch {
-    return { data: [], source: "demo" };
+    return { data: {}, source: "demo" };
   }
 }
 
+// POST /offboarding/{programme_id}/responses — item_id in body; responses are
+// [{question_index, answer}] (questions are positional strings).
 export function submitOffboardingResponses(
-  sessionId: string,
-  responses: Array<{ question_id: string; answer: string }>,
+  programmeId: string,
+  itemId: string,
+  responses: Array<{ question_index: number; answer: string }>,
 ) {
   return postJson<{ status: string; items_queued: number }>(
-    `/elicitation/offboarding/${sessionId}/responses`,
-    { responses },
+    `/elicitation/offboarding/${programmeId}/responses`,
+    { item_id: itemId, responses },
   );
 }
 

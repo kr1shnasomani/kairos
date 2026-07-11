@@ -78,10 +78,12 @@ kairos/                          # repo root
 │   │   ├── init_qdrant.py           # Qdrant collection creation
 │   │   ├── run_model_validation.py  # Manual model gate trigger script
 │   │   ├── load_demo_dataset.py     # Load dataset/ via the real API pipeline (`make load-dataset`)
-│   │   └── purge_test_data.py       # Delete test-prefixed rows from all stores (`make purge-test-data`)
+│   │   ├── purge_test_data.py       # Delete test-prefixed rows from all stores (`make purge-test-data`)
+│   │   └── wipe_local_stores.py     # Empty Neo4j + ES + Qdrant entirely (`make wipe-local` / `reset-local`)
 │   └── requirements.txt
 ├── db/                          # Database schemas (mounted into Python containers)
-│   ├── migrations/              # Supabase SQL migrations (001–015)
+│   ├── schema.sql               # Consolidated Supabase schema — single source of truth (001–016 folded in)
+│   ├── maintenance/             # Ad-hoc operational SQL (purge · reset) + CHANGELOG.md (tracked runs)
 │   └── neo4j/init_schema.cypher # Neo4j constraints + indices
 ├── fixtures/                    # Shared mock data (mounted into Python containers)
 │   └── pid_topology_mock.json
@@ -532,9 +534,9 @@ Basic Auth via `PI_WEBAPI_USERNAME` / `PI_WEBAPI_PASSWORD`.
 
 ## 10. Database Schemas
 
-### Supabase PostgreSQL (migrations in `db/migrations/`)
+### Supabase PostgreSQL (single source of truth: `db/schema.sql`)
 
-Migrations 001–015:
+All 16 historical migrations (001–016) are folded into `db/schema.sql` — apply that one file to a fresh database. The live applied history is tracked by Supabase itself in `supabase_migrations.schema_migrations`. The tables:
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|

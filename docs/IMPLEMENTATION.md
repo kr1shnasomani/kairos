@@ -2,7 +2,9 @@
 
 ## Current State
 
-Every router, worker, service, and Go handler has a correct stub (signature, models, docstrings) but no real logic. DB schemas (Supabase SQL + Neo4j Cypher) are written and ready to apply. Docker stack is fully operational. The implementation work is writing the real bodies that connect all pieces end-to-end.
+**Implemented and verified.** Every router, worker, service, and Go handler below is fully wired end-to-end against the five datastores — this document is now the *reference* for how each piece was built, not a to-do list. The API serves live data across all domains (assets, briefs, copilot, RCA, governance, compliance, events), the Temporal document pipeline runs, and the golden dataset loads through the real ingestion path (10 assets, 20 documents, 4 events, 1 voice note). DB schemas are applied and consolidated into `db/schema.sql`. Integration suite: 150 passing, self-cleaning on teardown.
+
+The task breakdown that follows records the objective, endpoints, and verification step for each backend capability, in the order it was built.
 
 ---
 

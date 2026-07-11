@@ -448,25 +448,30 @@ export interface ElicitationSession {
 // --- Offboarding (GET /elicitation/offboarding) ---
 export type OffboardingSessionStatus = "pending" | "questions_ready" | "completed";
 
-export interface OffboardingSession {
-  session_id: string;
-  programme_id: string;
+// One equipment-family session within a programme (backend: offboarding_session_items row).
+export interface OffboardingSessionItem {
+  id: string;
   session_number: number;
   equipment_family: string;
-  focus_failure_modes: string[];
-  scheduled_date: string;
   status: OffboardingSessionStatus;
+  scheduled_for: string;
+  completed_at?: string | null;
 }
 
+// GET /elicitation/offboarding (list) → items without session_items but with completion.
+// GET /elicitation/offboarding/{id} (detail) → adds session_items, session_interval_days.
 export interface OffboardingProgramme {
-  programme_id: string;
+  id: string;
   personnel_id: string;
   personnel_email: string;
   retirement_date: string;
-  sessions: OffboardingSession[];
-  sessions_completed: number;
-  sessions_total: number;
+  total_sessions: number;
+  status: string;
   created_at: string;
+  sessions_completed?: number;      // list endpoint only
+  completion_pct?: number;          // list endpoint only
+  session_interval_days?: number;   // detail endpoint only
+  session_items?: OffboardingSessionItem[]; // detail endpoint only
 }
 
 // --- Operational events (GET /events/{id}, POST /events/*) ---

@@ -1,0 +1,138 @@
+"use client";
+
+import { useState } from "react";
+import { VoiceRecorder } from "@/components/voice-recorder";
+import { submitVoiceNote } from "@/lib/api";
+import { DemoChip } from "@/components/ui";
+
+type Stage = "record" | "submitting" | "done" | "error";
+
+// Ad-hoc voice capture reached from the field bottom-tab (no work order in the
+// URL). The observation is tagged to an asset/work-order the worker types, then
+// routed to the knowledge quarantine — same pipeline as the deep-linked page.
+export default function VoiceCapturePage() {
+  const [tag, setTag] = useState("");
+  const [stage, setStage] = useState<Stage>("record");
+  const [taskId, setTaskId] = useState<string | null>(null);
+  const [blob, setBlob] = useState<Blob | null>(null);
+
+  async function submit() {
+    if (!blob || !tag.trim()) return;
+    setStage("submitting");
+    try {
+      const res = await submitVoiceNote(tag.trim(), blob, "field_user");
+      setTaskId(res.task_id);
+      setStage("done");
+    } catch {
+      setStage("error");
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-md px-5 pb-8 pt-6">
+      <header className="mb-6">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Field capture</p>
+        <h1 className="mt-0.5 text-[20px] font-semibold">Voice note</h1>
+        <p className="mt-1.5 text-[13px] text-muted">
+          Record a field observation. Transcribed by Whisper and routed to the knowledge quarantine
+          for engineering review.
+        </p>
+      </header>
+
+      {stage === "record" && (
+        <div className="flex flex-col gap-5">
+          <div>
+            <label htmlFor="voice-tag" className="text-[12px] font-semibold text-ink">
+              Asset / work-order tag <span className="text-danger">*</span>
+            </label>
+            <input
+              id="voice-tag"
+              value={tag}
+              onChange={(e) => setTag(e.target.value)}
+              placeholder="e.g. P-101 or WO-2024-118"
+              className="mt-1.5 h-11 w-full rounded-xl border border-line bg-surface px-3.5 text-[15px] text-ink placeholder:text-muted focus-visible:outline-2 focus-visible:outline-accent"
+            />
+          </div>
+
+          <div className="flex flex-col items-center gap-6 py-4">
+            <VoiceRecorder onBlob={setBlob} />
+            {blob && (
+              <button
+                onClick={submit}
+                disabled={!tag.trim()}
+                className="h-[52px] w-full rounded-xl bg-accent text-[15px] font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                {tag.trim() ? "Submit for transcription" : "Enter a tag to submit"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {stage === "submitting" && (
+        <div className="flex min-h-[200px] flex-col items-center justify-center gap-3">
+          <span className="inline-flex gap-1.5">
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className="size-2 animate-bounce rounded-full bg-muted"
+                style={{ animationDelay: `${i * 0.15}s` }}
+              />
+            ))}
+          </span>
+          <p className="text-[13px] text-muted">Uploading…</p>
+        </div>
+      )}
+
+      {stage === "done" && (
+        <div className="flex flex-col items-center py-8 text-center">
+          <div className="mx-auto grid size-14 place-items-center rounded-full bg-[color-mix(in_srgb,var(--verified)_12%,transparent)]">
+            <svg
+              className="size-7 text-verified"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          </div>
+          <h2 className="mt-4 text-[18px] font-semibold">Submitted</h2>
+          <p className="mt-2 text-[13px] text-muted">
+            Transcription is processing.
+            {taskId && (
+              <> Task <span className="tabular font-medium text-ink">{taskId}</span>.</>
+            )}{" "}
+            The result will appear in the knowledge quarantine once complete.
+          </p>
+          <button
+            onClick={() => { setStage("record"); setBlob(null); setTag(""); }}
+            className="mt-4 rounded-lg border border-line px-4 py-2 text-[13px] font-medium text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            Record another
+          </button>
+        </div>
+      )}
+
+      {stage === "error" && (
+        <div className="rounded-xl border border-[color-mix(in_srgb,var(--danger)_30%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] p-4 text-center">
+          <p className="text-[13.5px] font-semibold text-danger">Submission failed</p>
+          <p className="mt-1 text-[12.5px] text-muted">Check your connection and try again.</p>
+          <button
+            onClick={() => setStage("record")}
+            className="mt-3 rounded-lg border border-line px-4 py-2 text-[13px] font-medium text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      <div className="mt-6 flex justify-center">
+        <DemoChip />
+      </div>
+    </div>
+  );
+}
