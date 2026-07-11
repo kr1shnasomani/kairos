@@ -1,15 +1,16 @@
 # Supabase Maintenance Log
 
 A running record of ad-hoc SQL run directly against the live Supabase project
-(`ernffgrvdcikwwhkhiix`) — the operations that are **not** schema migrations
-(those live in `db/migrations/`). Each entry: date, what, why, and the script.
+(`ernffgrvdcikwwhkhiix`) — the operations that are **not** schema changes
+(those live in `db/schema.sql`). Each entry: date, what, why, and the script.
 
 | Date | Operation | Rows affected | Script |
 |---|---|---|---|
-| 2026-07-10 | Purge integration-test residue (`ASSET-TEST/DEDUP/EV/ACK-*`, `WO-*`, `DOC-*`) across 14 tables | ~421 deleted | [`purge_test_data.sql`](./purge_test_data.sql) |
-| 2026-07-10 | Applied `016_vault_audio_mime` — allow `audio/*` on `kairos-vault` (voice notes were failing `invalid_mime_type`) | 1 bucket updated | [`../migrations/016_vault_audio_mime.sql`](../migrations/016_vault_audio_mime.sql) |
+| 2026-07-10 | Purge integration-test residue (`ASSET-TEST/DEDUP/EV/ACK-*`, `WO-*`, `DOC-*`) across 14 tables | ~421 deleted | retired — now `scripts/purge_test_data.py` (all stores) |
+| 2026-07-10 | Applied `016_vault_audio_mime` — allow `audio/*` on `kairos-vault` (voice notes were failing `invalid_mime_type`) | 1 bucket updated | folded into `../schema.sql` |
 | 2026-07-10 | Loaded golden dataset via `scripts/load_demo_dataset.py` (10 assets, 4 events + deviation, 20 docs, 1 voice) | — | n/a (API pipeline) |
 | 2026-07-10 | **Full reset** — TRUNCATE every `public` table (schema + auth kept) to wipe all accumulated dev/test data | all domain rows | [`reset_all_data.sql`](./reset_all_data.sql) |
+| 2026-07-11 | Registered demo off-boarding programme (`ramesh.kumar@kairos.local`, 5 sessions) | 1 programme + 5 items | n/a (API pipeline — now seeded by `load_demo_dataset.py`) |
 
 ## Notes
 

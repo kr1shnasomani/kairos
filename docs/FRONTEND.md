@@ -473,14 +473,17 @@ writes made offline are queued and flushed on the `online` event; the queued cou
 
 ---
 
-## 16. Remaining Work
+## 16. Intentional Non-Goals
 
-| Item | Notes |
-|------|-------|
-| Bearer token on SSR reads | Server components rely on backend dev-bypass. Wire `getToken()` for SSR when `NEXT_PUBLIC_AUTH_STRICT=true` |
-| `/management/cross-site` live data | Cross-site aggregation API is a Layer-13 roadmap item; page renders curated fixtures with a DemoChip |
-| Cross-site live data | `/management/cross-site` renders curated fixtures with a DemoChip; the Layer-13 aggregation API is a roadmap item |
+These are deliberate decisions, not open gaps — the UI handles each honestly today:
+
+| Item | Decision |
+|------|----------|
+| `/management/cross-site` live data | Cross-site pattern aggregation is a **Layer-13 roadmap** feature and needs multi-site data (the demo is single-site). The page renders curated fixtures behind a **DemoChip** — honest, not broken. |
+| SSR bearer token | Server components use the backend **dev-bypass** on purpose (fast, demo-friendly). Wire `getToken()` through SSR only if a strict-auth deployment needs it. |
+| Offline app-shell | **Prod-only by design** — the service worker is disabled in dev (it fought HMR). The IndexedDB write-queue (`idb.ts`) works in dev. |
 
 **Browser verification:** ✅ complete. Every desktop route + all field routes verified against the golden
-dataset (admin + `field_worker` sessions). Six live-data crashes were found and fixed during the sweep —
-see the response-normalizer note in §6 and `AGENTS.md` "Known Pitfalls".
+dataset (admin + `field_worker` sessions). Seven live-data crashes were found and fixed during the sweep
+(now guarded by `tests/test_contract.py`) — see the response-normalizer note in §6 and `AGENTS.md`
+"Known Pitfalls".

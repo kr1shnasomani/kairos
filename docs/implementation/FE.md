@@ -1,6 +1,6 @@
 # KAIROS — Frontend Implementation Plan
 
-> The contract for the point-of-action interface layer (ARCHITECTURE.md Layer 12). This document is to the frontend what `docs/IMPLEMENTATION.md` is to the backend: a fully-scoped, task-by-task build plan traceable to the architecture. Every task names the files it touches, the API calls it makes, the architecture layer it serves, and a verification step. Nothing in the architecture's interface surface is left unscoped.
+> The contract for the point-of-action interface layer (ARCHITECTURE.md Layer 12). This document is to the frontend what `docs/implementation/BE.md` is to the backend: a fully-scoped, task-by-task build plan traceable to the architecture. Every task names the files it touches, the API calls it makes, the architecture layer it serves, and a verification step. Nothing in the architecture's interface surface is left unscoped.
 
 ---
 
@@ -34,7 +34,7 @@ The frontend is a Next.js 16 / React 19 / Tailwind v4 app (`frontend/`) with **a
 
 ## Format Conventions & Ground Rules
 
-- Every task follows IMPLEMENTATION.md shape: **Objective → steps (files / components / API calls) → Test.**
+- Every task follows the `BE.md` shape: **Objective → steps (files / components / API calls) → Test.**
 - Each task tags its **architecture layer(s)** and, where scope is cut for the MVP, carries a `ponytail:` note naming the leaner choice and the upgrade path.
 - **Phase mapping:** the interface must reflect the trust arc — Phase 1 (retrieval), Phase 2 (assisted synthesis + feedback), Phase 3 (governed proactive). Features gate on phase where the architecture says so.
 - **No new dependency** unless a task names it. The only pre-approved addition is a graph renderer (React Flow) for Task 15; charts are pure SVG/CSS; voice uses the native `MediaRecorder` API; offline uses the native Service Worker + IndexedDB — no libraries.

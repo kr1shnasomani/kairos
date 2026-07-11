@@ -490,13 +490,20 @@ The table below is the **schema-evolution changelog** — what each of the 16 fo
 
 ### Maintenance & data hygiene
 
-Ad-hoc operational SQL (not schema changes) lives in `db/maintenance/`, with a running log in
-`db/maintenance/CHANGELOG.md`. Integration tests create entities with known prefixes
-(`ASSET-TEST/DEDUP/EV/ACK-*`, `WO-*`, `DOC-*`); to keep the DB clean:
+`db/maintenance/` holds SQL you run **directly against cloud Supabase** — operations that
+`make nuke` cannot do, because `make nuke` only wipes the *local* Docker volumes (Neo4j, ES,
+Qdrant, Redis), never the hosted Supabase Postgres. Two files:
 
-- `db/maintenance/purge_test_data.sql` — FK-safe Supabase purge (applied 2026-07-10, ~421 rows).
-- `make purge-test-data` — runs `scripts/purge_test_data.py`, clearing the same residue from
-  **Neo4j + Supabase + Elasticsearch**. The test suite also purges its own residue on teardown.
+- **`reset_all_data.sql`** — `TRUNCATE` every `public` table (schema + auth kept). The only way to
+  return the cloud database to a blank slate; run it via the Supabase SQL editor or MCP.
+- **`CHANGELOG.md`** — a running log of every ad-hoc SQL/operation applied to the live project, so
+  the hosted state is never a mystery.
+
+For routine test-residue cleanup use the scripts, not raw SQL:
+
+- `make purge-test-data` → `scripts/purge_test_data.py` clears test-prefixed rows
+  (`ASSET-TEST/DEDUP/EV/ACK-*`, `WO-*`, `DOC-*`) from **Neo4j + Supabase + Elasticsearch** in one go.
+- The integration suite also purges its own residue automatically on teardown (`conftest.py`).
 
 ---
 

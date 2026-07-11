@@ -60,10 +60,13 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 | Problem statement | `docs/PROBLEM_STATEMENT.md` |
 | 13-layer architecture | `docs/ARCHITECTURE.md` |
 | REST API reference | `docs/API.md` |
-| Backend & infra | `docs/BACKEND.md` |
+| Backend services · workers · models · config | `docs/BACKEND.md` |
+| Infra: containers · ports · stores · observability · dev cmds | `docs/INFRA.md` |
+| Backend implementation plan | `docs/implementation/BE.md` |
 | Database schemas | `docs/DATABASE.md` |
 | Frontend routes & wiring | `docs/FRONTEND.md` |
-| **Frontend implementation plan** | **`docs/FE_IMP.md`** |
+| **Frontend implementation plan** | **`docs/implementation/FE.md`** |
+| Mock-data fallbacks + demo chip | `docs/FIXTURES.md` |
 | Integration test suite | `docs/TESTS.md` |
 | Golden demo dataset + loader | `docs/DATASET.md` |
 
@@ -81,17 +84,8 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 
 ## Dev Commands
 
-```bash
-make dev / stop / nuke / init-all / logs / ps
-make seed                 # seed_regulations.py + seed_users.py
-make load-dataset         # load dataset/ through the real pipeline (ARGS=--fast to skip docs)
-make purge-test-data      # delete ASSET-TEST/DEDUP/EV/ACK-*, WO-*, DOC-* from every store
-docker compose up -d --no-deps --build kairos-frontend          # new npm deps only
-docker compose up -d --no-deps --force-recreate kairos-backend-api  # NIM env changes
-docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120
-```
-
-After `make nuke`: `make dev` → `make init-all` → `make seed` → `make load-dataset`
+Full list: `docs/INFRA.md §9`. Reset to clean state: `make nuke → dev → init-all → seed → load-dataset`.
+Gotcha rebuilds: `docker compose up -d --no-deps --build kairos-frontend` (new npm deps) · `--force-recreate kairos-backend-api` (NIM env). Tests: `docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120`.
 
 ---
 
@@ -145,16 +139,14 @@ After `make nuke`: `make dev` → `make init-all` → `make seed` → `make load
 | eslint `react-hooks/purity` | No `Date.now()`/`new Date()` in render — move clock reads to `lib/utils.ts` (e.g. `nowMs`, `slaCountdown`) |
 | eslint `set-state-in-effect` | Wrap async fetch in a `load()`; for mount-once DOM/token sync, scoped `eslint-disable` with a reason |
 | DB junk from tests | Suite purges on teardown; `make purge-test-data` or full rebuild — never UI-filter test rows |
-| `GET /compliance/dashboard` `total_gaps` | Backend returns `{critical,major,minor}` object, not a number — sum the keys; never render it directly. `ComplianceDashboard` type in `types.ts` reflects this. |
-| **Frontend types must mirror the real backend contract** | Several FE types were built speculatively and crashed on live data. Verify against a live `curl` before trusting. Fixed: `SlaReport` (backend is an *escalation* report: `overdue_conflicts[]` + `overdue_quarantine_items[]` + `overdue_*_total` + `escalated_this_run` + `checked_at`; NO on-time/total tallies), `CircuitBreakerState` (`{states[], halted_count}`, entry `halted` is boolean not `status`), `ValidationCorpusStats` (`{total_corpus_size, by_entity_type, last_updated_at}` — NO `by_asset_class`). Guard array reads with `?? []` — `x?.arr.length` still throws when `arr` is undefined. |
-| Blast-radius / topology API is nested | `/governance/blast-radius/{id}` returns `affected:[{edge,target}]` and `/documents/{id}/topology` returns `{topology:{equipment_nodes,isolation_valves,isolation_boundaries,instrumentation_loops}}` — both normalised to the flat `{items}`/`{nodes,edges}` UI shape **inside the `api.ts` fetcher** (adapter pattern), so components stay dumb. |
-| Service worker refresh loop | `public/sw.js` must be registered **production-only** (`app-shell.tsx` gates on `NODE_ENV`; dev actively unregisters). Navigations are **network-first** (cache is offline fallback only) — a cached HTML shell + changed chunk hashes = infinite reload. Bump `SHELL` cache version to bust a poisoned cache. |
-| Turbopack dev 404s-everything | A tight reload loop (e.g. the SW bug above) can corrupt the dev route manifest → every `(app)/*` route 404s while `/` still 307s. `docker restart kairos-frontend` clears it; it is not a code bug. |
-| API boot race on ES | `kairos-backend-api` calls `ensure_indices()` on startup and **exits** if Elasticsearch isn't ready yet. After `make dev`, if the API is down, `docker restart kairos-backend-api` once ES is healthy. |
-| `POST /search/rca-pack` is slow (~90s) | NIM 70B synthesis. Returns 200 with empty `timeline`/`hypotheses` + `synthesis_available:false` when the graph lacks history — the RCA page shows "Synthesis unavailable" honestly (no fabrication). Not a bug. |
-| Off-boarding shapes (fully aligned 2026-07-11) | Backend truth: list `{items,total}` (items use `id`, `total_sessions`, `sessions_completed`, `completion_pct`); detail adds `session_items[]` (`id`, `session_number`, `equipment_family`, `status`, `scheduled_for`); the route param `[sessionId]` is really the **programme id** (select session items in-page, don't route per item); questions are a **`string[]`** per item (not structured `ElicitationQuestion`); responses POST `{item_id, responses:[{question_index, answer}]}` to `/offboarding/{programme_id}/responses`. Frontend types + both pages now match. Detail fetches use a **6 s** `getJson` timeout (slow Supabase + per-item counts blew the default 1500 ms → false "not found" / empty questions). Loader seeds a demo programme (`create_offboarding`), so the flow is demoable. |
-| Field routes need `field_worker` role + mobile | Field *pages* have NO role gate (accessible to any auth'd user) and render at mobile viewport. Only the `FieldBottomTabs` nav chrome is gated (`FIELD_ROLES=["field_worker"]` in `use-role.ts`, `isField` in `app-shell.tsx`). **Verified** via `field_worker@kairos.local` login: tabs = Briefs · Copilot · Assets · Voice · **Me (= sign-out)**. The "Voice" tab links to bare `/field/voice` — added a `field/voice/page.tsx` index (ad-hoc capture, asset/WO tag input) since only `[workOrderId]` existed (was a dead 404 link). |
-| Offline shell (Task 11) is prod-only | The SW is now registered production-only (dev refresh-loop fix), so app-shell offline caching only works in a prod build. The IndexedDB write queue (`idb.ts` / `OfflineQueue`) is app-level and still works in dev. |
+| FE type drift (root of most bugs) | FE types were built speculatively and crashed on live data. Verify shapes against live `curl`; `x?.arr.length` still throws when `arr` undefined — guard `?? []`. Fixed: `compliance/dashboard.total_gaps` = `{critical,major,minor}` object (not a number); `SlaReport` = escalation report (`overdue_quarantine_items`, `overdue_*_total`, no on-time tallies); `CircuitBreakerState` = `{states[],halted_count}`, `halted` bool; `ValidationCorpusStats` has no `by_asset_class`. **Now guarded by `tests/test_contract.py`.** |
+| Blast-radius / topology are nested | `blast-radius/{id}` → `affected:[{edge,target}]`; `documents/{id}/topology` → nested `topology.{equipment_nodes,isolation_valves,isolation_boundaries,instrumentation_loops}`. Both flattened to the UI shape **inside the `api.ts` fetcher** (adapter). Guarded by `test_contract.py`. |
+| Service-worker refresh loop | `public/sw.js` registered **production-only** (`app-shell.tsx` gates on `NODE_ENV`, unregisters in dev); navigations network-first. A dev-cached shell + changed chunk hashes = infinite reload. Bump `SHELL` cache version to bust. |
+| Turbopack dev 404s-everything | A tight reload loop can corrupt the dev route manifest → all `(app)/*` 404 while `/` 307s. `docker restart kairos-frontend` clears it; not a code bug. |
+| API boot race on ES | `kairos-backend-api` runs `ensure_indices()` at startup and **exits** if ES isn't ready. If the API is down after `make dev`, `docker restart kairos-backend-api` once ES is healthy. |
+| `POST /search/rca-pack` slow (~90s) | NIM 70B; returns empty + `synthesis_available:false` when the graph lacks history → RCA page shows honest "Synthesis unavailable". Not a bug. |
+| Off-boarding shapes | List `{items,total}` (item `id`/`total_sessions`); detail adds `session_items[]`. Route `[sessionId]` = **programme id** (select items in-page). Questions are `string[]`; responses `{item_id, responses:[{question_index,answer}]}`. Detail fetch uses a 6 s timeout (slow Supabase). Loader seeds a demo programme. |
+| Field routes | Field *pages* have no role gate (render for any auth'd user); only `FieldBottomTabs` is `field_worker`-gated (`use-role.ts`). Tabs: Briefs·Copilot·Assets·Voice·**Me (=sign-out)**. `/field/voice` has its own index page. SW offline is prod-only; the IndexedDB write queue (`idb.ts`) is app-level, works in dev. |
 
 ---
 
@@ -180,56 +172,11 @@ After `make nuke`: `make dev` → `make init-all` → `make seed` → `make load
 
 ## Frontend Build Status
 
-| Tasks | Components | TypeScript | Browser verified |
-|---|---|---|---|
-| 1–4 Foundation (types · api · globals.css · layout · theme) | `ui.tsx` · `theme-toggle.tsx` · `app-shell.tsx` | ✅ clean | ✅ verified |
-| 5–7 Field core (briefs page · inbox · card · detail) | `brief-inbox.tsx` · `brief-card.tsx` · `brief-detail.tsx` | ✅ clean | ✅ verified |
-| 8 Elicitation micro-interview | `field/elicitation/[workOrderId]/page.tsx` | ✅ clean | ✅ verified (mobile, flow works) |
-| 8b Off-boarding knowledge transfer | `offboarding/page.tsx` · `offboarding/[sessionId]/page.tsx` | ✅ clean | ✅ verified end-to-end (list · detail · interview · submit; seeded demo programme) |
-| 9 Voice note capture | `VoiceRecorder` component | ✅ clean | ✅ verified (mobile, recorder renders) |
-| 10 Deviation flag | `field/deviation/page.tsx` | ✅ clean | ✅ verified (mobile, form renders) |
-| 11 Offline shell + sync queue | Service Worker · IndexedDB · `OfflineQueue` | ✅ clean | ✅ FieldBottomTabs verified (field_worker) · SW offline prod-only |
-| 12 Voice search / Copilot voice | `VoiceRecorder` integration in copilot | ✅ clean | ✅ verified (same recorder) |
-| 13 Copilot phase-gated synthesis | `copilot/page.tsx` with `RefusalCard` | ✅ clean | ✅ verified |
-| 14 Inline annotation | `AnnotationPanel` · `POST /annotations` | ✅ clean | ✅ verified (on doc detail) |
-| 15 Knowledge graph canvas | `knowledge-graph.tsx` (React Flow) | ✅ clean | ✅ verified |
-| 16 Time-travel timeline | time-travel input on `graph/page.tsx` | ✅ clean | ✅ verified |
-| 17 P&ID topology viewer | `topology/page.tsx` · `blast-radius-panel.tsx` | ✅ clean | ✅ verified (fixed) |
-| 18 Asset bootstrap | `assets/bootstrap/page.tsx` | ✅ clean | ✅ verified |
-| 19 Document comparison | `documents/compare/page.tsx` | ✅ clean | ✅ verified |
-| 20 Document detail depth | `documents/[id]/page.tsx` enhancements | ✅ clean | ✅ verified (fixed) |
-| 20b Document ingestion | `documents/ingest/page.tsx` | ✅ clean | ✅ verified |
-| 20c MDM identity confirmation | `assets/bootstrap/page.tsx` MDM section | ✅ clean | ✅ verified |
-| 21 Governance conflicts depth | `governance/conflicts/page.tsx` | ✅ clean | ✅ verified |
-| 22 Quarantine reviewer UI | `governance/quarantine/page.tsx` | ✅ clean | ✅ verified |
-| 23 Timestamp drift review | `audit/page.tsx` filtered view | ✅ clean | ✅ verified |
-| 24 Compliance cockpit | `compliance/page.tsx` · `compliance/audit-pack/page.tsx` | ✅ clean | ✅ verified |
-| 25 Audit-pack assembly | `compliance/audit-pack/page.tsx` | ✅ clean | ✅ verified |
-| 26 Non-conformance tracking | `compliance/nonconformance/page.tsx` | ✅ clean | ✅ verified |
-| 27 MoC UI | `governance/moc/page.tsx` · `governance/moc/[id]/page.tsx` | ✅ clean | ✅ verified |
-| 28 SLA report | `governance/sla/page.tsx` | ✅ clean | ✅ verified (fixed) |
-| 29 Circuit breaker | `governance/circuit-breaker/page.tsx` | ✅ clean | ✅ verified (fixed) |
-| 30 Model gate | `governance/model-gate/page.tsx` | ✅ clean | ✅ verified (fixed) |
-| 31 Governance index | `governance/page.tsx` — all 6 surfaces live | ✅ clean | ✅ verified |
-| 32 Management overview | `management/page.tsx` — live KPIs, parallel fetch | ✅ clean | ✅ verified |
-| 33 Cross-site alerts | `management/cross-site/page.tsx` | ✅ clean | ✅ verified |
-| 34 Plant-state control | `management/plant-state/page.tsx` — admin-gated 2-step confirm | ✅ clean | ✅ verified |
-| 35 Event surfaces | `events/page.tsx` · `events/[id]/page.tsx` | ✅ clean | ✅ verified |
-| 36 A11y + responsive + multi-script sweep | Devanagari font stack · aria-labels · audit/quarantine/moc fixes | ✅ clean | ✅ verified (via shell) |
-| 31b Project & procurement registry (FE_IMP Task 31) | `projects/page.tsx` — composes documents+assets+events by equipment class | ✅ clean | ✅ verified |
-| — RCA workspace | `rca/page.tsx` — honest "synthesis unavailable" when graph lacks history | ✅ clean | ✅ verified |
+All FE tasks (1–36 + projects registry + RCA) are **built, `tsc`/`eslint`-clean, `next build` passes, and browser-verified** against the golden dataset — desktop routes via admin/engineer, field routes 8–12 via a real `field_worker` session at mobile width (FieldBottomTabs confirmed). Per-task plan + verification steps: `docs/implementation/FE.md`.
 
-> **Status note (2026-07-11):** Full admin-account browser sweep complete — every desktop route now verified against the golden dataset (10 assets, 20 docs). Six live crashes found + fixed this pass (all frontend-type-vs-backend-contract mismatches, plus one infra bug):
-> 1. **Service-worker refresh loop** — the PWA SW cached the app shell and fought HMR in dev → infinite reload (looked like "page won't load, only refreshes"). Fixed: SW registers **production-only** + unregisters in dev (`app-shell.tsx`); `sw.js` navigations are now **network-first** with `SHELL` bumped to v2. A side effect had corrupted the Turbopack route manifest (all `(app)/*` → 404); `docker restart kairos-frontend` cleared it.
-> 2. **SLA report** crashed (`overdue_quarantine` undefined) — backend is an escalation report (`overdue_quarantine_items`, `overdue_*_total`, `escalated_this_run`, no on-time tallies). Rewrote `SlaReport` type + page.
-> 3. **Circuit breaker** crashed (`state.entries` undefined) — backend is `{states[], halted_count}` with boolean `halted`. Rewrote type + page.
-> 4. **Model gate** crashed (`Object.entries(corpus.by_asset_class)`) — corpus is `{total_corpus_size, by_entity_type, last_updated_at}`, no `by_asset_class`. Rewrote type + page.
-> 5. **Blast radius** (doc + asset detail) crashed (`report.items` undefined) — backend `affected:[{edge,target}]`; normalised in the `getBlastRadius` fetcher.
-> 6. **P&ID topology** crashed (`topo.nodes` undefined) — backend groups elements into 4 category arrays; normalised into `{nodes,edges}` in the `getDocumentTopology` fetcher (synthesises boundary→valve/bleed edges).
->
-> Field routes (8–12) still require a `field_worker` role + mobile viewport (deferred to the multi-account pass). Frontend CI green: `tsc` (0) + `eslint` (0 errors, 10 warnings) + `next build` all pass.
+Verification surfaced 7 live-data crashes — all frontend-type-vs-backend-contract mismatches (compliance-dashboard, SLA, circuit-breaker, model-gate, blast-radius, topology, offboarding) plus a prod-only service-worker fix. Root causes are in Known Pitfalls above; the contract is now guarded by `tests/test_contract.py`.
 
-**Before marking any task browser-verified:** run `make dev`, load each route in Chrome, confirm DemoChip shows for fixture data, PTW dual-sign flow works, frozen/caution banners render, GovernorPill appears in sidebar, ContrastToggle switches palette, FieldBottomTabs show only on `field_worker` role at mobile width.
+**FE "done" checklist:** DemoChip on fixture data · PTW dual-sign · frozen/caution banners · GovernorPill in sidebar · ContrastToggle · FieldBottomTabs only on `field_worker` at mobile width.
 
 ---
 
@@ -239,5 +186,5 @@ After `make nuke`: `make dev` → `make init-all` → `make seed` → `make load
 - **Supabase MCP** (`mcp__claude_ai_Supabase__*`) — SQL, migrations, table inspection. Prefer over `docker exec`.
 
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
-**Tests:** 150 passed, 1 flaky · suite self-cleans on teardown (`scripts/purge_test_data.py`) · CI: 6 workflows in `.github/workflows/` (`frontend.yml` — tsc · eslint · build · audit — **green**) · Package: `ghcr.io/kr1shnasomani/kairos`  
+**Tests:** ~157 passed (incl. `tests/test_contract.py` — response-shape contract tests that pin the endpoints which drift) · self-cleans on teardown · CI: `frontend.yml` (tsc·eslint·build·audit) **green**; `tests.yml` needs 7 secrets (deferred) · Package: `ghcr.io/kr1shnasomani/kairos`  
 **Release:** `git tag v{version} && git push origin v{version}` · 7 secrets needed in `tests.yml` (deferred)

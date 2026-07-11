@@ -211,9 +211,11 @@ Each major area has its own deep-dive in [`docs/`](#documentation).
 | [`docs/PROBLEM_STATEMENT.md`](./docs/PROBLEM_STATEMENT.md) | The problem KAIROS solves and how it is judged |
 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | The complete 13-layer platform design |
 | [`docs/API.md`](./docs/API.md) | REST API reference |
-| [`docs/BACKEND.md`](./docs/BACKEND.md) | Services, workers, scripts, and infra |
+| [`docs/BACKEND.md`](./docs/BACKEND.md) | Services, workers, data models, config |
+| [`docs/INFRA.md`](./docs/INFRA.md) | Containers, ports, data stores, observability, dev commands |
 | [`docs/DATABASE.md`](./docs/DATABASE.md) | Schema reference across all five stores |
 | [`docs/FRONTEND.md`](./docs/FRONTEND.md) | Routes, components, API wiring, auth flow |
+| [`docs/FIXTURES.md`](./docs/FIXTURES.md) | Mock-data fallbacks and the demo-chip contract |
 | [`docs/DATASET.md`](./docs/DATASET.md) | The golden demo corpus and how to load it |
 | [`docs/TESTS.md`](./docs/TESTS.md) | Integration test suite and data hygiene |
 | [`AGENTS.md`](./AGENTS.md) | Contributor guardrails, conventions, and pitfalls |

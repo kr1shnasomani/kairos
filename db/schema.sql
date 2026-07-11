@@ -3,8 +3,8 @@
 -- =============================================================================
 -- Single source of truth for the relational schema: migrations 001–016 folded
 -- into their base tables. Apply to a fresh database to get the full current schema.
--- The individual, ordered migrations are preserved under db/migrations/archive/
--- as the historical record. See docs/DATABASE.md for the annotated reference.
+-- The live applied history is tracked by Supabase in supabase_migrations.schema_migrations.
+-- See docs/DATABASE.md for the annotated reference + the per-migration changelog.
 -- =============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

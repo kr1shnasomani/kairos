@@ -1,6 +1,6 @@
 # KAIROS — Backend Reference
 
-> **For AI coding agents:** This document covers every service, worker, infrastructure component, data model, and configuration parameter in the KAIROS backend. Read this alongside `ARCHITECTURE.md` (layer design) and `docs/API.md` (endpoint reference). All 34 implementation tasks are verified complete.
+> **For AI coding agents:** This document covers every service, worker, data model, and configuration parameter in the KAIROS backend. Read alongside `ARCHITECTURE.md` (layer design), `docs/API.md` (endpoint reference), `docs/INFRA.md` (containers, ports, Redis/Qdrant/ES, observability, dev commands), and `docs/FIXTURES.md` (mock data fallbacks). All 34 implementation tasks are verified complete.
 
 ---
 
@@ -20,7 +20,6 @@
 12. [Auth and Authorization](#12-auth-and-authorization)
 13. [Observability](#13-observability)
 14. [Non-Negotiable Rules](#14-non-negotiable-rules)
-15. [Dev Commands](#15-dev-commands)
 
 ---
 
@@ -30,7 +29,7 @@ KAIROS is an **Industrial Operational Intelligence Platform**. It continuously m
 
 Three-phase architecture:
 - **Phase 1 (live):** Retrieval — ingest documents, build a temporal knowledge graph, answer queries with source-cited results.
-- **Phase 2 (live):** LLM Synthesis — `POST /search/synthesize` assembles retrieved facts into provenance-backed answers via NVIDIA NIM or Ollama.
+- **Phase 2 (live):** LLM Synthesis — `POST /search/synthesize` assembles retrieved facts into provenance-backed answers via NVIDIA NIM (cloud-only; the local Ollama fallback is disabled — see §6 `LLMService`).
 - **Phase 3 (live):** Proactive Push — event-driven brief delivery to operators (work orders, PTWs, shift handovers, alarms, tag-outs, inspections) via Redis Streams and the EEMUA 191 governor.
 
 ---
@@ -83,7 +82,7 @@ kairos/                          # repo root
 │   └── requirements.txt
 ├── db/                          # Database schemas (mounted into Python containers)
 │   ├── schema.sql               # Consolidated Supabase schema — single source of truth (001–016 folded in)
-│   ├── maintenance/             # Ad-hoc operational SQL (purge · reset) + CHANGELOG.md (tracked runs)
+│   ├── maintenance/             # Cloud-Supabase reset SQL (reset_all_data.sql) + CHANGELOG.md (tracked runs)
 │   └── neo4j/init_schema.cypher # Neo4j constraints + indices
 ├── fixtures/                    # Shared mock data (mounted into Python containers)
 │   └── pid_topology_mock.json
@@ -101,63 +100,7 @@ kairos/                          # repo root
 
 ## 3. Infrastructure Stack
 
-All services run as Docker containers. Start with `make dev` (or `docker compose up -d`).
-
-| Container | Image | Port(s) | Purpose |
-|-----------|-------|---------|---------|
-| `kairos-frontend` | node:20-alpine (local build) | `3000` | Next.js web app (App Router, dev server) |
-| `kairos-backend-api` | Python 3.12 (local build) | `8000` | FastAPI REST API |
-| `kairos-celery-worker` | Python 3.12 (local build) | — | Celery workers (ingestion, extraction, attribution, elicitation, transcription, validation) |
-| `kairos-temporal-activity-worker` | Python 3.12 (local build) | — | Temporal activity worker (document pipeline) |
-| `kairos-elicitation-worker` | Python 3.12 (local build) | — | Temporal worker (elicitation workflows) |
-| `kairos-backend-go` | Go 1.22 | `8090` | OT historian + EAM connector |
-| `kairos-neo4j` | neo4j:5.20-community | `7474`, `7687` | Temporal knowledge graph |
-| `kairos-qdrant` | qdrant:v1.9.4 | `6333`, `6334` | Vector store (1024-dim embeddings) |
-| `kairos-elasticsearch` | elasticsearch:8.13.4 | `9200` | Full-text search |
-| `kairos-redis` | redis:7.2-alpine | `6379` | Cache + event streams + Celery broker |
-| `kairos-temporal` | temporalio/auto-setup:1.24.2 | `7233` | Durable workflow engine |
-| `kairos-temporal-ui` | temporalio/ui:2.26.2 | `8088` | Temporal dashboard |
-| `kairos-temporal-postgres` | postgres:14-alpine | — | Temporal internal DB |
-| `kairos-otel-collector` | otelcol-contrib:0.102.0 | `4317`, `4318`, `8889` | OTEL collector |
-| `kairos-tempo` | grafana/tempo:2.4.1 | `3200` | Distributed trace backend |
-| `kairos-grafana` | grafana:11.0.0 | `3001` | Dashboards |
-| `kairos-opa` | openpolicyagent/opa:0.65.0 | `8181` | Policy enforcement |
-| `kairos-vault` | hashicorp/vault:1.17 | `8200` | Secrets + signing (dev mode) |
-
-### Redis DB Allocation
-
-| DB | Use |
-|----|-----|
-| `0` | Application cache + event streams |
-| `1` | Celery broker + result backend |
-| `2` | Redis Streams (reserved) |
-
-### Redis Streams
-
-| Stream Key | Content |
-|------------|---------|
-| `kairos:events:work_orders` | WorkOrderEvent payloads |
-| `kairos:events:ptw` | PTWEvent payloads |
-| `kairos:events:shift_handover` | ShiftHandoverEvent payloads |
-| `kairos:events:alarms` | AlarmEvent + DeviationFlagEvent payloads |
-| `kairos:events:tag_out` | TagOutEvent payloads |
-| `kairos:events:inspections` | InspectionCompleteEvent payloads (non-failed) |
-| `kairos:events:briefs` | Assembled brief delivery messages |
-
-### Qdrant Collections
-
-| Collection | Dimensions | Purpose |
-|------------|-----------|---------|
-| `kairos_documents` | 1024 | Document chunk embeddings (jina-embeddings-v3) |
-| `kairos_knowledge` | 1024 | Knowledge graph concept embeddings |
-
-### Elasticsearch Indices
-
-| Index | Content |
-|-------|---------|
-| `kairos_assets` | Asset tag numbers, names, equipment class |
-| `kairos_documents` | Document content + metadata (full-text) |
-| `kairos_events` | Operational event log |
+> **Moved to [`docs/INFRA.md`](./INFRA.md).** That file is the single source of truth for all Docker containers, ports, Redis DB allocation, Redis Streams, Qdrant collections, Elasticsearch indices, OTEL pipeline, Grafana dashboards, and dev commands.
 
 ---
 
@@ -315,11 +258,16 @@ Wraps Qdrant.
 
 LLM synthesis + embedding. Never originates knowledge — only assembles retrieved context.
 
-- `synthesize(query, context, query_category)` — tries NIM first, falls back to Ollama
+- `synthesize(query, context, query_category)` — NIM `meta/llama-3.3-70b-instruct`
 - `rca_synthesize(query, context)` — RCA-specific prompt, returns timeline + hypotheses
-- `embed(text, task)` — tries Jina AI first, falls back to Ollama `nomic-embed-text`
+- `embed(text, task)` — Jina `jina-embeddings-v3` (1024-dim)
 - `parse_synthesis_response(answer)` — extracts structured fields from LLM output
 - `parse_rca_response(answer)` — extracts `hypothesis|evidence_weight|sources` lines
+
+> **Cloud-only.** The code retains a local **Ollama** fallback (`ollama_available` = `bool(OLLAMA_BASE_URL)`),
+> but `OLLAMA_BASE_URL` is intentionally **empty** in `.env` and `docker-compose.yml`, so the fallback is
+> disabled — all inference goes to the cloud (NIM / Jina / Groq). This was deliberate: an accidental local
+> Ollama was consuming ~6 GB RAM. Leave `OLLAMA_BASE_URL` empty unless you explicitly want the local path.
 
 **Safety-critical categories** (explicit refusal when evidence confidence < 0.7):
 `max_allowable_pressure`, `isolation_interlock_sequence`, `torque_specification`, `electrical_rating`, `pressure_relief_setting`, `safety_shutdown_setpoint`
@@ -358,17 +306,17 @@ Lazy, inline SLA escalation. Called at the top of `GET /governance/conflicts` an
 
 ### `CircuitBreakerService` (`services/circuit_breaker.py`)
 
-SPC circuit breaker monitoring override rate.
+SPC circuit breaker: halts graph writes for an **asset class** when its 7-day override-count z-score exceeds 2.0.
 
-- `check(entity_type)` — returns `{halted: bool, override_rate: float}` based on 7-day rolling override count
-- `record_override(entity_type, override_type, document_id)` — inserts into `knowledge_conflict_overrides`
-- `get_all_states()` — returns list of states for every entity type with recent activity
+- `check(asset_class)` — returns `{halted: bool, z_score: float, reason: str, override_count_7d: int}`. `reason` ∈ `z_score_exceeded | within_normal_range | stats_error`.
+- `record_override(asset_class, override_type, document_id)` — inserts an `extraction_overrides` row for SPC tracking.
+- `get_all_states()` — returns one state dict per distinct `asset_class` that has override records (each carries `asset_class` + the `check()` fields). `GET /governance/circuit-breaker` wraps these as `{states[], halted_count}`.
 
 ### `NERService` (`services/ner.py`)
 
-Named entity recognition for the extraction pipeline. Cloud-first: NIM primary, Ollama fallback, regex last resort.
+Named entity recognition for the extraction pipeline. Cloud-first: NIM primary, then a regex last resort. (A local Ollama tier exists in code but is disabled — `OLLAMA_BASE_URL` is empty; see §6 `LLMService`.)
 
-- `extract_entities(text, document_type)` — tries NIM `mistralai/ministral-14b-instruct-2512`; falls back to Ollama `llama3.1:8b`; falls back to regex ASSET_TAG pattern matching. Returns `[(entity, entity_type, confidence)]`
+- `extract_entities(text, document_type)` — tries NIM `mistralai/ministral-14b-instruct-2512`; falls back to regex ASSET_TAG pattern matching (Ollama tier skipped while `OLLAMA_BASE_URL` is empty). Returns `[(entity, entity_type, confidence)]`
 
 ### `OCRService` (`services/ocr.py`)
 
@@ -675,10 +623,10 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 | `JINA_EMBED_MODEL` | `jina-embeddings-v3` | 1024-dim output, primary embeddings |
 | `GROQ_API_KEY` | `""` | Required for voice transcription |
 | `GROQ_WHISPER_MODEL` | `whisper-large-v3` | STT via Groq API |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Fallback LLM + NER + embeddings |
-| `OLLAMA_MODEL` | `qwen2.5:14b` | Fallback synthesis model |
-| `OLLAMA_NER_MODEL` | `llama3.1:8b` | Fallback NER model |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Fallback embedding model |
+| `OLLAMA_BASE_URL` | **`""` (empty in `.env`)** | Local fallback LLM/NER/embeddings — **disabled**: empty URL ⇒ `ollama_available` is False, so all inference stays cloud-only. Set a URL only to re-enable the local path. |
+| `OLLAMA_MODEL` | `qwen2.5:14b` | Fallback synthesis model (unused while `OLLAMA_BASE_URL` empty) |
+| `OLLAMA_NER_MODEL` | `llama3.1:8b` | Fallback NER model (unused while `OLLAMA_BASE_URL` empty) |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Fallback embedding model (unused while `OLLAMA_BASE_URL` empty) |
 
 ### Temporal
 
@@ -762,38 +710,14 @@ Go connector and service-to-service calls use `Authorization: Bearer <INTERNAL_A
 
 ## 13. Observability
 
-### OTEL Pipeline
+### Pipeline, metrics & dashboards
 
-```
-FastAPI API
-  → (OTLP gRPC 4317)
-  → kairos-otel-collector
-    → traces → kairos-tempo (port 3200)
-    → metrics → Prometheus endpoint (:8889)
-              → kairos-grafana
-```
+> **Moved to [`docs/INFRA.md`](./INFRA.md) §6–7** — the OTEL trace/metric pipeline, the custom Prometheus
+> metrics table (`kairos_briefs_delivered_total`, `kairos_governor_suppressed_total`,
+> `kairos_ingestion_duration_seconds`, `kairos_conflicts_open`), and the Grafana dashboards/credentials.
 
-**FastAPI auto-instrumentation:** `FastAPIInstrumentor`, `RedisInstrumentor`, `HTTPXClientInstrumentor`.
-
-### Custom Metrics
-
-All exported as Prometheus metrics at `http://localhost:8889/metrics`.
-
-| Prometheus Name | Type | Labels |
-|----------------|------|--------|
-| `kairos_briefs_delivered_total` | Counter | `priority`, `trigger_event_type` |
-| `kairos_governor_suppressed_total` | Counter | `user_id` |
-| `kairos_ingestion_duration_seconds` | Histogram | `document_type` |
-| `kairos_conflicts_open` | Gauge | `track` |
-
-### Grafana Dashboards
-
-**URL:** `http://localhost:3001` | **Credentials:** `admin / kairos_dev_password`
-
-| Dashboard | UID | Panels |
-|-----------|-----|--------|
-| KAIROS — Ingestion Pipeline | `kairos-ingestion` | 6 panels: docs/hr, p50/p95 duration, ingest rate, type breakdown, request rate, error rate |
-| KAIROS — Operational Intelligence | `kairos-operational` | 9 panels: briefs/hr, governor suppression, open conflicts, suppression rate, briefs over time, briefs by priority, conflicts by track, governor per-user, traces explorer |
+App-level instrumentation: `FastAPIInstrumentor`, `RedisInstrumentor`, `HTTPXClientInstrumentor` are set up
+in `api/middleware/telemetry.py` (`setup_telemetry(app)`), called from `create_app()`.
 
 ### Structured Logging
 
@@ -846,50 +770,4 @@ These apply to every code change in this codebase. Violations are bugs.
 
 ---
 
-## 15. Dev Commands
-
-```bash
-make dev          # Build + start all services (docker compose up -d --build)
-make stop         # docker compose down
-make nuke         # docker compose down -v  ← destroys ALL data volumes
-make init-all     # Apply Neo4j schema + create Qdrant collections
-make logs         # Tail all service logs
-make ps           # Container status
-
-# Seed test users (required after make nuke)
-docker exec kairos-backend-api python scripts/seed_users.py
-
-# Seed compliance regulations into Neo4j
-docker exec kairos-backend-api python scripts/seed_regulations.py
-
-# AST parse check before waiting on Docker
-python3 -c "import ast; ast.parse(open('backend/api/routers/events.py').read())"
-
-# Check API logs
-docker logs kairos-backend-api 2>&1 | tail -30
-
-# Check Celery worker
-docker logs kairos-celery-worker 2>&1 | tail -30
-
-# Check Temporal activity worker
-docker logs kairos-temporal-activity-worker 2>&1 | tail -20
-
-# Trigger EAM sync (Go connector)
-curl -X POST http://localhost:8090/eam/sync
-```
-
-**Service URLs:**
-
-| Service | URL |
-|---------|-----|
-| Frontend | http://localhost:3000 |
-| FastAPI docs | http://localhost:8000/docs |
-| FastAPI health | http://localhost:8000/health/detailed |
-| Temporal UI | http://localhost:8088 |
-| Neo4j Browser | http://localhost:7474 |
-| Qdrant Dashboard | http://localhost:6333/dashboard |
-| Grafana | http://localhost:3001 |
-| Tempo | http://localhost:3200/ready |
-| OPA | http://localhost:8181/health |
-| Vault | http://localhost:8200 |
-| Go Connector | http://localhost:8090/health |
+> **Dev commands and service URLs moved to [`docs/INFRA.md`](./INFRA.md) — Section 9.**
