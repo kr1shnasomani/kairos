@@ -1,72 +1,268 @@
 name: kairos
 
 # =============================================================================
-# KAIROS — Local Development Stack
-# Start: docker compose up -d
-# Stop:  docker compose down
-# Nuke:  docker compose down -v  (destroys all volumes)
+# KAIROS — BASE stack (production / AWS-safe defaults)
+#
+#   Local dev :  docker compose up -d --build
+#                (auto-merges docker-compose.override.yml → hot-reload, debug
+#                 ports, dev UIs. `make dev` does exactly this.)
+#
+#   AWS / prod:  docker compose -f docker-compose.yml up -d --build
+#                (base only — no bind-mounts, no debug ports, non-root images,
+#                 network isolation, resource limits.)
+#
+# Cloud services (NOT containers): Supabase Postgres + Storage + Auth + Vault.
+# Only the two edge ports (frontend 3000, API 8000) are published here; every
+# datastore stays internal. Dev exposes the rest via the override file.
 # =============================================================================
+
+# --- reusable fragments ----------------------------------------------------
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-svc: &svc
+  restart: unless-stopped
+  <<: *logging
+
+x-backend-build: &backend-build
+  build:
+    context: ./backend
+  image: kairos-backend:local   # built once, reused by API + all 3 workers
+
+x-backend-env: &backend-env
+  NEO4J_URI: bolt://kairos-neo4j:7687
+  NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
+  NEO4J_PASSWORD: ${NEO4J_PASSWORD:-kairos_dev_password}
+  QDRANT_URL: http://kairos-qdrant:6333
+  ELASTICSEARCH_URL: http://kairos-elasticsearch:9200
+  REDIS_URL: redis://kairos-redis:6379/0
+  TEMPORAL_ADDRESS: kairos-temporal:7233
+  CELERY_BROKER_URL: redis://kairos-redis:6379/1
+  CELERY_RESULT_BACKEND: redis://kairos-redis:6379/1
 
 services:
 
-  # ---------------------------------------------------------------------------
-  # Layer 4: Temporal Reality Graph — Neo4j (local)
-  # Browser UI: http://localhost:7474
-  # Bolt:       bolt://localhost:7687
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # Layer 12: Frontend — Next.js (standalone production server)
+  # ===========================================================================
+  kairos-frontend:
+    <<: *svc
+    build:
+      context: ./frontend
+      target: runner
+    image: kairos-frontend:local
+    container_name: kairos-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      API_INTERNAL_URL: http://kairos-backend-api:8000
+      NODE_ENV: production
+    depends_on:
+      kairos-backend-api:
+        condition: service_started
+    networks: [edge]
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  # ===========================================================================
+  # Layer 9: API — FastAPI
+  # ===========================================================================
+  kairos-backend-api:
+    <<: [*svc, *backend-build]
+    container_name: kairos-backend-api
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *backend-env
+      PYTHONPATH: /app
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://kairos-otel-collector:4317
+      OT_CONNECTOR_URL: http://kairos-backend-go:8090
+    env_file: [.env]
+    volumes:
+      - ./fixtures:/app/fixtures
+      - ./db:/app/db
+      - ./dataset:/app/dataset:ro
+    depends_on:
+      kairos-neo4j:
+        condition: service_healthy
+      kairos-qdrant:
+        condition: service_healthy
+      kairos-elasticsearch:
+        condition: service_healthy
+      kairos-redis:
+        condition: service_healthy
+      kairos-opa:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks: [edge, internal]
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    deploy:
+      resources:
+        limits:
+          memory: 1500m
+
+  # ===========================================================================
+  # Layer 7: Celery Workers (ingestion, extraction, attribution, transcription,
+  #          validation, elicitation)
+  # ===========================================================================
+  kairos-celery-worker:
+    <<: [*svc, *backend-build]
+    container_name: kairos-celery-worker
+    environment:
+      <<: *backend-env
+      GO_CONNECTOR_URL: http://kairos-backend-go:8090
+    env_file: [.env]
+    volumes:
+      - ./fixtures:/app/fixtures
+      - ./db:/app/db
+    depends_on:
+      kairos-redis:
+        condition: service_healthy
+      kairos-neo4j:
+        condition: service_healthy
+      kairos-qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "celery", "-A", "workers.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks: [internal]
+    command: ["celery", "-A", "workers.celery_app", "worker", "--loglevel=info", "--queues=ingestion,extraction,attribution,transcription,validation,elicitation"]
+    deploy:
+      resources:
+        limits:
+          memory: 1500m
+
+  # ===========================================================================
+  # Layer 3: Temporal Activity Worker (document ingestion pipeline)
+  # ===========================================================================
+  kairos-temporal-activity-worker:
+    <<: [*svc, *backend-build]
+    container_name: kairos-temporal-activity-worker
+    environment:
+      <<: *backend-env
+      TEMPORAL_TASK_QUEUE: kairos-ingestion
+      # Cloud-only: empty disables the local Ollama fallback (RAM guard).
+      OLLAMA_BASE_URL: ""
+    env_file: [.env]
+    volumes:
+      - ./fixtures:/app/fixtures
+      - ./db:/app/db
+    depends_on:
+      kairos-temporal:
+        condition: service_healthy
+      kairos-redis:
+        condition: service_healthy
+      kairos-neo4j:
+        condition: service_healthy
+    networks: [internal]
+    command: ["python", "-m", "workers.temporal_worker"]
+    deploy:
+      resources:
+        limits:
+          memory: 1500m
+
+  # ===========================================================================
+  # Layer 6: Elicitation Worker (MicroInterviewWorkflow)
+  # ===========================================================================
+  kairos-elicitation-worker:
+    <<: [*svc, *backend-build]
+    container_name: kairos-elicitation-worker
+    environment:
+      <<: *backend-env
+      TEMPORAL_TASK_QUEUE: kairos-elicitation
+      OLLAMA_BASE_URL: ""
+    env_file: [.env]
+    volumes:
+      - ./fixtures:/app/fixtures
+      - ./db:/app/db
+    depends_on:
+      kairos-temporal:
+        condition: service_healthy
+      kairos-redis:
+        condition: service_healthy
+      kairos-neo4j:
+        condition: service_healthy
+    networks: [internal]
+    command: ["python", "-m", "workers.elicitation_worker"]
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  # ===========================================================================
+  # Layer 5: Go OT Connector (historian + EAM sync)
+  # ===========================================================================
+  kairos-backend-go:
+    <<: *svc
+    build:
+      context: ./backend/connectors
+      target: release
+    image: kairos-connector:local
+    container_name: kairos-backend-go
+    environment:
+      FASTAPI_URL: http://kairos-backend-api:8000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-kairos-internal-dev-key}
+      EAM_FIXTURE_PATH: /app/fixtures/sample_assets.json
+    env_file: [.env]
+    depends_on:
+      kairos-backend-api:
+        condition: service_started
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # ===========================================================================
+  # Layer 4: Neo4j — Temporal knowledge graph
+  # ===========================================================================
   kairos-neo4j:
+    <<: *svc
     image: neo4j:5.20-community
     container_name: kairos-neo4j
-    restart: unless-stopped
-    ports:
-      - "7474:7474"   # HTTP browser
-      - "7687:7687"   # Bolt protocol
     environment:
       NEO4J_AUTH: "${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-kairos_dev_password}"
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
       NEO4J_dbms_memory_heap_initial__size: "512m"
       NEO4J_dbms_memory_heap_max__size: "1G"
-  # ---------------------------------------------------------------------------
-  # Layer 12: Frontend — Next.js (dev server, hot-reload)
-  # UI: http://localhost:3000
-  # Built from frontend/Dockerfile — deps installed at image build time.
-  # Only src/ and public/ are mounted for hot-reload; node_modules stays in image.
-  # ---------------------------------------------------------------------------
-  kairos-frontend:
-    build:
-      context: ./frontend
-    container_name: kairos-frontend
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
     volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
-      - API_INTERNAL_URL=http://kairos-backend-api:8000
-      - NODE_ENV=development
+      - kairos-neo4j_data:/data
+      - kairos-neo4j_logs:/logs
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000"]
-      interval: 30s
+      test: ["CMD-SHELL", "cypher-shell -u ${NEO4J_USERNAME:-neo4j} -p ${NEO4J_PASSWORD:-kairos_dev_password} 'RETURN 1' || exit 1"]
+      interval: 15s
       timeout: 10s
-      retries: 5
-      start_period: 90s
+      retries: 10
+      start_period: 40s
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 2g
 
-  # ---------------------------------------------------------------------------
-  # Layer 11: Vector Search — Qdrant
-  # REST:  http://localhost:6333
-  # gRPC:  localhost:6334
-  # UI:    http://localhost:6333/dashboard
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # Layer 11: Qdrant — vector store
+  # ===========================================================================
   kairos-qdrant:
+    <<: *svc
     image: qdrant/qdrant:v1.9.4
     container_name: kairos-qdrant
-    restart: unless-stopped
-    ports:
-      - "6333:6333"   # REST API
-      - "6334:6334"   # gRPC
     volumes:
       - kairos-qdrant_data:/qdrant/storage
     healthcheck:
@@ -74,18 +270,19 @@ services:
       interval: 20s
       timeout: 5s
       retries: 5
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
-  # ---------------------------------------------------------------------------
-  # Layer 11: Exact Search — Elasticsearch
-  # REST: http://localhost:9200
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # Layer 11: Elasticsearch — full-text search
+  # ===========================================================================
   kairos-elasticsearch:
+    <<: *svc
     image: elasticsearch:8.13.4
     container_name: kairos-elasticsearch
-    restart: unless-stopped
-    ports:
-      - "9200:9200"
-      - "9300:9300"
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -93,22 +290,24 @@ services:
     volumes:
       - kairos-elasticsearch_data:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 2g
 
-  # ---------------------------------------------------------------------------
-  # Cache + Event Bus — Redis (Streams + Cache)
-  # Port: 6379
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # Cache + event bus — Redis (Streams + Celery broker)
+  # ===========================================================================
   kairos-redis:
+    <<: *svc
     image: redis:7.2-alpine
     container_name: kairos-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - kairos-redis_data:/data
@@ -117,76 +316,86 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 768m
 
-  # ---------------------------------------------------------------------------
-  # Durable Workflow Engine — Temporal.io
-  # Backend DB (Temporal internal): postgresql
-  # Temporal gRPC: localhost:7233
-  # Temporal Web UI: http://localhost:8088
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # Temporal — durable workflow engine (+ its own Postgres)
+  # ===========================================================================
   kairos-temporal-postgres:
+    <<: *svc
     image: postgres:14-alpine
     container_name: kairos-temporal_postgres
-    restart: unless-stopped
     environment:
-      POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
+      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER:-temporal}
+      POSTGRES_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
       POSTGRES_DB: temporal
     volumes:
       - kairos-temporal_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      test: ["CMD-SHELL", "pg_isready -U ${TEMPORAL_POSTGRES_USER:-temporal}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   kairos-temporal:
+    <<: *svc
     image: temporalio/auto-setup:1.24.2
     container_name: kairos-temporal
-    restart: unless-stopped
-    ports:
-      - "7233:7233"
     environment:
       DB: postgres12
       DB_PORT: 5432
-      POSTGRES_USER: temporal
-      POSTGRES_PWD: temporal
+      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER:-temporal}
+      POSTGRES_PWD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
       POSTGRES_SEEDS: kairos-temporal-postgres
       DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/config/dynamicconfig.yaml
     depends_on:
       kairos-temporal-postgres:
         condition: service_healthy
     volumes:
-      - ./infra/temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig.yaml
+      - ./infra/temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig.yaml:ro
     healthcheck:
       test: ["CMD", "temporal", "workflow", "list", "--address", "kairos-temporal:7233", "--namespace", "default"]
       interval: 30s
       timeout: 10s
       retries: 10
       start_period: 60s
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   kairos-temporal-ui:
+    <<: *svc
     image: temporalio/ui:2.26.2
     container_name: kairos-temporal_ui
-    restart: unless-stopped
-    ports:
-      - "8088:8080"
     environment:
       TEMPORAL_ADDRESS: kairos-temporal:7233
       TEMPORAL_CORS_ORIGINS: "http://localhost:3000"
     depends_on:
       - kairos-temporal
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 256m
 
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
   # Governance — Open Policy Agent (OPA)
-  # REST: http://kairos-opa:8181
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
   kairos-opa:
+    <<: *svc
     image: openpolicyagent/opa:0.65.0
     container_name: kairos-opa
-    restart: unless-stopped
-    ports:
-      - "8181:8181"
     command:
       - "run"
       - "--server"
@@ -194,262 +403,91 @@ services:
       - "--log-level=info"
       - "/policies"
     volumes:
-      - ./infra/policies:/policies
-    healthcheck:
-      disable: true
+      - ./infra/policies:/policies:ro
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 256m
 
-  # ---------------------------------------------------------------------------
-  # Secrets + Signing — HashiCorp Vault (dev mode)
-  # UI: http://localhost:8200
-  # Root Token: kairos-dev-root-token (dev mode only)
-  # ---------------------------------------------------------------------------
-  kairos-vault:
-    image: hashicorp/vault:1.17
-    container_name: kairos-vault
-    restart: unless-stopped
-    ports:
-      - "8200:8200"
-    environment:
-      VAULT_DEV_ROOT_TOKEN_ID: "${VAULT_DEV_ROOT_TOKEN:-kairos-dev-root-token}"
-      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
-    cap_add:
-      - IPC_LOCK
-    healthcheck:
-      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-
-  # ---------------------------------------------------------------------------
-  # Observability — OpenTelemetry Collector
-  # OTLP gRPC: 4317
-  # OTLP HTTP: 4318
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # Observability — OTEL Collector → Tempo (traces) + Prometheus endpoint
+  # ===========================================================================
   kairos-otel-collector:
+    <<: *svc
     image: otel/opentelemetry-collector-contrib:0.102.0
     container_name: kairos-otel-collector
-    restart: unless-stopped
-    ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8889:8889"   # Prometheus metrics exporter
     volumes:
-      - ./infra/otel/otel-config.yaml:/etc/otelcol-contrib/config.yaml
+      - ./infra/otel/otel-config.yaml:/etc/otelcol-contrib/config.yaml:ro
     depends_on:
       - kairos-tempo
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
-  # ---------------------------------------------------------------------------
-  # Observability — Grafana Tempo (distributed tracing backend)
-  # OTLP gRPC: 4317 (internal)
-  # HTTP API: http://localhost:3200
-  # ---------------------------------------------------------------------------
   kairos-tempo:
+    <<: *svc
     image: grafana/tempo:2.4.1
     container_name: kairos-tempo
-    restart: unless-stopped
-    ports:
-      - "3200:3200"   # Tempo HTTP API
     command: ["-config.file=/etc/tempo.yaml"]
     volumes:
-      - ./infra/tempo/tempo.yaml:/etc/tempo.yaml
+      - ./infra/tempo/tempo.yaml:/etc/tempo.yaml:ro
       - kairos-tempo_data:/var/tempo
     healthcheck:
-      test: ["CMD", "wget", "-O", "-", "http://localhost:3200/ready"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3200/ready"]
       interval: 15s
       timeout: 5s
       retries: 5
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
-  # ---------------------------------------------------------------------------
-  # Observability — Grafana
-  # UI: http://localhost:3001
-  # Default credentials: admin / kairos_dev_password
-  # ---------------------------------------------------------------------------
   kairos-grafana:
+    <<: *svc
     image: grafana/grafana:11.0.0
     container_name: kairos-grafana
-    restart: unless-stopped
-    ports:
-      - "3001:3000"
     environment:
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-kairos_dev_password}"
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - kairos-grafana_data:/var/lib/grafana
-      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - kairos-tempo
+      - kairos-otel-collector
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 20s
       timeout: 5s
       retries: 5
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
-  # Layer 9: API — FastAPI (Hot-reload)
-  # Port: 8000
-  # ---------------------------------------------------------------------------
-  kairos-backend-api:
-    build:
-      context: ./backend
-    container_name: kairos-backend-api
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend:/app
-      - ./tests:/app/tests
-      - ./pytest.ini:/app/pytest.ini
-      - ./fixtures:/app/fixtures
-      - ./db:/app/db
-      - ./dataset:/app/dataset:ro
-    environment:
-      - NEO4J_URI=bolt://kairos-neo4j:7687
-      - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-kairos_dev_password}
-      - QDRANT_URL=http://kairos-qdrant:6333
-      - ELASTICSEARCH_URL=http://kairos-elasticsearch:9200
-      - REDIS_URL=redis://kairos-redis:6379/0
-      - TEMPORAL_ADDRESS=kairos-temporal:7233
-      - CELERY_BROKER_URL=redis://kairos-redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://kairos-redis:6379/1
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://kairos-otel-collector:4317
-      - OT_CONNECTOR_URL=http://kairos-backend-go:8090
-      - PYTHONPATH=/app
-    env_file:
-      - .env
-    depends_on:
-      - kairos-neo4j
-      - kairos-qdrant
-      - kairos-elasticsearch
-      - kairos-redis
-    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-
-  # ---------------------------------------------------------------------------
-  # Layer 7: Task Execution — Celery Workers (Hot-reload)
-  # ---------------------------------------------------------------------------
-  kairos-celery-worker:
-    build:
-      context: ./backend
-    container_name: kairos-celery-worker
-    restart: unless-stopped
-    volumes:
-      - ./backend:/app
-      - ./fixtures:/app/fixtures
-      - ./db:/app/db
-    environment:
-      - NEO4J_URI=bolt://kairos-neo4j:7687
-      - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-kairos_dev_password}
-      - QDRANT_URL=http://kairos-qdrant:6333
-      - ELASTICSEARCH_URL=http://kairos-elasticsearch:9200
-      - REDIS_URL=redis://kairos-redis:6379/0
-      - TEMPORAL_ADDRESS=kairos-temporal:7233
-      - CELERY_BROKER_URL=redis://kairos-redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://kairos-redis:6379/1
-      - GO_CONNECTOR_URL=http://kairos-backend-go:8090
-    env_file:
-      - .env
-    depends_on:
-      - kairos-redis
-    command: ["celery", "-A", "workers.celery_app", "worker", "--loglevel=info", "--queues=ingestion,extraction,attribution,transcription,validation,elicitation"]
-
-  # ---------------------------------------------------------------------------
-  # Layer 3: Temporal Activity Worker — DocumentIngestionWorkflow activities
-  # Runs store_in_vault, run_ocr, run_ner, link_to_graph, index_vectors, index_text
-  # ---------------------------------------------------------------------------
-  kairos-temporal-activity-worker:
-    build:
-      context: ./backend
-    container_name: kairos-temporal-activity-worker
-    restart: unless-stopped
-    volumes:
-      - ./backend:/app
-      - ./fixtures:/app/fixtures
-      - ./db:/app/db
-    environment:
-      - NEO4J_URI=bolt://kairos-neo4j:7687
-      - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-kairos_dev_password}
-      - QDRANT_URL=http://kairos-qdrant:6333
-      - ELASTICSEARCH_URL=http://kairos-elasticsearch:9200
-      - REDIS_URL=redis://kairos-redis:6379/0
-      - TEMPORAL_ADDRESS=kairos-temporal:7233
-      - TEMPORAL_TASK_QUEUE=kairos-ingestion
-      # Cloud-only: local Ollama fallback disabled so a cloud hiccup never loads a local model (RAM). Set a URL to re-enable.
-      - OLLAMA_BASE_URL=
-    env_file:
-      - .env
-    depends_on:
-      kairos-temporal:
-        condition: service_started
-      kairos-redis:
-        condition: service_healthy
-    command: ["python", "-m", "workers.temporal_worker"]
-
-  # ---------------------------------------------------------------------------
-  # Layer 6: Elicitation Engine — Temporal worker for MicroInterviewWorkflow
-  # Polls kairos-elicitation task queue; generates graph-derived questions
-  # ---------------------------------------------------------------------------
-  kairos-elicitation-worker:
-    build:
-      context: ./backend
-    container_name: kairos-elicitation-worker
-    restart: unless-stopped
-    volumes:
-      - ./backend:/app
-      - ./fixtures:/app/fixtures
-      - ./db:/app/db
-    environment:
-      - NEO4J_URI=bolt://kairos-neo4j:7687
-      - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-kairos_dev_password}
-      - TEMPORAL_ADDRESS=kairos-temporal:7233
-      - TEMPORAL_TASK_QUEUE=kairos-elicitation
-      # Cloud-only: local Ollama fallback disabled so a cloud hiccup never loads a local model (RAM). Set a URL to re-enable.
-      - OLLAMA_BASE_URL=
-    env_file:
-      - .env
-    depends_on:
-      kairos-temporal:
-        condition: service_started
-      kairos-redis:
-        condition: service_healthy
-    command: ["python", "-m", "workers.elicitation_worker"]
-
-  # ---------------------------------------------------------------------------
-  # Layer 5: OT Connectors — Go (Hot-reload via builder stage)
-  # Port: 8090
-  # ---------------------------------------------------------------------------
-  kairos-backend-go:
-    build:
-      context: ./backend/connectors
-      target: builder
-    container_name: kairos-backend-go
-    restart: unless-stopped
-    ports:
-      - "8090:8090"
-    volumes:
-      - ./backend/connectors:/app
-    environment:
-      - FASTAPI_URL=http://kairos-backend-api:8000
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-kairos-internal-dev-key}
-      - EAM_FIXTURE_PATH=/app/fixtures/sample_assets.json
-    env_file:
-      - .env
-    depends_on:
-      - kairos-backend-api
-    command: ["go", "run", "./cmd/connector/..."]
 # =============================================================================
-# Named Volumes
+# Networks — edge (public-facing) vs internal (datastores, never published)
+# =============================================================================
+networks:
+  edge:
+    driver: bridge
+  internal:
+    driver: bridge
+
+# =============================================================================
+# Named volumes (persistent state)
 # =============================================================================
 volumes:
   kairos-neo4j_data:
   kairos-neo4j_logs:
-  kairos-tempo_data:
-  kairos-neo4j_plugins:
   kairos-qdrant_data:
   kairos-elasticsearch_data:
   kairos-redis_data:
   kairos-temporal_postgres_data:
+  kairos-tempo_data:
   kairos-grafana_data:
-
-

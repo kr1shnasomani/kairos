@@ -1,7 +1,7 @@
 # KAIROS — Developer Makefile (100% Dockerized)
 # Usage: make <target>
 
-.PHONY: help dev stop nuke logs ps \
+.PHONY: help dev prod stop nuke logs ps \
         api workers connectors \
         init-neo4j init-qdrant init-all \
         test test-api test-connectors \
@@ -44,6 +44,14 @@ dev:
 	@echo "    Qdrant UI:       http://localhost:6333/dashboard"
 	@echo "    Temporal UI:     http://localhost:8088"
 	@echo "    Grafana:         http://localhost:3001  (admin / kairos_dev_password)"
+	@echo ""
+
+# Production / AWS: base only (no override) — no bind-mounts, no debug ports,
+# non-root images, network isolation, resource limits. See docs/DOCKER.md.
+prod:
+	docker compose -f docker-compose.yml up -d --build
+	@echo ""
+	@echo "  KAIROS (production mode) — only ports 3000 (frontend) + 8000 (API) published."
 	@echo ""
 
 stop:

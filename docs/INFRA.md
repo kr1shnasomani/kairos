@@ -41,7 +41,11 @@ All services run as Docker containers. Start with `make dev` (or `docker compose
 | `kairos-tempo` | grafana/tempo:2.4.1 | `3200` | Distributed trace backend |
 | `kairos-grafana` | grafana:11.0.0 | `3001` | Dashboards |
 | `kairos-opa` | openpolicyagent/opa:0.65.0 | `8181` | Policy enforcement |
-| `kairos-vault` | hashicorp/vault:1.17 | `8200` | Secrets + signing (dev mode) |
+
+> **Run modes & networks:** the stack is split into a production-safe base
+> (`docker-compose.yml`) + an auto-loaded dev override (`docker-compose.override.yml`).
+> Secrets/signing use **cloud Supabase Vault** — there is no local Vault container.
+> Full build/run/AWS details: [`DOCKER.md`](./DOCKER.md).
 
 ---
 
@@ -58,7 +62,6 @@ All services run as Docker containers. Start with `make dev` (or `docker compose
 | Grafana | http://localhost:3001 |
 | Tempo | http://localhost:3200/ready |
 | OPA | http://localhost:8181/health |
-| Vault | http://localhost:8200 |
 | Go Connector | http://localhost:8090/health |
 
 ---

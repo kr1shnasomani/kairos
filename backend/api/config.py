@@ -132,12 +132,6 @@ class Settings(BaseSettings):
     OPA_URL: str = "http://kairos-opa:8181"
 
     # -------------------------------------------------------------------------
-    # Vault
-    # -------------------------------------------------------------------------
-    VAULT_ADDR: str = "http://localhost:8200"
-    VAULT_TOKEN: str = "kairos-dev-root-token"
-
-    # -------------------------------------------------------------------------
     # OpenTelemetry
     # -------------------------------------------------------------------------
     OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4317"

@@ -74,7 +74,7 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 
 ## Stack
 
-**Backend:** FastAPI (Python 3.12) · Neo4j 5.20 · Qdrant · ES 8.13 · Redis 7.2 · Temporal · Celery · Go (Gin) · OPA · Vault · OTEL → Grafana · Supabase (Postgres + Storage + Auth)  
+**Backend:** FastAPI (Python 3.12) · Neo4j 5.20 · Qdrant · ES 8.13 · Redis 7.2 · Temporal · Celery · Go (Gin) · OPA · OTEL → Grafana · Supabase (Postgres + Storage + Auth + Vault)  
 **Frontend:** Next.js 16 · React 19 · Tailwind CSS **v4** (not v3) · TypeScript strict · `node:20-alpine`  
 **Models (cloud only — no local packages):** LLM → NIM `meta/llama-3.3-70b-instruct` | NER → NIM `mistralai/ministral-14b-instruct-2512` | OCR → NIM `nvidia/nemotron-ocr-v2` | Embed → Jina `jina-embeddings-v3` | STT → Groq `whisper-large-v3` — all names in `.env`
 
