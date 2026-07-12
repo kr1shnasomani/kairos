@@ -149,6 +149,10 @@ class Settings(BaseSettings):
     GO_CONNECTOR_PORT: int = 8090
     HISTORIAN_QUERY_TIMEOUT_SECONDS: int = 30
     INTERNAL_API_KEY: str = "kairos-internal-dev-key"
+    # Cache verified JWTs for this many seconds to skip the per-request Supabase
+    # Auth round-trip. Revocation staleness is bounded to this value. Set 0 to
+    # disable (verify every request — strictest, slowest).
+    AUTH_CACHE_TTL_SECONDS: int = 60
 
     # -------------------------------------------------------------------------
     # Groq — Voice Transcription (Whisper-large-v3 via API)

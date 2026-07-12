@@ -477,13 +477,12 @@ Source: `backend/connectors/cmd/connector/main.go`.
 | `POST` | `/eam/sync` | Reads `fixtures/sample_assets.json` if `EAM_ODS_ENDPOINT` not set. POSTs each asset to FastAPI `POST /assets` using `INTERNAL_API_KEY`. |
 | `POST` | `/eam/work-order` | Proxies incoming JSON body to FastAPI `POST /events/work-order`. |
 
-> **External systems — mocked until deploy.** The OT historian (PI Web API) and EAM
-> sync (SAP/Maximo) integrate with **plant enterprise systems KAIROS does not own**, so
-> they run on mock/fixture data by design. Un-mock at a real deployment by setting
-> `PI_WEBAPI_BASE_URL` (+ creds) and `EAM_ODS_ENDPOINT` — the `PIWebAPIClient` is already
-> implemented; the SAP ODS query is a TODO in `internal/eam/client.go`. OPC-UA
-> (`internal/ot/client.go`) is a further TODO for plants without PI. This is the only
-> remaining "mock" in the backend after the Layer 3 P&ID parser went live (Path B).
+> **External systems — mock by design.** The OT historian (PI Web API) and EAM sync
+> (SAP/Maximo) integrate with **plant enterprise systems KAIROS does not own**. With no
+> live plant to connect to, they run on mock/fixture data by design — the intended state,
+> not a gap. The real paths exist (`PIWebAPIClient` built; SAP ODS + OPC-UA are stubs) and
+> would activate via `PI_WEBAPI_BASE_URL` / `EAM_ODS_ENDPOINT` if a plant were ever
+> connected. Completion status for every layer: [`docs/implementation/status.md`](./implementation/status.md).
 
 ### PI Web API Client (`internal/ot/client.go`)
 

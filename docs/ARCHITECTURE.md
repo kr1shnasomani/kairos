@@ -33,6 +33,12 @@ KAIROS is organized into thirteen layers. Each layer has a single, clearly bound
 
 ---
 
+> **Per-layer implementation status** (live / mock-by-design) lives in a single
+> tracker: [`docs/implementation/status.md`](./implementation/status.md). This
+> document describes the *design*; that file tracks *what is built*.
+
+---
+
 ### Layer 0: Empirical Validation and Model Safety Plane
 
 **Purpose:** Ensure that every model update, extraction configuration change, or ontology revision improves rather than degrades system accuracy before it reaches production.
