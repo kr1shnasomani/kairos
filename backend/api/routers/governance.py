@@ -375,6 +375,52 @@ async def dispute_quarantine_item(
     return {"status": "disputed", "item_id": item_id, "reason": reason}
 
 
+@router.post("/quarantine/{item_id}/request-info", summary="Request more information on a quarantine item")
+async def request_quarantine_info(
+    item_id: str,
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+    payload: dict = Body(...),
+) -> dict:
+    """Layer 6's fourth review action: a reviewer asks for clarification instead of
+    promoting or disputing. The item stays 'pending' (still actionable in the queue);
+    the request and note are recorded to the audit log for provenance.
+
+    ponytail: audit-log-backed, no new review_status. Promote to a first-class
+    'info_requested' status + queue badge only if reviewers need it visible without
+    reading the audit trail.
+    """
+    note = (payload or {}).get("note", "")
+
+    result = await asyncio.to_thread(
+        lambda: supabase.table("quarantine_items")
+        .select("item_id, review_status, work_order_id")
+        .eq("item_id", item_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Quarantine item '{item_id}' not found")
+    item = result.data[0]
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Item is already '{item['review_status']}', cannot request info.",
+        )
+
+    await asyncio.to_thread(
+        lambda: supabase.table("audit_log").insert({
+            "action": "info_requested",
+            "entity_type": "quarantine_item",
+            "entity_id": item_id,
+            "performed_by": current_user.get("user_id", "unknown"),
+            "details": {"note": note, "work_order_id": item.get("work_order_id")},
+        }).execute()
+    )
+
+    log.info("quarantine.info_requested", item_id=item_id, user=current_user.get("user_id"))
+    return {"status": "info_requested", "item_id": item_id, "note": note}
+
+
 # =============================================================================
 # SLA Report
 # =============================================================================

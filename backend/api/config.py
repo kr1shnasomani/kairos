@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     NVIDIA_NIM_MODEL: str = "meta/llama-3.3-70b-instruct"
     NVIDIA_NIM_MAX_TOKENS: int = 4096
     NVIDIA_NIM_TEMPERATURE: float = 0.1
+    # Vision-language model for P&ID topology extraction (Layer 3, Path B)
+    NVIDIA_NIM_VISION_MODEL: str = "meta/llama-3.2-11b-vision-instruct"
 
     # -------------------------------------------------------------------------
     # Jina AI (embeddings — keeps NIM key free for synthesis/LLM tasks)
@@ -105,12 +107,6 @@ class Settings(BaseSettings):
     # Embeddings
     # -------------------------------------------------------------------------
     EMBEDDING_DIMENSION: int = 1024  # jina-embeddings-v3 output dim
-
-    # -------------------------------------------------------------------------
-    # HuggingFace — cache + token for YOLO/ultralytics model downloads
-    # -------------------------------------------------------------------------
-    HF_CACHE_DIR: str = "./.cache/huggingface"
-    HF_TOKEN: str = ""
 
     # -------------------------------------------------------------------------
     # Celery

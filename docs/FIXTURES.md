@@ -34,7 +34,7 @@ if os.Getenv("EAM_ODS_ENDPOINT") == "" {
 ### `fixtures/pid_topology_mock.json`
 
 **Backed endpoint:** `GET /documents/{id}/topology`  
-**Fires when:** Document is not a `pid_drawing` type, or the topology graph has not been built yet.  
+**Fires when:** Ingest-time **fallback** for `pid_drawing` documents when the Layer 3 vision model (`PIDService`, Path B) is unreachable or returns unparseable output. On the real path the topology comes from the model; the fallback is flagged `topology_source: "demo_fixture"` so it never masquerades as a real extraction.  
 **Mount path:** `fixtures/` is mounted into `kairos-backend-api` and `kairos-celery-worker` at `/app/fixtures/`.
 
 **Schema:**

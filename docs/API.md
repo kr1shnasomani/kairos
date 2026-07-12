@@ -498,7 +498,7 @@ Get the parsed P&ID / engineering drawing topology for a drawing document.
 
 **Auth required:** Yes
 
-Only available for documents with `document_type = "pid_drawing"` — all other types `404` by design. Topology is extracted at ingest time by the mock PID topology pipeline — the OCR stage is skipped, and element data is loaded from the embedded fixture.
+Only available for documents with `document_type = "pid_drawing"` — all other types `404` by design. Topology is extracted at ingest time (OCR is skipped) by the Layer 3 vision model (`PIDService`, Path B); the response includes `topology_source` (`vision_model` when the model ran, `demo_fixture` when it fell back). Every element routes to element-by-element engineer verification before it becomes canonical.
 
 **Response `200`:**
 ```json
@@ -1446,6 +1446,20 @@ Mark a quarantine item as incorrect. Prevents accidental promotion.
 
 ---
 
+### `POST /governance/quarantine/{item_id}/request-info`
+
+Layer 6's fourth review action — a reviewer asks for clarification instead of promoting or disputing. The item stays `pending` (still actionable); the request + note are recorded to the audit log (`action=info_requested`).
+
+**Auth required:** Yes (same gate as promote — `reliability`/`admin`)
+
+**Request body:** `{"note": "Which seal face — inboard or outboard?"}`
+
+**Response `200`:** `{"item_id": "...", "status": "info_requested", "note": "..."}`
+
+**Errors:** `404` item not found · `409` item is not `pending`
+
+---
+
 ### `GET /governance/sla-report`
 
 SLA escalation report for all overdue conflicts and quarantine items. Runs lazy escalation then returns full overdue inventory.
@@ -2183,7 +2197,7 @@ Query the audit log with optional filters.
 | `entity_id` | string | Filter by entity ID |
 | `limit` | int | Max results (default 50) |
 
-**Common action values:** `brief_acknowledged` · `confidence_recheck_queued` · `plant_state_changed` · `rca_pack_generated` · `timestamp_drift_detected` · `attribution_flag` · `quarantine_promoted` · `quarantine_disputed` · `moc_resolved` · `moc_webhook_received` · `circuit_breaker_override` · `equipment_tag_out` · `sla_escalated` · `model_gate_result` · `offboarding_programme_created` · `recurring_failure_detected`
+**Common action values:** `brief_acknowledged` · `confidence_recheck_queued` · `plant_state_changed` · `rca_pack_generated` · `timestamp_drift_detected` · `attribution_flag` · `quarantine_promoted` · `quarantine_disputed` · `info_requested` · `moc_resolved` · `moc_webhook_received` · `circuit_breaker_override` · `equipment_tag_out` · `sla_escalated` · `model_gate_result` · `offboarding_programme_created` · `recurring_failure_detected`
 
 **Response `200`:**
 ```json

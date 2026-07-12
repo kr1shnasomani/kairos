@@ -356,6 +356,8 @@ async def get_document_topology(
         "manifest_item_id": str(result.data[0]["item_id"]),
         "verification_status": "unverified",
         "topology": ctx.get("topology", {}),
+        # "vision_model" = real extraction; "demo_fixture" = fell back (show a demo chip).
+        "topology_source": ctx.get("topology_source", "demo_fixture"),
         "extracted_at": result.data[0]["submitted_at"],
     }
 

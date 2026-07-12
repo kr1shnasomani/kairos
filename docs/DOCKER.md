@@ -226,20 +226,20 @@ docker compose -f docker-compose.yml config >/dev/null  # prod
 ### Image sizes (measured)
 | Image | Dev target | Prod target |
 |-------|-----------|-------------|
-| `kairos-backend:local` | ~2.45 GB (single runtime stage; incl. torch/YOLO — see note) | ~2.45 GB |
+| `kairos-backend:local` | ~986 MB | ~986 MB |
 | `kairos-frontend:local` | ~800 MB (`dev`, full node_modules) | ~250 MB (`runner`, standalone) |
 | `kairos-connector:local` | ~880 MB (`builder`, Go toolchain) | ~36 MB (`release`) |
 
-Multi-stage stripped the build toolchain from the backend runtime (~2.88 GB →
-~2.45 GB); the remainder is the torch/YOLO stack below.
+The backend was ~2.88 GB originally; multi-stage stripped the build toolchain,
+and choosing **Path B** (cloud vision model) for the Layer 3 P&ID parser let the
+local ML stack (`torch`/`torchvision`/`ultralytics`/`layoutparser`/`opencv`/
+`scipy`/`scikit-learn`/`pandas`) be removed entirely — down to **~986 MB**.
 
-> **Layer 3 (P&ID drawing parser) note.** `requirements.txt` includes
-> `torch`/`torchvision`/`ultralytics`/`layoutparser`/`opencv` for the designed
-> YOLOv9 + LayoutLMv3 drawing parser (ARCHITECTURE.md §Layer 3). These are
-> currently reserved for that feature and are the bulk of the backend image
-> size. When the real parser is built it belongs in its **own GPU-backed
-> service**, at which point these deps can move out of the shared API/worker
-> image.
+> **Layer 3 note.** P&ID topology extraction uses a cloud VLM (`api/services/pid.py`,
+> NIM `llama-3.2-11b-vision-instruct`) — no local model packages, consistent with the cloud-only
+> model plane. If **Path A** (custom YOLOv9 + LayoutLMv3) is ever built, it belongs
+> in its **own GPU-backed service** with a separate `requirements-cv.txt` — not the
+> shared API/worker image.
 
 ---
 

@@ -170,16 +170,6 @@ Gotcha rebuilds: `docker compose up -d --no-deps --build kairos-frontend` (new n
 
 ---
 
-## Frontend Build Status
-
-All FE tasks (1–36 + projects registry + RCA) are **built, `tsc`/`eslint`-clean, `next build` passes, and browser-verified** against the golden dataset — desktop routes via admin/engineer, field routes 8–12 via a real `field_worker` session at mobile width (FieldBottomTabs confirmed). Per-task plan + verification steps: `docs/implementation/FE.md`.
-
-Verification surfaced 7 live-data crashes — all frontend-type-vs-backend-contract mismatches (compliance-dashboard, SLA, circuit-breaker, model-gate, blast-radius, topology, offboarding) plus a prod-only service-worker fix. Root causes are in Known Pitfalls above; the contract is now guarded by `tests/test_contract.py`.
-
-**FE "done" checklist:** DemoChip on fixture data · PTW dual-sign · frozen/caution banners · GovernorPill in sidebar · ContrastToggle · FieldBottomTabs only on `field_worker` at mobile width.
-
----
-
 ## Tooling & Project Reference
 
 - **`gh`** — GitHub CLI: PRs, issues, CI status.
