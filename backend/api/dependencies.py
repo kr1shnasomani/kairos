@@ -4,6 +4,8 @@ Provides shared clients as FastAPI dependencies (injected per-request or applica
 """
 
 import asyncio
+import hashlib
+import time
 from typing import Annotated
 
 import redis.asyncio as aioredis
@@ -155,6 +157,36 @@ SupabaseDep = Annotated[Client, Depends(get_supabase)]
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
+# --- Verified-token cache -----------------------------------------------------
+# ponytail: tiny in-process TTL cache so a valid token skips the Supabase Auth
+# round-trip on every request. Revocation is still enforced — just up to
+# AUTH_CACHE_TTL_SECONDS stale. Per-worker; entries keyed by token hash.
+_AUTH_CACHE_MAX = 2048
+_auth_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _auth_cache_get(token: str) -> dict | None:
+    entry = _auth_cache.get(hashlib.sha256(token.encode()).hexdigest())
+    if entry is None:
+        return None
+    expires_at, user = entry
+    if time.monotonic() >= expires_at:
+        _auth_cache.pop(hashlib.sha256(token.encode()).hexdigest(), None)
+        return None
+    return user
+
+
+def _auth_cache_put(token: str, user: dict, ttl: int) -> None:
+    if ttl <= 0:
+        return
+    if len(_auth_cache) >= _AUTH_CACHE_MAX:
+        now = time.monotonic()
+        for k in [k for k, (exp, _) in _auth_cache.items() if now >= exp]:
+            _auth_cache.pop(k, None)
+        if len(_auth_cache) >= _AUTH_CACHE_MAX:
+            _auth_cache.clear()  # bounded worst case; rare
+    _auth_cache[hashlib.sha256(token.encode()).hexdigest()] = (time.monotonic() + ttl, user)
+
 
 async def get_current_user(
     settings: SettingsDep,
@@ -182,6 +214,11 @@ async def get_current_user(
     if token == settings.INTERNAL_API_KEY:
         return {"user_id": "service-kairos-connector", "email": "connector@internal", "role": "admin", "site_id": "SITE_001", "sub": "service-connector"}
 
+    # Fast path: recently-verified token — skips the Supabase Auth round-trip.
+    cached = _auth_cache_get(token)
+    if cached is not None:
+        return cached
+
     try:
         # Use a fresh client with anon key for token verification — keeps the global
         # service-role client's session clean (auth.get_user mutates client state).
@@ -198,13 +235,15 @@ async def get_current_user(
         )
 
     meta = user.user_metadata or {}
-    return {
+    user_dict = {
         "user_id": str(user.id),
         "email": user.email,
         "role": meta.get("role", "field_worker"),
         "site_id": meta.get("site_id", ""),
         "sub": str(user.id),
     }
+    _auth_cache_put(token, user_dict, settings.AUTH_CACHE_TTL_SECONDS)
+    return user_dict
 
 
 CurrentUserDep = Annotated[dict, Depends(get_current_user)]

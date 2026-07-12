@@ -62,8 +62,7 @@ kairos/                          # repo root
 │   │   └── voice_transcription.py   # Groq Whisper transcription + NER Celery task
 │   ├── workflows/
 │   │   ├── document_pipeline.py     # DocumentIngestionWorkflow + all 7 activities
-│   │   ├── elicitation_workflow.py  # MicroInterviewWorkflow
-│   │   └── elicitation.py          # ElicitationService (question generation)
+│   │   └── elicitation_workflow.py  # MicroInterviewWorkflow + question generation (Neo4j + LLM)
 │   ├── connectors/                  # Go service — OT historian + EAM sync
 │   │   ├── cmd/connector/main.go    # Entry point, all HTTP handlers
 │   │   ├── internal/ot/client.go    # PIWebAPIClient + MockHistorianClient
@@ -326,6 +325,14 @@ OCR for the extraction pipeline. Cloud-first for scanned documents; zero-API-cos
 
 > **Important:** The OCR model uses the NVIDIA CV API (`https://ai.api.nvidia.com/v1/cv/<model>`), NOT the chat completions endpoint (`integrate.api.nvidia.com`). Request format uses `"input": [{"type": "image_url", "url": "data:..."}]`. Response format is `{"data": [{"text_detections": [{"label": "..."}]}]}`. Inline image limit: 180KB base64 — larger pages are skipped (assets API needed). Pages are rasterized at 96 DPI to stay under this limit.
 
+### `PIDService` (`services/pid.py`)
+
+**Layer 3, Path B** — P&ID engineering-drawing topology extraction via a cloud vision model. Vision-*understanding*, not OCR (OCR destroys the drawing's connections).
+
+- `extract_topology(file_bytes, mime_type) -> dict | None` — rasterizes the drawing (150 DPI for PDFs), downscales to fit the inline size cap (Pillow), sends it to NIM `meta/llama-3.2-11b-vision-instruct` (chat completions, OpenAI-style `image_url` content) with a schema-locked prompt, and parses the returned topology JSON (`equipment_nodes`, `isolation_valves`, `instrumentation_loops`, `isolation_boundaries`). Returns `None` on any failure so the pipeline falls back to the demo fixture.
+- Wired into `run_ocr` for `document_type='pid_drawing'`. The result carries `topology_source` (`vision_model` | `demo_fixture`) through the manifest and `GET /documents/{id}/topology` so a fixture never masquerades as a real extraction. Every element still routes to element-by-element engineer verification (Layer 7).
+- **Path A** (custom YOLOv9 + LayoutLMv3 on GPU) is the documented future upgrade — see `ARCHITECTURE.md` Layer 3.
+
 ### `metrics` (`services/metrics.py`)
 
 OTEL custom metric instruments. All no-ops when `MeterProvider` is not configured.
@@ -469,6 +476,13 @@ Source: `backend/connectors/cmd/connector/main.go`.
 | `GET` | `/ot/coverage/:asset_id` | Checks FastAPI `GET /assets/{id}/knowledge` for fact count. Returns `source=knowledge_graph` if asset is in graph, else mock 75% coverage. |
 | `POST` | `/eam/sync` | Reads `fixtures/sample_assets.json` if `EAM_ODS_ENDPOINT` not set. POSTs each asset to FastAPI `POST /assets` using `INTERNAL_API_KEY`. |
 | `POST` | `/eam/work-order` | Proxies incoming JSON body to FastAPI `POST /events/work-order`. |
+
+> **External systems — mock by design.** The OT historian (PI Web API) and EAM sync
+> (SAP/Maximo) integrate with **plant enterprise systems KAIROS does not own**. With no
+> live plant to connect to, they run on mock/fixture data by design — the intended state,
+> not a gap. The real paths exist (`PIWebAPIClient` built; SAP ODS + OPC-UA are stubs) and
+> would activate via `PI_WEBAPI_BASE_URL` / `EAM_ODS_ENDPOINT` if a plant were ever
+> connected. Completion status for every layer: [`docs/implementation/status.md`](./implementation/status.md).
 
 ### PI Web API Client (`internal/ot/client.go`)
 
@@ -618,6 +632,7 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 | `NVIDIA_NIM_MODEL` | `meta/llama-3.3-70b-instruct` | LLM synthesis |
 | `NVIDIA_NIM_NER_MODEL` | `mistralai/ministral-14b-instruct-2512` | NER extraction |
 | `NVIDIA_NIM_OCR_MODEL` | `nvidia/nemotron-ocr-v2` | OCR for scanned docs/images |
+| `NVIDIA_NIM_VISION_MODEL` | `meta/llama-3.2-11b-vision-instruct` | P&ID drawing → topology JSON (Layer 3, Path B) |
 | `NVIDIA_NIM_MAX_TOKENS` | `4096` | Set to `512` to avoid ReadTimeout |
 | `JINA_API_KEY` | `""` | Required for Jina embeddings |
 | `JINA_EMBED_MODEL` | `jina-embeddings-v3` | 1024-dim output, primary embeddings |

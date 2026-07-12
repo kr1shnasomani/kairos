@@ -153,6 +153,35 @@ async def test_dispute_quarantine_item(admin_client, shared_asset_id):
     assert r2.json()["status"] == "disputed"
 
 
+async def test_request_info_quarantine_item(admin_client, shared_asset_id):
+    """Layer 6 fourth review action: request more info leaves the item pending."""
+    now = datetime.now(timezone.utc).isoformat()
+    r = await admin_client.post("/events/inspection-complete", json={
+        "event_id": uid(),
+        "source_system": "test",
+        "site_id": "SITE_001",
+        "occurred_at": now,
+        "received_at": now,
+        "asset_id": shared_asset_id,
+        "inspection_type": "visual",
+        "result": "failed",
+        "performed_by": "TECH-TEST",
+        "confidence": 0.4,
+    })
+    item_id = r.json()["quarantine_item_id"]
+
+    r2 = await admin_client.post(
+        f"/governance/quarantine/{item_id}/request-info",
+        json={"note": "Which seal face — inboard or outboard?"},
+    )
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "info_requested"
+
+    # Item stays pending (still actionable), so it can still be promoted/disputed after.
+    listing = await admin_client.get("/governance/quarantine", params={"review_status": "pending"})
+    assert any(it["item_id"] == item_id for it in listing.json()["items"])
+
+
 async def test_double_promote_returns_409(admin_client, shared_asset_id):
     now = datetime.now(timezone.utc).isoformat()
     r = await admin_client.post("/events/inspection-complete", json={

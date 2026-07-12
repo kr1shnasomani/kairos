@@ -42,4 +42,8 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,  # Ensure tasks aren't lost if worker crashes
     worker_prefetch_multiplier=1,  # One task at a time for ML-heavy jobs
+    # Perf/reliability wins (celery-expert skill):
+    result_expires=3600,  # expire results so the Redis backend can't grow unbounded
+    broker_connection_retry_on_startup=True,  # don't crash if Redis lags at startup (Celery 6 default=False)
+    worker_max_tasks_per_child=200,  # recycle workers to cap memory creep on long-lived pools
 )
