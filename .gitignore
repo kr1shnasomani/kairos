@@ -75,9 +75,9 @@ yarn-error.log*
 .pnp.*
 
 # --- Docker ---
-# Don't ignore docker-compose.yml — it's tracked
-# Ignore override files with secrets
-docker-compose.override.yml
+# docker-compose.yml (prod base) and docker-compose.override.yml (dev) are BOTH
+# tracked — the override is the reproducible dev config, not a local secret file.
+# Personal, machine-local overrides go in docker-compose.local.yml (ignored).
 docker-compose.local.yml
 
 # --- Database ---

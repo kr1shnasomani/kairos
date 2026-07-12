@@ -1,0 +1,107 @@
+# =============================================================================
+# KAIROS — DEV override (auto-loaded by `docker compose up` / `make dev`)
+#
+# Layers local-development conveniences on top of the production base:
+#   • source bind-mounts + hot-reload commands (uvicorn --reload, next dev,
+#     go run) so code edits apply live
+#   • runs as root to avoid bind-mount permission friction
+#   • publishes every internal datastore + UI port to the host for debugging
+#
+# AWS / prod skips this file entirely:
+#   docker compose -f docker-compose.yml up -d --build
+# =============================================================================
+
+services:
+
+  # --- Frontend: dev server + hot-reload -----------------------------------
+  kairos-frontend:
+    build:
+      target: dev
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+
+  # --- API: --reload + source mount ----------------------------------------
+  kairos-backend-api:
+    user: root
+    volumes:
+      - ./backend:/app
+      - ./tests:/app/tests
+      - ./pytest.ini:/app/pytest.ini
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  # --- Celery worker: source mount -----------------------------------------
+  kairos-celery-worker:
+    user: root
+    volumes:
+      - ./backend:/app
+
+  # --- Temporal activity worker: source mount ------------------------------
+  kairos-temporal-activity-worker:
+    user: root
+    volumes:
+      - ./backend:/app
+
+  # --- Elicitation worker: source mount ------------------------------------
+  kairos-elicitation-worker:
+    user: root
+    volumes:
+      - ./backend:/app
+
+  # --- Go connector: `go run` hot-ish + source mount -----------------------
+  kairos-backend-go:
+    build:
+      target: builder
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./backend/connectors:/app
+    command: ["go", "run", "./cmd/connector/..."]
+
+  # --- Datastores + observability: publish ports for local debugging -------
+  kairos-neo4j:
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+
+  kairos-qdrant:
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+
+  kairos-elasticsearch:
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+
+  kairos-redis:
+    ports:
+      - "6379:6379"
+
+  kairos-temporal:
+    ports:
+      - "7233:7233"
+
+  kairos-temporal-ui:
+    ports:
+      - "8088:8080"
+
+  kairos-opa:
+    ports:
+      - "8181:8181"
+
+  kairos-otel-collector:
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+
+  kairos-tempo:
+    ports:
+      - "3200:3200"
+
+  kairos-grafana:
+    ports:
+      - "3001:3000"
