@@ -590,18 +590,18 @@ export interface HealthDetailed {
 // --- Audit pack (GET /compliance/audit-pack) ---
 export interface AuditPackClause {
   clause_id: string;
-  requirement_text: string;
-  documents: VaultDocument[];
-  confidence: number;
-  requires_review: boolean;
-  cleared: boolean;
-  reviewed_by?: string | null;
+  status: string;
+  document_id: string | null;
+  clearance_blocked: boolean;
 }
 
 export interface AuditPack {
   framework: string;
-  clauses: AuditPackClause[];
   generated_at: string;
+  total_clauses: number;
+  covered: number;
+  clearance_blocked: boolean;
+  evidence: AuditPackClause[];
 }
 
 // --- OT instrumentation coverage (GET /ot/coverage/{asset_id}) ---

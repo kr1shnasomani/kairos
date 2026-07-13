@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useEffect, useState } from "react";
 import type { OperationalEvent, EventPriority } from "@/lib/types";
 import { getEvent, ackEvent } from "@/lib/api";
+import { getMe } from "@/lib/auth";
 import { Button, StatusBadge, EmptyState } from "@/components/ui";
 import { relativeTime, triggerLabel } from "@/lib/utils";
 
@@ -16,6 +17,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
   const [event, setEvent] = useState<OperationalEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [acking, setAcking] = useState(false);
+  const [ackError, setAckError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -25,9 +27,14 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
 
   async function handleAck() {
     setAcking(true);
+    setAckError(null);
     try {
-      await ackEvent(id);
-      setEvent((e) => e ? { ...e, acknowledged: true } : e);
+      const user = await getMe();
+      if (!user) throw new Error("Sign in again before acknowledging this event.");
+      await ackEvent(id, { user_id: user.user_id, role: user.role });
+      setEvent((e) => e ? { ...e, acknowledged: true, acknowledged_by: user.user_id } : e);
+    } catch (error) {
+      setAckError(error instanceof Error ? error.message : "Could not acknowledge this event.");
     } finally {
       setAcking(false);
     }
@@ -100,6 +107,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
               </Button>
             </div>
           )}
+          {ackError && <p role="alert" className="mt-2 text-[12.5px] text-danger">{ackError}</p>}
           {event.acknowledged && event.acknowledged_by && (
             <p className="mt-5 text-[12.5px] text-verified">
               ✓ Acknowledged by <span className="font-semibold">{event.acknowledged_by}</span>

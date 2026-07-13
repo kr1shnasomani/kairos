@@ -75,17 +75,19 @@ function Interview({
   const [voiceAnswers, setVoiceAnswers] = useState<Record<number, boolean>>({});
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const allAnswered = questions.every((_, i) => (answers[i] ?? "").trim());
 
   async function submit() {
     setSubmitting(true);
+    setError(null);
     const responses = questions.map((_, i) => ({ question_index: i, answer: answers[i] ?? "" }));
     try {
       await submitOffboardingResponses(programmeId, item.id, responses);
       setSubmitted(true);
     } catch {
-      setSubmitted(true); // offline path — queuing out of scope for desktop
+      setError("Responses were not saved. Check the connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -159,6 +161,7 @@ function Interview({
       <Button variant="primary" onClick={submit} disabled={!allAnswered || submitting} className="mt-2 h-[48px] w-full">
         {submitting ? "Submitting…" : "Submit session responses"}
       </Button>
+      {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
     </div>
   );
 }
@@ -245,6 +248,7 @@ export default function OffboardingSessionPage() {
             <p className="text-[14px] text-muted">No sessions in this programme yet.</p>
           ) : active.status === "questions_ready" && activeQuestions.length > 0 ? (
             <Interview
+              key={active.id}
               programmeId={programmeId}
               item={active}
               questions={activeQuestions}

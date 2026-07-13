@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getConflicts, getQuarantine, getEvents } from "@/lib/api";
-import { FilterTabs, StatusBadge, EmptyState } from "@/components/ui";
+import { FilterTabs, StatusBadge, EmptyState, DemoChip } from "@/components/ui";
 import { relativeTime } from "@/lib/utils";
 
 type NcSource = "conflict" | "inspection" | "dispute";
@@ -75,7 +75,7 @@ export default function NonConformancePage() {
 
       ncs.sort((a, b) => (a.when < b.when ? 1 : -1));
       setItems(ncs);
-      setIsDemo(c.source === "demo" && q.source === "demo");
+      setIsDemo(c.source === "demo" || q.source === "demo" || e.source === "demo");
     });
     return () => { alive = false; };
   }, []);
@@ -108,12 +108,7 @@ export default function NonConformancePage() {
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-muted">
         <span className="tabular font-medium text-ink">{items.length} open</span>
-        {isDemo && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px]">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo data
-          </span>
-        )}
+        {isDemo && <DemoChip />}
       </div>
 
       <div className="mt-5">

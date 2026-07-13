@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { VaultDocument, AssetSummary, OperationalEvent } from "@/lib/types";
 import { getDocuments, getAssets, getEvents } from "@/lib/api";
-import { AuthorityBadge, FilterTabs, KpiCard, StatusBadge, EmptyState } from "@/components/ui";
+import { AuthorityBadge, FilterTabs, KpiCard, StatusBadge, EmptyState, DemoChip } from "@/components/ui";
 import { triggerLabel, relativeTime } from "@/lib/utils";
 
 const UNCLASSIFIED = "Unclassified";
@@ -31,7 +31,7 @@ export default function ProjectsPage() {
       setDocuments(d.data.items);
       setAssets(a.data.items);
       setEvents(e.data.items);
-      setIsDemo(d.source === "demo" && a.source === "demo");
+      setIsDemo(d.source === "demo" || a.source === "demo" || e.source === "demo");
     });
     return () => { alive = false; };
   }, []);
@@ -75,12 +75,7 @@ export default function ProjectsPage() {
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-muted">
         <span className="tabular font-medium text-ink">{classNames.length} equipment classes · {documents.length} documents</span>
-        {isDemo && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px]">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo data
-          </span>
-        )}
+        {isDemo && <DemoChip />}
       </div>
 
       {classNames.length > 0 && (

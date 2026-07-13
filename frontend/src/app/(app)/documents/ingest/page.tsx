@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import type { DocumentPipelineStage, DocumentStatus, VaultDocument } from "@/lib/types";
-import { ingestDocument, getDocumentStatus } from "@/lib/api";
+import type { DocumentPipelineStage, DocumentStatus } from "@/lib/types";
+import { ingestDocument, getDocumentStatus, type DocumentIngestResponse } from "@/lib/api";
 import { useRole, RESOLVE_ROLES } from "@/components/use-role";
 import { Button, StatusBadge, Timeline } from "@/components/ui";
 import { triggerLabel } from "@/lib/utils";
@@ -20,8 +20,6 @@ const STAGE_LABEL: Record<DocumentPipelineStage, string> = {
   complete: "Complete", review_required: "Review required", failed: "Failed",
 };
 
-interface Ingested extends VaultDocument { already_ingested?: boolean; }
-
 export default function IngestPage() {
   const role = useRole();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -32,7 +30,7 @@ export default function IngestPage() {
   const [authority, setAuthority] = useState("3");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<Ingested | null>(null);
+  const [result, setResult] = useState<DocumentIngestResponse | null>(null);
   const [status, setStatus] = useState<DocumentStatus | null>(null);
 
   const canIngest = RESOLVE_ROLES.includes(role);
@@ -175,19 +173,17 @@ export default function IngestPage() {
         <section className="mt-5 space-y-4">
           <div className="rounded-xl border border-line bg-surface p-5">
             <div className="flex flex-wrap items-center gap-3">
-              {result.already_ingested
+              {result.status === "duplicate"
                 ? <StatusBadge tone="caution">Already ingested</StatusBadge>
                 : <StatusBadge tone="verified">Stored in vault</StatusBadge>}
               <span className="tabular text-[13px] font-semibold text-accent">{result.document_id}</span>
             </div>
             <p className="mt-2 text-[12.5px] text-muted">
-              {result.already_ingested
-                ? "This exact file already exists — the vault returned the existing document (SHA-256 dedup)."
-                : "The raw file was stored unchanged. Extraction runs asynchronously below."}
+              {result.message}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Link href={`/documents/${result.document_id}`} className="text-[12.5px] text-accent underline hover:no-underline">Open document ↗</Link>
-              {result.document_type === "pid_drawing" && (
+              {docType === "pid_drawing" && (
                 <Link href={`/documents/${result.document_id}/topology`} className="text-[12.5px] text-accent underline hover:no-underline">View topology ↗</Link>
               )}
             </div>

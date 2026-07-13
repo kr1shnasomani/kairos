@@ -16,15 +16,15 @@
   --muted: #6e6a62;       /* secondary text */
 
   /* brand */
-  --accent: #e8501f;      /* Kairos Orange — actions, focus, identity */
+  --accent: #b83d16;      /* Kairos Orange — accessible text/action variant */
   --accent-soft: #fbe8df; /* accent wash */
   --on-accent: #ffffff;
 
   /* semantic status — authority / verification / severity */
-  --danger: #d92d20;
-  --caution: #f5a623;
-  --verified: #2e7d46;
-  --info: #2563eb;
+  --danger: #b42318;
+  --caution: #9a5b00;
+  --verified: #216d3b;
+  --info: #1d4ed8;
 
   --radius: 8px;
   --radius-lg: 12px;

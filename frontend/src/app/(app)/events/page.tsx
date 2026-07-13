@@ -8,7 +8,7 @@ import {
 } from "@/lib/api";
 import { useRole, RESOLVE_ROLES } from "@/components/use-role";
 import { getMe } from "@/lib/auth";
-import { Button, FilterTabs, StatusBadge, EmptyState } from "@/components/ui";
+import { Button, FilterTabs, StatusBadge, EmptyState, DemoChip } from "@/components/ui";
 import { relativeTime, triggerLabel } from "@/lib/utils";
 
 const PRIORITY_TONE: Record<EventPriority, "danger" | "caution" | "info" | "neutral"> = {
@@ -54,12 +54,7 @@ export default function EventsPage() {
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-muted">
         <span className="tabular font-medium text-ink">{events.length} event{events.length !== 1 ? "s" : ""}</span>
-        {isDemo && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px]">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo data
-          </span>
-        )}
+        {isDemo && <DemoChip />}
       </div>
 
       {canEmit && <EmitPanel siteId={siteId} onEmitted={load} />}
@@ -110,10 +105,10 @@ function EmitPanel({ siteId, onEmitted }: { siteId: string; onEmitted: () => voi
     setBusy(true);
     setMsg(null);
     try {
-      if (kind === "tag-out") await postTagOut({ asset_id: assetId, reason: note || "Scheduled isolation" });
-      else if (kind === "inspection-complete") await postInspectionComplete({ asset_id: assetId, result: "failed", findings: note || "Visual finding", performed_by: "dev-user" });
-      else if (kind === "alarm") await postAlarm({ asset_id: assetId, alarm_tag: "PAH-101", description: note || "High pressure", priority: "high" });
-      else await postShiftHandover({ from_shift: "A", to_shift: "B", notes: note || "Nominal handover", site_id: siteId });
+      if (kind === "tag-out") await postTagOut({ source_system: "manual", site_id: siteId, asset_id: assetId, tag_out_reason: note || "Scheduled isolation", performed_by: "dev-user" });
+      else if (kind === "inspection-complete") await postInspectionComplete({ source_system: "manual", site_id: siteId, asset_id: assetId, inspection_type: "visual", result: "failed", findings: note || "Visual finding", performed_by: "dev-user" });
+      else if (kind === "alarm") await postAlarm({ source_system: "manual", site_id: siteId, asset_id: assetId, alarm_tag: "PAH-101", alarm_description: note || "High pressure", severity: "high", acknowledged_by: "dev-user" });
+      else await postShiftHandover({ source_system: "manual", site_id: siteId, outgoing_shift_lead_id: "shift-A", incoming_shift_lead_id: "shift-B", handover_time: new Date().toISOString() });
       setMsg("Event emitted — brief assembly triggered.");
       setNote("");
       onEmitted();

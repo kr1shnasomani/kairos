@@ -39,6 +39,7 @@ export default function BootstrapPage() {
   const [provisional, setProvisional] = useState(SEED_PROVISIONAL);
   const [aliases, setAliases] = useState(SEED_ALIASES);
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     getMe().then((u) => {
@@ -50,18 +51,22 @@ export default function BootstrapPage() {
 
   async function confirm(p: Provisional) {
     setBusy(p.asset_id);
+    setError(null);
     try {
       await confirmAssetIdentity({
         asset_id: p.asset_id,
+        tag_number: p.asset_id,
         name: p.name,
         equipment_class: p.equipment_class,
-        identity_confirmed_by: me || "admin",
+        criticality: "critical",
         site_id: siteId,
+        facility_id: siteId,
+        confirmed_by_user_id: me || "admin",
       });
-    } catch {
-      // demo mode — backend offline; still reflect the confirmation optimistically
-    } finally {
       setProvisional((list) => list.filter((x) => x.asset_id !== p.asset_id));
+    } catch {
+      setError("Identity confirmation was not saved. Check the connection and try again.");
+    } finally {
       setBusy(null);
     }
   }
@@ -96,6 +101,7 @@ export default function BootstrapPage() {
       {isAdmin && (
         <>
           <section className="mt-6">
+            {error && <p role="alert" className="mb-3 text-[13px] text-danger">{error}</p>}
             <h2 className="text-[14px] font-semibold">Provisional assets · {provisional.length}</h2>
             <p className="mt-0.5 text-[12.5px] text-muted">Holding nodes lacking <span className="tabular">identity_confirmed_by</span>.</p>
             <div className="mt-3 space-y-2">

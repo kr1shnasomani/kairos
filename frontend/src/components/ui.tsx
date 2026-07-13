@@ -2,7 +2,7 @@
 
 import type { AuthorityLevel, AuditLogEntry, BriefSource } from "@/lib/types";
 import { authorityLabel, cn } from "@/lib/utils";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 type Tone = "danger" | "caution" | "verified" | "info" | "neutral";
 
@@ -68,8 +68,8 @@ export function SourceChip({
   );
 }
 
-/** Centered confirm dialog over a dimmed backdrop — refero: Airtable/Jasper/The Org confirm modals.
- *  Used for consequential writes (promote/dispute). Backdrop + Esc dismiss; actions live in children. */
+/** Centered confirm dialog over a dimmed backdrop — refero: Medium/Clipchamp/Mercury confirms.
+ *  Used for consequential writes (promote/dispute). Backdrop + Esc dismiss; focus trap; actions in children. */
 export function Modal({
   title,
   onClose,
@@ -79,13 +79,75 @@ export function Modal({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const focusables = () =>
+      Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => !el.hasAttribute("disabled") && el.tabIndex !== -1);
+
+    const first = focusables()[0];
+    (first ?? panel).focus();
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab" || !panelRef.current) return;
+      const list = focusables();
+      if (list.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const firstEl = list[0];
+      const lastEl = list[list.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) {
+        e.preventDefault();
+        lastEl.focus();
+      } else if (!e.shiftKey && document.activeElement === lastEl) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prevOverflow;
+      previouslyFocused.current?.focus?.();
+    };
+  }, []);
+
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4" role="dialog" aria-modal="true" aria-label={title}>
-      <button className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl border border-line bg-surface p-5 shadow-xl">
+    <div className="fixed inset-0 z-50 grid place-items-center p-4" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close dialog" onClick={onClose} />
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="relative w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-line bg-surface p-5 shadow-xl outline-none"
+      >
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-[14.5px] font-semibold">{title}</h2>
+          <h2 id={titleId} className="text-[14.5px] font-semibold">{title}</h2>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close"
             className="grid size-7 place-items-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-ink"
@@ -144,11 +206,11 @@ export function PhaseBadge() {
 }
 
 /** Honest data-source chip — shown when a page is rendering fixture/demo data. */
-export function DemoChip() {
+export function DemoChip({ detail }: { detail?: string } = {}) {
   return (
     <span className="inline-flex h-[20px] items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--caution)_14%,transparent)] px-2 text-[10px] font-semibold text-caution">
       <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-      Demo data
+      {detail ? `Demo data — ${detail}` : "Demo data"}
     </span>
   );
 }
@@ -202,18 +264,16 @@ export interface TableColumn<T> {
   className?: string;
 }
 
-/** Dense data table with optional row-click and empty state. */
+/** Dense data table with an optional empty state. */
 export function DataTable<T extends Record<string, unknown>>({
   columns,
   rows,
   keyFn,
-  onRowClick,
   emptyState,
 }: {
   columns: TableColumn<T>[];
   rows: T[];
   keyFn: (row: T) => string;
-  onRowClick?: (row: T) => void;
   emptyState?: React.ReactNode;
 }) {
   if (rows.length === 0 && emptyState) {
@@ -238,11 +298,7 @@ export function DataTable<T extends Record<string, unknown>>({
           {rows.map((row) => (
             <tr
               key={keyFn(row)}
-              onClick={onRowClick ? () => onRowClick(row) : undefined}
-              className={cn(
-                "border-b border-line/60 bg-surface last:border-0",
-                onRowClick && "cursor-pointer hover:bg-surface-2",
-              )}
+              className="border-b border-line/60 bg-surface last:border-0"
             >
               {columns.map((col) => (
                 <td key={col.key} className={cn("px-3 py-2.5 align-middle", col.className)}>
@@ -270,12 +326,11 @@ export function FilterTabs({
   onChange: (key: string) => void;
 }) {
   return (
-    <div role="tablist" className="flex gap-1 rounded-lg border border-line bg-surface-2 p-1">
+    <div role="group" aria-label="Filters" className="flex flex-wrap gap-1 rounded-lg border border-line bg-surface-2 p-1">
       {tabs.map((tab) => (
         <button
           key={tab.key}
-          role="tab"
-          aria-selected={active === tab.key}
+          aria-pressed={active === tab.key}
           onClick={() => onChange(tab.key)}
           className={cn(
             "flex h-7 items-center gap-1.5 rounded-md px-3 text-[12.5px] font-semibold transition-colors",

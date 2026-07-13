@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import shortuuid
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, QdrantDep, RedisDep, SettingsDep, SupabaseDep, require_role
 from api.models.event import (
@@ -748,6 +748,37 @@ async def get_plant_state_endpoint(
     bus = EventBusService(redis, settings)
     state = await bus.get_plant_state(site_id, supabase)
     return {"site_id": site_id, "state": state}
+
+
+@router.get("/", summary="List operational events")
+async def list_events(
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+    event_type: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """Returns the paginated event feed used by the operational-events workspace."""
+    def fetch_events():
+        query = (
+            supabase.table("operational_events")
+            .select("event_id,event_type,event_subtype,asset_id,site_id,occurred_at,payload", count="exact")
+            .order("occurred_at", desc=True)
+        )
+        if event_type:
+            query = query.eq("event_type", event_type)
+        return query.range(offset, offset + limit - 1).execute()
+
+    result = await asyncio.to_thread(fetch_events)
+    items = [
+        {
+            **event,
+            "priority": (event.get("payload") or {}).get("priority", "normal"),
+            "acknowledged": False,
+        }
+        for event in (result.data or [])
+    ]
+    return {"items": items, "total": result.count or 0, "limit": limit, "offset": offset}
 
 
 @router.get("/{event_id}", summary="Get event with correlated event IDs")

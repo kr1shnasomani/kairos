@@ -24,7 +24,7 @@ The task breakdown that follows records the objective, endpoints, and verificati
 
 **Objective:** Fully wire all 6 asset endpoints so canonical asset nodes can be created, queried, and alias-mapped in Neo4j and Supabase.
 
-- `POST /assets` — call `GraphService.create_asset_node()` using `MERGE`, write row to Supabase `assets` table; hard-require `identity_confirmed_by` to be a non-empty user ID (no AI-inferred identities, ever)
+- `POST /assets` — call `GraphService.create_asset_node()` using `MERGE`, write row to Supabase `assets` table; hard-require `confirmed_by_user_id` to be a non-empty user ID (no AI-inferred identities, ever)
 - `GET /assets` — Cypher: `MATCH (a:Asset) WHERE a.site_id = $site_id RETURN a SKIP $offset LIMIT $limit`; also index into ES `kairos_assets`
 - `GET /assets/{asset_id}` — `GraphService.get_asset()`
 - `GET /assets/{asset_id}/aliases` — query `asset_alias_map` Supabase table

@@ -436,11 +436,11 @@ This is the largest gap and the architectural heart of KAIROS: knowledge deliver
 
 **Layer:** 11 · **Objective:** Assemble an audit evidence package organized by regulatory clause, with mandatory human sign-off — the audit-preparation-acceleration deliverable.
 
-- Route `src/app/(app)/compliance/audit-pack/page.tsx`: pick a framework → `GET /compliance/audit-pack?framework=`; render documents grouped by `clause_id`, each with authority badge and confidence; clauses with `confidence < 0.7` flagged "requires human review"; clearances below threshold are blocked and labeled.
+- Route `src/app/(app)/compliance/audit-pack/page.tsx`: pick a framework → `GET /compliance/audit-pack?framework=`; render the canonical `evidence[]` records by `clause_id`, including `document_id`, status, and `clearance_blocked`. Do not invent document groups, confidence, or a client-side clearance action.
 - Export affordance: a print/PDF-friendly layout (CSS print styles) for the desk-review pack. `ponytail:` browser print-to-PDF for the MVP; a server-generated signed pack is a later upgrade.
 - Sign-off: a per-clause "reviewed by" capture (writes an audit-log entry) so the pack carries human attestation, not automated compliance.
 
-**Test:** Generate an audit pack for a framework; verify grouping by clause, low-confidence clauses flagged, blocked clearances labeled; verify print layout is clean; verify a clause sign-off writes an audit entry.
+**Test:** Generate an audit pack for a framework; verify evidence records and blocked clearances render correctly; verify print layout is clean. A signed attestation requires a dedicated backend endpoint.
 
 ---
 

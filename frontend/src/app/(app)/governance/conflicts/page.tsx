@@ -5,16 +5,16 @@ import { useEffect, useMemo, useState } from "react";
 import type { Conflict } from "@/lib/types";
 import { getConflicts, resolveConflict, type DataSource } from "@/lib/api";
 import { authorityLabel, relativeTime, slaCountdown } from "@/lib/utils";
-import { FilterTabs, StatusBadge } from "@/components/ui";
+import { FilterTabs, StatusBadge, DemoChip } from "@/components/ui";
 
 // ── SLA countdown ─────────────────────────────────────────────────────────────
 
-function SlaChip({ sla_due_at, is_overdue }: { sla_due_at: string | null; is_overdue: boolean }) {
+function SlaChip({ sla_due_at, is_overdue, nowMs }: { sla_due_at: string | null; is_overdue: boolean; nowMs: number }) {
   if (!sla_due_at) return null;
   if (is_overdue) {
     return <span className="tabular text-[11px] font-semibold text-danger">SLA overdue</span>;
   }
-  const { label, tone } = slaCountdown(sla_due_at);
+  const { label, tone } = slaCountdown(sla_due_at, nowMs);
   return <span className={`tabular text-[11px] font-semibold ${tone}`}>{label}</span>;
 }
 
@@ -43,6 +43,14 @@ export default function ConflictsPage() {
   const [statusFilter, setStatusFilter] = useState("open");
   const [trackFilter, setTrackFilter] = useState("all");
   const [showTestData, setShowTestData] = useState(false);
+  const [nowMs, setNowMs] = useState(0);
+
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    tick();
+    const timer = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -108,12 +116,7 @@ export default function ConflictsPage() {
       {/* Stats row */}
       <div className="mt-4 flex flex-wrap items-center gap-3 text-[12px] text-muted">
         <span className="tabular font-medium text-ink">{openCount} open</span>
-        {source === "demo" && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px]">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo data
-          </span>
-        )}
+        {source === "demo" && <DemoChip />}
         <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-[11.5px]">
           <input
             type="checkbox"
@@ -159,7 +162,7 @@ export default function ConflictsPage() {
             No conflicts match the current filters.
           </div>
         )}
-        {visible.map((c) => <ConflictCard key={c.conflict_id} c={c} busy={busy} onResolve={resolve} />)}
+        {visible.map((c) => <ConflictCard key={c.conflict_id} c={c} busy={busy} nowMs={nowMs} onResolve={resolve} />)}
       </div>
     </div>
   );
@@ -170,10 +173,12 @@ export default function ConflictsPage() {
 function ConflictCard({
   c,
   busy,
+  nowMs,
   onResolve,
 }: {
   c: Conflict;
   busy: string | null;
+  nowMs: number;
   onResolve: (c: Conflict) => void;
 }) {
   const isEng = c.track === "engineering";
@@ -202,7 +207,7 @@ function ConflictCard({
         <StatusBadge tone={isEng ? "danger" : "info"} dot={false}>{c.track}</StatusBadge>
         <StatusBadge tone={SEV_TONE[c.severity] ?? "neutral"}>{c.severity}</StatusBadge>
         <span className="tabular text-[11px] text-muted">{c.asset_id}</span>
-        <SlaChip sla_due_at={c.sla_due_at} is_overdue={c.is_overdue && !resolved} />
+        <SlaChip sla_due_at={c.sla_due_at} is_overdue={c.is_overdue && !resolved} nowMs={nowMs} />
         <span className="tabular ml-auto text-[11px] text-muted">{relativeTime(c.created_at)}</span>
       </div>
 

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AuthorityLevel, QuarantineItem } from "@/lib/types";
 import { getQuarantine, promoteQuarantine, disputeQuarantine, type DataSource } from "@/lib/api";
 import { relativeTime, triggerLabel, slaCountdown } from "@/lib/utils";
-import { FilterTabs, Modal, StatusBadge } from "@/components/ui";
+import { Button, FilterTabs, Modal, StatusBadge, DemoChip } from "@/components/ui";
 import { useRole, PROMOTE_ROLES } from "@/components/use-role";
 
 const AUTH_LEVELS: AuthorityLevel[] = [1, 2, 3, 4, 5];
@@ -66,7 +66,7 @@ function SessionContextPanel({ ctx, inputType }: { ctx: Record<string, unknown>;
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type PanelMode = "promote" | "dispute" | "request_info";
+type PanelMode = "promote" | "dispute";
 
 export default function QuarantinePage() {
   const role = useRole();
@@ -134,11 +134,6 @@ export default function QuarantinePage() {
     }
   }
 
-  // ponytail: no dedicated request_info endpoint yet — note captured client-side only
-  function requestInfo(_item: QuarantineItem, _note: string, _reTrigger: boolean) {
-    setPanel(null);
-  }
-
   const visible = useMemo(() => {
     return items.filter((it) => {
       if (typeFilter !== "all" && it.input_type !== typeFilter) return false;
@@ -180,12 +175,7 @@ export default function QuarantinePage() {
       <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-muted">
         <span className="tabular font-medium text-ink">{pendingCount} pending</span>
         {!canPromote && <span>· read-only ({role})</span>}
-        {source === "demo" && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px]">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo data
-          </span>
-        )}
+        {source === "demo" && <DemoChip />}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-3">
@@ -232,7 +222,6 @@ export default function QuarantinePage() {
             busy={busy}
             onPromote={() => setPanel({ id: it.item_id, mode: "promote" })}
             onDispute={() => setPanel({ id: it.item_id, mode: "dispute" })}
-            onRequestInfo={() => setPanel({ id: it.item_id, mode: "request_info" })}
           />
         ))}
       </div>
@@ -254,15 +243,7 @@ export default function QuarantinePage() {
               onSubmit={(reason) => dispute(panelItem, reason)}
             />
           </Modal>
-        ) : (
-          <Modal title={`Request more information — ${panelItem.item_id}`} onClose={() => setPanel(null)}>
-            <RequestInfoForm
-              onCancel={() => setPanel(null)}
-              onSubmit={(note, reTrigger) => requestInfo(panelItem, note, reTrigger)}
-              isElicitation={panelItem.input_type === "elicitation_response" || panelItem.input_type === "offboarding_response"}
-            />
-          </Modal>
-        )
+        ) : null
       )}
     </div>
   );
@@ -276,14 +257,12 @@ function QuarantineCard({
   busy,
   onPromote,
   onDispute,
-  onRequestInfo,
 }: {
   item: QuarantineItem;
   canPromote: boolean;
   busy: string | null;
   onPromote: () => void;
   onDispute: () => void;
-  onRequestInfo: () => void;
 }) {
   const pending = item.review_status === "pending";
   const isDeviation = item.input_type === "deviation_flag";
@@ -332,27 +311,20 @@ function QuarantineCard({
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             {canPromote && (
-              <button
-                onClick={onPromote}
-                disabled={busy === item.item_id}
-                className="inline-flex h-8 items-center rounded-lg bg-accent px-3 text-[12.5px] font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
+              <Button variant="primary" onClick={onPromote} disabled={busy === item.item_id}>
                 Promote
-              </button>
+              </Button>
             )}
-            <button
-              onClick={onDispute}
-              disabled={busy === item.item_id}
-              className="inline-flex h-8 items-center rounded-lg border border-line px-3 text-[12.5px] font-semibold text-ink transition-colors hover:bg-surface-2 disabled:opacity-50"
-            >
+            <Button variant="ghost" onClick={onDispute} disabled={busy === item.item_id}>
               Dispute
-            </button>
-            <button
-              onClick={onRequestInfo}
-              className="inline-flex h-8 items-center rounded-lg border border-line px-3 text-[12.5px] font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+            </Button>
+            <Button
+              variant="ghost"
+              disabled
+              title="Request-info persistence is not available yet."
             >
-              Request info
-            </button>
+              Request info unavailable
+            </Button>
             {!canPromote && (
               <span className="text-[11px] text-muted">Promotion requires reliability, engineer, or admin.</span>
             )}
@@ -410,16 +382,12 @@ function PromoteForm({ busy, onCancel, onSubmit }: {
         className="h-8 rounded-lg border border-line bg-surface px-2 text-[12.5px] outline-none focus:border-accent"
       />
       <div className="flex items-center gap-2">
-        <button
-          type="submit"
-          disabled={busy}
-          className="inline-flex h-8 items-center rounded-lg bg-accent px-3 text-[12.5px] font-semibold text-on-accent disabled:opacity-50"
-        >
+        <Button variant="primary" type="submit" disabled={busy}>
           {busy ? "Promoting…" : "Confirm promote"}
-        </button>
-        <button type="button" onClick={onCancel} className="text-[12.5px] text-muted hover:text-ink">
+        </Button>
+        <Button variant="ghost" type="button" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -447,72 +415,12 @@ function DisputeForm({ busy, onCancel, onSubmit }: {
         className="h-8 rounded-lg border border-line bg-surface px-2 text-[12.5px] outline-none focus:border-accent"
       />
       <div className="flex items-center gap-2">
-        <button
-          type="submit"
-          disabled={busy}
-          className="inline-flex h-8 items-center rounded-lg border border-[color-mix(in_srgb,var(--danger)_40%,var(--line))] px-3 text-[12.5px] font-semibold text-danger disabled:opacity-50"
-        >
+        <Button variant="danger" type="submit" disabled={busy}>
           {busy ? "Submitting…" : "Confirm dispute"}
-        </button>
-        <button type="button" onClick={onCancel} className="text-[12.5px] text-muted hover:text-ink">
+        </Button>
+        <Button variant="ghost" type="button" onClick={onCancel}>
           Cancel
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function RequestInfoForm({ onCancel, onSubmit, isElicitation }: {
-  onCancel: () => void;
-  onSubmit: (note: string, reTrigger: boolean) => void;
-  isElicitation: boolean;
-}) {
-  const [note, setNote] = useState("");
-  const [reTrigger, setReTrigger] = useState(false);
-
-  return (
-    <form
-      onSubmit={(e) => { e.preventDefault(); onSubmit(note, reTrigger); }}
-      className="flex flex-col gap-3"
-    >
-      <p className="text-[12px] text-muted">
-        Send this item back for clarification. The reviewer note is saved; a dedicated backend action will relay it when available.
-      </p>
-      <label className="flex flex-col gap-1">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Reviewer note</span>
-        <textarea
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          required
-          rows={3}
-          placeholder="What clarification is needed?"
-          className="resize-none rounded-lg border border-line bg-surface px-3 py-2 text-[12.5px] outline-none focus:border-accent"
-        />
-      </label>
-      {isElicitation && (
-        <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-muted">
-          <input
-            type="checkbox"
-            checked={reTrigger}
-            onChange={(e) => setReTrigger(e.target.checked)}
-            className="size-3 rounded accent-accent"
-          />
-          Re-trigger targeted elicitation question (backend-gated)
-        </label>
-      )}
-      <p className="text-[11px] text-muted italic">
-        Note: dedicated <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[10.5px] not-italic">request_info</code> endpoint not yet live — note captured locally.
-      </p>
-      <div className="flex items-center gap-2">
-        <button
-          type="submit"
-          className="inline-flex h-8 items-center rounded-lg border border-line px-3 text-[12.5px] font-semibold text-ink transition-colors hover:bg-surface-2"
-        >
-          Send request
-        </button>
-        <button type="button" onClick={onCancel} className="text-[12.5px] text-muted hover:text-ink">
-          Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

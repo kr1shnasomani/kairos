@@ -172,7 +172,7 @@ cp .env.example .env && $EDITOR .env
 #    Set at minimum: SUPABASE_*, NVIDIA_NIM_API_KEY, JINA_API_KEY, GROQ_API_KEY,
 #    NEO4J_PASSWORD, INTERNAL_API_KEY, GRAFANA_ADMIN_PASSWORD, APP_SECRET_KEY,
 #    APP_DEBUG=False, APP_ENV=production,
-#    NEXT_PUBLIC_API_URL=https://<your-domain-or-ALB>  (browser-reachable API URL)
+#    NEXT_PUBLIC_API_URL=https://<your-domain-or-ALB>  (browser-reachable API URL; build-time value)
 
 # 4. Start production stack (base only — override skipped).
 make prod          # == docker compose -f docker-compose.yml up -d --build
@@ -187,7 +187,9 @@ make init-all && make seed && make load-dataset
   are not published at all, but keep the SG tight regardless.
 - **TLS / reverse proxy:** put an ALB or nginx in front of 3000 (frontend) and
   8000 (API). Point `NEXT_PUBLIC_API_URL` at the public API URL; the frontend's
-  server-side `API_INTERNAL_URL` stays `http://kairos-backend-api:8000`.
+  server-side `API_INTERNAL_URL` stays `http://kairos-backend-api:8000`. Public
+  Next.js variables are embedded during `next build`, so change the value before
+  `make prod`/the frontend image build and rebuild the image to deploy it.
 - **Secrets:** load `.env` from AWS SSM Parameter Store / Secrets Manager at
   deploy time; do not bake secrets into images. `APP_DEBUG=False` disables the
   dev auth bypass — verify it is off.

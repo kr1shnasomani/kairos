@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { AuditPack, AuditPackClause } from "@/lib/types";
 import { getAuditPack } from "@/lib/api";
-import { getMe } from "@/lib/auth";
-import { AuthorityBadge, Button, FilterTabs, StatusBadge, EmptyState } from "@/components/ui";
+import { Button, FilterTabs, StatusBadge, EmptyState, DemoChip } from "@/components/ui";
 
 const FRAMEWORKS = ["OISD-117", "ISO 45001", "PESO", "Factory Act"];
 
@@ -14,13 +13,6 @@ export default function AuditPackPage() {
   const [pack, setPack] = useState<AuditPack | null>(null);
   const [isDemo, setIsDemo] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [signedBy, setSignedBy] = useState<Record<string, string>>({});
-  const [me, setMe] = useState<string>("reviewer");
-
-  useEffect(() => {
-    getMe().then((u) => { if (u) setMe(u.email.split("@")[0]); });
-  }, []);
-
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -35,13 +27,8 @@ export default function AuditPackPage() {
     return () => { alive = false; };
   }, [framework]);
 
-  // Per-clause human sign-off (Task 25 — writes an attestation the pack carries).
-  function signOff(clauseId: string) {
-    setSignedBy((prev) => ({ ...prev, [clauseId]: me }));
-  }
-
-  const clauses = pack?.clauses ?? [];
-  const reviewNeeded = clauses.filter((c) => c.requires_review).length;
+  const clauses = pack?.evidence ?? [];
+  const reviewNeeded = clauses.filter((c) => c.clearance_blocked).length;
 
   return (
     <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10 print:max-w-none print:px-0">
@@ -79,12 +66,7 @@ export default function AuditPackPage() {
       <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-muted">
         <span className="tabular font-medium text-ink">{clauses.length} clause{clauses.length !== 1 ? "s" : ""}</span>
         {reviewNeeded > 0 && <span className="text-caution">{reviewNeeded} require human review</span>}
-        {isDemo && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px]">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo data
-          </span>
-        )}
+        {isDemo && <DemoChip />}
       </div>
 
       <div className="mt-5 space-y-4">
@@ -97,8 +79,6 @@ export default function AuditPackPage() {
             key={c.clause_id}
             clause={c}
             framework={framework}
-            signedBy={signedBy[c.clause_id]}
-            onSignOff={() => signOff(c.clause_id)}
           />
         ))}
       </div>
@@ -107,14 +87,12 @@ export default function AuditPackPage() {
 }
 
 function ClauseCard({
-  clause, framework, signedBy, onSignOff,
+  clause, framework,
 }: {
   clause: AuditPackClause;
   framework: string;
-  signedBy?: string;
-  onSignOff: () => void;
 }) {
-  const blocked = clause.requires_review || !clause.cleared;
+  const blocked = clause.clearance_blocked;
   return (
     <section className="break-inside-avoid rounded-xl border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -122,45 +100,21 @@ function ClauseCard({
         {blocked
           ? <StatusBadge tone="caution">Requires human review</StatusBadge>
           : <StatusBadge tone="verified">Cleared</StatusBadge>}
-        <span className="tabular ml-auto text-[11px] text-muted">
-          confidence {Math.round(clause.confidence * 100)}%
-        </span>
       </div>
-      <p className="mt-2 text-[13px] leading-snug text-ink">{clause.requirement_text}</p>
 
       <div className="mt-3">
         <p className="mb-1.5 text-[11px] font-bold uppercase tracking-widest text-muted">
-          Evidence · {clause.documents.length} document{clause.documents.length !== 1 ? "s" : ""}
+          Evidence
         </p>
-        {clause.documents.length === 0 ? (
+        {!clause.document_id ? (
           <p className="text-[12px] text-danger">No supporting evidence — clearance blocked.</p>
         ) : (
-          <ul className="space-y-1.5">
-            {clause.documents.map((d) => (
-              <li key={d.document_id} className="flex flex-wrap items-center gap-2 text-[12.5px]">
-                <span className="tabular font-medium text-accent">{d.document_id}</span>
-                <span className="min-w-0 flex-1 truncate text-ink">{d.file_name}</span>
-                <AuthorityBadge level={d.authority_level} />
-                {d.vault_url && (
-                  <a href={d.vault_url} target="_blank" rel="noreferrer" className="text-[11px] text-accent underline hover:no-underline print:hidden">Vault ↗</a>
-                )}
-              </li>
-            ))}
-          </ul>
+          <span className="tabular text-[12.5px] font-medium text-accent">{clause.document_id}</span>
         )}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-line pt-3">
-        {signedBy || clause.reviewed_by ? (
-          <span className="text-[12px] text-verified">
-            ✓ Reviewed by <span className="font-semibold">{signedBy ?? clause.reviewed_by}</span>
-          </span>
-        ) : (
-          <>
-            <Button variant="ghost" onClick={onSignOff} className="h-8 print:hidden">Sign off as reviewed</Button>
-            <span className="text-[11.5px] text-muted">Human attestation required — no clause clears automatically.</span>
-          </>
-        )}
+        <span className="text-[11.5px] text-muted">Human attestation is required; this view does not clear a clause.</span>
       </div>
     </section>
   );

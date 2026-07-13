@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ThemeToggle, ContrastToggle } from "./theme-toggle";
 import { getMe, logout } from "@/lib/auth";
-import { getToken, getGovernorState, getPlantState } from "@/lib/api";
+import { getToken, getGovernorState, getPlantState, isStrictAuth } from "@/lib/api";
 import { flushQueue, getQueueLength } from "@/lib/idb";
 import type { Role, User, GovernorEventState, PlantState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { PhaseBadge } from "./ui";
+import { PageSkeleton } from "./skeleton";
 
 // Staff surfaces (Assure group + RCA) are hidden from field workers. Dev-bypass (no session)
 // defaults to engineer, so an unauthenticated demo still sees everything.
@@ -18,7 +19,7 @@ const STAFF: Role[] = ["engineer", "reliability", "admin"];
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
   | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph" | "audit"
-  | "events" | "offboarding" | "projects";
+  | "events" | "offboarding" | "projects" | "voice";
 
 function Icon({ name, className = "size-[18px]" }: { name: IconName; className?: string }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -38,6 +39,7 @@ function Icon({ name, className = "size-[18px]" }: { name: IconName; className?:
     events: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
     offboarding: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M17 11l4-4M21 11l-4-4" /></>,
     projects: <><path d="M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 12l9 4 9-4M3 17l9 4 9-4" /></>,
+    voice: <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><path d="M12 19v4M8 23h8" /></>,
   };
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -77,7 +79,15 @@ const NAV: { group: string; items: NavItem[] }[] = [
 function KairosMark({ size = 30 }: { size?: number }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src="/logo.jpeg" alt="Kairos" className="rounded-lg object-cover" style={{ width: size, height: size }} aria-hidden="true" />
+    <img
+      src="/logo.jpeg"
+      alt=""
+      width={size}
+      height={size}
+      className="rounded-lg object-cover"
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    />
   );
 }
 
@@ -205,12 +215,12 @@ function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut:
     { href: "/briefs", label: "Briefs", icon: "briefs" as IconName },
     { href: "/copilot", label: "Copilot", icon: "copilot" as IconName },
     { href: "/assets", label: "Assets", icon: "assets" as IconName },
-    { href: "/field/voice", label: "Voice", icon: "search" as IconName },
+    { href: "/field/voice", label: "Voice", icon: "voice" as IconName },
   ] as const;
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface"
+      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]"
       aria-label="Field navigation"
     >
       {tabs.map((tab) => {
@@ -251,17 +261,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [queueCount, setQueueCount] = useState(0);
   const [plantState, setPlantState] = useState<PlantState | null>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-      return;
+    let alive = true;
+    async function authorize() {
+      const token = getToken();
+      if (isStrictAuth()) {
+        if (!token) {
+          router.replace("/login");
+          return;
+        }
+        const profile = await getMe();
+        if (!alive) return;
+        if (!profile) {
+          logout();
+          router.replace("/login");
+          return;
+        }
+        setUser(profile);
+      } else if (token) {
+        const profile = await getMe();
+        if (!alive) return;
+        setUser(profile);
+      }
+      if (alive) setAuthed(true);
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-once auth gate reading the persisted token
-    setAuthed(true);
-    getMe().then(setUser);
+    void authorize();
     // Service worker: production only. In dev it caches the app shell and fights
     // HMR — stale chunk hashes trigger a hard reload that re-serves the stale
     // cache, an infinite refresh loop. Unregister any stale SW so dev self-heals.
@@ -281,17 +310,52 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setQueueCount(n);
     }
     window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
+    return () => {
+      alive = false;
+      window.removeEventListener("online", onOnline);
+    };
   }, [router]);
 
   useEffect(() => {
-    if (user?.site_id) {
-      getPlantState(user.site_id).then((r) => {
-        if (r.data && r.data.state !== "normal") setPlantState(r.data);
-        else setPlantState(null);
-      });
-    }
+    if (!user?.site_id) return;
+    let alive = true;
+    getPlantState(user.site_id).then((r) => {
+      if (!alive) return;
+      if (r.data && r.data.state !== "normal") setPlantState(r.data);
+      else setPlantState(null);
+    });
+    return () => { alive = false; };
   }, [user]);
+
+  useEffect(() => {
+    if (!drawer) return;
+    const trigger = menuTriggerRef.current;
+    drawerRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDrawer(false);
+      if (event.key === "Tab" && drawerRef.current) {
+        const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!first || !last) {
+          event.preventDefault();
+        } else if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      trigger?.focus();
+    };
+  }, [drawer]);
 
   const role: Role = user?.role ?? "engineer";
   const isField = role === "field_worker";
@@ -302,10 +366,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
-  if (authed !== true) return null;
+// Auth gate: never blank. Show shell chrome + skeleton until token resolves.
+  if (authed !== true) {
+    return (
+      <div className="flex min-h-dvh">
+        <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block" aria-hidden="true">
+          <div className="sticky top-0 h-dvh px-4 py-4">
+            <div className="flex items-center gap-2.5">
+              <KairosMark />
+              <span className="text-[15px] font-semibold tracking-tight">Kairos</span>
+            </div>
+          </div>
+        </aside>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <main id="main" className="min-w-0 flex-1" aria-busy="true">
+            <PageSkeleton />
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-dvh">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-ink focus:shadow-lg focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
+      >
+        Skip to content
+      </a>
+
       {/* Desktop sidebar — all roles */}
       <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block">
         <div className="sticky top-0 h-dvh">
@@ -315,23 +405,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Mobile: field workers get a bottom tab bar, others get a hamburger drawer */}
       {!isField && drawer && (
-        <div className="fixed inset-0 z-40 md:hidden">
+        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
           <button
             className="absolute inset-0 bg-black/40"
             aria-label="Close menu"
             onClick={() => setDrawer(false)}
           />
-          <div className="absolute inset-y-0 left-0 w-[244px] border-r border-line bg-surface">
+          <div ref={drawerRef} tabIndex={-1} className="absolute inset-y-0 left-0 w-[244px] border-r border-line bg-surface outline-none">
             <SidebarContent onNavigate={() => setDrawer(false)} role={role} user={user} onSignOut={signOut} queueCount={queueCount} />
           </div>
         </div>
       )}
 
-      <div className={cn("flex min-w-0 flex-1 flex-col", isField && "pb-[56px] md:pb-0")}>
+      {/* Field mobile: 56px tabs + safe-area; desktop field uses sidebar only */}
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 flex-col",
+          isField && "pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0",
+        )}
+      >
         {/* Non-field mobile top bar */}
         {!isField && (
           <header className="flex items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden">
             <button
+              ref={menuTriggerRef}
               className="grid size-9 place-items-center rounded-lg border border-line text-muted"
               aria-label="Open menu"
               onClick={() => setDrawer(true)}
@@ -361,7 +458,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {" — only critical briefs are being delivered"}
           </div>
         )}
-        <main className="min-w-0 flex-1">{children}</main>
+        <main id="main" className="min-w-0 flex-1">{children}</main>
       </div>
 
       {/* Field bottom tab bar — mobile only */}
