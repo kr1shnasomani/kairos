@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PageHeader } from "@/components/ui";
 import { KnowledgeGraph } from "@/components/knowledge-graph";
 import type { KnowledgeGraphData, GraphEdgeData } from "@/lib/types";
 import { getKnowledgeGraph } from "@/lib/api";
@@ -141,18 +142,7 @@ export default function GraphPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-8 sm:px-8 sm:py-10">
-      <header className="mb-6">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
-          Layer 4 · Knowledge graph
-        </p>
-        <h1 className="mt-1 text-display font-semibold leading-tight text-balance">
-          Temporal asset graph
-        </h1>
-        <p className="mt-1 text-body text-muted text-pretty">
-          1–2 hop neighborhood around the selected asset. Edges colored by authority level and styled
-          by verification status. Click a node or edge to inspect its properties.
-        </p>
-      </header>
+      <PageHeader className="mb-6" eyebrow="Layer 4 · Knowledge graph" title="Temporal asset graph" lede="1–2 hop neighborhood around the selected asset. Edges colored by authority level and styled by verification status. Click a node or edge to inspect its properties." />
 
       {/* Controls: asset selector + as_of */}
       <div className="mb-5 flex flex-wrap items-end gap-3">

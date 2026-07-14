@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { confirmAssetIdentity } from "@/lib/api";
 import { getMe } from "@/lib/auth";
 import { ADMIN_ROLES } from "@/components/use-role";
-import { Button, StatusBadge, EmptyState } from "@/components/ui";
+import { Button, StatusBadge, EmptyState, PageHeader } from "@/components/ui";
 import { PageSkeleton } from "@/components/skeleton";
 
 interface Provisional {
@@ -83,15 +83,7 @@ export default function BootstrapPage() {
         Assets
       </Link>
 
-      <header className="mt-4">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 1 · Master data management</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Asset identity confirmation</h1>
-        <p className="mt-1.5 text-body text-muted text-pretty">
-          No AI-invented identities. Extracted knowledge that cannot link to a human-confirmed asset
-          stays in quarantine under a provisional node — it is never fabricated. A qualified authority
-          confirms identity here before any knowledge links to it.
-        </p>
-      </header>
+      <PageHeader className="mt-4" eyebrow="Layer 1 · Master data management" title="Asset identity confirmation" lede="No AI-invented identities. Extracted knowledge that cannot link to a human-confirmed asset stays in quarantine under a provisional node — it is never fabricated. A qualified authority confirms identity here before any knowledge links to it." />
 
       {!isAdmin && (
         <div className="mt-5 rounded-xl border border-line bg-surface p-5 text-body text-muted">

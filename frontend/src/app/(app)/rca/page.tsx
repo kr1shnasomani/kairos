@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { PageHeader } from "@/components/ui";
 import type { RcaPack, BriefSource, RcaHypothesis } from "@/lib/types";
 import { RCA_PRESETS } from "@/lib/rca";
 import { getRcaPack } from "@/lib/api";
@@ -75,17 +76,7 @@ export default function RcaPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <header>
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
-          Layer 11 · Root cause
-        </p>
-        <h1 className="mt-1 text-display font-semibold leading-tight text-balance">
-          RCA workspace
-        </h1>
-        <p className="mt-1.5 max-w-xl text-body text-muted text-pretty">
-          Failure timeline, evidence-weighted hypotheses, and supporting documents — fused from the graph, telemetry, and event history.
-        </p>
-      </header>
+      <PageHeader eyebrow="Layer 11 · Root cause" title="RCA workspace" lede="Failure timeline, evidence-weighted hypotheses, and supporting documents — fused from the graph, telemetry, and event history." />
 
       <form
         onSubmit={(e) => { e.preventDefault(); assemble(); }}

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AuthorityLevel, QuarantineItem } from "@/lib/types";
 import { getQuarantine, promoteQuarantine, disputeQuarantine, requestQuarantineInfo, type DataSource } from "@/lib/api";
 import { relativeTime, triggerLabel, slaCountdown } from "@/lib/utils";
-import { Button, FilterTabs, Modal, StatusBadge, DemoChip } from "@/components/ui";
+import { Button, FilterTabs, Modal, StatusBadge, DemoChip, PageHeader } from "@/components/ui";
 import { useRole, PROMOTE_ROLES } from "@/components/use-role";
 
 const AUTH_LEVELS: AuthorityLevel[] = [1, 2, 3, 4, 5];
@@ -188,13 +188,7 @@ export default function QuarantinePage() {
         Governance
       </Link>
 
-      <header className="mt-4">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 6 · Quarantine</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Review queue</h1>
-        <p className="mt-1.5 max-w-xl text-body text-muted text-pretty">
-          Unverified field inputs awaiting human review. Promotion to the canonical graph is a one-way gate — nothing is auto-promoted, ever.
-        </p>
-      </header>
+      <PageHeader className="mt-4" eyebrow="Layer 6 · Quarantine" title="Review queue" lede="Unverified field inputs awaiting human review. Promotion to the canonical graph is a one-way gate — nothing is auto-promoted, ever." />
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span className="tabular font-medium text-ink">{pendingCount} pending</span>

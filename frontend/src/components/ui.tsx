@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { AuthorityLevel, AuditLogEntry, BriefSource } from "@/lib/types";
 import { authorityLabel, cn } from "@/lib/utils";
 import { useEffect, useId, useRef, useState } from "react";
@@ -600,15 +601,17 @@ export function PageHeader({
   lede,
   actions,
   compact,
+  className,
 }: {
   eyebrow?: string;
   title: React.ReactNode;
   lede?: React.ReactNode;
   actions?: React.ReactNode;
   compact?: boolean;
+  className?: string;
 }) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4">
+    <header className={cn("flex flex-wrap items-end justify-between gap-4", className)}>
       <div className="min-w-0">
         {eyebrow && <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">{eyebrow}</p>}
         <h1 className={cn("mt-1 font-semibold leading-tight text-balance", compact ? "text-title" : "text-display")}>
@@ -626,7 +629,8 @@ export function EmptyState({
   action,
 }: {
   message: string;
-  action?: { label: string; onClick: () => void };
+  // href renders a Link (works in server components); onClick renders a button
+  action?: { label: string; onClick: () => void } | { label: string; href: string };
 }) {
   return (
     <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line py-12 text-center">
@@ -644,11 +648,18 @@ export function EmptyState({
         <path d="M12 8v4M12 16h.01" />
       </svg>
       <p className="text-body text-muted">{message}</p>
-      {action && (
+      {action && ("href" in action ? (
+        <Link
+          href={action.href}
+          className="inline-flex h-8 items-center rounded-lg border border-line bg-surface px-3 text-caption font-medium text-ink transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:bg-surface-2"
+        >
+          {action.label}
+        </Link>
+      ) : (
         <Button variant="ghost" onClick={action.onClick}>
           {action.label}
         </Button>
-      )}
+      ))}
     </div>
   );
 }

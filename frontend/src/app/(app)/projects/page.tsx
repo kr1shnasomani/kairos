@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { VaultDocument, AssetSummary, OperationalEvent } from "@/lib/types";
 import { getDocuments, getAssets, getEvents } from "@/lib/api";
-import { AuthorityBadge, FilterTabs, KpiCard, StatusBadge, EmptyState, DemoChip } from "@/components/ui";
+import { AuthorityBadge, FilterTabs, KpiCard, StatusBadge, EmptyState, DemoChip, PageHeader } from "@/components/ui";
 import { triggerLabel, relativeTime } from "@/lib/utils";
 
 const UNCLASSIFIED = "Unclassified";
@@ -64,14 +64,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
-      <header>
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Project &amp; procurement</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Engineering registry</h1>
-        <p className="mt-1.5 text-body text-muted text-pretty">
-          Documents, revisions, and failure/maintenance history organised by equipment class — the
-          record a procurement officer needs when evaluating a replacement or a vendor.
-        </p>
-      </header>
+      <PageHeader eyebrow="Project &amp; procurement" title="Engineering registry" lede="Documents, revisions, and failure/maintenance history organised by equipment class — the record a procurement officer needs when evaluating a replacement or a vendor." />
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span className="tabular font-medium text-ink">{classNames.length} equipment classes · {documents.length} documents</span>
@@ -89,7 +82,7 @@ export default function ProjectsPage() {
       )}
 
       <div className="mt-5 space-y-6">
-        {visible.length === 0 && <EmptyState message="No registry data yet — ingest documents and assets to populate." />}
+        {visible.length === 0 && <EmptyState message="No registry data yet — ingest documents and assets to populate." action={{ label: "Ingest a document", href: "/documents/ingest" }} />}
         {visible.map((g) => <ClassSection key={g.equipment_class} group={g} />)}
       </div>
     </div>

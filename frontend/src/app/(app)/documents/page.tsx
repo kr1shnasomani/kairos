@@ -42,7 +42,7 @@ export default async function DocumentsPage() {
 
       {data.items.length === 0 ? (
         <div className="mt-4">
-          <EmptyState message="No documents in the vault yet." />
+          <EmptyState message="No documents in the vault yet." action={{ label: "Ingest a document", href: "/documents/ingest" }} />
         </div>
       ) : (
         <div className="mt-4 overflow-hidden rounded-xl border border-line">

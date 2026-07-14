@@ -172,6 +172,19 @@ h1, h2, h3, .font-display {
   color: var(--ink);
 }
 
+/* Print (audit-pack export etc.): paper-white regardless of theme, no chrome. */
+@media print {
+  :root, :root[data-theme="dark"] {
+    --canvas: #fff;
+    --surface: #fff;
+    --surface-2: #fff;
+    --ink: #000;
+  }
+  body {
+    background: #fff;
+  }
+}
+
 /* ── Sunlight / high-contrast palette (data-contrast="high") ──────────────
    Same structural tokens, raised contrast for outdoor legibility.
    One UI, three palettes. Never a separate dark/contrast markup tree. */

@@ -8,7 +8,7 @@ import {
 } from "@/lib/api";
 import { useRole, RESOLVE_ROLES } from "@/components/use-role";
 import { getMe } from "@/lib/auth";
-import { Button, FilterTabs, StatusBadge, EmptyState, DemoChip } from "@/components/ui";
+import { Button, FilterTabs, StatusBadge, EmptyState, DemoChip, PageHeader } from "@/components/ui";
 import { relativeTime, triggerLabel } from "@/lib/utils";
 
 const PRIORITY_TONE: Record<EventPriority, "danger" | "caution" | "info" | "neutral"> = {
@@ -43,14 +43,7 @@ export default function EventsPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
-      <header>
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 8 · Event subscription</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Operational events</h1>
-        <p className="mt-1.5 text-body text-muted text-pretty">
-          The canonical event sources that drive proactive briefs — work orders, PTWs, tag-outs,
-          inspections, alarms, and shift handovers. Correlated events are linked into compound context.
-        </p>
-      </header>
+      <PageHeader eyebrow="Layer 8 · Event subscription" title="Operational events" lede="The canonical event sources that drive proactive briefs — work orders, PTWs, tag-outs, inspections, alarms, and shift handovers. Correlated events are linked into compound context." />
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span className="tabular font-medium text-ink">{events.length} event{events.length !== 1 ? "s" : ""}</span>

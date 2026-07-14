@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DocumentPipelineStage, DocumentStatus } from "@/lib/types";
 import { ingestDocument, getDocumentStatus, type DocumentIngestResponse } from "@/lib/api";
 import { useRole, RESOLVE_ROLES } from "@/components/use-role";
-import { Button, StatusBadge, Timeline } from "@/components/ui";
+import { Button, StatusBadge, Timeline, PageHeader } from "@/components/ui";
 import { triggerLabel } from "@/lib/utils";
 
 const DOC_TYPES = [
@@ -96,14 +96,7 @@ export default function IngestPage() {
         Documents
       </Link>
 
-      <header className="mt-4">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Flow C · Universal document ingestion</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Ingest a document</h1>
-        <p className="mt-1.5 text-body text-muted text-pretty">
-          The entry point of the platform. Files are stored byte-for-byte in the immutable vault and
-          run through the extraction pipeline. Identical files (same SHA-256) are de-duplicated, never re-stored.
-        </p>
-      </header>
+      <PageHeader className="mt-4" eyebrow="Flow C · Universal document ingestion" title="Ingest a document" lede="The entry point of the platform. Files are stored byte-for-byte in the immutable vault and run through the extraction pipeline. Identical files (same SHA-256) are de-duplicated, never re-stored." />
 
       {!canIngest && (
         <div className="mt-5 rounded-xl border border-line bg-surface p-5 text-body text-muted">

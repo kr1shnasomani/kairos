@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getConflicts, getQuarantine, getEvents } from "@/lib/api";
-import { FilterTabs, StatusBadge, EmptyState, DemoChip } from "@/components/ui";
+import { FilterTabs, StatusBadge, EmptyState, DemoChip, PageHeader } from "@/components/ui";
 import { relativeTime } from "@/lib/utils";
 
 type NcSource = "conflict" | "inspection" | "dispute";
@@ -97,14 +97,7 @@ export default function NonConformancePage() {
         Compliance
       </Link>
 
-      <header className="mt-4">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 7 · Quality</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Non-conformance tracking</h1>
-        <p className="mt-1.5 text-body text-muted text-pretty">
-          Open non-conformances composed from unresolved conflicts, failed inspections, and disputed
-          field inputs. Each links to its root-cause workspace and originating record.
-        </p>
-      </header>
+      <PageHeader className="mt-4" eyebrow="Layer 7 · Quality" title="Non-conformance tracking" lede="Open non-conformances composed from unresolved conflicts, failed inspections, and disputed field inputs. Each links to its root-cause workspace and originating record." />
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span className="tabular font-medium text-ink">{items.length} open</span>

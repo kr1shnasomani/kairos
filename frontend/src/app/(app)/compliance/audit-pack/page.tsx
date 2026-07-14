@@ -79,7 +79,7 @@ export default function AuditPackPage() {
           </div>
         )}
         {!loading && clauses.length === 0 && (
-          <EmptyState message={`No evidence found for ${framework}. Ingest procedures and inspection records to populate the pack.`} />
+          <EmptyState message={`No evidence found for ${framework}. Ingest procedures and inspection records to populate the pack.`} action={{ label: "Ingest a document", href: "/documents/ingest" }} />
         )}
         {clauses.map((c) => (
           <ClauseCard

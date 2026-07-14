@@ -242,7 +242,7 @@ function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut:
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] print:hidden"
       aria-label="Field navigation"
     >
       {tabs.map((tab) => {
@@ -491,7 +491,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
 
       {/* Desktop sidebar — all roles */}
-      <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block">
+      <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block print:hidden">
         <div className="sticky top-0 h-dvh">
           <SidebarContent role={role} user={user} onSignOut={signOut} queueCount={queueCount} onOpenPalette={() => setPalette(true)} />
         </div>
@@ -522,7 +522,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         {/* Non-field mobile top bar */}
         {!isField && (
-          <header className="flex items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden">
+          <header className="flex items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden print:hidden">
             <button
               ref={menuTriggerRef}
               className="grid size-9 place-items-center rounded-lg border border-line text-muted"
