@@ -154,7 +154,7 @@ async def test_dispute_quarantine_item(admin_client, shared_asset_id):
 
 
 async def test_request_quarantine_info_is_audited(admin_client, shared_asset_id):
-    """A reviewer can persist a targeted follow-up without resolving the item."""
+    """Layer 6 fourth review action: request more info leaves the item pending."""
     now = datetime.now(timezone.utc).isoformat()
     r = await admin_client.post("/events/inspection-complete", json={
         "event_id": uid(),
@@ -177,6 +177,10 @@ async def test_request_quarantine_info_is_audited(admin_client, shared_asset_id)
 
     assert response.status_code == 200
     assert response.json() == {"status": "requested", "item_id": item_id}
+
+    # Item stays pending (still actionable), so it can still be promoted/disputed after.
+    listing = await admin_client.get("/governance/quarantine", params={"review_status": "pending"})
+    assert any(it["item_id"] == item_id for it in listing.json()["items"])
 
 
 async def test_double_promote_returns_409(admin_client, shared_asset_id):

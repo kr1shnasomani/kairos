@@ -181,7 +181,7 @@ async def run_ocr(
 ) -> Dict[str, Any]:
     """
     Downloads the document from Storage and runs the OCR pipeline.
-    - pid_drawing       → skips OCR; loads mock topology fixture; routes all elements to quarantine
+    - pid_drawing       → skips OCR; extracts topology via vision model (fixture fallback); routes all elements to quarantine
     - Confidence >= 0.5 → advances stage to ner_running
     - Confidence < 0.5  → sets stage to review_required, publishes to kairos:events:review_required
     """
@@ -195,10 +195,24 @@ async def run_ocr(
     # ── PID drawing fast path: topology extraction, no OCR ──────────────────
     if document_type == "pid_drawing":
         from api.services.graph import GraphService
+        from api.services.pid import PIDService
 
+        # Path B (Layer 3): extract real topology from the drawing with a cloud vision
+        # model — vision-understanding, not OCR (OCR would destroy the connections).
+        # Falls back to the demo fixture if the model is unreachable/unparseable so the
+        # pipeline always completes; every element is human-verified downstream regardless.
+        # Path A (custom YOLOv9+LayoutLMv3 on GPU) is the future upgrade — see ARCHITECTURE.md.
         fixture_path = os.path.join(os.path.dirname(__file__), "..", "fixtures", "pid_topology_mock.json")
-        with open(fixture_path) as f:
-            topology = json.load(f)
+        file_bytes = await asyncio.to_thread(
+            lambda: supabase.storage.from_("kairos-vault").download(vault_path)
+        )
+        topology = await PIDService().extract_topology(file_bytes, mime_type)
+        topology_source = "vision_model"
+        if topology is None:
+            log.warning("pid.vlm_unavailable_using_fixture", document_id=document_id)
+            with open(fixture_path) as f:
+                topology = json.load(f)
+            topology_source = "demo_fixture"
 
         graph = GraphService(_get_neo4j_driver())
         now = datetime.now(timezone.utc)
@@ -269,6 +283,7 @@ async def run_ocr(
                     "source_document_id": document_id,
                     "element_type": "topology_manifest",
                     "topology": topology,
+                    "topology_source": topology_source,
                 },
             }).execute()
         )
@@ -288,6 +303,7 @@ async def run_ocr(
             "overall_confidence": 1.0,
             "requires_review": False,
             "element_count": element_count,
+            "topology_source": topology_source,
         }
     # ── End PID fast path ───────────────────────────────────────────────────
 

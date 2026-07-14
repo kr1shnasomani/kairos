@@ -46,21 +46,16 @@ opentelemetry-instrumentation-httpx==0.45b0
 PyMuPDF==1.24.5
 
 # --- NLP / NER ---
-# NER via NIM (ministral-14b) + Ollama fallback — no local model packages needed
+# NER via NIM (ministral-14b) — cloud only, no local model packages.
 
-# --- Computer Vision (YOLO drawing parser — Layer 20) ---
-torch==2.3.1
-torchvision==0.18.1
-ultralytics==8.2.40
-layoutparser==0.3.4
+# --- Image handling (rasterize/downscale P&ID drawings for the Layer 3 vision model) ---
+# P&ID topology extraction uses a cloud VLM (Path B) — see ARCHITECTURE.md Layer 3.
+# The custom YOLOv9 + LayoutLMv3 stack (torch/torchvision/ultralytics/layoutparser/
+# opencv/scipy/scikit-learn/pandas) was Path A (local GPU) and is intentionally NOT
+# installed here — it is pinned in requirements-cv.txt for a future GPU-backed
+# drawing-parser service. numpy + Pillow stay below for P&ID image handling.
 Pillow==10.3.0
-opencv-python-headless==4.9.0.80
-
-# --- Scientific Computing ---
 numpy==1.26.4
-scipy==1.13.1
-scikit-learn==1.5.1
-pandas==2.2.2
 
 # --- Utilities ---
 structlog==24.2.0

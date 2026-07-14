@@ -281,16 +281,16 @@ The task breakdown that follows records the objective, endpoints, and verificati
 
 ---
 
-## Task 20: Engineering Drawing Topology — Mock Pipeline (Layer 3)
+## Task 20: Engineering Drawing Topology — Vision Model (Layer 3, Path B)
 
-**Objective:** Handle `document_type='pid_drawing'` without destroying spatial relationships via standard OCR. Use a pre-processed mock topology for MVP; gate canonical promotion behind human verification.
+**Objective:** Handle `document_type='pid_drawing'` without destroying spatial relationships via standard OCR. Extract topology with a cloud vision-language model (Path B), gate canonical promotion behind human verification. Path A (custom YOLOv9 + LayoutLMv3 on GPU) is the future upgrade — see ARCHITECTURE.md Layer 3.
 
-- In `run_ocr` Temporal activity: detect `document_type == 'pid_drawing'`; skip standard OCR; load mock topology from `backend/fixtures/pid_topology_mock.json` (equipment nodes, flow connections, valve positions, isolation boundaries as structured JSON)
+- In `run_ocr` Temporal activity: detect `document_type == 'pid_drawing'`; skip standard OCR; call `PIDService.extract_topology(file_bytes, mime_type)` (`api/services/pid.py`) — sends the drawing image to NIM `meta/llama-3.2-11b-vision-instruct` and parses the topology JSON (equipment nodes, valves, instrumentation loops, isolation boundaries). Falls back to `backend/fixtures/pid_topology_mock.json` when the model is unreachable/unparseable; `topology_source` (`vision_model` | `demo_fixture`) is threaded through so a fixture never masquerades as real.
 - Store topology as a `Document` node in Neo4j with `document_type='pid_topology'`, create graph edges for each extracted element with `verification_status='unverified'` — all routed to human verification queue via `quarantine_items` with `input_type='deviation_flag'`
-- `GET /documents/{document_id}/topology` — return the topology JSON for the engineer verification UI
-- Create `backend/fixtures/pid_topology_mock.json` with a realistic sample: 5 equipment nodes, 3 isolation valves, 2 instrumentation loops, 1 isolation boundary
+- `GET /documents/{document_id}/topology` — return the topology JSON (+ `topology_source`) for the engineer verification UI
+- `backend/fixtures/pid_topology_mock.json` is the demo/fallback sample: 5 equipment nodes, 3 isolation valves, 2 instrumentation loops, 1 isolation boundary
 
-**Test:** Ingest a PDF with `document_type='pid_drawing'`, verify it skips OCR confidence scoring, verify topology items appear in `GET /governance/quarantine`, verify `GET /documents/{id}/topology` returns the mock topology.
+**Test:** Ingest a `pid_drawing` (e.g. `dataset/02_Document_Corpus/pid_line3_isolation_boundary.png`), verify OCR is skipped, verify topology items appear in `GET /governance/quarantine`, verify `GET /documents/{id}/topology` returns topology with `topology_source`. Parser unit tests: `tests/test_pid.py`.
 
 ---
 

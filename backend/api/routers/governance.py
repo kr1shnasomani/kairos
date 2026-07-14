@@ -382,7 +382,14 @@ async def request_quarantine_info(
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
 ) -> dict:
-    """Persist a follow-up request without changing the item's review status."""
+    """Layer 6's fourth review action: a reviewer asks for clarification instead of
+    promoting or disputing. The item stays 'pending' (still actionable in the queue);
+    the request and note are recorded to the audit log for provenance.
+
+    ponytail: audit-log-backed, no new review_status. Promote to a first-class
+    'info_requested' status + queue badge only if reviewers need it visible without
+    reading the audit trail.
+    """
     result = await asyncio.to_thread(
         lambda: supabase.table("quarantine_items")
         .select("item_id, review_status, asset_id, work_order_id, input_type")

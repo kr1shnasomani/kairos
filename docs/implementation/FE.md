@@ -305,11 +305,11 @@ This is the largest gap and the architectural heart of KAIROS: knowledge deliver
 
 **Layer:** 3 · **Objective:** Render engineering-drawing topology (equipment nodes, flow connections, valves, instrumentation loops, isolation boundaries) and support element-by-element verification — never destroy spatial relationships with plain text.
 
-- Route `src/app/(app)/documents/[id]/topology` (only for `document_type='pid_drawing'`): fetch `GET /documents/{id}/topology` (the mock topology JSON) and render with React Flow (reuse Task 15 canvas) — equipment nodes, connections as edges, isolation boundary as a highlighted region, instrumentation loops labeled.
+- Route `src/app/(app)/documents/[id]/topology` (only for `document_type='pid_drawing'`): fetch `GET /documents/{id}/topology` (topology JSON from the Path B vision model; show a demo chip when `topology_source: "demo_fixture"`) and render with React Flow (reuse Task 15 canvas) — equipment nodes, connections as edges, isolation boundary as a highlighted region, instrumentation loops labeled.
 - Verification UI: each element shows `verification_status`; unverified elements are highlighted for engineer confirmation (route through the quarantine/deviation queue — canonical promotion is gated by Layer 7, Task 22). Show the source drawing image alongside where available.
 - Non-PID documents: the topology tab is hidden (endpoint 404s by design).
 
-**Test:** Ingest a `pid_drawing`; open its topology tab; verify equipment/valves/isolation-boundary render from the mock JSON, unverified elements are highlighted, and a non-PID document shows no topology tab.
+**Test:** Ingest a `pid_drawing`; open its topology tab; verify equipment/valves/isolation-boundary render from the topology JSON, unverified elements are highlighted, and a non-PID document shows no topology tab.
 
 ---
 
@@ -614,7 +614,7 @@ This is the largest gap and the architectural heart of KAIROS: knowledge deliver
 |---|---|---|
 | Graph visualization (Task 15) | 1–2 hop neighborhood, React Flow | Full-graph exploration, server-side layout for tens of millions of nodes |
 | Offline (Task 11) | App shell + recent briefs/assets + write queue | Full corpus offline, background differential sync |
-| P&ID topology (Task 17) | Renders mock topology JSON | Live YOLOv9+LayoutLMv3 topology with in-canvas element sign-off |
+| P&ID topology (Task 17) | Renders topology JSON from the cloud vision model (Path B); demo-fixture fallback flagged by `topology_source` | Path A: custom YOLOv9+LayoutLMv3 (local GPU) + in-canvas element sign-off |
 | MoC (Task 27) | Manual approval stand-in | Signed MoC webhook round-trip |
 | Cross-site (Task 33) | Mock advisories + redaction note | Live control-plane cross-site pattern feed |
 | Audit-pack export (Task 25) | Browser print-to-PDF | Server-generated, signed evidence package |
