@@ -153,6 +153,32 @@ async def test_dispute_quarantine_item(admin_client, shared_asset_id):
     assert r2.json()["status"] == "disputed"
 
 
+async def test_request_quarantine_info_is_audited(admin_client, shared_asset_id):
+    """A reviewer can persist a targeted follow-up without resolving the item."""
+    now = datetime.now(timezone.utc).isoformat()
+    r = await admin_client.post("/events/inspection-complete", json={
+        "event_id": uid(),
+        "source_system": "test",
+        "site_id": "SITE_001",
+        "occurred_at": now,
+        "received_at": now,
+        "asset_id": shared_asset_id,
+        "inspection_type": "visual",
+        "result": "conditional",
+        "performed_by": "TECH-TEST",
+        "confidence": 0.4,
+    })
+    item_id = r.json()["quarantine_item_id"]
+
+    response = await admin_client.post(
+        f"/governance/quarantine/{item_id}/request-info",
+        json={"note": "Please attach the calibration record."},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "requested", "item_id": item_id}
+
+
 async def test_double_promote_returns_409(admin_client, shared_asset_id):
     now = datetime.now(timezone.utc).isoformat()
     r = await admin_client.post("/events/inspection-complete", json={

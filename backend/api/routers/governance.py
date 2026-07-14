@@ -13,7 +13,7 @@ import structlog
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 
 from api.dependencies import CurrentUserDep, Neo4jDep, SupabaseDep, require_role
-from api.models.document import PromoteQuarantineRequest
+from api.models.document import PromoteQuarantineRequest, RequestQuarantineInfoRequest
 from api.services.graph import GraphService
 from api.services.metrics import conflicts_open
 from api.services.sla_service import SLAService
@@ -373,6 +373,48 @@ async def dispute_quarantine_item(
 
     log.info("quarantine.disputed", item_id=item_id, user=current_user.get("user_id"))
     return {"status": "disputed", "item_id": item_id, "reason": reason}
+
+
+@router.post("/quarantine/{item_id}/request-info", summary="Record a reviewer request for more quarantine evidence")
+async def request_quarantine_info(
+    item_id: str,
+    payload: RequestQuarantineInfoRequest,
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    """Persist a follow-up request without changing the item's review status."""
+    result = await asyncio.to_thread(
+        lambda: supabase.table("quarantine_items")
+        .select("item_id, review_status, asset_id, work_order_id, input_type")
+        .eq("item_id", item_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Quarantine item '{item_id}' not found")
+
+    item = result.data[0]
+    if item["review_status"] != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Item is already '{item['review_status']}', cannot request more information.",
+        )
+
+    await asyncio.to_thread(
+        lambda: supabase.table("audit_log").insert({
+            "action": "quarantine_info_requested",
+            "entity_type": "quarantine_item",
+            "entity_id": item_id,
+            "performed_by": current_user.get("user_id", "unknown"),
+            "details": {
+                "note": payload.note,
+                "asset_id": item.get("asset_id"),
+                "work_order_id": item.get("work_order_id"),
+                "input_type": item.get("input_type"),
+            },
+        }).execute()
+    )
+    log.info("quarantine.info_requested", item_id=item_id, user=current_user.get("user_id"))
+    return {"status": "requested", "item_id": item_id}
 
 
 # =============================================================================
