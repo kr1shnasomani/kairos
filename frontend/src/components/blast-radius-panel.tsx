@@ -185,7 +185,7 @@ function BlastRadiusPanelInner({ documentId }: { documentId: string }) {
                   nodesDraggable={false}
                   nodesConnectable={false}
                   elementsSelectable={false}
-                  attributionPosition="bottom-left"
+                  proOptions={{ hideAttribution: true }}
                   zoomOnScroll={false}
                   panOnScroll={false}
                   panOnDrag={false}

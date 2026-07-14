@@ -128,24 +128,24 @@ function EmitPanel({ siteId, onEmitted }: { siteId: string; onEmitted: () => voi
     <section className="mt-5 rounded-xl border border-line bg-surface p-4">
       <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Emit event (demo)</p>
       <div className="mt-3 flex flex-wrap items-end gap-3">
-        <label className="block text-caption">
+        <label className="flex flex-col gap-1 text-caption">
           <span className="font-semibold text-ink">Type</span>
           <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}
-            className="mt-1 h-9 rounded-lg border border-line bg-surface px-2.5 text-body">
+            className="h-9 rounded-lg border border-line bg-surface px-2.5 text-body">
             {EMIT_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
           </select>
         </label>
         {needsAsset && (
-          <label className="block text-caption">
+          <label className="flex flex-col gap-1 text-caption">
             <span className="font-semibold text-ink">Asset</span>
             <input value={assetId} onChange={(e) => setAssetId(e.target.value)}
-              className="mt-1 h-9 w-28 rounded-lg border border-line bg-surface px-2.5 text-body" />
+              className="h-9 w-28 rounded-lg border border-line bg-surface px-2.5 text-body" />
           </label>
         )}
-        <label className="block flex-1 text-caption">
+        <label className="flex min-w-40 flex-1 flex-col gap-1 text-caption">
           <span className="font-semibold text-ink">Note</span>
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional"
-            className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-body" />
+            className="h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-body" />
         </label>
         <Button variant="primary" onClick={emit} disabled={busy}>{busy ? "Emitting…" : "Emit"}</Button>
       </div>

@@ -311,7 +311,7 @@ function TopologyPageInner() {
             onPaneClick={onPaneClick}
             fitView
             fitViewOptions={{ padding: 0.35 }}
-            attributionPosition="bottom-left"
+            proOptions={{ hideAttribution: true }}
           >
             <Background gap={24} size={1} color={tokens["--line"]} />
             <Controls showInteractive={false} />

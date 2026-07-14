@@ -82,6 +82,29 @@
   --text-display: 28px;
 }
 
+/* React Flow zoom/fit controls — token-driven so both palettes work
+   (the library default is white-on-white in dark mode). */
+.react-flow__controls {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: none;
+}
+.react-flow__controls-button {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+}
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+.react-flow__controls-button:hover {
+  background: var(--surface-2);
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
 /* Motion floor — one shared enter idiom for overlays; neutralized by the
    prefers-reduced-motion rule below like every other animation. */
 @keyframes overlay-in {

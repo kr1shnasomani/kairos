@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ThemeToggle, ContrastToggle } from "./theme-toggle";
+import { ThemeToggle } from "./theme-toggle";
 import { CommandPalette, ShortcutsHelp, type PaletteItem } from "./command-palette";
 import { getMe, logout } from "@/lib/auth";
 import { getToken, getGovernorState, getPlantState, isStrictAuth } from "@/lib/api";
@@ -190,7 +190,12 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount, onOpenP
       {user && <GovernorPill userId={user.user_id} />}
 
       <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-3">
-        <div className="flex min-w-0 items-center gap-2 px-1">
+        <Link
+          href="/settings"
+          onClick={onNavigate}
+          title="Preferences"
+          className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 transition-colors hover:bg-surface-2"
+        >
           <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-label font-bold text-on-accent">
             {initials}
           </span>
@@ -198,7 +203,7 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount, onOpenP
             <p className="truncate text-xs font-semibold">{name}</p>
             <p className="truncate text-label text-muted">{roleLine}</p>
           </div>
-        </div>
+        </Link>
         <div className="flex items-center gap-1">
           {queueCount > 0 && (
             <span
@@ -209,7 +214,6 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount, onOpenP
               {queueCount}
             </span>
           )}
-          <ContrastToggle />
           <ThemeToggle />
           <button
             onClick={onSignOut}
@@ -412,6 +416,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           try { localStorage.setItem("kairos-theme", next); } catch {}
         },
       },
+      { group: "Actions", label: "Preferences", href: "/settings" },
       { group: "Actions", label: "Keyboard shortcuts", hint: "?", action: () => setHelpOpen(true) },
     ];
   }, [role]);

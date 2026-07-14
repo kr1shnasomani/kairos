@@ -206,7 +206,11 @@ function ConflictCard({
         <span className="tabular text-body font-semibold text-accent">{c.conflict_id}</span>
         <StatusBadge tone={isEng ? "danger" : "info"} dot={false}>{c.track}</StatusBadge>
         <StatusBadge tone={SEV_TONE[c.severity] ?? "neutral"}>{c.severity}</StatusBadge>
-        <span className="tabular text-label text-muted">{c.asset_id}</span>
+        {c.asset_id ? (
+          <Link href={`/assets/${c.asset_id}`} className="tabular text-label text-accent hover:underline">
+            {c.asset_id}
+          </Link>
+        ) : null}
         <SlaChip sla_due_at={c.sla_due_at} is_overdue={c.is_overdue && !resolved} nowMs={nowMs} />
         <span className="tabular ml-auto text-label text-muted">{relativeTime(c.created_at)}</span>
       </div>
