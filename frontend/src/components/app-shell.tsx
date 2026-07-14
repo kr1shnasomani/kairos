@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ThemeToggle, ContrastToggle } from "./theme-toggle";
+import { CommandPalette, ShortcutsHelp, type PaletteItem } from "./command-palette";
 import { getMe, logout } from "@/lib/auth";
 import { getToken, getGovernorState, getPlantState, isStrictAuth } from "@/lib/api";
 import { flushQueue, getQueueLength } from "@/lib/idb";
@@ -116,7 +117,7 @@ function GovernorPill({ userId }: { userId: string }) {
   );
 }
 
-function SidebarContent({ onNavigate, role, user, onSignOut, queueCount }: { onNavigate?: () => void; role: Role; user: User | null; onSignOut: () => void; queueCount: number }) {
+function SidebarContent({ onNavigate, role, user, onSignOut, queueCount, onOpenPalette }: { onNavigate?: () => void; role: Role; user: User | null; onSignOut: () => void; queueCount: number; onOpenPalette?: () => void }) {
   const pathname = usePathname();
   const sections = NAV
     .map((s) => ({ ...s, items: s.items.filter((it) => !it.roles || it.roles.includes(role)) }))
@@ -136,6 +137,20 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount }: { onN
         </div>
         <PhaseBadge />
       </div>
+
+      {onOpenPalette && (
+        <div className="px-3 pb-2">
+          <button
+            type="button"
+            onClick={onOpenPalette}
+            className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-caption text-muted transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-ink"
+          >
+            <Icon name="search" />
+            Search…
+            <kbd className="ml-auto rounded border border-line bg-surface px-1.5 py-0.5 text-micro">⌘K</kbd>
+          </button>
+        </div>
+      )}
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-2">
         {sections.map((section) => (
@@ -257,6 +272,9 @@ function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut:
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
+  const [palette, setPalette] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const goSeqRef = useRef<number | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [queueCount, setQueueCount] = useState(0);
@@ -373,6 +391,58 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const role: Role = user?.role ?? "engineer";
   const isField = role === "field_worker";
 
+  const paletteItems = useMemo<PaletteItem[]>(() => {
+    const nav = NAV.flatMap((g) =>
+      g.items
+        .filter((i) => !i.roles || i.roles.includes(role))
+        .map((i) => ({ group: g.group, label: i.label, href: i.href })),
+    );
+    return [
+      ...nav,
+      {
+        group: "Actions",
+        label: "Toggle dark mode",
+        action: () => {
+          const root = document.documentElement;
+          const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+          root.setAttribute("data-theme", next);
+          try { localStorage.setItem("kairos-theme", next); } catch {}
+        },
+      },
+      { group: "Actions", label: "Keyboard shortcuts", hint: "?", action: () => setHelpOpen(true) },
+    ];
+  }, [role]);
+
+  // Global keys: ⌘K palette, ? help, g-then-letter navigation. Ignored while typing.
+  useEffect(() => {
+    const GO: Record<string, string> = {
+      b: "/briefs", c: "/copilot", a: "/assets", e: "/events", g: "/graph",
+      d: "/documents", q: "/governance/quarantine", v: "/governance", m: "/management",
+    };
+    const isTyping = (t: EventTarget | null) =>
+      t instanceof HTMLElement &&
+      (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((p) => !p);
+        return;
+      }
+      if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "?") { setHelpOpen(true); return; }
+      const now = Date.now();
+      if (goSeqRef.current && now - goSeqRef.current < 1500) {
+        goSeqRef.current = null;
+        const href = GO[e.key.toLowerCase()];
+        if (href) { e.preventDefault(); router.push(href); }
+        return;
+      }
+      if (e.key.toLowerCase() === "g") goSeqRef.current = now;
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [router]);
+
   function signOut() {
     logout();
     setUser(null);
@@ -409,10 +479,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
 
+      <CommandPalette open={palette} onClose={() => setPalette(false)} items={paletteItems} />
+      <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+
       {/* Desktop sidebar — all roles */}
       <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block">
         <div className="sticky top-0 h-dvh">
-          <SidebarContent role={role} user={user} onSignOut={signOut} queueCount={queueCount} />
+          <SidebarContent role={role} user={user} onSignOut={signOut} queueCount={queueCount} onOpenPalette={() => setPalette(true)} />
         </div>
       </aside>
 

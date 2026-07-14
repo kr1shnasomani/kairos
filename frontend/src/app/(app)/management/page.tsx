@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { DemoChip, KpiCard, StatusBadge } from "@/components/ui";
-import { getConflicts, getComplianceDashboard } from "@/lib/api";
+import { getConflicts, getComplianceDashboard, getQuarantine, getSlaReport } from "@/lib/api";
 
 const COVERAGE = [
   { klass: "Rotating equipment", pct: 88 },
@@ -22,22 +22,37 @@ const SERVICES = ["Neo4j", "Qdrant", "Elasticsearch", "Redis", "Supabase"];
 
 export default function ManagementPage() {
   const [conflicts, setConflicts] = useState<number | null>(null);
-  const [compliance, setCompliance] = useState<{ total: number; lastScan: string } | null>(null);
+  const [compliance, setCompliance] = useState<{ total: number; critical: number; lastScan: string } | null>(null);
+  const [attention, setAttention] = useState<{ overdueConflicts: number; overdueQuarantine: number; pendingQuarantine: number } | null>(null);
   const [isDemo, setIsDemo] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([getConflicts(), getComplianceDashboard()]).then(([cr, dr]) => {
+    Promise.all([getConflicts(), getComplianceDashboard(), getSlaReport(), getQuarantine()]).then(([cr, dr, sr, qr]) => {
       if (!alive) return;
       setConflicts(cr.data?.total ?? null);
       if (dr.data) {
         const t = dr.data.total_gaps;
-        setCompliance({ total: t.critical + t.major + t.minor, lastScan: dr.data.last_updated ?? "" });
+        setCompliance({ total: t.critical + t.major + t.minor, critical: t.critical, lastScan: dr.data.last_updated ?? "" });
       }
-      setIsDemo(cr.source === "demo" || dr.source === "demo");
+      setAttention({
+        overdueConflicts: sr.data?.overdue_conflicts_total ?? 0,
+        overdueQuarantine: sr.data?.overdue_quarantine_total ?? 0,
+        pendingQuarantine: qr.data.items.filter((it) => it.review_status === "pending").length,
+      });
+      setIsDemo(cr.source === "demo" || dr.source === "demo" || sr.source === "demo" || qr.source === "demo");
     }).catch(() => { if (alive) setIsDemo(true); });
     return () => { alive = false; };
   }, []);
+
+  const attentionRows = attention
+    ? [
+        { count: attention.overdueConflicts, label: "conflicts past SLA", href: "/governance/conflicts", tone: "danger" as const },
+        { count: attention.overdueQuarantine, label: "quarantine items past SLA", href: "/governance/quarantine", tone: "danger" as const },
+        { count: attention.pendingQuarantine, label: "quarantine items awaiting review", href: "/governance/quarantine", tone: "caution" as const },
+        { count: compliance?.critical ?? 0, label: "critical compliance gaps", href: "/compliance", tone: "caution" as const },
+      ].filter((r) => r.count > 0)
+    : [];
 
   const coveragePct = 78; // ponytail: no coverage API endpoint; static until Layer-4 aggregation added
   const kpis: Array<{
@@ -76,6 +91,34 @@ export default function ManagementPage() {
           <KpiCard key={k.label} label={k.label} value={k.value} sub={k.sub} tone={k.tone} />
         ))}
       </div>
+
+      {/* What requires action right now, composed from SLA + quarantine + compliance */}
+      {attention && (
+        <section className="mt-6 rounded-xl border border-line bg-surface p-5">
+          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Needs attention</h2>
+          {attentionRows.length === 0 ? (
+            <p className="mt-3 flex items-center gap-2 text-body text-verified">
+              <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+              All clear — no overdue or pending items.
+            </p>
+          ) : (
+            <ul className="mt-3 divide-y divide-line">
+              {attentionRows.map((r) => (
+                <li key={r.label}>
+                  <Link
+                    href={r.href}
+                    className="group flex items-center gap-3 py-2.5 text-body text-ink transition-colors hover:text-accent"
+                  >
+                    <StatusBadge tone={r.tone} dot={false}>{r.count}</StatusBadge>
+                    <span>{r.label}</span>
+                    <span className="ml-auto text-label text-muted transition-colors group-hover:text-accent" aria-hidden="true">→</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <section className="rounded-xl border border-line bg-surface p-5">
