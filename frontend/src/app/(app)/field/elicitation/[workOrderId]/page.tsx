@@ -54,7 +54,7 @@ function QuestionCard({
           <label
             key={opt}
             className={cn(
-              "flex min-h-[56px] cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-[14px] transition-colors",
+              "flex min-h-[56px] cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm transition-colors",
               answer === opt
                 ? "border-accent bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] font-semibold text-accent"
                 : "border-line bg-surface hover:border-[color-mix(in_srgb,var(--accent)_35%,var(--line))]",
@@ -91,7 +91,7 @@ function QuestionCard({
       placeholder="Describe your observation…"
       rows={5}
       aria-label={question.question_text}
-      className="w-full resize-none rounded-xl border border-line bg-surface px-4 py-3 text-[14px] leading-relaxed outline-none transition-colors focus-visible:border-accent"
+      className="w-full resize-none rounded-xl border border-line bg-surface px-4 py-3 text-sm leading-relaxed outline-none transition-colors focus-visible:border-accent"
     />
   );
 }
@@ -178,10 +178,10 @@ export default function ElicitationPage() {
             <path d="M20 6 9 17l-5-5" />
           </svg>
         </div>
-        <h1 className="mt-4 text-[20px] font-semibold">
+        <h1 className="mt-4 text-title font-semibold">
           {queued ? "Responses queued" : "Responses submitted"}
         </h1>
-        <p className="mt-2 text-[13.5px] leading-relaxed text-muted">
+        <p className="mt-2 text-body leading-relaxed text-muted">
           {queued
             ? "You're offline — responses saved locally and will sync automatically when connected."
             : "Your field observations entered the knowledge quarantine and will be reviewed by engineering authority."}
@@ -199,10 +199,10 @@ export default function ElicitationPage() {
     <div className="mx-auto max-w-md px-5 pb-8 pt-6">
       <header className="mb-6 flex items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">
+          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
             Work order {workOrderId}
           </p>
-          <h1 className="mt-0.5 text-[18px] font-semibold">Knowledge capture</h1>
+          <h1 className="mt-0.5 text-title font-semibold">Knowledge capture</h1>
         </div>
         {source === "demo" && <DemoChip />}
       </header>
@@ -229,7 +229,7 @@ export default function ElicitationPage() {
             )}
           />
         ))}
-        <span className="ml-1 text-[12px] text-muted">
+        <span className="ml-1 text-caption text-muted">
           {step + 1} / {questions.length}
         </span>
       </div>
@@ -237,14 +237,14 @@ export default function ElicitationPage() {
       <div className="min-h-[320px]">
         {current.context && (
           <div className="mb-4 rounded-lg border border-line bg-surface-2 px-3 py-2.5">
-            <p className="text-[12px] leading-relaxed text-muted">
+            <p className="text-caption leading-relaxed text-muted">
               <span className="font-semibold text-ink">Context: </span>
               {current.context}
             </p>
           </div>
         )}
 
-        <h2 className="text-[18px] font-semibold leading-snug">{current.question_text}</h2>
+        <h2 className="text-title font-semibold leading-snug">{current.question_text}</h2>
 
         <div className="mt-5">
           <QuestionCard
@@ -262,7 +262,7 @@ export default function ElicitationPage() {
           variant="primary"
           onClick={advance}
           disabled={!currentAnswer.trim() || submitting}
-          className="h-[52px] w-full text-[15px]"
+          className="h-[52px] w-full text-subtitle"
         >
           {isLast
             ? submitting

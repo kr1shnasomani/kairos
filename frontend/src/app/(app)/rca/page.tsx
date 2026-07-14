@@ -76,13 +76,13 @@ export default function RcaPage() {
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
       <header>
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
           Layer 11 · Root cause
         </p>
-        <h1 className="mt-1 text-[28px] font-semibold leading-tight text-balance">
+        <h1 className="mt-1 text-display font-semibold leading-tight text-balance">
           RCA workspace
         </h1>
-        <p className="mt-1.5 max-w-xl text-[13.5px] text-muted text-pretty">
+        <p className="mt-1.5 max-w-xl text-body text-muted text-pretty">
           Failure timeline, evidence-weighted hypotheses, and supporting documents — fused from the graph, telemetry, and event history.
         </p>
       </header>
@@ -93,30 +93,30 @@ export default function RcaPage() {
       >
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Asset</span>
+            <span className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Asset</span>
             <input
               value={asset}
               onChange={(e) => setAsset(e.target.value)}
-              className="tabular h-9 w-32 rounded-lg border border-line bg-surface-2 px-3 text-[13px] outline-none focus:border-accent"
+              className="tabular h-9 w-32 rounded-lg border border-line bg-surface-2 px-3 text-body outline-none focus:border-accent"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Failure code</span>
+            <span className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Failure code</span>
             <input
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              className="tabular h-9 w-40 rounded-lg border border-line bg-surface-2 px-3 text-[13px] outline-none focus:border-accent"
+              className="tabular h-9 w-40 rounded-lg border border-line bg-surface-2 px-3 text-body outline-none focus:border-accent"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">Incident date</span>
+            <span className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Incident date</span>
             <input
               type="date"
               required
               value={incidentDate}
               onChange={(e) => setIncidentDate(e.target.value)}
               max={new Date().toISOString().split("T")[0]}
-              className="h-9 rounded-lg border border-line bg-surface-2 px-2 text-[12px] outline-none focus:border-accent"
+              className="h-9 rounded-lg border border-line bg-surface-2 px-2 text-caption outline-none focus:border-accent"
             />
           </label>
           <Button variant="primary" type="submit" className="mt-auto">
@@ -124,7 +124,7 @@ export default function RcaPage() {
           </Button>
         </div>
 
-        <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-muted">
+        <label className="flex cursor-pointer items-center gap-2 text-caption text-muted">
           <input
             type="checkbox"
             checked={includeQuarantine}
@@ -140,7 +140,7 @@ export default function RcaPage() {
           <button
             key={p.label}
             onClick={() => assemble(p.asset_id, p.failure_code)}
-            className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] text-muted transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-accent"
+            className="rounded-full border border-line bg-surface px-3 py-1.5 text-caption text-muted transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-accent"
           >
             {p.label}
           </button>
@@ -148,7 +148,7 @@ export default function RcaPage() {
       </div>
 
       {loading && (
-        <p className="mt-8 flex items-center gap-2 text-[13px] text-muted">
+        <p className="mt-8 flex items-center gap-2 text-body text-muted">
           <span className="inline-flex gap-1" aria-hidden="true">
             {[0, 1, 2].map((i) => (
               <span key={i} className="size-1.5 animate-bounce rounded-full bg-muted" style={{ animationDelay: `${i * 0.15}s` }} />
@@ -171,11 +171,11 @@ function RcaResult({ pack }: { pack: RcaPack }) {
     <div className="mt-8 space-y-7">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line pb-4">
-        <span className="tabular text-[15px] font-semibold text-accent">{pack.asset_id}</span>
-        <span className="tabular rounded-md border border-line bg-surface-2 px-2 py-0.5 text-[12px]">
+        <span className="tabular text-subtitle font-semibold text-accent">{pack.asset_id}</span>
+        <span className="tabular rounded-md border border-line bg-surface-2 px-2 py-0.5 text-caption">
           {pack.failure_code}
         </span>
-        <span className="tabular text-[12px] text-muted">
+        <span className="tabular text-caption text-muted">
           {new Date(pack.incident_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
         </span>
         <div className="ml-auto flex items-center gap-3">
@@ -198,7 +198,7 @@ function RcaResult({ pack }: { pack: RcaPack }) {
       {/* Synthesis unavailable — not a safety refusal, just no synthesis */}
       {!pack.refused && !pack.synthesis_available && (
         <div className="rounded-xl border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,var(--surface))] px-4 py-3">
-          <p className="text-[12.5px] text-ink">
+          <p className="text-caption text-ink">
             <span className="font-semibold">Synthesis unavailable</span> — raw event timeline shown.
             The graph may lack sufficient history for this failure code.
           </p>
@@ -237,9 +237,9 @@ function RcaResult({ pack }: { pack: RcaPack }) {
                 key={d.document_id}
                 className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-3"
               >
-                <span className="text-[13px] font-semibold">{d.title}</span>
+                <span className="text-body font-semibold">{d.title}</span>
                 <AuthorityBadge level={d.authority_level} />
-                <span className="tabular ml-auto text-[11px] text-muted">
+                <span className="tabular ml-auto text-label text-muted">
                   conf {d.confidence.toFixed(2)}
                 </span>
                 <SourceChip>{d.document_id}</SourceChip>
@@ -265,16 +265,16 @@ function HypothesisCard({ h, rank }: { h: RcaHypothesis; rank: number }) {
   return (
     <article className="rounded-xl border border-line bg-surface p-4">
       <div className="flex items-center gap-3">
-        <span className="tabular text-[11px] font-bold text-muted">#{rank}</span>
+        <span className="tabular text-label font-bold text-muted">#{rank}</span>
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
           <div
             className="h-full rounded-full bg-accent"
             style={{ width: `${Math.round(h.evidence_weight * 100)}%` }}
           />
         </div>
-        <span className="tabular text-[12px] font-semibold">{h.evidence_weight.toFixed(2)}</span>
+        <span className="tabular text-caption font-semibold">{h.evidence_weight.toFixed(2)}</span>
       </div>
-      <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink">{h.hypothesis}</p>
+      <p className="mt-2.5 text-body leading-relaxed text-ink">{h.hypothesis}</p>
       {h.sources.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
           {h.sources.map((s) => <SourceChip key={s}>{s}</SourceChip>)}

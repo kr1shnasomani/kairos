@@ -21,18 +21,21 @@ must look like the same screen in both modes. **Light is the default.**
 Do not build a "dark version" of a component. Build one component that reads its colors from tokens.
 
 ### Brand
-Logo = black wordmark + check/A mark on **Kairos Orange `#E8501F`**. Orange is the single accent
+Logo = black wordmark + check/A mark on **Kairos Orange `#E8501F`** (brand artwork only). In the
+UI the accent token ships as the **accessible variant `#B83D16`** (light) so white-on-accent and
+accent-on-surface pass WCAG AA; dark mode uses `#F15A2B`. Orange is the single accent
 (actions, focus, identity) in both modes. Black → ink text. The accent doubles as
 caution/attention — which is KAIROS's proactive-alert thesis.
 
-**Status colors are separate from the accent** so they never clash with brand orange:
+**Status colors are separate from the accent** so they never clash with brand orange
+(all values are the AA-compliant shipped tokens; light mode):
 
 | Token | Hex | Meaning |
 |---|---|---|
-| `danger` | `#D92D20` | conflict, disputed, refusal, critical |
-| `caution` | `#F5A623` | unverified/quarantine, pending, high priority |
-| `verified` | `#2E7D46` | verified, resolved, healthy |
-| `info` | `#2563EB` | informational, quarantined-but-searchable |
+| `danger` | `#B42318` | conflict, disputed, refusal, critical |
+| `caution` | `#9A5B00` | unverified/quarantine, pending, high priority |
+| `verified` | `#216D3B` | verified, resolved, healthy |
+| `info` | `#1D4ED8` | informational, quarantined-but-searchable |
 
 Status encodes authority level · verification status · conflict severity. Always pair color with a
 non-color cue (dot, label, stripe) — never color alone.
@@ -51,7 +54,7 @@ to Tailwind utilities via `@theme inline` → `bg-canvas`, `bg-surface`, `text-i
 | `line` (border) | `#E6E1D6` | `#332C24` |
 | `ink` (text) | `#1C1A17` | `#EDE9E2` |
 | `muted` (2nd text) | `#6E6A62` | `#9A9186` |
-| `accent` | `#E8501F` | `#F15A2B` (brighter for dark legibility) |
+| `accent` | `#B83D16` (AA text/action variant of brand `#E8501F`) | `#F15A2B` (brighter for dark legibility) |
 | `accent-soft` | `#FBE8DF` | `#3A241A` |
 
 Depth comes from **tone**, not heavy shadows. Radius: `8px` default, `12px` cards.
@@ -69,6 +72,30 @@ Loaded via `next/font` in `src/app/layout.tsx`; exposed as CSS vars, mapped in `
 | Data | **Geist Mono** | tags (`P-101`), pressures, confidence, timestamps. `.tabular` (also sets `tabular-nums`) |
 
 Keep body ~65ch, headings `text-wrap: balance`, uppercase labels get letter-spacing.
+
+### Type scale (the only sanctioned sizes)
+
+Defined in `globals.css` `@theme` — use the named utilities, never arbitrary `text-[Npx]`
+(canvas node labels at `text-[9px]` are the one deliberate density exception):
+
+| Utility | Size | Role |
+|---|---|---|
+| `text-display` | 28px | page h1 (workspaces) |
+| `text-title` | 20px | detail-page h1, section headlines |
+| `text-subtitle` | 15px | card titles, emphasis rows |
+| `text-sm` | 14px | prominent body |
+| `text-body` | 13px | default body/UI text |
+| `text-xs` / `text-caption` | 12px | secondary rows, table cells |
+| `text-label` | 11px | eyebrows, badges, metadata labels |
+| `text-micro` | 10px | tertiary metadata, axis ticks |
+
+Eyebrows are always `text-label font-bold uppercase tracking-[0.1em]` — one tracking value app-wide.
+Page headers use the shared `PageHeader` primitive (`ui.tsx`); don't hand-roll the eyebrow/h1/lede stack.
+
+### Container widths
+
+`max-w-md` forms/auth · `max-w-3xl` reading/detail · `max-w-4xl` tables/dashboards · `max-w-5xl` canvases (graph/topology).
+All pages share `px-5 py-8 sm:px-8 sm:py-10`.
 
 ---
 

@@ -104,7 +104,7 @@ function GovernorPill({ userId }: { userId: string }) {
     <div
       title={`Governor: ${gov.push_count_last_hour}/${gov.ceiling} briefs/hr`}
       className={cn(
-        "mx-3 my-1 flex items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px]",
+        "mx-3 my-1 flex items-center justify-between rounded-lg px-2.5 py-1.5 text-label",
         suppressed
           ? "bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-danger"
           : "bg-surface-2 text-muted",
@@ -132,7 +132,7 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount }: { onN
       <div className="flex items-center justify-between gap-2 px-4 py-4">
         <div className="flex items-center gap-2.5">
           <KairosMark />
-          <span className="text-[15px] font-semibold tracking-tight">Kairos</span>
+          <span className="text-subtitle font-semibold tracking-tight">Kairos</span>
         </div>
         <PhaseBadge />
       </div>
@@ -140,7 +140,7 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount }: { onN
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-2">
         {sections.map((section) => (
           <div key={section.group}>
-            <p className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+            <p className="px-2 pb-1.5 text-micro font-bold uppercase tracking-[0.1em] text-muted">
               {section.group}
             </p>
             <ul className="space-y-0.5">
@@ -152,7 +152,7 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount }: { onN
                       href={item.href}
                       onClick={onNavigate}
                       className={cn(
-                        "flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13.5px] transition-colors",
+                        "flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-body transition-colors",
                         active
                           ? "bg-accent-soft font-semibold text-accent"
                           : "text-muted hover:bg-surface-2 hover:text-ink",
@@ -173,19 +173,19 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount }: { onN
 
       <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-3">
         <div className="flex min-w-0 items-center gap-2 px-1">
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-bold text-on-accent">
+          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-label font-bold text-on-accent">
             {initials}
           </span>
           <div className="min-w-0 leading-tight">
             <p className="truncate text-xs font-semibold">{name}</p>
-            <p className="truncate text-[11px] text-muted">{roleLine}</p>
+            <p className="truncate text-label text-muted">{roleLine}</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
           {queueCount > 0 && (
             <span
               title={`${queueCount} write${queueCount !== 1 ? "s" : ""} queued offline`}
-              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--caution)_18%,transparent)] px-1 text-[10px] font-bold text-caution"
+              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--caution)_18%,transparent)] px-1 text-micro font-bold text-caution"
               aria-label={`${queueCount} pending sync`}
             >
               {queueCount}
@@ -230,7 +230,7 @@ function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut:
             key={tab.href}
             href={tab.href}
             className={cn(
-              "flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-[10px] font-semibold transition-colors",
+              "flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-micro font-semibold transition-colors",
               active ? "text-accent" : "text-muted hover:text-ink",
             )}
             aria-current={active ? "page" : undefined}
@@ -243,7 +243,7 @@ function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut:
       {/* Me tab */}
       <button
         onClick={onSignOut}
-        className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-[10px] font-semibold text-muted transition-colors hover:text-ink"
+        className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-micro font-semibold text-muted transition-colors hover:text-ink"
         aria-label="Sign out"
       >
         <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -265,6 +265,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const drawerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
+
+  // Route-aware browser titles from the nav config — one effect covers every page
+  // (client pages can't export Next metadata).
+  useEffect(() => {
+    const nav = NAV.flatMap((g) => g.items).find(
+      (i) => pathname === i.href || pathname.startsWith(i.href + "/"),
+    );
+    const tail = decodeURIComponent(pathname.split("/").filter(Boolean).pop() ?? "");
+    const base =
+      nav?.label ?? (tail ? tail.charAt(0).toUpperCase() + tail.slice(1).replace(/-/g, " ") : "Briefs");
+    document.title =
+      nav && pathname !== nav.href ? `${tail} · ${nav.label} · KAIROS` : `${base} · KAIROS`;
+  }, [pathname]);
 
   useEffect(() => {
     let alive = true;
@@ -374,7 +387,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="sticky top-0 h-dvh px-4 py-4">
             <div className="flex items-center gap-2.5">
               <KairosMark />
-              <span className="text-[15px] font-semibold tracking-tight">Kairos</span>
+              <span className="text-subtitle font-semibold tracking-tight">Kairos</span>
             </div>
           </div>
         </aside>
@@ -391,7 +404,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-dvh">
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-ink focus:shadow-lg focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:text-body focus:font-semibold focus:text-ink focus:shadow-lg focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
       >
         Skip to content
       </a>
@@ -407,18 +420,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {!isField && drawer && (
         <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
           <button
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-black/40"
             aria-label="Close menu"
             onClick={() => setDrawer(false)}
           />
-          <div ref={drawerRef} tabIndex={-1} className="absolute inset-y-0 left-0 w-[244px] border-r border-line bg-surface outline-none">
+          <div ref={drawerRef} tabIndex={-1} className="absolute inset-y-0 left-0 w-[244px] animate-[drawer-in_200ms_ease-out] border-r border-line bg-surface outline-none">
             <SidebarContent onNavigate={() => setDrawer(false)} role={role} user={user} onSignOut={signOut} queueCount={queueCount} />
           </div>
         </div>
       )}
 
       {/* Field mobile: 56px tabs + safe-area; desktop field uses sidebar only */}
+      {/* inert while the drawer dialog is open so screen readers can't wander behind it */}
       <div
+        inert={drawer || undefined}
         className={cn(
           "flex min-w-0 flex-1 flex-col",
           isField && "pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0",
@@ -447,7 +462,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div
             role="alert"
             className={cn(
-              "flex items-center gap-3 px-5 py-2.5 text-[13px] font-semibold",
+              "flex items-center gap-3 px-5 py-2.5 text-body font-semibold",
               plantState.state === "emergency"
                 ? "bg-danger text-white"
                 : "bg-[color-mix(in_srgb,var(--caution)_18%,var(--surface))] text-caution",

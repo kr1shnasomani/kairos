@@ -20,40 +20,69 @@ export function BriefDetail({ brief }: { brief: Brief }) {
   const [ackStep, setAckStep] = useState<AckStep>("idle");
   const [engineerSig, setEngineerSig] = useState("");
   const [shiftLeadSig, setShiftLeadSig] = useState("");
+  const [ackBusy, setAckBusy] = useState(false);
+  const [ackError, setAckError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackRating | null>(null);
   const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   async function ackStep1() {
-    if (engineerSig.trim().length < 2) return;
+    if (engineerSig.trim().length < 2 || ackBusy) return;
     if (!isPtw) {
       // Single-step for non-PTW briefs
-      await ackBrief(brief.brief_id, { signature: engineerSig }).catch(() => {});
-      setAckStep("complete");
+      setAckBusy(true);
+      setAckError(null);
+      try {
+        await ackBrief(brief.brief_id, { signature: engineerSig });
+        setAckStep("complete");
+      } catch {
+        setAckError("Acknowledgment failed to save — check your connection and try again.");
+      } finally {
+        setAckBusy(false);
+      }
       return;
     }
     setAckStep("step1_done");
   }
 
   async function ackStep2() {
-    if (shiftLeadSig.trim().length < 2) return;
-    await ackBrief(brief.brief_id, {
-      signature: `${engineerSig} + ${shiftLeadSig}`,
-      notes: "PTW dual countersignature",
-    }).catch(() => {});
-    setAckStep("complete");
+    if (shiftLeadSig.trim().length < 2 || ackBusy) return;
+    setAckBusy(true);
+    setAckError(null);
+    try {
+      await ackBrief(brief.brief_id, {
+        signature: `${engineerSig} + ${shiftLeadSig}`,
+        notes: "PTW dual countersignature",
+      });
+      setAckStep("complete");
+    } catch {
+      setAckError("Countersignature failed to save — the brief is not yet delivered. Try again.");
+    } finally {
+      setAckBusy(false);
+    }
   }
 
   async function rate(r: FeedbackRating) {
     setFeedback(r);
-    setFeedbackSent(true);
-    await sendBriefFeedback(brief.brief_id, r).catch(() => {});
+    setFeedbackError(null);
+    setFeedbackBusy(true);
+    try {
+      await sendBriefFeedback(brief.brief_id, r);
+      setFeedbackSent(true);
+    } catch {
+      setFeedback(null);
+      setFeedbackError("Feedback failed to send — try again.");
+    } finally {
+      setFeedbackBusy(false);
+    }
   }
 
   const isComplete = ackStep === "complete";
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link href="/briefs" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link href="/briefs" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
@@ -65,15 +94,15 @@ export function BriefDetail({ brief }: { brief: Brief }) {
           {isFrozen ? (
             <StatusBadge tone="info">Frozen</StatusBadge>
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.04em]" style={{ color: p.color }}>
+            <span className="inline-flex items-center gap-1.5 text-label font-bold uppercase tracking-[0.1em]" style={{ color: p.color }}>
               <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
               {isPtw ? "PTW-critical" : p.label}
             </span>
           )}
-          <span className="text-[11px] text-muted">· {triggerLabel(brief.trigger_event_type)}</span>
-          <span className="tabular ml-auto text-[11px] text-muted">{relativeTime(brief.delivered_at)}</span>
+          <span className="text-label text-muted">· {triggerLabel(brief.trigger_event_type)}</span>
+          <span className="tabular ml-auto text-label text-muted">{relativeTime(brief.delivered_at)}</span>
         </div>
-        <h1 className="mt-2 text-[24px] font-semibold leading-snug">{brief.headline}</h1>
+        <h1 className="mt-2 text-display font-semibold leading-snug">{brief.headline}</h1>
         {isPtw && (
           <div className="mt-2 flex flex-wrap gap-2">
             <StatusBadge tone="danger">Permit-to-Work — dual countersignature required</StatusBadge>
@@ -84,8 +113,8 @@ export function BriefDetail({ brief }: { brief: Brief }) {
       {/* Frozen state explanation */}
       {isFrozen && (
         <div className="mt-4 rounded-xl border border-[color-mix(in_srgb,var(--info)_30%,var(--line))] bg-[color-mix(in_srgb,var(--info)_7%,transparent)] p-4">
-          <p className="text-[13px] font-semibold text-info">Delivery frozen</p>
-          <p className="mt-1 text-[12.5px] text-muted">
+          <p className="text-body font-semibold text-info">Delivery frozen</p>
+          <p className="mt-1 text-caption text-muted">
             {brief.freeze_reason ?? "A physical deviation flag is pending resolution."}
             {" "}Briefs for this asset are held until an engineer resolves the flag.
           </p>
@@ -95,20 +124,20 @@ export function BriefDetail({ brief }: { brief: Brief }) {
       {/* Unverified field input warning */}
       {hasLowConfidence && (
         <div className="mt-4 rounded-xl border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,transparent)] p-3">
-          <p className="text-[12.5px] font-semibold text-caution">
+          <p className="text-caption font-semibold text-caution">
             Draws on unverified field input — {quarantineCount} source{quarantineCount !== 1 ? "s" : ""} not reviewed by engineering authority
           </p>
         </div>
       )}
 
-      <p className="mt-5 text-[14.5px] leading-relaxed text-ink/90">{brief.body}</p>
+      <p className="mt-5 text-sm leading-relaxed text-ink/90">{brief.body}</p>
 
       {brief.warnings.length > 0 && (
         <div className="mt-5 rounded-xl border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_9%,var(--surface))] p-4">
-          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-caution">Warnings</p>
+          <p className="text-label font-bold uppercase tracking-[0.1em] text-caution">Warnings</p>
           <ul className="mt-2 space-y-1.5">
             {brief.warnings.map((w) => (
-              <li key={w} className="flex gap-2 text-[13.5px] text-ink">
+              <li key={w} className="flex gap-2 text-body text-ink">
                 <span className="mt-2 size-1.5 shrink-0 rounded-full bg-caution" aria-hidden="true" />
                 {w}
               </li>
@@ -124,7 +153,7 @@ export function BriefDetail({ brief }: { brief: Brief }) {
           </h2>
           <ul className="mt-3 space-y-2">
             {brief.action_items.map((a) => (
-              <li key={a} className="flex items-start gap-2.5 rounded-lg border border-line bg-surface px-3.5 py-2.5 text-[13.5px]">
+              <li key={a} className="flex items-start gap-2.5 rounded-lg border border-line bg-surface px-3.5 py-2.5 text-body">
                 <svg className="mt-0.5 size-4 shrink-0 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M20 6 9 17l-5-5" />
                 </svg>
@@ -142,17 +171,17 @@ export function BriefDetail({ brief }: { brief: Brief }) {
           {brief.sources.map((s) => (
             <article key={s.document_id} className="rounded-xl border border-line bg-surface p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[13.5px] font-semibold">{s.title}</span>
+                <span className="text-body font-semibold">{s.title}</span>
                 <AuthorityBadge level={s.authority_level} />
                 {s.is_quarantine && (
                   <StatusBadge tone="caution" dot={false}>Unverified field input — not reviewed by engineering authority</StatusBadge>
                 )}
               </div>
-              <p className="mt-2 text-[13px] leading-relaxed text-muted">{s.relevant_excerpt}</p>
+              <p className="mt-2 text-body leading-relaxed text-muted">{s.relevant_excerpt}</p>
               <div className="mt-2.5 flex items-center gap-2">
                 <SourceChip quarantine={s.is_quarantine}>{s.document_id}</SourceChip>
                 {s.vault_url && (
-                  <a href={s.vault_url} target="_blank" rel="noreferrer" className="text-[12px] font-medium text-accent hover:underline">
+                  <a href={s.vault_url} target="_blank" rel="noreferrer" className="text-caption font-medium text-accent hover:underline">
                     Open in vault →
                   </a>
                 )}
@@ -172,7 +201,7 @@ export function BriefDetail({ brief }: { brief: Brief }) {
       <section className="mt-7 rounded-xl border border-line bg-surface p-5" aria-label="Acknowledgment">
         {isComplete ? (
           <div className="space-y-2">
-            <div className="flex items-center gap-2 text-[13.5px] font-semibold text-verified">
+            <div className="flex items-center gap-2 text-body font-semibold text-verified">
               <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M20 6 9 17l-5-5" />
               </svg>
@@ -180,13 +209,13 @@ export function BriefDetail({ brief }: { brief: Brief }) {
                 ? `PTW acknowledged — engineer: ${engineerSig} · shift lead: ${shiftLeadSig}`
                 : `Acknowledged${engineerSig ? ` · signed ${engineerSig}` : ""}`}
             </div>
-            <p className="text-[12px] text-muted">Signature and timestamp logged in the evidence lineage.</p>
+            <p className="text-caption text-muted">Signature and timestamp logged in the evidence lineage.</p>
           </div>
         ) : isPtw && ackStep === "step1_done" ? (
           /* Step 2: Shift Lead countersignature */
           <div>
-            <p className="text-[13px] font-semibold">Step 2 of 2 — Shift Lead countersignature</p>
-            <p className="mt-1 text-[12px] text-muted">
+            <p className="text-body font-semibold">Step 2 of 2 — Shift Lead countersignature</p>
+            <p className="mt-1 text-caption text-muted">
               Confirming isolation strategy has been reviewed and isolation sequence above is approved.
               Engineer sign-off recorded: <span className="font-medium text-ink">{engineerSig}</span>
             </p>
@@ -194,20 +223,21 @@ export function BriefDetail({ brief }: { brief: Brief }) {
               value={shiftLeadSig}
               onChange={(e) => setShiftLeadSig(e.target.value)}
               placeholder="Shift Lead: type your name to countersign"
-              className="mt-3 h-9 w-full rounded-lg border border-line bg-surface-2 px-3 text-[13px] outline-none focus-visible:border-accent"
+              className="mt-3 h-9 w-full rounded-lg border border-line bg-surface-2 px-3 text-body outline-none focus-visible:border-accent"
               aria-label="Shift Lead signature"
             />
             <div className="mt-3 flex items-center gap-2">
-              <Button variant="primary" onClick={ackStep2} disabled={shiftLeadSig.trim().length < 2}>
-                Countersign — mark PTW delivered
+              <Button variant="primary" onClick={ackStep2} disabled={shiftLeadSig.trim().length < 2 || ackBusy}>
+                {ackBusy ? "Saving…" : "Countersign — mark PTW delivered"}
               </Button>
-              <span className="text-[12px] text-muted">Brief is not delivered until both signatures are captured.</span>
+              <span className="text-caption text-muted">Brief is not delivered until both signatures are captured.</span>
             </div>
+            {ackError && <p className="mt-2 text-caption text-danger">{ackError}</p>}
           </div>
         ) : (
           /* Step 1 (or single-step for non-PTW) */
           <div>
-            <p className="text-[12.5px] text-muted">
+            <p className="text-caption text-muted">
               {isPtw
                 ? "Step 1 of 2 — Issuing engineer acknowledges brief content and isolation strategy."
                 : "Acknowledge receipt. Your signature is logged with the evidence lineage."}
@@ -216,27 +246,27 @@ export function BriefDetail({ brief }: { brief: Brief }) {
               value={engineerSig}
               onChange={(e) => setEngineerSig(e.target.value)}
               placeholder={isPtw ? "Issuing engineer: type your name" : "Type your name to sign"}
-              className="mt-3 h-9 w-full max-w-xs rounded-lg border border-line bg-surface-2 px-3 text-[13px] outline-none focus-visible:border-accent"
+              className="mt-3 h-9 w-full max-w-xs rounded-lg border border-line bg-surface-2 px-3 text-body outline-none focus-visible:border-accent"
               aria-label="Engineer signature"
             />
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <Button
                 variant={isPtw ? "danger" : "primary"}
                 onClick={ackStep1}
-                disabled={engineerSig.trim().length < 2}
+                disabled={engineerSig.trim().length < 2 || ackBusy}
               >
-                {isPtw ? "Acknowledge (step 1 of 2)" : "Acknowledge"}
+                {ackBusy ? "Saving…" : isPtw ? "Acknowledge (step 1 of 2)" : "Acknowledge"}
               </Button>
 
               {/* Phase 2 feedback chips */}
               <div className="ml-auto flex items-center gap-1.5">
-                <span className="text-[12px] text-muted">Accurate?</span>
+                <span className="text-caption text-muted">Accurate?</span>
                 {(["accurate", "missing_context", "incorrect"] as FeedbackRating[]).map((r) => (
                   <button
                     key={r}
-                    onClick={() => { if (!feedbackSent) void rate(r); }}
-                    disabled={feedbackSent}
-                    className={`rounded-md border px-2 py-1 text-[11px] font-medium capitalize transition-colors disabled:cursor-default ${
+                    onClick={() => { if (!feedbackSent && !feedbackBusy) void rate(r); }}
+                    disabled={feedbackSent || feedbackBusy}
+                    className={`rounded-md border px-2 py-1 text-label font-medium capitalize transition-colors disabled:cursor-default ${
                       feedback === r
                         ? "border-accent text-accent"
                         : "border-line text-muted hover:text-ink"
@@ -247,11 +277,13 @@ export function BriefDetail({ brief }: { brief: Brief }) {
                 ))}
               </div>
             </div>
+            {ackError && <p className="mt-2 text-caption text-danger">{ackError}</p>}
             {feedbackSent && (
-              <p className="mt-2 text-[12px] text-muted">
+              <p className="mt-2 text-caption text-muted">
                 Thanks — feedback recorded{feedback === "incorrect" ? "; source confidence recheck queued." : "."}
               </p>
             )}
+            {feedbackError && <p className="mt-2 text-caption text-danger">{feedbackError}</p>}
           </div>
         )}
       </section>

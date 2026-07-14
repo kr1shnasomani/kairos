@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { StatusBadge } from "@/components/ui";
+import { DemoChip, KpiCard, StatusBadge } from "@/components/ui";
 import { getConflicts, getComplianceDashboard } from "@/lib/api";
 
 const COVERAGE = [
@@ -34,37 +34,37 @@ export default function ManagementPage() {
         const t = dr.data.total_gaps;
         setCompliance({ total: t.critical + t.major + t.minor, lastScan: dr.data.last_updated ?? "" });
       }
-      setIsDemo(cr.source === "demo" && dr.source === "demo");
+      setIsDemo(cr.source === "demo" || dr.source === "demo");
     }).catch(() => { if (alive) setIsDemo(true); });
     return () => { alive = false; };
   }, []);
 
   const coveragePct = 78; // ponytail: no coverage API endpoint; static until Layer-4 aggregation added
-  const kpis = [
-    { label: "Knowledge coverage", value: `${coveragePct}%`,                                  sub: "of registered assets",   color: "var(--accent)" },
-    { label: "Open conflicts",      value: conflicts !== null ? String(conflicts) : "—",       sub: "awaiting resolution",    color: "var(--danger)" },
-    { label: "Compliance posture",  value: compliance ? `${compliance.total} gaps` : "—",     sub: "pending remediation",    color: "var(--caution)" },
-    { label: "Cross-site alerts",   value: String(ALERTS.filter((a) => a.tag === "Cross-site").length), sub: "pattern matches", color: "var(--info)" },
+  const kpis: Array<{
+    label: string;
+    value: string;
+    sub: string;
+    tone?: "danger" | "caution" | "verified" | "neutral";
+  }> = [
+    { label: "Knowledge coverage", value: `${coveragePct}%`, sub: "illustrative — live metric pending", tone: "neutral" },
+    { label: "Open conflicts", value: conflicts !== null ? String(conflicts) : "—", sub: "awaiting resolution", tone: "danger" },
+    { label: "Compliance posture", value: compliance ? `${compliance.total} gaps` : "—", sub: "pending remediation", tone: "caution" },
+    { label: "Cross-site alerts", value: String(ALERTS.filter((a) => a.tag === "Cross-site").length), sub: "pattern matches", tone: "neutral" },
   ];
 
   return (
     <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Cross-functional</p>
-          <h1 className="mt-1 text-[28px] font-semibold leading-tight">Plant overview</h1>
-          <p className="mt-1.5 text-[13.5px] text-muted">Situational awareness across knowledge, conflicts, and compliance.</p>
+          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Cross-functional</p>
+          <h1 className="mt-1 text-display font-semibold leading-tight">Plant overview</h1>
+          <p className="mt-1.5 text-body text-muted">Situational awareness across knowledge, conflicts, and compliance.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isDemo && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
-              <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-              Demo data
-            </span>
-          )}
+          {isDemo && <DemoChip />}
           <Link
             href="/management/plant-state"
-            className="inline-flex h-8 items-center rounded-lg border border-line bg-surface px-3 text-[12px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+            className="inline-flex h-8 items-center rounded-lg border border-line bg-surface px-3 text-caption font-medium text-muted transition-colors hover:bg-surface-2 hover:text-ink"
           >
             Plant state
           </Link>
@@ -73,23 +73,20 @@ export default function ManagementPage() {
 
       <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {kpis.map((k) => (
-          <div key={k.label} className="rounded-xl border border-line bg-surface p-4">
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">{k.label}</p>
-            <p className="tabular mt-1.5 text-[26px] font-semibold leading-none" style={{ color: k.color }}>
-              {k.value}
-            </p>
-            <p className="mt-1.5 text-[11.5px] text-muted">{k.sub}</p>
-          </div>
+          <KpiCard key={k.label} label={k.label} value={k.value} sub={k.sub} tone={k.tone} />
         ))}
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <section className="rounded-xl border border-line bg-surface p-5">
-          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Coverage by asset class</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Coverage by asset class</h2>
+            <span className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Illustrative</span>
+          </div>
           <div className="mt-4 space-y-3.5">
             {COVERAGE.map((c) => (
               <div key={c.klass}>
-                <div className="flex items-center justify-between text-[12.5px]">
+                <div className="flex items-center justify-between text-caption">
                   <span>{c.klass}</span>
                   <span className="tabular text-muted">{c.pct}%</span>
                 </div>
@@ -107,7 +104,7 @@ export default function ManagementPage() {
             {ALERTS.map((a) => (
               <li key={a.text} className="flex flex-col gap-1.5">
                 <StatusBadge tone={a.tone}>{a.tag}</StatusBadge>
-                <Link href={a.href} className="text-[13px] leading-relaxed text-ink hover:text-accent hover:underline">
+                <Link href={a.href} className="text-body leading-relaxed text-ink hover:text-accent hover:underline">
                   {a.text}
                 </Link>
               </li>
@@ -115,7 +112,7 @@ export default function ManagementPage() {
           </ul>
           <Link
             href="/management/cross-site"
-            className="mt-4 inline-flex text-[12px] font-medium text-accent hover:underline"
+            className="mt-4 inline-flex text-caption font-medium text-accent hover:underline"
           >
             View all cross-site alerts →
           </Link>
@@ -129,7 +126,7 @@ export default function ManagementPage() {
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {SERVICES.map((s) => (
-            <span key={s} className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2.5 py-1 text-[12px]">
+            <span key={s} className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2.5 py-1 text-caption">
               <span className="size-1.5 rounded-full bg-verified" aria-hidden="true" />
               {s}
             </span>

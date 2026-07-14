@@ -56,18 +56,18 @@ export default function CopilotPage() {
       <div className="flex-1 py-8">
         {empty ? (
           <div className="flex min-h-[60vh] flex-col items-center justify-center text-center">
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">
+            <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
               Expert copilot
             </p>
-            <h1 className="mt-2 text-[26px] font-semibold text-balance">
+            <h1 className="mt-2 text-display font-semibold text-balance">
               Ask the governed knowledge base
             </h1>
-            <p className="mt-2 max-w-md text-[14px] leading-relaxed text-muted text-pretty">
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-muted text-pretty">
               Every answer is assembled from source documents with citations and confidence. On
               safety-critical parameters it refuses rather than guess.
             </p>
             {!SYNTHESIS_ENABLED && (
-              <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,transparent)] px-3 py-1.5 text-[12px] text-caution">
+              <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,transparent)] px-3 py-1.5 text-caption text-caution">
                 <span className="size-1.5 shrink-0 rounded-full bg-caution" aria-hidden="true" />
                 Phase 1 — retrieval only; synthesis unlocks in Phase 2
               </div>
@@ -77,7 +77,7 @@ export default function CopilotPage() {
                 <button
                   key={s}
                   onClick={() => ask(s)}
-                  className="rounded-full border border-line bg-surface px-3.5 py-2 text-[13px] text-ink transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-accent"
+                  className="rounded-full border border-line bg-surface px-3.5 py-2 text-body text-ink transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-accent"
                 >
                   {s}
                 </button>
@@ -89,11 +89,11 @@ export default function CopilotPage() {
             {turns.map((t) => (
               <div key={t.id} className="flex flex-col gap-4">
                 <div className="flex flex-col items-end gap-0.5">
-                  <p className="max-w-[80%] rounded-2xl rounded-br-sm bg-accent px-4 py-2.5 text-[14px] leading-relaxed text-on-accent">
+                  <p className="max-w-[80%] rounded-2xl rounded-br-sm bg-accent px-4 py-2.5 text-sm leading-relaxed text-on-accent">
                     {t.query}
                   </p>
                   {t.asOf && (
-                    <span className="text-[10px] text-muted">
+                    <span className="text-micro text-muted">
                       as of{" "}
                       {new Date(t.asOf).toLocaleDateString("en-IN", {
                         day: "numeric",
@@ -119,7 +119,7 @@ export default function CopilotPage() {
           asOf={asOf}
           onAsOfChange={setAsOf}
         />
-        <p className="mt-2 text-center text-[11px] text-muted">
+        <p className="mt-2 text-center text-label text-muted">
           Answers cite sources and refuse on safety-critical parameters. Verify before acting.
         </p>
       </div>
@@ -129,7 +129,7 @@ export default function CopilotPage() {
 
 function Thinking() {
   return (
-    <div className="flex items-center gap-2 text-[13px] text-muted">
+    <div className="flex items-center gap-2 text-body text-muted">
       <span className="inline-flex gap-1" aria-hidden="true">
         <span className="size-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.3s]" />
         <span className="size-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.15s]" />
@@ -151,7 +151,7 @@ function Answer({ data }: { data: CopilotAnswer }) {
     <div className="space-y-3.5 rounded-2xl rounded-bl-sm border border-line bg-surface p-4">
       {/* Quarantine dependency banner */}
       {hasQuarantine && (
-        <div className="flex items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,var(--surface))] px-3 py-2 text-[12px] text-caution">
+        <div className="flex items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,var(--surface))] px-3 py-2 text-caption text-caution">
           <svg
             className="size-3.5 shrink-0"
             viewBox="0 0 24 24"
@@ -191,15 +191,15 @@ function Answer({ data }: { data: CopilotAnswer }) {
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
             <div>
-              <p className="text-[13px] font-semibold text-danger">
+              <p className="text-body font-semibold text-danger">
                 Safety-critical query — refused
               </p>
               {data.refusal_reason && (
-                <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+                <p className="mt-1 text-caption leading-relaxed text-muted">
                   {data.refusal_reason}
                 </p>
               )}
-              <p className="mt-2 text-[12px] text-muted">
+              <p className="mt-2 text-caption text-muted">
                 Confirm the value directly with the responsible engineer before acting.
               </p>
             </div>
@@ -214,18 +214,18 @@ function Answer({ data }: { data: CopilotAnswer }) {
             </StatusBadge>
           </div>
           {SYNTHESIS_ENABLED && data.answer && (
-            <p className="text-[14px] leading-relaxed text-ink text-pretty">{data.answer}</p>
+            <p className="text-sm leading-relaxed text-ink text-pretty">{data.answer}</p>
           )}
-          <p className="mt-2 border-t border-[color-mix(in_srgb,var(--caution)_20%,var(--line))] pt-2 text-[12px] leading-relaxed text-muted">
+          <p className="mt-2 border-t border-[color-mix(in_srgb,var(--caution)_20%,var(--line))] pt-2 text-caption leading-relaxed text-muted">
             Evidence below 70% threshold — verify directly against the sources below before acting.
             Escalate to the responsible engineer for any safety-affecting decision.
           </p>
         </div>
       ) : SYNTHESIS_ENABLED ? (
-        <p className="text-[14.5px] leading-relaxed text-ink text-pretty">{data.answer}</p>
+        <p className="text-sm leading-relaxed text-ink text-pretty">{data.answer}</p>
       ) : (
         /* Phase 1 gate — retrieval only */
-        <div className="flex items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--caution)_30%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_6%,var(--surface))] px-3 py-2.5 text-[12.5px] text-caution">
+        <div className="flex items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--caution)_30%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_6%,var(--surface))] px-3 py-2.5 text-caption text-caution">
           <span className="size-1.5 shrink-0 rounded-full bg-caution" aria-hidden="true" />
           Phase 1 — source documents returned directly. Synthesis activates in Phase 2.
         </div>
@@ -234,7 +234,7 @@ function Answer({ data }: { data: CopilotAnswer }) {
       {/* Sources with authority + quarantine badges */}
       {data.sources.length > 0 && (
         <div>
-          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted">
+          <p className="text-micro font-bold uppercase tracking-[0.1em] text-muted">
             {data.refused ? "Sources — verify directly" : "Sources"}
           </p>
           <div className="mt-2 space-y-2">
@@ -244,12 +244,12 @@ function Answer({ data }: { data: CopilotAnswer }) {
                 className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface-2 p-3"
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[13px] font-semibold">{s.title}</span>
+                  <span className="text-body font-semibold">{s.title}</span>
                   <AuthorityBadge level={s.authority_level} />
                   {s.is_quarantine && <StatusBadge tone="caution">Unverified</StatusBadge>}
                 </div>
                 {s.excerpt && (
-                  <p className="text-[12.5px] leading-relaxed text-muted">{s.excerpt}</p>
+                  <p className="text-caption leading-relaxed text-muted">{s.excerpt}</p>
                 )}
                 <SourceChip quarantine={s.is_quarantine}>{s.document_id}</SourceChip>
               </div>
@@ -258,7 +258,7 @@ function Answer({ data }: { data: CopilotAnswer }) {
         </div>
       )}
 
-      {/* Task 14: Entity annotation chips */}
+      {/* Entity annotation chips */}
       {data.entities && data.entities.length > 0 && (
         <EntityAnnotations entities={data.entities} />
       )}
@@ -267,7 +267,7 @@ function Answer({ data }: { data: CopilotAnswer }) {
       {!data.refused && (
         <div className="space-y-2.5 border-t border-line pt-3">
           <ConfidenceMeter value={data.confidence} />
-          <div className="flex items-center gap-3 text-[11px] text-muted">
+          <div className="flex items-center gap-3 text-label text-muted">
             {data.model && (
               <span className="max-w-[200px] truncate tabular">{data.model}</span>
             )}
@@ -278,7 +278,7 @@ function Answer({ data }: { data: CopilotAnswer }) {
                   onClick={() => setFeedback(r)}
                   aria-pressed={feedback === r}
                   className={cn(
-                    "rounded-md border px-2 py-1 text-[11px] font-medium capitalize transition-colors",
+                    "rounded-md border px-2 py-1 text-label font-medium capitalize transition-colors",
                     feedback === r ? "border-accent text-accent" : "border-line hover:text-ink"
                   )}
                 >
@@ -293,7 +293,7 @@ function Answer({ data }: { data: CopilotAnswer }) {
   );
 }
 
-/** Task 14: Inline entity annotation chips. Low-confidence entities get confirm / correct / delete. */
+/** Inline entity annotation chips. Low-confidence entities get confirm / correct / delete. */
 function EntityAnnotations({ entities }: { entities: ExtractedEntity[] }) {
   const [actions, setActions] = useState<Record<string, "confirmed" | "deleted" | "corrected">>({});
   const [editing, setEditing] = useState<string | null>(null);
@@ -325,7 +325,7 @@ function EntityAnnotations({ entities }: { entities: ExtractedEntity[] }) {
 
   return (
     <div>
-      <p className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted">
+      <p className="mb-2 text-micro font-bold uppercase tracking-[0.1em] text-muted">
         Extracted entities
       </p>
       <div className="flex flex-wrap gap-2">
@@ -339,7 +339,7 @@ function EntityAnnotations({ entities }: { entities: ExtractedEntity[] }) {
             <div key={k} className="flex flex-col gap-1">
               <div
                 className={cn(
-                  "flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11.5px]",
+                  "flex items-center gap-1 rounded-full border px-2.5 py-1 text-label",
                   action === "confirmed"
                     ? "border-[color-mix(in_srgb,var(--verified)_40%,var(--line))] bg-[color-mix(in_srgb,var(--verified)_8%,transparent)]"
                     : action === "corrected"
@@ -367,7 +367,7 @@ function EntityAnnotations({ entities }: { entities: ExtractedEntity[] }) {
                 >
                   {e.entity_text}
                 </span>
-                <span className="ml-0.5 text-[10px] text-muted">
+                <span className="ml-0.5 text-micro text-muted">
                   {action === "corrected" ? correctedTypes[k] : e.entity_type}
                 </span>
 
@@ -376,7 +376,7 @@ function EntityAnnotations({ entities }: { entities: ExtractedEntity[] }) {
                     <button
                       onClick={() => annotate(e, true)}
                       aria-label={`Confirm ${e.entity_text} as ${e.entity_type}`}
-                      className="grid size-[18px] shrink-0 place-items-center rounded-full text-[10px] text-muted transition-colors hover:bg-[color-mix(in_srgb,var(--verified)_15%,transparent)] hover:text-verified"
+                      className="grid size-6 shrink-0 place-items-center rounded-full text-label text-muted transition-colors hover:bg-[color-mix(in_srgb,var(--verified)_15%,transparent)] hover:text-verified"
                     >
                       ✓
                     </button>
@@ -386,14 +386,14 @@ function EntityAnnotations({ entities }: { entities: ExtractedEntity[] }) {
                         setEditing(k);
                       }}
                       aria-label={`Correct type for ${e.entity_text}`}
-                      className="grid size-[18px] shrink-0 place-items-center rounded-full text-[10px] text-muted transition-colors hover:bg-accent-soft hover:text-accent"
+                      className="grid size-6 shrink-0 place-items-center rounded-full text-label text-muted transition-colors hover:bg-accent-soft hover:text-accent"
                     >
                       ✎
                     </button>
                     <button
                       onClick={() => annotate(e, false)}
                       aria-label={`Remove entity ${e.entity_text}`}
-                      className="grid size-[18px] shrink-0 place-items-center rounded-full text-[10px] text-muted transition-colors hover:bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] hover:text-danger"
+                      className="grid size-6 shrink-0 place-items-center rounded-full text-label text-muted transition-colors hover:bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] hover:text-danger"
                     >
                       ✕
                     </button>
@@ -401,7 +401,7 @@ function EntityAnnotations({ entities }: { entities: ExtractedEntity[] }) {
                 )}
 
                 {action === "confirmed" && (
-                  <span className="ml-0.5 text-[10px] text-verified" aria-label="Confirmed">✓</span>
+                  <span className="ml-0.5 text-micro text-verified" aria-label="Confirmed">✓</span>
                 )}
               </div>
 
@@ -412,7 +412,7 @@ function EntityAnnotations({ entities }: { entities: ExtractedEntity[] }) {
                     onChange={(ev) =>
                       setCorrectedTypes((c) => ({ ...c, [k]: ev.target.value }))
                     }
-                    className="rounded border border-line bg-surface-2 px-1.5 py-0.5 text-[11px] outline-none focus-visible:border-accent"
+                    className="rounded border border-line bg-surface-2 px-1.5 py-0.5 text-label outline-none focus-visible:border-accent"
                     aria-label={`Select corrected type for ${e.entity_text}`}
                   >
                     {ENTITY_TYPES.map((t) => (
@@ -423,13 +423,13 @@ function EntityAnnotations({ entities }: { entities: ExtractedEntity[] }) {
                   </select>
                   <button
                     onClick={() => annotate(e, false, correctedTypes[k])}
-                    className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent transition-colors hover:bg-[color-mix(in_srgb,var(--accent)_15%,transparent)]"
+                    className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-label font-medium text-accent transition-colors hover:bg-[color-mix(in_srgb,var(--accent)_15%,transparent)]"
                   >
                     Save
                   </button>
                   <button
                     onClick={() => setEditing(null)}
-                    className="rounded border border-line px-2 py-0.5 text-[11px] text-muted transition-colors hover:text-ink"
+                    className="rounded border border-line px-2 py-0.5 text-label text-muted transition-colors hover:text-ink"
                   >
                     Cancel
                   </button>
@@ -495,7 +495,7 @@ function Composer({
     <div className="flex flex-col gap-2">
       {/* Time-travel date picker — shown when toggled or when a date is set */}
       {(showAsOf || asOf) && (
-        <div className="flex items-center gap-2 text-[11px]">
+        <div className="flex items-center gap-2 text-label">
           <label htmlFor="copilot-asof" className="font-medium text-muted">
             As of
           </label>
@@ -505,7 +505,7 @@ function Composer({
             value={asOf}
             onChange={(e) => onAsOfChange(e.target.value)}
             max={today}
-            className="rounded-md border border-line bg-surface px-2 py-1 text-[11px] outline-none focus-visible:border-accent"
+            className="rounded-md border border-line bg-surface px-2 py-1 text-label outline-none focus-visible:border-accent"
           />
           {asOf && (
             <button
@@ -534,7 +534,7 @@ function Composer({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Ask about an asset, failure, procedure, or requirement…"
-          className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-muted"
+          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
           aria-label="Ask the copilot"
         />
 

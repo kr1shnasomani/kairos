@@ -69,6 +69,29 @@
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
 
   --radius-card: var(--radius-lg);
+
+  /* Type scale — the only sanctioned sizes (plus built-in text-xs/sm for 12/14 aliases).
+     Arbitrary text-[Npx] is drift; add a step here instead. Canvas node labels
+     (text-[9px]) are the one deliberate density exception. */
+  --text-micro: 10px;
+  --text-label: 11px;
+  --text-caption: 12px;
+  --text-body: 13px;
+  --text-subtitle: 15px;
+  --text-title: 20px;
+  --text-display: 28px;
+}
+
+/* Motion floor — one shared enter idiom for overlays; neutralized by the
+   prefers-reduced-motion rule below like every other animation. */
+@keyframes overlay-in {
+  from { opacity: 0; }
+}
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
 }
 
 * {

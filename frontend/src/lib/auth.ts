@@ -12,11 +12,18 @@ interface LoginResponse {
 }
 
 export async function login(email: string, password: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ email, password }),
+      // Bounded like every other call — a hung backend must not spin the sign-in button forever.
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    throw new Error("Sign-in timed out — backend unreachable.");
+  }
   if (!res.ok) throw new Error(res.status === 401 ? "Invalid email or password." : `Sign-in failed (${res.status}).`);
   const data = (await res.json()) as LoginResponse;
   storeSession(data.access_token, data.refresh_token);

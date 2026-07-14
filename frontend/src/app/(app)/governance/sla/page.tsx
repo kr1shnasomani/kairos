@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import type { SlaReport, OverdueConflict, OverdueQuarantineItem } from "@/lib/types";
 import { getSlaReport, type DataSource } from "@/lib/api";
 import { triggerLabel, overdueHours } from "@/lib/utils";
-import { StatusBadge } from "@/components/ui";
+import { StatusBadge, DemoChip } from "@/components/ui";
 
 // ── Demo fixture ──────────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ const FIXTURE: SlaReport = {
 function OverdueChip({ hours }: { hours: number }) {
   const tone = hours > 24 ? "text-danger" : hours > 4 ? "text-caution" : "text-muted";
   const label = hours >= 24 ? `${Math.floor(hours / 24)}d ${hours % 24}h overdue` : `${hours}h overdue`;
-  return <span className={`tabular text-[11.5px] font-semibold ${tone}`}>{label}</span>;
+  return <span className={`tabular text-label font-semibold ${tone}`}>{label}</span>;
 }
 
 // ── KPI tile ──────────────────────────────────────────────────────────────────
@@ -63,11 +63,11 @@ function OverdueChip({ hours }: { hours: number }) {
 function KpiTile({ label, value, sub, color }: { label: string; value: number; sub?: string; color?: string }) {
   return (
     <div className="rounded-xl border border-line bg-surface p-3.5">
-      <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">{label}</p>
-      <p className="tabular mt-1.5 text-[26px] font-semibold leading-none" style={{ color: color ?? "var(--ink)" }}>
+      <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">{label}</p>
+      <p className="tabular mt-1.5 text-display font-semibold leading-none" style={{ color: color ?? "var(--ink)" }}>
         {value}
       </p>
-      {sub && <p className="mt-0.5 text-[11px] text-muted">{sub}</p>}
+      {sub && <p className="mt-0.5 text-label text-muted">{sub}</p>}
     </div>
   );
 }
@@ -98,7 +98,7 @@ export default function SlaPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link href="/governance" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link href="/governance" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
@@ -106,23 +106,18 @@ export default function SlaPage() {
       </Link>
 
       <header className="mt-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Layer 7 · Case management</p>
-        <h1 className="mt-1 text-[28px] font-semibold leading-tight">SLA report</h1>
-        <p className="mt-1.5 max-w-xl text-[13.5px] text-muted text-pretty">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 7 · Case management</p>
+        <h1 className="mt-1 text-display font-semibold leading-tight">SLA report</h1>
+        <p className="mt-1.5 max-w-xl text-body text-muted text-pretty">
           Governance SLA state across conflicts and quarantine review. Overdue items are escalated for immediate attention.
         </p>
       </header>
 
-      <div className="mt-2 flex items-center gap-3 text-[12px] text-muted">
+      <div className="mt-2 flex items-center gap-3 text-caption text-muted">
         <span>
           Checked {new Date(r.checked_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
         </span>
-        {source === "demo" && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px]">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo data
-          </span>
-        )}
+        {source === "demo" && <DemoChip />}
       </div>
 
       {/* KPI grid */}
@@ -165,15 +160,15 @@ export default function SlaPage() {
               >
                 <Link
                   href="/governance/conflicts"
-                  className="tabular text-[12.5px] font-semibold text-accent hover:underline"
+                  className="tabular text-caption font-semibold text-accent hover:underline"
                 >
                   {c.conflict_id}
                 </Link>
                 <StatusBadge tone={c.track === "engineering" ? "danger" : "info"} dot={false}>
                   {c.track}
                 </StatusBadge>
-                {c.asset_id && <span className="tabular text-[11.5px] text-muted">{c.asset_id}</span>}
-                <span className="text-[12px] text-muted">{c.status}</span>
+                {c.asset_id && <span className="tabular text-label text-muted">{c.asset_id}</span>}
+                <span className="text-caption text-muted">{c.status}</span>
                 <div className="ml-auto flex items-center gap-2">
                   {c.escalated_at && (
                     <StatusBadge tone="danger" dot={false}>escalated</StatusBadge>
@@ -200,15 +195,15 @@ export default function SlaPage() {
               >
                 <Link
                   href="/governance/quarantine"
-                  className="tabular text-[12.5px] font-semibold text-accent hover:underline"
+                  className="tabular text-caption font-semibold text-accent hover:underline"
                 >
                   {q.item_id}
                 </Link>
-                <span className="text-[12px] text-muted">{triggerLabel(q.input_type)}</span>
+                <span className="text-caption text-muted">{triggerLabel(q.input_type)}</span>
                 {q.asset_id && (
                   <Link
                     href={`/assets/${q.asset_id}`}
-                    className="tabular text-[11.5px] text-muted hover:text-accent"
+                    className="tabular text-label text-muted hover:text-accent"
                   >
                     {q.asset_id}
                   </Link>
@@ -226,7 +221,7 @@ export default function SlaPage() {
       )}
 
       {conflicts.length === 0 && quarantine.length === 0 && (
-        <div className="mt-8 rounded-xl border border-line bg-surface px-4 py-8 text-center text-[13px] text-muted">
+        <div className="mt-8 rounded-xl border border-line bg-surface px-4 py-8 text-center text-body text-muted">
           All conflicts and quarantine items are within SLA.
         </div>
       )}

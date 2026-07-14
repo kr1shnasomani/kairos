@@ -124,7 +124,7 @@ export function clearSession(): void {
   document.cookie = `${ACCESS_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
 }
 
-async function refreshAccessToken(): Promise<boolean> {
+export async function refreshAccessToken(): Promise<boolean> {
   if (typeof window === "undefined") return false;
   try {
     const refreshToken = localStorage.getItem(REFRESH_KEY);
@@ -197,8 +197,12 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+// Uploads (voice notes, scanned P&IDs) can be large on slow field links — the 8s write
+// budget would abort them mid-transfer, so give multipart a much longer ceiling.
+const UPLOAD_TIMEOUT_MS = 120_000;
+
 async function postMultipart<T>(path: string, body: FormData): Promise<T> {
-  const res = await fetchWithSession(path, { method: "POST", body });
+  const res = await fetchWithSession(path, { method: "POST", body }, UPLOAD_TIMEOUT_MS);
   if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
   return (await res.json()) as T;
 }
@@ -345,6 +349,13 @@ export function disputeQuarantine(itemId: string, reason: string) {
   return postJson<{ status: string; item_id: string }>(
     `/governance/quarantine/${itemId}/dispute`,
     { reason },
+  );
+}
+
+export function requestQuarantineInfo(itemId: string, note: string) {
+  return postJson<{ status: "requested"; item_id: string }>(
+    `/governance/quarantine/${itemId}/request-info`,
+    { note },
   );
 }
 
@@ -702,7 +713,7 @@ export function postInspectionComplete(body: {
 }
 
 export function postAlarm(body: {
-  source_system: string; site_id: string; asset_id: string; alarm_tag: string; alarm_description: string; severity: "critical" | "high" | "medium" | "low"; acknowledged_by: string;
+  source_system: string; site_id: string; asset_id: string; alarm_id: string; alarm_tag: string; alarm_description: string; severity: "critical" | "high" | "medium" | "low"; acknowledged_by: string;
 }) {
   return postJson<EventIngestResponse>("/events/alarm", body);
 }
@@ -723,9 +734,10 @@ export function postDeviationFlag(body: {
 
 export function resolveDeviationFlag(
   flagId: string,
-  resolution: { action: "promote" | "dispute"; moc_warranted?: boolean; note?: string },
+  // Mirrors backend DeviationFlagResolveRequest (models/event.py)
+  body: { resolution: "promoted" | "disputed"; moc_warranted?: boolean; notes?: string },
 ) {
-  return postJson<{ status: string }>(`/events/deviation-flag/${flagId}/resolve`, resolution);
+  return postJson<{ status: string }>(`/events/deviation-flag/${flagId}/resolve`, body);
 }
 
 export function setPlantState(body: {
@@ -923,7 +935,7 @@ export async function getEvents(params?: { event_type?: string; limit?: number }
     const qs = new URLSearchParams();
     if (params?.event_type) qs.set("event_type", params.event_type);
     if (params?.limit) qs.set("limit", String(params.limit));
-    const data = await getJson<EventsResponse>(`/events?${qs}`);
+    const data = await getJson<EventsResponse>(`/events/?${qs}`);
     return { data, source: "live" };
   } catch {
     return { data: { items: [], total: 0, limit: 50, offset: 0 }, source: "demo" };

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AuditLogEntry } from "@/lib/types";
 import { getAuditLog, type DataSource } from "@/lib/api";
 import { relativeTime } from "@/lib/utils";
-import { FilterTabs, StatusBadge } from "@/components/ui";
+import { FilterTabs, StatusBadge, DemoChip } from "@/components/ui";
 
 // ── Static fixture for demo mode ──────────────────────────────────────────────
 
@@ -157,23 +157,18 @@ export default function AuditPage() {
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
       <header>
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
           Layer 7–8 · Immutable record
         </p>
-        <h1 className="mt-1 text-[28px] font-semibold leading-tight">Audit trail</h1>
-        <p className="mt-1.5 max-w-xl text-[13.5px] text-muted text-pretty">
+        <h1 className="mt-1 text-display font-semibold leading-tight">Audit trail</h1>
+        <p className="mt-1.5 max-w-xl text-body text-muted text-pretty">
           Every governance decision, delivery, and model gate result — in chronological order. Immutable by design.
         </p>
       </header>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <span className="tabular text-[12px] font-medium text-ink">{visible.length} entries</span>
-        {source === "demo" && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo data
-          </span>
-        )}
+        <span className="tabular text-caption font-medium text-ink">{visible.length} entries</span>
+        {source === "demo" && <DemoChip />}
         <form
           className="ml-auto flex items-center gap-2"
           onSubmit={(e) => { e.preventDefault(); setEntityId(entityIdInput.trim()); }}
@@ -183,11 +178,11 @@ export default function AuditPage() {
             onChange={(e) => setEntityIdInput(e.target.value)}
             placeholder="Filter by entity ID…"
             aria-label="Filter by entity ID"
-            className="tabular h-8 w-44 rounded-lg border border-line bg-surface px-3 text-[12.5px] outline-none focus:border-accent"
+            className="tabular h-8 w-44 rounded-lg border border-line bg-surface px-3 text-caption outline-none focus:border-accent"
           />
           <button
             type="submit"
-            className="inline-flex h-8 items-center rounded-lg border border-line px-3 text-[12.5px] font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+            className="inline-flex h-8 items-center rounded-lg border border-line px-3 text-caption font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-ink"
           >
             Search
           </button>
@@ -195,7 +190,7 @@ export default function AuditPage() {
             <button
               type="button"
               onClick={() => { setEntityId(""); setEntityIdInput(""); }}
-              className="text-[12px] text-muted hover:text-ink"
+              className="text-caption text-muted hover:text-ink"
               aria-label="Clear search"
             >
               ✕
@@ -221,7 +216,7 @@ export default function AuditPage() {
 
       <div className="mt-4 flex flex-col gap-2">
         {loaded && visible.length === 0 && (
-          <div className="rounded-xl border border-line bg-surface px-4 py-8 text-center text-[13px] text-muted">
+          <div className="rounded-xl border border-line bg-surface px-4 py-8 text-center text-body text-muted">
             No audit entries match the current filters.
           </div>
         )}
@@ -244,24 +239,24 @@ function AuditRow({ entry }: { entry: AuditLogEntry }) {
     <article className="rounded-xl border border-line bg-surface p-3.5">
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
         <StatusBadge tone={tone} dot={false}>{entry.action.replace(/_/g, " ")}</StatusBadge>
-        <span className="tabular text-[12px] text-muted">
+        <span className="tabular text-caption text-muted">
           <span className="font-semibold text-ink">{entry.entity_type}</span>
           {" · "}
           <span className="text-accent">{entry.entity_id}</span>
         </span>
-        <span className="tabular ml-auto shrink-0 text-[11px] text-muted">{relativeTime(entry.timestamp)}</span>
+        <span className="tabular ml-auto shrink-0 text-label text-muted">{relativeTime(entry.timestamp)}</span>
       </div>
 
-      <div className="mt-1.5 flex items-center gap-2 text-[11.5px] text-muted">
+      <div className="mt-1.5 flex items-center gap-2 text-label text-muted">
         <span>by <span className="font-medium text-ink">{entry.performed_by}</span></span>
-        <span className="text-[10px]">·</span>
+        <span className="text-micro">·</span>
         <span className="tabular">{entry.log_id}</span>
         {hasMeta && (
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
-            className="ml-auto text-[11px] text-muted hover:text-ink"
+            className="ml-auto text-label text-muted hover:text-ink"
           >
             {expanded ? "Hide metadata" : "Show metadata"}
           </button>
@@ -270,7 +265,7 @@ function AuditRow({ entry }: { entry: AuditLogEntry }) {
 
       {expanded && hasMeta && (
         <div className="mt-2 rounded-lg border border-line bg-surface-2 px-3 py-2">
-          <pre className="overflow-x-auto text-[11px] text-muted">
+          <pre className="overflow-x-auto text-label text-muted">
             {JSON.stringify(entry.metadata, null, 2)}
           </pre>
         </div>

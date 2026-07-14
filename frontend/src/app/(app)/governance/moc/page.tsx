@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { MocItem } from "@/lib/types";
 import { getMocList, type DataSource } from "@/lib/api";
-import { relativeTime, authorityLabel } from "@/lib/utils";
-import { FilterTabs, StatusBadge } from "@/components/ui";
+import { relativeTime } from "@/lib/utils";
+import { FilterTabs, StatusBadge, DemoChip } from "@/components/ui";
 
 // ── Demo fixture ──────────────────────────────────────────────────────────────
 
@@ -77,7 +77,7 @@ export default function MocListPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link href="/governance" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link href="/governance" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
@@ -85,22 +85,17 @@ export default function MocListPage() {
       </Link>
 
       <header className="mt-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Layer 7 · Engineering governance</p>
-        <h1 className="mt-1 text-[28px] font-semibold leading-tight">Management of Change</h1>
-        <p className="mt-1.5 max-w-xl text-[13.5px] text-muted text-pretty">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 7 · Engineering governance</p>
+        <h1 className="mt-1 text-display font-semibold leading-tight">Management of Change</h1>
+        <p className="mt-1.5 max-w-xl text-body text-muted text-pretty">
           Auto-drafted EWR items for engineering-track conflicts. Approval here closes the validity window
           of the superseded edge and clears any affected downstream facts.
         </p>
       </header>
 
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-muted">
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span className="tabular font-medium text-ink">{pendingCount} pending</span>
-        {source === "demo" && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px]">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo data
-          </span>
-        )}
+        {source === "demo" && <DemoChip />}
       </div>
 
       <div className="mt-3">
@@ -118,7 +113,7 @@ export default function MocListPage() {
 
       <div className="mt-4 flex flex-col gap-3">
         {loaded && visible.length === 0 && (
-          <div className="rounded-xl border border-line bg-surface px-4 py-8 text-center text-[13px] text-muted">
+          <div className="rounded-xl border border-line bg-surface px-4 py-8 text-center text-body text-muted">
             No MoC items match the current filter.
           </div>
         )}
@@ -126,15 +121,15 @@ export default function MocListPage() {
           <Link key={m.moc_id} href={`/governance/moc/${m.moc_id}`} className="group block">
             <article className="rounded-xl border border-line bg-surface p-4 transition-colors group-hover:border-[color-mix(in_srgb,var(--accent)_30%,var(--line))]">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="tabular text-[13px] font-semibold text-accent">{m.moc_id}</span>
+                <span className="tabular text-body font-semibold text-accent">{m.moc_id}</span>
                 <StatusBadge tone={STATUS_TONE[m.status] ?? "neutral"}>{m.status}</StatusBadge>
-                <span className="tabular text-[11px] text-muted">{m.asset_id}</span>
-                <span className="tabular ml-auto text-[11px] text-muted">{relativeTime(m.created_at)}</span>
+                <span className="tabular text-label text-muted">{m.asset_id}</span>
+                <span className="tabular ml-auto text-label text-muted">{relativeTime(m.created_at)}</span>
               </div>
-              <p className="mt-2 text-[13.5px]">
+              <p className="mt-2 text-body">
                 Discrepancy on <span className="font-semibold">{m.parameter.replace(/_/g, " ")}</span>
               </p>
-              <div className="mt-2 flex flex-wrap items-center gap-4 text-[11.5px] text-muted">
+              <div className="mt-2 flex flex-wrap items-center gap-4 text-label text-muted">
                 <span>
                   <span className="font-medium text-ink">{String(m.source_a?.value ?? "—")}</span>
                   {" vs "}

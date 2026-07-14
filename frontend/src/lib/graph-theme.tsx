@@ -13,12 +13,14 @@ const TOKEN_NAMES = ["--accent", "--danger", "--caution", "--verified", "--info"
 export type CanvasTokenName = (typeof TOKEN_NAMES)[number];
 export type CanvasTokens = Record<CanvasTokenName, string>;
 
+// Mirror the shipped light-theme tokens in globals.css (SSR-only fallback; the
+// provider reads the live computed values before first client paint).
 const FALLBACK_TOKENS: CanvasTokens = {
-  "--accent": "#e8501f",
-  "--danger": "#d92d20",
-  "--caution": "#f5a623",
-  "--verified": "#2e7d46",
-  "--info": "#2563eb",
+  "--accent": "#b83d16",
+  "--danger": "#b42318",
+  "--caution": "#9a5b00",
+  "--verified": "#216d3b",
+  "--info": "#1d4ed8",
   "--muted": "#6e6a62",
   "--line": "#e6e1d6",
 };
@@ -36,10 +38,13 @@ function readTokens(): CanvasTokens {
 const CanvasTokensContext = createContext<CanvasTokens | null>(null);
 
 export function CanvasTokensProvider({ children }: { children: ReactNode }) {
-  const [tokens, setTokens] = useState<CanvasTokens>(FALLBACK_TOKENS);
+  // Initialize from the real computed tokens so the first frame is already in the
+  // active palette (no light-mode flash in dark theme). Canvas consumers are
+  // ssr:false, so the SSR fallback value never reaches painted DOM.
+  const [tokens, setTokens] = useState<CanvasTokens>(() =>
+    typeof document === "undefined" ? FALLBACK_TOKENS : readTokens(),
+  );
   useLayoutEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-once sync of computed CSS token values, an external system
-    setTokens(readTokens());
     const observer = new MutationObserver(() => setTokens(readTokens()));
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-contrast"] });
     return () => observer.disconnect();

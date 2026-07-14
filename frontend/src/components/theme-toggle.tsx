@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
 
 type Theme = "light" | "dark";
 
@@ -32,7 +33,7 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       aria-checked={isDark}
       aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
       title={`Switch to ${isDark ? "light" : "dark"} mode`}
-      className={`grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink ${className}`}
+      className={cn("grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink", className)}
     >
       {isDark ? (
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -77,7 +78,7 @@ export function ContrastToggle({ className = "" }: { className?: string }) {
       aria-checked={high}
       aria-label={high ? "Disable sunlight mode" : "Enable sunlight mode"}
       title={high ? "Disable sunlight mode" : "Sunlight / high-contrast mode"}
-      className={`grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 ${high ? "text-caution" : "hover:text-ink"} ${className}`}
+      className={cn("grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2", high ? "text-caution" : "hover:text-ink", className)}
     >
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="5" />

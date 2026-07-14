@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ModelGateHistory, ModelGateResult, ValidationCorpusStats } from "@/lib/types";
 import { getModelGateHistory, getValidationCorpusStats, runModelGate } from "@/lib/api";
-import { StatusBadge } from "@/components/ui";
+import { StatusBadge, DemoChip } from "@/components/ui";
 import { relativeTime } from "@/lib/utils";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -34,11 +34,11 @@ function MetricBar({ value, label }: { value: number; label: string }) {
   const color = pct >= 85 ? "var(--verified)" : pct >= 75 ? "var(--caution)" : "var(--danger)";
   return (
     <div className="flex items-center gap-2">
-      <span className="tabular w-20 shrink-0 text-[11px] text-muted">{label}</span>
+      <span className="tabular w-20 shrink-0 text-label text-muted">{label}</span>
       <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
         <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      <span className="tabular w-10 text-right text-[11.5px] font-semibold" style={{ color }}>{pct}%</span>
+      <span className="tabular w-10 text-right text-label font-semibold" style={{ color }}>{pct}%</span>
     </div>
   );
 }
@@ -46,14 +46,14 @@ function MetricBar({ value, label }: { value: number; label: string }) {
 function GateRow({ r }: { r: ModelGateResult }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-3 bg-surface">
-      <span className="tabular text-[12px] text-muted w-28 shrink-0">{relativeTime(r.run_at)}</span>
+      <span className="tabular text-caption text-muted w-28 shrink-0">{relativeTime(r.run_at)}</span>
       <StatusBadge tone={r.passed ? "verified" : "danger"}>{r.passed ? "passed" : "failed"}</StatusBadge>
-      <div className="flex gap-3 text-[12px]">
+      <div className="flex gap-3 text-caption">
         <span>P <span className="tabular font-semibold">{(r.precision * 100).toFixed(0)}%</span></span>
         <span>R <span className="tabular font-semibold">{(r.recall * 100).toFixed(0)}%</span></span>
         <span>F1 <span className="tabular font-semibold" style={{ color: r.f1 >= F1_THRESHOLD ? "var(--verified)" : "var(--danger)" }}>{(r.f1 * 100).toFixed(0)}%</span></span>
       </div>
-      <span className="tabular ml-auto text-[11.5px] text-muted">{r.corpus_size} items</span>
+      <span className="tabular ml-auto text-label text-muted">{r.corpus_size} items</span>
     </div>
   );
 }
@@ -104,7 +104,7 @@ export default function ModelGatePage() {
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link href="/governance" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link href="/governance" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
@@ -113,9 +113,9 @@ export default function ModelGatePage() {
 
       <header className="mt-4 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Layer 12 · Model gate</p>
-          <h1 className="mt-1 text-[26px] font-semibold leading-tight">Model gate</h1>
-          <p className="mt-1 text-[13.5px] text-muted text-pretty">
+          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 12 · Model gate</p>
+          <h1 className="mt-1 text-display font-semibold leading-tight">Model gate</h1>
+          <p className="mt-1 text-body text-muted text-pretty">
             Precision / recall gate on the validation corpus. A failed run blocks model promotion. Runs are
             triggered manually or by the nightly Temporal workflow.
           </p>
@@ -123,47 +123,42 @@ export default function ModelGatePage() {
         <button
           onClick={handleRun}
           disabled={running}
-          className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-[13px] font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-body font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {running ? "Triggering…" : "Run gate now"}
         </button>
       </header>
 
-      {runError && <p className="mt-2 text-[12.5px] text-danger">{runError}</p>}
+      {runError && <p className="mt-2 text-caption text-danger">{runError}</p>}
 
-      {isDemo && (
-        <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
-          <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-          Demo data
-        </span>
-      )}
+      {isDemo && <DemoChip />}
 
       {/* KPI row */}
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-line bg-surface p-3.5">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">Latest F1</p>
-          <p className="tabular mt-1.5 text-[26px] font-semibold leading-none" style={{ color: latest ? (latest.f1 >= F1_THRESHOLD ? "var(--verified)" : "var(--danger)") : "var(--muted)" }}>
+          <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Latest F1</p>
+          <p className="tabular mt-1.5 text-display font-semibold leading-none" style={{ color: latest ? (latest.f1 >= F1_THRESHOLD ? "var(--verified)" : "var(--danger)") : "var(--muted)" }}>
             {latest ? `${(latest.f1 * 100).toFixed(0)}%` : "—"}
           </p>
         </div>
         <div className="rounded-xl border border-line bg-surface p-3.5">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">Pass rate</p>
-          <p className="tabular mt-1.5 text-[26px] font-semibold leading-none text-ink">{passRate !== null ? `${passRate}%` : "—"}</p>
+          <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Pass rate</p>
+          <p className="tabular mt-1.5 text-display font-semibold leading-none text-ink">{passRate !== null ? `${passRate}%` : "—"}</p>
         </div>
         <div className="rounded-xl border border-line bg-surface p-3.5">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">Corpus size</p>
-          <p className="tabular mt-1.5 text-[26px] font-semibold leading-none text-ink">{corpus?.total_corpus_size ?? "—"}</p>
+          <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Corpus size</p>
+          <p className="tabular mt-1.5 text-display font-semibold leading-none text-ink">{corpus?.total_corpus_size ?? "—"}</p>
         </div>
         <div className="rounded-xl border border-line bg-surface p-3.5">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">Threshold</p>
-          <p className="tabular mt-1.5 text-[26px] font-semibold leading-none text-muted">{Math.round(F1_THRESHOLD * 100)}%</p>
+          <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Threshold</p>
+          <p className="tabular mt-1.5 text-display font-semibold leading-none text-muted">{Math.round(F1_THRESHOLD * 100)}%</p>
         </div>
       </div>
 
       {/* Latest run metrics */}
       {latest && (
         <section className="mt-5 rounded-xl border border-line bg-surface p-4">
-          <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Latest run · {relativeTime(latest.run_at)}</p>
+          <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Latest run · {relativeTime(latest.run_at)}</p>
           <div className="mt-3 space-y-2.5">
             <MetricBar value={latest.precision} label="Precision" />
             <MetricBar value={latest.recall} label="Recall" />
@@ -175,7 +170,7 @@ export default function ModelGatePage() {
       {/* Run history */}
       {history.length > 0 && (
         <section className="mt-5">
-          <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Run history</h2>
+          <h2 className="mb-2 text-label font-bold uppercase tracking-[0.1em] text-muted">Run history</h2>
           <div className="overflow-hidden rounded-xl border border-line divide-y divide-line">
             {history.map((r) => <GateRow key={r.run_id} r={r} />)}
           </div>
@@ -185,18 +180,18 @@ export default function ModelGatePage() {
       {/* Validation corpus */}
       {corpus && (
         <section className="mt-5">
-          <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
+          <h2 className="mb-2 text-label font-bold uppercase tracking-[0.1em] text-muted">
             Validation corpus · {corpus.total_corpus_size} items
             {corpus.last_updated_at && ` · updated ${relativeTime(corpus.last_updated_at)}`}
           </h2>
           <div className="rounded-xl border border-line bg-surface p-4">
-            <p className="mb-2.5 text-[11.5px] font-semibold text-muted">By entity type</p>
+            <p className="mb-2.5 text-label font-semibold text-muted">By entity type</p>
             {Object.keys(corpus.by_entity_type ?? {}).length === 0 ? (
-              <p className="text-[12.5px] text-muted">No validation corpus entries yet.</p>
+              <p className="text-caption text-muted">No validation corpus entries yet.</p>
             ) : (
               <div className="space-y-2">
                 {Object.entries(corpus.by_entity_type).map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between text-[12.5px]">
+                  <div key={k} className="flex items-center justify-between text-caption">
                     <span className="capitalize text-ink">{k.replace(/_/g, " ")}</span>
                     <span className="tabular font-semibold text-muted">{v}</span>
                   </div>

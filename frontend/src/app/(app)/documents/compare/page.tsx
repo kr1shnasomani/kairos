@@ -5,12 +5,13 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { VaultDocument } from "@/lib/types";
 import { getDocument } from "@/lib/api";
-import { AuthorityBadge, Button, StatusBadge } from "@/components/ui";
+import { AuthorityBadge, Button, EmptyState, StatusBadge } from "@/components/ui";
+import { PageSkeleton } from "@/components/skeleton";
 import { authorityLabel, triggerLabel, relativeTime } from "@/lib/utils";
 
 export default function CompareRoute() {
   return (
-    <Suspense fallback={<div className="mx-auto max-w-4xl px-5 py-10 text-[13px] text-muted">Loading…</div>}>
+    <Suspense fallback={<PageSkeleton />}>
       <ComparePage />
     </Suspense>
   );
@@ -54,7 +55,7 @@ function ComparePage() {
 
   return (
     <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link href="/documents" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link href="/documents" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
@@ -62,34 +63,38 @@ function ComparePage() {
       </Link>
 
       <header className="mt-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Layer 2 · Immutable vault</p>
-        <h1 className="mt-1 text-[28px] font-semibold leading-tight">Compare versions</h1>
-        <p className="mt-1.5 text-[13.5px] text-muted text-pretty">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 2 · Immutable vault</p>
+        <h1 className="mt-1 text-display font-semibold leading-tight">Compare versions</h1>
+        <p className="mt-1.5 text-body text-muted text-pretty">
           Walk the supersede chain and diff metadata across two versions. A superseded document is
           never presented as current — supersession closes a validity window, it does not erase.
         </p>
       </header>
 
       <div className="mt-5 flex flex-wrap items-end gap-3">
-        <label className="block text-[12px]">
+        <label className="block text-caption">
           <span className="font-semibold text-ink">Document A</span>
           <input value={idA} onChange={(e) => setIdA(e.target.value)} placeholder="DOC-001"
-            className="mt-1 h-9 w-40 rounded-lg border border-line bg-surface px-2.5 text-[13px]" />
+            className="mt-1 h-9 w-40 rounded-lg border border-line bg-surface px-2.5 text-body" />
         </label>
-        <label className="block text-[12px]">
+        <label className="block text-caption">
           <span className="font-semibold text-ink">Document B</span>
           <input value={idB} onChange={(e) => setIdB(e.target.value)} placeholder="DOC-002"
-            className="mt-1 h-9 w-40 rounded-lg border border-line bg-surface px-2.5 text-[13px]" />
+            className="mt-1 h-9 w-40 rounded-lg border border-line bg-surface px-2.5 text-body" />
         </label>
         <Button variant="primary" onClick={compare} disabled={busy || !idA || !idB}>
           {busy ? "Loading…" : "Compare"}
         </Button>
       </div>
 
-      {(docA || docB) && (
+      {docA || docB ? (
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <DocCard doc={docA} label="A" other={docB} />
           <DocCard doc={docB} label="B" other={docA} />
+        </div>
+      ) : (
+        <div className="mt-6">
+          <EmptyState message="Enter two document IDs above to compare their versions." />
         </div>
       )}
     </div>
@@ -98,7 +103,7 @@ function ComparePage() {
 
 function Row({ label, value, changed }: { label: string; value: React.ReactNode; changed?: boolean }) {
   return (
-    <div className={`flex justify-between gap-3 px-3 py-2 text-[12.5px] ${changed ? "bg-[color-mix(in_srgb,var(--caution)_10%,transparent)]" : ""}`}>
+    <div className={`flex justify-between gap-3 px-3 py-2 text-caption ${changed ? "bg-[color-mix(in_srgb,var(--caution)_10%,transparent)]" : ""}`}>
       <span className="text-muted">{label}</span>
       <span className="tabular text-right font-medium text-ink">{value}</span>
     </div>
@@ -107,7 +112,7 @@ function Row({ label, value, changed }: { label: string; value: React.ReactNode;
 
 function DocCard({ doc, label, other }: { doc: VaultDocument | null; label: string; other: VaultDocument | null }) {
   if (!doc) return (
-    <div className="grid place-items-center rounded-xl border border-dashed border-line py-10 text-[13px] text-muted">
+    <div className="grid place-items-center rounded-xl border border-dashed border-line py-10 text-body text-muted">
       Document {label} not found
     </div>
   );
@@ -115,7 +120,7 @@ function DocCard({ doc, label, other }: { doc: VaultDocument | null; label: stri
   return (
     <section className="overflow-hidden rounded-xl border border-line">
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface-2 px-3 py-2.5">
-        <span className="tabular text-[13px] font-semibold text-accent">{doc.document_id}</span>
+        <span className="tabular text-body font-semibold text-accent">{doc.document_id}</span>
         {doc.status === "superseded"
           ? <StatusBadge tone="caution" dot={false}>superseded</StatusBadge>
           : <StatusBadge tone="verified" dot={false}>active</StatusBadge>}
@@ -132,7 +137,7 @@ function DocCard({ doc, label, other }: { doc: VaultDocument | null; label: stri
         {doc.version_chain && <Row label="Chain" value={doc.version_chain} />}
       </div>
       <div className="border-t border-line bg-surface px-3 py-2">
-        <Link href={`/documents/${doc.document_id}`} className="text-[12px] text-accent underline hover:no-underline">Open document {label} ↗</Link>
+        <Link href={`/documents/${doc.document_id}`} className="text-caption text-accent underline hover:no-underline">Open document {label} ↗</Link>
       </div>
     </section>
   );

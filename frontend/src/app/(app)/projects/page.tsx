@@ -65,15 +65,15 @@ export default function ProjectsPage() {
   return (
     <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
       <header>
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Project &amp; procurement</p>
-        <h1 className="mt-1 text-[28px] font-semibold leading-tight">Engineering registry</h1>
-        <p className="mt-1.5 text-[13.5px] text-muted text-pretty">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Project &amp; procurement</p>
+        <h1 className="mt-1 text-display font-semibold leading-tight">Engineering registry</h1>
+        <p className="mt-1.5 text-body text-muted text-pretty">
           Documents, revisions, and failure/maintenance history organised by equipment class — the
           record a procurement officer needs when evaluating a replacement or a vendor.
         </p>
       </header>
 
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-muted">
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span className="tabular font-medium text-ink">{classNames.length} equipment classes · {documents.length} documents</span>
         {isDemo && <DemoChip />}
       </div>
@@ -107,9 +107,9 @@ function ClassSection({ group }: { group: ClassGroup }) {
 
   return (
     <section className="rounded-xl border border-line bg-surface p-4">
-      <h2 className="text-[15px] font-semibold">{triggerLabel(group.equipment_class)}</h2>
+      <h2 className="text-subtitle font-semibold">{triggerLabel(group.equipment_class)}</h2>
 
-      <div className="mt-3 grid grid-cols-3 gap-3">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KpiCard label="Assets" value={group.assets.length} />
         <KpiCard label="Documents" value={group.documents.length} />
         <KpiCard label="Failure / maint. events" value={failures.length} tone={failures.length > 0 ? "caution" : "neutral"} />
@@ -119,15 +119,15 @@ function ClassSection({ group }: { group: ClassGroup }) {
       <div className="mt-4 space-y-3">
         {Array.from(byType.entries()).map(([type, docs]) => (
           <div key={type}>
-            <p className="mb-1.5 text-[11px] font-bold uppercase tracking-widest text-muted">{triggerLabel(type)}</p>
+            <p className="mb-1.5 text-label font-bold uppercase tracking-[0.1em] text-muted">{triggerLabel(type)}</p>
             <ul className="space-y-1">
               {docs.map((d) => (
-                <li key={d.document_id} className="flex flex-wrap items-center gap-2 text-[12.5px]">
+                <li key={d.document_id} className="flex flex-wrap items-center gap-2 text-caption">
                   <Link href={`/documents/${d.document_id}`} className="tabular font-medium text-accent underline hover:no-underline">
                     {d.document_id}
                   </Link>
                   <span className="min-w-0 flex-1 truncate text-ink">{d.file_name}</span>
-                  <span className="text-[11px] text-muted">{d.source_system}</span>
+                  <span className="text-label text-muted">{d.source_system}</span>
                   <AuthorityBadge level={d.authority_level} />
                   {d.version_chain
                     ? <StatusBadge tone="info" dot={false}>rev</StatusBadge>
@@ -145,16 +145,16 @@ function ClassSection({ group }: { group: ClassGroup }) {
       {/* Procurement history — failure / maintenance record for the class */}
       {failures.length > 0 && (
         <div className="mt-4 border-t border-line pt-3">
-          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-widest text-muted">Procurement history</p>
+          <p className="mb-1.5 text-label font-bold uppercase tracking-[0.1em] text-muted">Procurement history</p>
           <ul className="space-y-1">
             {failures.slice(0, 8).map((e) => (
-              <li key={e.event_id} className="flex flex-wrap items-center gap-2 text-[12px]">
+              <li key={e.event_id} className="flex flex-wrap items-center gap-2 text-caption">
                 <span className="tabular text-accent">{e.asset_id}</span>
                 <span className="text-ink">{triggerLabel(e.event_type)}</span>
                 {typeof e.payload?.failure_code === "string" && (
                   <span className="text-muted">{e.payload.failure_code as string}</span>
                 )}
-                <span className="tabular ml-auto text-[11px] text-muted">{relativeTime(e.occurred_at)}</span>
+                <span className="tabular ml-auto text-label text-muted">{relativeTime(e.occurred_at)}</span>
               </li>
             ))}
           </ul>

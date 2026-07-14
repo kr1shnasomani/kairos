@@ -18,9 +18,9 @@ import {
 import "@xyflow/react/dist/style.css";
 import { getKnowledgeGraph, getOtCoverage } from "@/lib/api";
 import type { GraphNodeData, GraphEdgeData, KnowledgeGraphData, OtCoverage, AuthorityLevel } from "@/lib/types";
-import { AuthorityBadge, StatusBadge } from "@/components/ui";
+import { AuthorityBadge, EmptyState, StatusBadge } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import { CanvasTokensProvider, useCanvasTokens, arrowMarker, type CanvasTokens } from "@/lib/graph-theme";
+import { useCanvasTokens, arrowMarker, type CanvasTokens } from "@/lib/graph-theme";
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
 // Colors are resolved Paper design tokens (see lib/graph-theme.tsx), not hardcoded
@@ -73,13 +73,13 @@ const KairosNode = memo(function KairosNode({ data, selected }: NodeProps) {
         style={{ borderColor: color }}
         className={cn(
           "min-w-[90px] max-w-[150px] rounded-xl border-2 bg-surface px-3 py-2 text-center shadow-sm",
-          selected && "ring-2 ring-offset-1"
+          selected && "ring-2 ring-accent ring-offset-1 ring-offset-surface"
         )}
       >
-        <p className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color }}>
+        <p className="text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color }}>
           {nd.kind}
         </p>
-        <p className="mt-0.5 truncate text-[11.5px] font-semibold leading-snug text-ink">
+        <p className="mt-0.5 truncate text-label font-semibold leading-snug text-ink">
           {nd.label}
         </p>
       </div>
@@ -144,7 +144,7 @@ function SidePanel({ title, children, onClose }: { title: string; children: Reac
   return (
     <div className="absolute right-3 top-3 z-10 w-64 rounded-xl border border-line bg-surface shadow-lg">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <p className="truncate text-[13px] font-semibold text-ink">{title}</p>
+        <p className="truncate text-body font-semibold text-ink">{title}</p>
         <button
           onClick={onClose}
           aria-label="Close panel"
@@ -164,11 +164,11 @@ function NodePanel({ node, onClose }: { node: GraphNodeData; onClose: () => void
   const props = Object.entries(node.properties);
   return (
     <SidePanel title={node.label} onClose={onClose}>
-      <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted">{node.kind}</p>
+      <p className="text-micro font-bold uppercase tracking-[0.1em] text-muted">{node.kind}</p>
       {props.length > 0 && (
         <dl className="mt-2.5 space-y-1.5">
           {props.map(([k, v]) => (
-            <div key={k} className="flex gap-2 text-[11.5px]">
+            <div key={k} className="flex gap-2 text-label">
               <dt className="w-24 shrink-0 truncate font-medium text-muted">{k}</dt>
               <dd className="min-w-0 break-words text-ink">{String(v ?? "—")}</dd>
             </div>
@@ -185,11 +185,11 @@ function EdgePanel({ edge, onClose }: { edge: GraphEdgeData; onClose: () => void
   return (
     <SidePanel title={edge.label} onClose={onClose}>
       <dl className="space-y-2">
-        <div className="flex items-center gap-2 text-[11.5px]">
+        <div className="flex items-center gap-2 text-label">
           <dt className="w-24 shrink-0 font-medium text-muted">Authority</dt>
           <dd><AuthorityBadge level={edge.authority_level as AuthorityLevel} /></dd>
         </div>
-        <div className="flex items-center gap-2 text-[11.5px]">
+        <div className="flex items-center gap-2 text-label">
           <dt className="w-24 shrink-0 font-medium text-muted">Verification</dt>
           <dd><StatusBadge tone={VERIF_TONE[edge.verification_status] ?? "neutral"}>{edge.verification_status}</StatusBadge></dd>
         </div>
@@ -199,7 +199,7 @@ function EdgePanel({ edge, onClose }: { edge: GraphEdgeData; onClose: () => void
           ["Valid from", edge.valid_from.slice(0, 10)],
           ["Valid to", validTo],
         ].map(([label, value]) => (
-          <div key={label} className="flex gap-2 text-[11.5px]">
+          <div key={label} className="flex gap-2 text-label">
             <dt className="w-24 shrink-0 font-medium text-muted">{label}</dt>
             <dd className="min-w-0 break-words text-ink">{value}</dd>
           </div>
@@ -239,11 +239,7 @@ function CoverageIndicator({ assetId }: { assetId: string }) {
 // ── Public component ─────────────────────────────────────────────────────────
 
 export function KnowledgeGraph(props: { assetId: string; asOf?: string; height?: number }) {
-  return (
-    <CanvasTokensProvider>
-      <KnowledgeGraphInner {...props} />
-    </CanvasTokensProvider>
-  );
+  return <KnowledgeGraphInner {...props} />;
 }
 
 function KnowledgeGraphInner({
@@ -322,10 +318,10 @@ function KnowledgeGraphInner({
   if (!graphData || graphData.nodes.length === 0) {
     return (
       <div
-        className="flex items-center justify-center rounded-xl border border-line bg-surface text-[13px] text-muted"
+        className="flex items-center justify-center rounded-xl border border-line bg-surface"
         style={{ height }}
       >
-        No knowledge graph data for this asset.
+        <EmptyState message="No knowledge graph data for this asset." />
       </div>
     );
   }
