@@ -4,9 +4,11 @@
 
 <div align="center">
 
-# KAIROS
-
 ### Industrial Operational Intelligence Platform
+
+**[Demo Video](#quick-start)** · **[Architecture](./docs/ARCHITECTURE.md)** · **[Documentation](#documentation)**
+
+---
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=for-the-badge&logo=fastapi&logoColor=white)
@@ -22,23 +24,21 @@
 ![NVIDIA_NIM](https://img.shields.io/badge/NVIDIA_NIM-LLM_Synthesis-76B900?style=for-the-badge&logo=nvidia&logoColor=white)
 ![Grafana](https://img.shields.io/badge/Grafana-Observability-F46800?style=for-the-badge&logo=grafana&logoColor=white)
 
-**[Quick Start](#quick-start)** · **[How It Works](#how-it-works)** · **[Architecture](./docs/ARCHITECTURE.md)** · **[Documentation](#documentation)**
-
 </div>
 
 ---
 
 ## Overview
 
-Asset-intensive facilities — refineries, plants, pipelines, power stations — run on knowledge scattered across a dozen disconnected systems. P&IDs live in one archive, maintenance history in another, standard operating procedures in a third, inspection records and regulatory filings elsewhere again. A technician standing in front of a failing pump cannot see that the same seal failed twice before, that the OEM revised the spec eighteen months ago, or that an isolation valve is overdue for inspection. The most dangerous gaps are the ones nobody knows to query — and a quarter of the experienced engineers who hold that context in their heads are retiring within the decade.
+Asset-intensive facilities, such as refineries, plants, pipelines, and power stations, run on knowledge scattered across a dozen disconnected systems. P&IDs live in one archive, maintenance history in another, standard operating procedures in a third, inspection records and regulatory filings elsewhere again. A technician standing in front of a failing pump cannot see that the same seal failed twice before, that the OEM revised the spec eighteen months ago, or that an isolation valve is overdue for inspection. The most dangerous gaps are the ones nobody knows to query, and a quarter of the experienced engineers who hold that context in their heads are retiring within the decade.
 
-**KAIROS** turns that fragmented, tribal knowledge into a single **governed, temporal knowledge graph** and delivers the right information to the right person at the exact moment it is needed — *proactively*, with a source citation behind every claim. It ingests heterogeneous documents, extracts and links their entities, records how every fact changes over time, and surfaces answers, briefs, root-cause analyses, and compliance evidence on any device.
+**KAIROS** turns that fragmented, tribal knowledge into a single **governed, temporal knowledge graph** and delivers the right information to the right person at the exact moment it is needed, doing so *proactively* with a source citation behind every claim. It ingests heterogeneous documents, extracts and links their entities, records how every fact changes over time, and surfaces answers, briefs, root-cause analyses, and compliance evidence on any device.
 
 Three principles run through the entire platform:
 
 > **Never assert without provenance. Never auto-promote unverified input. Refuse rather than hedge on a safety-critical question.**
 
-Those are not slogans — they are enforced in the data model (every fact is an edge that carries its own authority and verification status), in the ingestion pipeline (low-confidence extractions are quarantined for a human, never silently trusted), and in the copilot (safety-critical queries return an explicit refusal card instead of a plausible guess).
+These principles are enforced in the data model (every fact is an edge that carries its own authority and verification status), in the ingestion pipeline (low-confidence extractions are quarantined for a human, never silently trusted), and in the copilot (safety-critical queries return an explicit refusal card instead of a plausible guess).
 
 ## How It Works
 
@@ -59,7 +59,7 @@ flowchart TD
 
     subgraph KNOW [" Knowledge stores "]
         direction LR
-        G[("🕸️ Temporal Knowledge Graph<br/><sub>Neo4j — every fact is a<br/>time-bounded, authority-ranked edge</sub>")]
+        G[("🕸️ Temporal Knowledge Graph<br/><sub>Neo4j: every fact is a<br/>time-bounded, authority-ranked edge</sub>")]
         VS[("🔍 Vector<br/><sub>Qdrant</sub>")]
         XS[("🎯 Exact<br/><sub>Elasticsearch</sub>")]
     end
@@ -93,18 +93,18 @@ flowchart TD
     class H human;
 ```
 
-1. **Ingest & perceive.** Documents, events, and voice notes enter through one gate. OCR and NER lift entities — equipment tags, process parameters, regulatory clauses, people, dates — out of unstructured text; P&ID drawings are parsed into a connected topology. Files are stored byte-for-byte in an immutable, SHA-256-deduplicated vault.
-2. **Link into the graph.** Extracted facts become **edges** in a temporal knowledge graph. Each edge carries six governance properties — validity window, authority level, source document, confidence, verification status — so the graph can answer *what was known on any past date* and show how a fact was later superseded.
+1. **Ingest & perceive.** Documents, events, and voice notes enter through one gate. OCR and NER lift entities (including equipment tags, process parameters, regulatory clauses, people, and dates) out of unstructured text; P&ID drawings are parsed into a connected topology. Files are stored byte-for-byte in an immutable, SHA-256-deduplicated vault.
+2. **Link into the graph.** Extracted facts become **edges** in a temporal knowledge graph. Each edge carries six governance properties (validity window, authority level, source document, confidence, verification status) so the graph can answer *what was known on any past date* and show how a fact was later superseded.
 3. **Govern.** Nothing unverified reaches an operator by accident. Contradictions surface as conflicts (administrative ones resolve in-app; engineering ones route through Management of Change); low-confidence extractions sit in a one-way quarantine that only a human can promote; an SPC circuit breaker halts ingestion for an asset class whose override rate spikes; a model gate blocks extraction models that fail a precision/recall bar.
 4. **Retrieve & deliver.** The copilot answers questions with hybrid retrieval (graph + vector + exact) and mandatory citations, refusing outright on safety-critical parameters. Operational events assemble **proactive briefs** — governed by an EEMUA-191 push ceiling so operators are never flooded — and everything reaches the field on a mobile-first, offline-capable interface built from the same component set as the desktop workspace.
 
-For the full design — the 13-layer breakdown, knowledge-graph mechanics, OT virtualization, and the dual-track governance model — see **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**.
+For the full design, including the 13-layer breakdown, knowledge-graph mechanics, OT virtualization, and the dual-track governance model, see **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**.
 
 ## Key Capabilities
 
 - **Universal document ingestion** — PDFs, engineering drawings, scanned/handwritten forms, and multi-script (Hindi / Hinglish) text flow through an OCR → NER → graph-linking → indexing pipeline into an immutable, deduplicated vault.
 - **Temporal knowledge graph** — every fact is a time-bounded edge with authority, provenance, confidence, and verification status; query the past, watch knowledge get superseded, never lose history.
-- **Expert copilot** — hybrid retrieval with citations, confidence scores, phase-gated synthesis, and explicit refusal on safety-critical queries — on mobile for technicians, not just desktops for engineers.
+- **Expert copilot** — hybrid retrieval with citations, confidence scores, phase-gated synthesis, and explicit refusal on safety-critical queries, on mobile for technicians, not just desktops for engineers.
 - **Proactive briefs** — events (work orders, PTWs, tag-outs, inspections, alarms) assemble contextual briefs, rate-limited by an EEMUA-191 governor and suppressed by plant state.
 - **Maintenance & RCA intelligence** — fuses work-order history, failure records, OEM manuals, and inspection findings into root-cause timelines and hypotheses, with a blast-radius view of everything a change affects.
 - **Governed accuracy** — dual-track conflict resolution, human-only quarantine promotion, Management-of-Change, SLA escalation, an SPC circuit breaker, and a model gate.
@@ -129,13 +129,13 @@ KAIROS is a 13-layer platform spanning perception, knowledge modelling, retrieva
 |---|---|
 | **Backend** | FastAPI (Python 3.12), Temporal (durable workflows), Celery (task queues), Go (Gin) OT connectors |
 | **Datastores** | Neo4j (graph), Qdrant (vector), Elasticsearch (exact), Redis (streams/cache), Supabase (Postgres · Auth · Storage) |
-| **AI models** | NVIDIA NIM (LLM · NER · OCR), Groq Whisper (STT), Jina (embeddings) — cloud-only, no local model weights |
+| **AI models** | NVIDIA NIM (LLM · NER · OCR), Groq Whisper (STT), Jina (embeddings). These are cloud-only, no local model weights |
 | **Frontend** | Next.js 16, React 19, Tailwind CSS v4, TypeScript (strict) |
 | **Platform** | Docker Compose, OPA (authz), Vault (secrets), OpenTelemetry → Grafana / Prometheus / Tempo |
 
 ## Quick Start
 
-The entire stack runs inside Docker — no local Python, Node, or Go required.
+The entire stack runs inside Docker, requiring no local Python, Node, or Go required.
 
 **Prerequisites:** Docker Desktop · Make
 
@@ -187,7 +187,7 @@ KAIROS is a monorepo: a Python backend, a Next.js frontend, a shared demo datase
 
 ```text
 kairos/
-├── backend/            # Python platform — FastAPI API, Temporal workflows,
+├── backend/            # Python platform (FastAPI API, Temporal workflows,
 │                       #   Celery + Go OT workers, init/seed/dataset scripts
 ├── frontend/           # Next.js point-of-action web app (field mobile + desktop)
 ├── dataset/            # Golden demo + benchmark corpus (docs · events · telemetry)
@@ -217,6 +217,7 @@ Each major area has its own deep-dive in [`docs/`](#documentation).
 | [`docs/FRONTEND.md`](./docs/FRONTEND.md) | Routes, components, API wiring, auth flow |
 | [`docs/FIXTURES.md`](./docs/FIXTURES.md) | Mock-data fallbacks and the demo-chip contract |
 | [`docs/DATASET.md`](./docs/DATASET.md) | The golden demo corpus and how to load it |
+| [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) | Evaluation methodology + results (harness in [`benchmark/`](./benchmark), latest run in [`benchmark/RESULTS.md`](./benchmark/RESULTS.md)) |
 | [`docs/TESTS.md`](./docs/TESTS.md) | Integration test suite and data hygiene |
 | [`AGENTS.md`](./AGENTS.md) | Contributor guardrails, conventions, and pitfalls |
 
@@ -233,8 +234,4 @@ make purge-test-data
 npx tsc --noEmit && npm run lint && npm run build
 ```
 
-The test suite cleans up after itself — every test-created entity is purged at the end of the session (see [`docs/TESTS.md`](./docs/TESTS.md)). CI runs typecheck, lint, build, and dependency audit on every change.
-
-## License
-
-Private — KAIROS Platform
+The test suite cleans up after itself, meaning every test-created entity is purged at the end of the session (see [`docs/TESTS.md`](./docs/TESTS.md)). CI runs typecheck, lint, build, and dependency audit on every change.

@@ -106,6 +106,19 @@ async def _run_gate(model_name: str) -> Dict[str, Any]:
         await es.close()
 
 
+def _span_match(pred_text: str, gt_text_lower: str) -> bool:
+    """Partial-match: predicted and ground-truth spans overlap (one contains the other),
+    case-insensitive. Standard relaxed NER scoring; `gt_text_lower` is already lowercased.
+    The contained side must be >=4 chars so a stray "18" can't match "PG-18"."""
+    a = pred_text.strip().lower()
+    if not a:
+        return False
+    if a == gt_text_lower:
+        return True
+    shorter, longer = (a, gt_text_lower) if len(a) <= len(gt_text_lower) else (gt_text_lower, a)
+    return len(shorter) >= 4 and shorter in longer
+
+
 async def evaluate(
     ner: Any,
     es: Any,
@@ -133,26 +146,44 @@ async def evaluate(
         except Exception as exc:
             log.warning("model_gate.doc_fetch_failed", doc_id=doc_id, error=str(exc))
 
+    # Run NER once per unique document (not per corpus row) — fewer model calls and no intra-run
+    # variance from re-extracting the same doc, so a single flaky call can't spuriously miss.
+    doc_predictions: Dict[str, List[Dict[str, Any]]] = {}
+    for doc_id in doc_ids:
+        text = doc_texts.get(doc_id)
+        if text is None:  # doc not indexed — score each row against its own entity text as a fallback
+            continue
+        try:
+            ner_result = await ner.extract_entities(text)
+            doc_predictions[doc_id] = ner_result.get("entities", []) if ner_result else []
+        except Exception as exc:
+            log.warning("model_gate.ner_failed", doc_id=doc_id, error=str(exc))
+            doc_predictions[doc_id] = []
+
     by_type: Dict[str, Dict[str, int]] = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
 
     for row in corpus:
         doc_id = row["document_id"]
         gt_text = row["entity_text"].strip().lower()
         gt_type = row["entity_type"]
-        # Fall back to entity text itself if document not indexed
-        text = doc_texts.get(doc_id, row["entity_text"])
 
-        try:
-            ner_result = await ner.extract_entities(text)
-            predicted = ner_result.get("entities", []) if ner_result else []
-        except Exception as exc:
-            log.warning("model_gate.ner_failed", doc_id=doc_id, error=str(exc))
-            predicted = []
+        if doc_id in doc_predictions:
+            predicted = doc_predictions[doc_id]
+        else:  # unindexed doc: extract from the entity text itself
+            try:
+                ner_result = await ner.extract_entities(row["entity_text"])
+                predicted = ner_result.get("entities", []) if ner_result else []
+            except Exception as exc:
+                log.warning("model_gate.ner_failed", doc_id=doc_id, error=str(exc))
+                predicted = []
 
+        # Partial (span-overlap) match — the standard for NER eval: a prediction of
+        # "FISCHER PUMPS LTD." credits the ground-truth "Fischer". Exact whole-string equality
+        # under-counts multi-word entities the model extracts with a broader span.
         predicted_types_for_text = {
             e["entity_type"]
             for e in predicted
-            if e.get("text", "").strip().lower() == gt_text
+            if _span_match(e.get("text", ""), gt_text)
         }
 
         if gt_type in predicted_types_for_text:
@@ -161,7 +192,7 @@ async def evaluate(
             by_type[gt_type]["fn"] += 1
 
         for e in predicted:
-            if e.get("text", "").strip().lower() == gt_text and e.get("entity_type") != gt_type:
+            if _span_match(e.get("text", ""), gt_text) and e.get("entity_type") != gt_type:
                 by_type[e["entity_type"]]["fp"] += 1
 
     entity_metrics: Dict[str, Dict[str, Any]] = {}

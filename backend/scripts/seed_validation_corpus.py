@@ -1,0 +1,105 @@
+"""
+Seed the Layer-0 NER validation corpus with human-verified ground-truth entities.
+
+Grounded in ``dataset/00_Reference/00_KAIROS_CANON.md``. This is the labeled set that
+``benchmark/run_benchmark.py``'s sibling ``scripts/run_model_validation.py`` scores the NER model
+against (precision / recall / F1 per entity type).
+
+Methodology: entities are anchored to **clean-text documents** (CSV / TXT, no OCR) so the score
+isolates NER quality from OCR noise, and only entities *actually present in the indexed content* are
+labeled (you cannot expect NER to find what the text does not contain). Idempotent — clears prior
+golden rows and re-inserts.
+
+Run inside the API container, after documents are ingested:
+  docker exec kairos-backend-api python scripts/seed_validation_corpus.py
+"""
+
+import asyncio
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import structlog
+
+from api.config import settings
+
+log = structlog.get_logger(__name__)
+
+PROMOTED_BY = "golden_dataset"
+
+# file_name -> [(entity_text, entity_type)] — types match the NER taxonomy (ASSET_TAG regex covers
+# tag-like tokens incl. part / bulletin numbers; PERSON / ORGANIZATION from the model).
+GOLDEN: dict[str, list[tuple[str, str]]] = {
+    "work_orders_eq101_family.csv": [
+        ("EQ-101", "ASSET_TAG"), ("EQ-102", "ASSET_TAG"), ("EQ-103", "ASSET_TAG"),
+        ("FSL-2240A", "ASSET_TAG"), ("FSL-2240B", "ASSET_TAG"),
+    ],
+    "shift_log.txt": [
+        ("EQ-101", "ASSET_TAG"), ("PG-18", "ASSET_TAG"),
+    ],
+    "oem_bulletin_fp_sb_2025_04.pdf": [
+        ("FSL-2240B", "ASSET_TAG"), ("Fischer", "ORGANIZATION"),
+    ],
+    "oem_bulletin_mht_pb_2026_11.pdf": [
+        ("Meridian", "ORGANIZATION"),
+    ],
+    # PERSON anchored to clean prose where names extract reliably (dense CSV notes-columns do not).
+    "inspection_checklist.pdf": [
+        ("XV-203", "ASSET_TAG"), ("Ananya Iyer", "PERSON"), ("Vikram Desai", "PERSON"),
+    ],
+}
+
+
+async def _run() -> None:
+    from elasticsearch import AsyncElasticsearch
+    from supabase import create_client
+
+    sb = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+    es_kwargs: dict = {"hosts": [settings.ELASTICSEARCH_URL]}
+    if settings.ELASTICSEARCH_USERNAME:
+        es_kwargs["basic_auth"] = (settings.ELASTICSEARCH_USERNAME, settings.ELASTICSEARCH_PASSWORD)
+    es = AsyncElasticsearch(**es_kwargs)
+
+    # idempotent reset
+    sb.table("validation_corpus").delete().eq("promoted_by", PROMOTED_BY).execute()
+
+    async def content_for(document_id: str) -> str:
+        resp = await es.search(
+            index=settings.ELASTICSEARCH_INDEX_DOCUMENTS,
+            body={"query": {"term": {"document_id": document_id}}, "_source": ["content"], "size": 1},
+        )
+        hits = resp["hits"]["hits"]
+        return (hits[0]["_source"].get("content") or "") if hits else ""
+
+    rows: list[dict] = []
+    try:
+        for file_name, entities in GOLDEN.items():
+            res = sb.table("documents").select("document_id").eq("file_name", file_name).limit(1).execute()
+            if not res.data:
+                log.warning("valcorpus.doc_missing", file=file_name)
+                continue
+            document_id = res.data[0]["document_id"]
+            content = (await content_for(document_id)).lower()
+            for text, etype in entities:
+                if text.lower() not in content:
+                    log.warning("valcorpus.entity_absent", file=file_name, entity=text)
+                    continue
+                rows.append({
+                    "document_id": document_id, "entity_text": text, "entity_type": etype,
+                    "authority": "human_promotion", "promoted_by": PROMOTED_BY,
+                })
+        if rows:
+            sb.table("validation_corpus").insert(rows).execute()
+    finally:
+        await es.close()
+
+    by_type: dict[str, int] = {}
+    for r in rows:
+        by_type[r["entity_type"]] = by_type.get(r["entity_type"], 0) + 1
+    log.info("valcorpus.seeded", total=len(rows), by_type=by_type)
+
+
+if __name__ == "__main__":
+    asyncio.run(_run())

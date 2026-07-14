@@ -74,16 +74,17 @@ kairos/                          # repo root
 │   │   ├── seed_regulations.py      # Seeds 12 regulations into Neo4j
 │   │   ├── init_neo4j.py            # Neo4j schema constraints + indices
 │   │   ├── init_qdrant.py           # Qdrant collection creation
-│   │   ├── run_model_validation.py  # Manual model gate trigger script
-│   │   ├── load_demo_dataset.py     # Load dataset/ via the real API pipeline (`make load-dataset`)
+│   │   ├── run_model_validation.py  # Entity-extraction F1 vs validation_corpus (Layer-0 model gate)
+│   │   ├── seed_validation_corpus.py # Seed NER ground-truth entities from canon (entity-F1 labels)
+│   │   ├── load_demo_dataset.py     # Load dataset/ via the real API pipeline; seeds aliases + NER corpus (`make load-dataset`)
 │   │   ├── purge_test_data.py       # Delete test-prefixed rows from all stores (`make purge-test-data`)
 │   │   └── wipe_local_stores.py     # Empty Neo4j + ES + Qdrant entirely (`make wipe-local` / `reset-local`)
 │   └── requirements.txt
 ├── benchmark/                   # Evaluation harness + evidence (mounted at /app/benchmark)
-│   ├── run_benchmark.py         # Retrieval · KG-linkage · answer quality · time-to-answer (`make benchmark`)
+│   ├── run_benchmark.py         # Retrieval · answer quality · provenance · KG-linkage · time-to-answer (`make benchmark`)
 │   ├── verify_layers.py         # Per-layer smoke + latency (`make verify`)
-│   ├── questions.json           # 12 domain-expert Q&A (grounded in the dataset canon)
-│   └── BENCHMARKS.md            # Scorecard + methodology
+│   ├── questions.json           # 25 domain-expert Q&A across 15 categories (grounded in the dataset canon)
+│   └── RESULTS.md               # Raw output of both scripts (methodology → docs/BENCHMARKS.md)
 ├── db/                          # Database schemas (mounted into Python containers)
 │   ├── schema.sql               # Consolidated Supabase schema — single source of truth (001–016 folded in)
 │   ├── maintenance/             # Cloud-Supabase reset SQL (reset_all_data.sql) + CHANGELOG.md (tracked runs)

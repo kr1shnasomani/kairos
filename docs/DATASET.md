@@ -50,7 +50,9 @@ per-session interview questions are then generated asynchronously by the off-boa
 
 Because `00_KAIROS_CANON.md` fixes every fact, it is the answer key for the Problem Statement's evaluation
 focus — entity-extraction accuracy, copilot answer quality, blast-radius correctness, and compliance-gap
-detection. Query the loaded stack and score responses against the canon.
+detection. Query the loaded stack and score responses against the canon. The automated harness that does
+exactly this lives in [`benchmark/`](../benchmark) — methodology in [`BENCHMARKS.md`](./BENCHMARKS.md),
+latest run in [`benchmark/RESULTS.md`](../benchmark/RESULTS.md).
 
 ## Data hygiene
 

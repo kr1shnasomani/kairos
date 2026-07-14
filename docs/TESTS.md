@@ -49,10 +49,17 @@ tests/                        ← project root (NOT inside backend/)
   test_events.py
   test_governance.py
   test_health.py
+  test_model_validation.py    ← Layer-0 NER span-overlap matcher (pure logic, no network)
   test_ot_connector.py
+  test_pid.py                 ← P&ID topology JSON parsing (pure logic)
   test_search.py
+  test_contract.py            ← response-shape contract tests for endpoints that historically drift
 pytest.ini                    ← project root
 ```
+
+Latest full run: **166 passed · 3 skipped · 1 known transient flake**
+(`test_briefs.py::test_attribution_worker_queues_recheck` — a work-order POST occasionally 500s under
+concurrent load; passes deterministically in isolation).
 
 **Volume mounts** (in `docker-compose.yml` under `kairos-backend-api`):
 

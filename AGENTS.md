@@ -70,6 +70,7 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 | Mock-data fallbacks + demo chip | `docs/FIXTURES.md` |
 | Integration test suite | `docs/TESTS.md` |
 | Golden demo dataset + loader | `docs/DATASET.md` |
+| Benchmarks + evaluation (harness → `benchmark/`, results → `benchmark/RESULTS.md`) | `docs/BENCHMARKS.md` |
 
 ---
 
@@ -177,5 +178,5 @@ Gotcha rebuilds: `docker compose up -d --no-deps --build kairos-frontend` (new n
 - **Supabase MCP** (`mcp__claude_ai_Supabase__*`) — SQL, migrations, table inspection. Prefer over `docker exec`.
 
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
-**Tests:** ~157 passed (incl. `tests/test_contract.py` — response-shape contract tests that pin the endpoints which drift) · self-cleans on teardown · CI: `frontend.yml` (tsc·eslint·build·audit) **green**; `tests.yml` needs 7 secrets (deferred) · Package: `ghcr.io/kr1shnasomani/kairos`  
+**Tests:** ~166 passed · 3 skipped · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER span-overlap matcher) · self-cleans on teardown · CI: `frontend.yml` (tsc·eslint·build·audit) **green**; `tests.yml` needs 7 secrets (deferred) · Package: `ghcr.io/kr1shnasomani/kairos`  
 **Release:** `git tag v{version} && git push origin v{version}` · 7 secrets needed in `tests.yml` (deferred)

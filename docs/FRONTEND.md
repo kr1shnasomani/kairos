@@ -27,7 +27,7 @@ Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · Docker
 ```
 frontend/
 ├── public/
-│   ├── logo.jpeg                    # Brand logo — served at /logo.jpeg; favicon source
+│   ├── logo.png                    # Brand logo — served at /logo.png; favicon source
 │   └── sw.js                        # Service worker (PWA offline shell) — registered PROD-ONLY
 ├── src/
 │   ├── app/
@@ -141,7 +141,7 @@ frontend/
 - **Assure:** Compliance · Governance · Audit trail · Documents · Projects · Off-boarding
 - **Manage:** Overview (management)
 
-Active route highlighted with `bg-accent-soft text-accent`. User chip at the bottom shows the live authenticated user's name, role, and site from `GET /auth/me`. Sign-out clears tokens and redirects to `/login`. The sidebar logo is `public/logo.jpeg`, a 30px rounded square.
+Active route highlighted with `bg-accent-soft text-accent`. User chip at the bottom shows the live authenticated user's name, role, and site from `GET /auth/me`. Sign-out clears tokens and redirects to `/login`. The sidebar logo is `public/logo.png`, a 30px rounded square.
 
 **Field bottom tabs** (`FieldBottomTabs` in `app-shell.tsx`) — shown **only for `field_worker`** at mobile width, replacing the sidebar with a fixed bottom bar:
 

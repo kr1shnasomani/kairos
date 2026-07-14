@@ -81,7 +81,7 @@ function KairosMark({ size = 30 }: { size?: number }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src="/logo.jpeg"
+      src="/logo.png"
       alt=""
       width={size}
       height={size}

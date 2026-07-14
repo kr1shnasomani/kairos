@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import httpx
 import structlog
+from supabase import create_client
 
 from api.config import settings
 
@@ -54,6 +55,10 @@ DOCS: list[tuple[str, str, int, str | None]] = [
     ("02_Document_Corpus/ptw_v247.pdf", "ptw", 4, "V-247"),
     ("02_Document_Corpus/regulatory_clause_excerpts.pdf", "regulation", 1, None),
     ("02_Document_Corpus/pid_line3_isolation_boundary.png", "pid_drawing", 3, "V-247"),
+    # EQ-1xx pump-family maintenance history — the EQ-102 electrical-insulation counterfactual
+    # narrative lives here; tagged EQ-102 so it is searchable under that asset (EQ-101 history is
+    # already covered by other docs). Text/CSV is decoded directly by the OCR service.
+    ("01_Structured_Backbone/work_orders_eq101_family.csv", "inspection_report", 5, "EQ-102"),
     # 03_Multiformat_Variants (OCR / multi-script stress)
     ("03_Multiformat_Variants/handwritten_inspection_note.png", "inspection_report", 5, "EQ-101"),
     ("03_Multiformat_Variants/handwritten_shift_log.png", "shift_log", 5, None),
@@ -91,6 +96,30 @@ def load_assets(client: httpx.Client) -> None:
             }
             r = client.post("/assets/", json=body, headers=AUTH)
             log.info("load.asset", asset=row["asset_tag"], status=r.status_code)
+
+
+def load_aliases() -> None:
+    """Seed canonical tag aliases from the structured backbone CSV into asset_alias_map.
+
+    No POST-alias endpoint exists (only the NER pipeline writes aliases), so insert directly
+    via the service client. Idempotent: `alias` is globally UNIQUE, so upsert on conflict.
+    """
+    path = DATASET_DIR / "01_Structured_Backbone" / "alias_table.csv"
+    if not path.exists():
+        log.warning("load.aliases.missing", file=str(path))
+        return
+    sb = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+    with path.open() as fh:
+        rows = [{
+            "canonical_asset_id": r["canonical_asset_id"],
+            "alias": r["alias"],
+            "alias_source": f"golden_dataset:{r.get('source_context', '')}"[:200],
+            "confidence": 1.0,
+            "confirmed": True,
+            "confirmed_by": CONFIRMED_BY,
+        } for r in csv.DictReader(fh)]
+    sb.table("asset_alias_map").upsert(rows, on_conflict="alias").execute()
+    log.info("load.aliases", count=len(rows))
 
 
 def ingest_documents(client: httpx.Client) -> None:
@@ -192,6 +221,16 @@ def create_offboarding(client: httpx.Client) -> None:
     log.info("load.offboarding", status=r.status_code)
 
 
+def _seed_validation_corpus() -> None:
+    """Seed the Layer-0 NER ground-truth set (idempotent) once documents are indexed."""
+    try:
+        from scripts.seed_validation_corpus import _run as _seed
+        import asyncio as _aio
+        _aio.run(_seed())
+    except Exception as exc:  # noqa: BLE001 — non-fatal for the demo load
+        log.warning("load.valcorpus_failed", error=str(exc))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Load the KAIROS golden demo dataset into a running stack.")
     parser.add_argument("--fast", action="store_true", help="Skip the document pipeline + voice (structured backbone + events only).")
@@ -202,11 +241,13 @@ def main() -> None:
 
     with httpx.Client(base_url=API_BASE, timeout=120) as client:
         load_assets(client)
+        load_aliases()
         replay_events(client)
         if not args.fast:
             ingest_documents(client)
             submit_voice(client)
             create_offboarding(client)
+            _seed_validation_corpus()
     log.info("load.done", fast=args.fast)
 
 

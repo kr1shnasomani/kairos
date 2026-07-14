@@ -67,11 +67,12 @@ class SearchEngineService:
         body = {
             "query": {"bool": {"must": must_clauses}},
             "size": limit,
-            # Larger, multiple fragments so the snippet captures the matching passage
-            # (e.g. a part number deep in the doc), not just the first header match.
+            # Many fragments spanning the whole doc so the snippet captures facts far from the
+            # query terms (e.g. an OISD/PESO list under a "regulatory standards" header the query
+            # matched), not just the top-scoring header cluster. Feeds richer context to synthesis.
             "highlight": {
                 "fields": {
-                    "content": {"fragment_size": 220, "number_of_fragments": 3},
+                    "content": {"fragment_size": 240, "number_of_fragments": 8},
                     "title": {},
                 }
             },

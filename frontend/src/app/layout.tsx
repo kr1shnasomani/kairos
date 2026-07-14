@@ -28,10 +28,13 @@ const notoDevanagari = Noto_Sans_Devanagari({
 });
 
 export const metadata: Metadata = {
-  title: "KAIROS — Operational Intelligence",
+  title: {
+    template: "%s | Kairos: Operational Intelligence",
+    default: "Kairos: Operational Intelligence",
+  },
   description:
     "The right knowledge to the right person at the moment of action. Governed industrial operational intelligence.",
-  icons: { icon: "/logo.jpeg", apple: "/logo.jpeg" },
+  icons: { icon: "/logo.png", apple: "/logo.png" },
 };
 
 // Apply saved theme + contrast before paint to avoid a flash.
