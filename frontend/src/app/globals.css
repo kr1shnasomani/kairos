@@ -127,9 +127,14 @@ h1, h2, h3, .font-display {
   letter-spacing: -0.02em;
 }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+/* In @layer base so explicit outline-* utilities (e.g. the palette input's
+   outline-none, whose focus state is carried by its container) can win —
+   unlayered rules would override them. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

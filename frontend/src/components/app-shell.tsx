@@ -147,7 +147,10 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount, onOpenP
           >
             <Icon name="search" />
             Search…
-            <kbd className="ml-auto rounded border border-line bg-surface px-1.5 py-0.5 text-micro">⌘K</kbd>
+            {/* Platform-aware; suppressHydrationWarning because the server can't know the OS */}
+            <kbd suppressHydrationWarning className="ml-auto rounded border border-line bg-surface px-1.5 py-0.5 text-micro">
+              {typeof navigator !== "undefined" && /Mac|iPhone/.test(navigator.platform) ? "⌘K" : "Ctrl K"}
+            </kbd>
           </button>
         </div>
       )}
