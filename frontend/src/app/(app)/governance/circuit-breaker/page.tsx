@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { CircuitBreakerState, CircuitBreakerEntry } from "@/lib/types";
 import { getCircuitBreaker } from "@/lib/api";
-import { EmptyState, StatusBadge, DemoChip } from "@/components/ui";
+import { EmptyState, StatusBadge, DemoChip, PageHeader } from "@/components/ui";
 
 const FIXTURE: CircuitBreakerState = {
   halted_count: 2,
@@ -70,14 +70,7 @@ export default function CircuitBreakerPage() {
         Governance
       </Link>
 
-      <header className="mt-4">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 11 · SPC governor</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Circuit breaker</h1>
-        <p className="mt-1 text-body text-muted text-pretty">
-          Statistical process control gates that halt ingestion for an asset class when z-score anomalies
-          exceed threshold. Halted classes require admin override or human-verified resolution.
-        </p>
-      </header>
+      <PageHeader className="mt-4" eyebrow="Layer 11 · SPC governor" title="Circuit breaker" lede="Statistical process control gates that halt ingestion for an asset class when z-score anomalies exceed threshold. Halted classes require admin override or human-verified resolution." />
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {isDemo && <DemoChip />}

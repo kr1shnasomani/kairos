@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { StatusBadge, DemoChip } from "@/components/ui";
+import { StatusBadge, DemoChip, PageHeader } from "@/components/ui";
 import { relativeTime } from "@/lib/utils";
 
 export const metadata = { title: "Cross-site alerts — Kairos" };
@@ -66,14 +66,7 @@ export default function CrossSiteAlertsPage() {
         Overview
       </Link>
 
-      <header className="mt-4">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 13 · Cross-site</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Cross-site pattern alerts</h1>
-        <p className="mt-1 text-body text-muted text-pretty">
-          Statistical signatures matched across sites. Pattern detection compares asset telemetry,
-          inspection cadences, and failure histories to surface recurring precursors before they escalate.
-        </p>
-      </header>
+      <PageHeader className="mt-4" eyebrow="Layer 13 · Cross-site" title="Cross-site pattern alerts" lede="Statistical signatures matched across sites. Pattern detection compares asset telemetry, inspection cadences, and failure histories to surface recurring precursors before they escalate." />
 
       <div className="mt-4"><DemoChip detail="cross-site aggregation API in roadmap" /></div>
 

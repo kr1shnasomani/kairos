@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AuditLogEntry } from "@/lib/types";
 import { getAuditLog, type DataSource } from "@/lib/api";
 import { relativeTime } from "@/lib/utils";
-import { FilterTabs, StatusBadge, DemoChip } from "@/components/ui";
+import { FilterTabs, StatusBadge, DemoChip, PageHeader } from "@/components/ui";
 
 // ── Static fixture for demo mode ──────────────────────────────────────────────
 
@@ -156,15 +156,7 @@ export default function AuditPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <header>
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
-          Layer 7–8 · Immutable record
-        </p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Audit trail</h1>
-        <p className="mt-1.5 max-w-xl text-body text-muted text-pretty">
-          Every governance decision, delivery, and model gate result — in chronological order. Immutable by design.
-        </p>
-      </header>
+      <PageHeader eyebrow="Layer 7–8 · Immutable record" title="Audit trail" lede="Every governance decision, delivery, and model gate result — in chronological order. Immutable by design." />
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <span className="tabular text-caption font-medium text-ink">{visible.length} entries</span>

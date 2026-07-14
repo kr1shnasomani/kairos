@@ -5,7 +5,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { VaultDocument } from "@/lib/types";
 import { getDocument } from "@/lib/api";
-import { AuthorityBadge, Button, EmptyState, StatusBadge } from "@/components/ui";
+import { AuthorityBadge, Button, EmptyState, StatusBadge, PageHeader } from "@/components/ui";
 import { PageSkeleton } from "@/components/skeleton";
 import { authorityLabel, triggerLabel, relativeTime } from "@/lib/utils";
 
@@ -62,14 +62,7 @@ function ComparePage() {
         Documents
       </Link>
 
-      <header className="mt-4">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 2 · Immutable vault</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Compare versions</h1>
-        <p className="mt-1.5 text-body text-muted text-pretty">
-          Walk the supersede chain and diff metadata across two versions. A superseded document is
-          never presented as current — supersession closes a validity window, it does not erase.
-        </p>
-      </header>
+      <PageHeader className="mt-4" eyebrow="Layer 2 · Immutable vault" title="Compare versions" lede="Walk the supersede chain and diff metadata across two versions. A superseded document is never presented as current — supersession closes a validity window, it does not erase." />
 
       <div className="mt-5 flex flex-wrap items-end gap-3">
         <label className="block text-caption">

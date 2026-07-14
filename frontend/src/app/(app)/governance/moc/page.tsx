@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { MocItem } from "@/lib/types";
 import { getMocList, type DataSource } from "@/lib/api";
 import { relativeTime } from "@/lib/utils";
-import { FilterTabs, StatusBadge, DemoChip } from "@/components/ui";
+import { FilterTabs, StatusBadge, DemoChip, PageHeader } from "@/components/ui";
 
 // ── Demo fixture ──────────────────────────────────────────────────────────────
 
@@ -84,14 +84,7 @@ export default function MocListPage() {
         Governance
       </Link>
 
-      <header className="mt-4">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 7 · Engineering governance</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Management of Change</h1>
-        <p className="mt-1.5 max-w-xl text-body text-muted text-pretty">
-          Auto-drafted EWR items for engineering-track conflicts. Approval here closes the validity window
-          of the superseded edge and clears any affected downstream facts.
-        </p>
-      </header>
+      <PageHeader className="mt-4" eyebrow="Layer 7 · Engineering governance" title="Management of Change" lede="Auto-drafted EWR items for engineering-track conflicts. Approval here closes the validity window of the superseded edge and clears any affected downstream facts." />
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span className="tabular font-medium text-ink">{pendingCount} pending</span>

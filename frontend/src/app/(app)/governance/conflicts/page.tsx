@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Conflict } from "@/lib/types";
 import { getConflicts, resolveConflict, type DataSource } from "@/lib/api";
 import { authorityLabel, relativeTime, slaCountdown } from "@/lib/utils";
-import { FilterTabs, StatusBadge, DemoChip } from "@/components/ui";
+import { FilterTabs, StatusBadge, DemoChip, PageHeader } from "@/components/ui";
 
 // ── SLA countdown ─────────────────────────────────────────────────────────────
 
@@ -102,16 +102,7 @@ export default function ConflictsPage() {
         Governance
       </Link>
 
-      <header className="mt-4">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
-          Layer 7 · Dual-track governance
-        </p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Conflicts</h1>
-        <p className="mt-1.5 max-w-xl text-body text-muted text-pretty">
-          Contradictions between sources, split by track. Administrative conflicts resolve here;
-          engineering conflicts are safety-critical and route through Management of Change.
-        </p>
-      </header>
+      <PageHeader className="mt-4" eyebrow="Layer 7 · Dual-track governance" title="Conflicts" lede="Contradictions between sources, split by track. Administrative conflicts resolve here; engineering conflicts are safety-critical and route through Management of Change." />
 
       {/* Stats row */}
       <div className="mt-4 flex flex-wrap items-center gap-3 text-caption text-muted">

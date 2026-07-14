@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import type { SlaReport, OverdueConflict, OverdueQuarantineItem } from "@/lib/types";
 import { getSlaReport, type DataSource } from "@/lib/api";
 import { triggerLabel, overdueHours } from "@/lib/utils";
-import { StatusBadge, DemoChip } from "@/components/ui";
+import { StatusBadge, DemoChip, PageHeader } from "@/components/ui";
 
 // ── Demo fixture ──────────────────────────────────────────────────────────────
 
@@ -105,13 +105,7 @@ export default function SlaPage() {
         Governance
       </Link>
 
-      <header className="mt-4">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 7 · Case management</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">SLA report</h1>
-        <p className="mt-1.5 max-w-xl text-body text-muted text-pretty">
-          Governance SLA state across conflicts and quarantine review. Overdue items are escalated for immediate attention.
-        </p>
-      </header>
+      <PageHeader className="mt-4" eyebrow="Layer 7 · Case management" title="SLA report" lede="Governance SLA state across conflicts and quarantine review. Overdue items are escalated for immediate attention." />
 
       <div className="mt-2 flex items-center gap-3 text-caption text-muted">
         <span>

@@ -31,7 +31,7 @@ export default async function AssetsPage() {
 
       {data.items.length === 0 ? (
         <div className="mt-4">
-          <EmptyState message="No assets registered yet." />
+          <EmptyState message="No assets registered yet." action={{ label: "Bootstrap assets", href: "/assets/bootstrap" }} />
         </div>
       ) : (
         <div className="mt-4 overflow-hidden rounded-xl border border-line">

@@ -6,7 +6,7 @@ import type { PlantOperatingState, PlantState } from "@/lib/types";
 import { getPlantState, setPlantState } from "@/lib/api";
 import { getMe } from "@/lib/auth";
 import { ADMIN_ROLES } from "@/components/use-role";
-import { Modal, StatusBadge, Button, DemoChip } from "@/components/ui";
+import { Modal, StatusBadge, Button, DemoChip, PageHeader } from "@/components/ui";
 import { relativeTime } from "@/lib/utils";
 
 const STATE_META: Record<PlantOperatingState, { label: string; tone: "verified" | "caution" | "danger" | "neutral"; desc: string }> = {
@@ -71,14 +71,7 @@ export default function PlantStatePage() {
         Overview
       </Link>
 
-      <header className="mt-4">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Plant control</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Plant operating state</h1>
-        <p className="mt-1 text-body text-muted text-pretty">
-          Sets the operating mode for the whole site. Affects brief cadence, governor ceilings, and
-          automation behaviour. Changes are logged and irreversible without an explicit transition.
-        </p>
-      </header>
+      <PageHeader className="mt-4" eyebrow="Plant control" title="Plant operating state" lede="Sets the operating mode for the whole site. Affects brief cadence, governor ceilings, and automation behaviour. Changes are logged and irreversible without an explicit transition." />
 
       {/* Current state */}
       <section className="mt-5 rounded-xl border border-line bg-surface p-5">

@@ -52,7 +52,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
       {loading && <p className="mt-6 text-body text-muted">Loading event…</p>}
 
       {!loading && !event && (
-        <div className="mt-6"><EmptyState message={`Event ${id} not found.`} /></div>
+        <div className="mt-6"><EmptyState message={`Event ${id} not found.`} action={{ label: "Back to events", href: "/events" }} /></div>
       )}
 
       {event && (
