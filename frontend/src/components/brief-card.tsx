@@ -30,19 +30,19 @@ export function BriefCard({ brief }: { brief: Brief }) {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             {isFrozen ? (
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.04em] text-info">
+              <span className="inline-flex items-center gap-1.5 text-label font-bold uppercase tracking-[0.1em] text-info">
                 <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
                   <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
                 </svg>
                 Frozen
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.04em]" style={{ color: p.color }}>
+              <span className="inline-flex items-center gap-1.5 text-label font-bold uppercase tracking-[0.1em]" style={{ color: p.color }}>
                 <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
                 {brief.requires_countersignature ? "PTW-critical" : p.label}
               </span>
             )}
-            <span className="text-[11px] text-muted">· {triggerLabel(brief.trigger_event_type)}</span>
+            <span className="text-label text-muted">· {triggerLabel(brief.trigger_event_type)}</span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {brief.acknowledged_at && (
@@ -50,25 +50,25 @@ export function BriefCard({ brief }: { brief: Brief }) {
                 <path d="M20 6 9 17l-5-5" />
               </svg>
             )}
-            <span className="tabular text-[11px] text-muted">{relativeTime(brief.delivered_at)}</span>
+            <span className="tabular text-label text-muted">{relativeTime(brief.delivered_at)}</span>
           </div>
         </div>
 
-        <h3 className={cn("text-[16px] font-semibold leading-snug text-ink", isFrozen && "text-muted")}>{brief.headline}</h3>
+        <h3 className={cn("text-subtitle font-semibold leading-snug text-ink", isFrozen && "text-muted")}>{brief.headline}</h3>
 
         {isFrozen && brief.freeze_reason ? (
-          <p className="text-[12.5px] text-muted">
+          <p className="text-caption text-muted">
             Frozen: {brief.freeze_reason}
             {brief.freeze_deviation_flag_id && (
               <span className="ml-1 text-info"> — deviation flag pending resolution</span>
             )}
           </p>
         ) : (
-          <p className="line-clamp-2 text-[13px] leading-relaxed text-muted">{brief.body}</p>
+          <p className="line-clamp-2 text-body leading-relaxed text-muted">{brief.body}</p>
         )}
 
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] text-muted">{brief.sources.length} source{brief.sources.length !== 1 ? "s" : ""}</span>
+          <span className="text-label text-muted">{brief.sources.length} source{brief.sources.length !== 1 ? "s" : ""}</span>
           <AuthorityBadge level={topAuthority} />
           {brief.requires_countersignature && !isFrozen && <StatusBadge tone="danger">Countersignature</StatusBadge>}
           {quarantineCount > 0 && <StatusBadge tone="caution">{quarantineCount} unverified</StatusBadge>}

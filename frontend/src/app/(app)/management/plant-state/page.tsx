@@ -6,7 +6,7 @@ import type { PlantOperatingState, PlantState } from "@/lib/types";
 import { getPlantState, setPlantState } from "@/lib/api";
 import { getMe } from "@/lib/auth";
 import { ADMIN_ROLES } from "@/components/use-role";
-import { Modal, StatusBadge, Button } from "@/components/ui";
+import { Modal, StatusBadge, Button, DemoChip } from "@/components/ui";
 import { relativeTime } from "@/lib/utils";
 
 const STATE_META: Record<PlantOperatingState, { label: string; tone: "verified" | "caution" | "danger" | "neutral"; desc: string }> = {
@@ -64,7 +64,7 @@ export default function PlantStatePage() {
 
   return (
     <div className="mx-auto max-w-2xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link href="/management" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link href="/management" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
@@ -72,9 +72,9 @@ export default function PlantStatePage() {
       </Link>
 
       <header className="mt-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Plant control</p>
-        <h1 className="mt-1 text-[26px] font-semibold leading-tight">Plant operating state</h1>
-        <p className="mt-1 text-[13.5px] text-muted text-pretty">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Plant control</p>
+        <h1 className="mt-1 text-display font-semibold leading-tight">Plant operating state</h1>
+        <p className="mt-1 text-body text-muted text-pretty">
           Sets the operating mode for the whole site. Affects brief cadence, governor ceilings, and
           automation behaviour. Changes are logged and irreversible without an explicit transition.
         </p>
@@ -82,33 +82,29 @@ export default function PlantStatePage() {
 
       {/* Current state */}
       <section className="mt-5 rounded-xl border border-line bg-surface p-5">
-        <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Current state</p>
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Current state</p>
         {current ? (
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
             <StatusBadge tone={activeMeta!.tone}>{activeMeta!.label}</StatusBadge>
-            <span className="text-[13px] text-ink">{activeMeta!.desc}</span>
-            <span className="tabular ml-auto text-[11.5px] text-muted">
+            <span className="text-body text-ink">{activeMeta!.desc}</span>
+            <span className="tabular ml-auto text-label text-muted">
               Set by {current.set_by} · {relativeTime(current.set_at)}
             </span>
           </div>
         ) : (
           <div className="mt-3 flex items-center gap-2">
             {isDemo
-              ? <span className="text-[13px] text-muted">No live state — demo mode</span>
+              ? <span className="text-body text-muted">No live state — demo mode</span>
               : <span className="inline-flex gap-1.5">{[0,1,2].map((i) => <span key={i} className="size-2 animate-bounce rounded-full bg-muted" style={{ animationDelay: `${i * 0.15}s` }} />)}</span>
             }
           </div>
         )}
-        {isDemo && (
-          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />Demo data
-          </span>
-        )}
+        {isDemo && <DemoChip />}
       </section>
 
       {/* State selector — admin only */}
       {!isAdmin && (
-        <div className="mt-5 rounded-xl border border-line bg-surface p-5 text-[13px] text-muted">
+        <div className="mt-5 rounded-xl border border-line bg-surface p-5 text-body text-muted">
           Plant state changes require the <span className="font-semibold text-ink">admin</span> role.
           Contact your site administrator to request a state transition.
         </div>
@@ -116,7 +112,7 @@ export default function PlantStatePage() {
 
       {isAdmin && (
         <section className="mt-5">
-          <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Transition to</p>
+          <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Transition to</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {STATES.map((s) => {
               const m = STATE_META[s];
@@ -139,9 +135,9 @@ export default function PlantStatePage() {
                 >
                   <div className="flex items-center gap-2">
                     <StatusBadge tone={m.tone}>{m.label}</StatusBadge>
-                    {isCurrent && <span className="text-[10.5px] text-muted">(current)</span>}
+                    {isCurrent && <span className="text-micro text-muted">(current)</span>}
                   </div>
-                  <p className="mt-1.5 text-[12px] leading-snug text-muted">{m.desc}</p>
+                  <p className="mt-1.5 text-caption leading-snug text-muted">{m.desc}</p>
                 </button>
               );
             })}
@@ -157,7 +153,7 @@ export default function PlantStatePage() {
               </Button>
               <button
                 onClick={() => { setSelected(null); setSuccess(false); }}
-                className="text-[13px] text-muted hover:text-ink"
+                className="text-body text-muted hover:text-ink"
               >
                 Cancel
               </button>
@@ -165,18 +161,18 @@ export default function PlantStatePage() {
           )}
 
           {success && (
-            <p className="mt-3 text-[13px] text-verified">
+            <p className="mt-3 text-body text-verified">
               State updated to <span className="font-semibold">{current ? STATE_META[current.state].label : "—"}</span>. Change logged.
             </p>
           )}
-          {error && <p className="mt-3 text-[13px] text-danger">{error}</p>}
+          {error && <p className="mt-3 text-body text-danger">{error}</p>}
         </section>
       )}
 
       {/* Confirm modal */}
       {confirming && selected && (
         <Modal title={`Confirm: set to ${STATE_META[selected].label}`} onClose={() => setConfirming(false)}>
-          <p className="text-[13px] text-muted leading-relaxed">
+          <p className="text-body text-muted leading-relaxed">
             This will immediately transition <span className="font-semibold text-ink">{siteId}</span> to{" "}
             <span className="font-semibold" style={{ color: `var(--${STATE_META[selected].tone === "neutral" ? "muted" : STATE_META[selected].tone})` }}>
               {STATE_META[selected].label}

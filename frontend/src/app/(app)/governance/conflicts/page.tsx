@@ -5,17 +5,17 @@ import { useEffect, useMemo, useState } from "react";
 import type { Conflict } from "@/lib/types";
 import { getConflicts, resolveConflict, type DataSource } from "@/lib/api";
 import { authorityLabel, relativeTime, slaCountdown } from "@/lib/utils";
-import { FilterTabs, StatusBadge } from "@/components/ui";
+import { FilterTabs, StatusBadge, DemoChip } from "@/components/ui";
 
 // ── SLA countdown ─────────────────────────────────────────────────────────────
 
-function SlaChip({ sla_due_at, is_overdue }: { sla_due_at: string | null; is_overdue: boolean }) {
+function SlaChip({ sla_due_at, is_overdue, nowMs }: { sla_due_at: string | null; is_overdue: boolean; nowMs: number }) {
   if (!sla_due_at) return null;
   if (is_overdue) {
-    return <span className="tabular text-[11px] font-semibold text-danger">SLA overdue</span>;
+    return <span className="tabular text-label font-semibold text-danger">SLA overdue</span>;
   }
-  const { label, tone } = slaCountdown(sla_due_at);
-  return <span className={`tabular text-[11px] font-semibold ${tone}`}>{label}</span>;
+  const { label, tone } = slaCountdown(sla_due_at, nowMs);
+  return <span className={`tabular text-label font-semibold ${tone}`}>{label}</span>;
 }
 
 // ── Test-data IDs ─────────────────────────────────────────────────────────────
@@ -43,6 +43,14 @@ export default function ConflictsPage() {
   const [statusFilter, setStatusFilter] = useState("open");
   const [trackFilter, setTrackFilter] = useState("all");
   const [showTestData, setShowTestData] = useState(false);
+  const [nowMs, setNowMs] = useState(0);
+
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    tick();
+    const timer = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -87,7 +95,7 @@ export default function ConflictsPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link href="/governance" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link href="/governance" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
@@ -95,26 +103,21 @@ export default function ConflictsPage() {
       </Link>
 
       <header className="mt-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
           Layer 7 · Dual-track governance
         </p>
-        <h1 className="mt-1 text-[28px] font-semibold leading-tight">Conflicts</h1>
-        <p className="mt-1.5 max-w-xl text-[13.5px] text-muted text-pretty">
+        <h1 className="mt-1 text-display font-semibold leading-tight">Conflicts</h1>
+        <p className="mt-1.5 max-w-xl text-body text-muted text-pretty">
           Contradictions between sources, split by track. Administrative conflicts resolve here;
           engineering conflicts are safety-critical and route through Management of Change.
         </p>
       </header>
 
       {/* Stats row */}
-      <div className="mt-4 flex flex-wrap items-center gap-3 text-[12px] text-muted">
+      <div className="mt-4 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span className="tabular font-medium text-ink">{openCount} open</span>
-        {source === "demo" && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px]">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo data
-          </span>
-        )}
-        <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-[11.5px]">
+        {source === "demo" && <DemoChip />}
+        <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-label">
           <input
             type="checkbox"
             checked={showTestData}
@@ -148,18 +151,18 @@ export default function ConflictsPage() {
       </div>
 
       {error && (
-        <p className="mt-3 rounded-lg border border-[color-mix(in_srgb,var(--danger)_35%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface))] px-3 py-2 text-[12.5px] text-danger">
+        <p className="mt-3 rounded-lg border border-[color-mix(in_srgb,var(--danger)_35%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface))] px-3 py-2 text-caption text-danger">
           {error}
         </p>
       )}
 
       <div className="mt-4 flex flex-col gap-3">
         {loaded && visible.length === 0 && (
-          <div className="rounded-xl border border-line bg-surface px-4 py-8 text-center text-[13px] text-muted">
+          <div className="rounded-xl border border-line bg-surface px-4 py-8 text-center text-body text-muted">
             No conflicts match the current filters.
           </div>
         )}
-        {visible.map((c) => <ConflictCard key={c.conflict_id} c={c} busy={busy} onResolve={resolve} />)}
+        {visible.map((c) => <ConflictCard key={c.conflict_id} c={c} busy={busy} nowMs={nowMs} onResolve={resolve} />)}
       </div>
     </div>
   );
@@ -170,10 +173,12 @@ export default function ConflictsPage() {
 function ConflictCard({
   c,
   busy,
+  nowMs,
   onResolve,
 }: {
   c: Conflict;
   busy: string | null;
+  nowMs: number;
   onResolve: (c: Conflict) => void;
 }) {
   const isEng = c.track === "engineering";
@@ -188,7 +193,7 @@ function ConflictCard({
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-caution" aria-hidden="true">
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
-          <p className="text-[12px] text-caution">
+          <p className="text-caption text-caution">
             Pending Management of Change —{" "}
             <Link href="/governance/moc" className="font-semibold underline hover:opacity-80">
               view MoC queue
@@ -198,15 +203,19 @@ function ConflictCard({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="tabular text-[13px] font-semibold text-accent">{c.conflict_id}</span>
+        <span className="tabular text-body font-semibold text-accent">{c.conflict_id}</span>
         <StatusBadge tone={isEng ? "danger" : "info"} dot={false}>{c.track}</StatusBadge>
         <StatusBadge tone={SEV_TONE[c.severity] ?? "neutral"}>{c.severity}</StatusBadge>
-        <span className="tabular text-[11px] text-muted">{c.asset_id}</span>
-        <SlaChip sla_due_at={c.sla_due_at} is_overdue={c.is_overdue && !resolved} />
-        <span className="tabular ml-auto text-[11px] text-muted">{relativeTime(c.created_at)}</span>
+        {c.asset_id ? (
+          <Link href={`/assets/${c.asset_id}`} className="tabular text-label text-accent hover:underline">
+            {c.asset_id}
+          </Link>
+        ) : null}
+        <SlaChip sla_due_at={c.sla_due_at} is_overdue={c.is_overdue && !resolved} nowMs={nowMs} />
+        <span className="tabular ml-auto text-label text-muted">{relativeTime(c.created_at)}</span>
       </div>
 
-      <p className="mt-2.5 text-[13.5px]">
+      <p className="mt-2.5 text-body">
         Contradiction on <span className="font-semibold">{c.parameter.replace(/_/g, " ")}</span>
       </p>
 
@@ -217,12 +226,12 @@ function ConflictCard({
         ].map(({ s, auth, tag }) => (
           <div key={tag} className="rounded-lg border border-line bg-surface-2 p-3">
             <div className="flex items-center justify-between">
-              <span className="tabular text-[11px] font-semibold text-muted">Source {tag}</span>
-              <span className="tabular text-[10.5px] text-muted">{authorityLabel(auth)}</span>
+              <span className="tabular text-label font-semibold text-muted">Source {tag}</span>
+              <span className="tabular text-micro text-muted">{authorityLabel(auth)}</span>
             </div>
-            <p className="mt-1 text-[13px] font-medium">{String(s?.value ?? "—")}</p>
+            <p className="mt-1 text-body font-medium">{String(s?.value ?? "—")}</p>
             {s?.document_id && (
-              <Link href={`/documents/${s.document_id}`} className="tabular mt-0.5 block text-[11px] text-accent hover:underline">
+              <Link href={`/documents/${s.document_id}`} className="tabular mt-0.5 block text-label text-accent hover:underline">
                 {s.document_id}
               </Link>
             )}
@@ -232,12 +241,12 @@ function ConflictCard({
 
       <div className="mt-3 flex items-center gap-2 border-t border-line pt-3">
         {resolved ? (
-          <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-verified">
+          <span className="inline-flex items-center gap-1.5 text-caption font-semibold text-verified">
             <span className="size-1.5 rounded-full bg-verified" aria-hidden="true" />
             Resolved
           </span>
         ) : isEng ? (
-          <p className="text-[12px] text-muted">
+          <p className="text-caption text-muted">
             Engineering track — resolution requires a signed Management of Change.
             Direct resolve is blocked; the MoC governs the old edge&rsquo;s validity window.
           </p>
@@ -245,7 +254,7 @@ function ConflictCard({
           <button
             onClick={() => onResolve(c)}
             disabled={busy === c.conflict_id}
-            className="inline-flex h-8 items-center rounded-lg bg-accent px-3 text-[12.5px] font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="inline-flex h-8 items-center rounded-lg bg-accent px-3 text-caption font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {busy === c.conflict_id ? "Resolving…" : "Resolve · accept higher authority"}
           </button>

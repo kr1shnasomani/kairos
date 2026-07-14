@@ -10,14 +10,14 @@ export default function NotFound() {
             <path d="M13 20 L18.5 8 L21.5 20 Z" fill="var(--on-accent)" />
           </svg>
         </span>
-        <p className="tabular mt-5 text-[13px] font-semibold text-muted">404</p>
-        <h1 className="mt-1 text-[24px] font-semibold">Page not found</h1>
-        <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">
+        <p className="tabular mt-5 text-body font-semibold text-muted">404</p>
+        <h1 className="mt-1 text-display font-semibold">Page not found</h1>
+        <p className="mt-1.5 text-body leading-relaxed text-muted">
           That screen doesn&rsquo;t exist. It may have moved, or the link is out of date.
         </p>
         <Link
           href="/briefs"
-          className="mt-6 inline-flex h-10 items-center justify-center rounded-lg bg-ink px-4 text-[13.5px] font-semibold text-canvas transition-opacity hover:opacity-90"
+          className="mt-6 inline-flex h-10 items-center justify-center rounded-lg bg-ink px-4 text-body font-semibold text-canvas transition-opacity hover:opacity-90"
         >
           Back to briefs
         </Link>

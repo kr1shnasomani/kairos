@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Newsreader, Noto_Sans_Devanagari } from "next/font/google";
 import "./globals.css";
+import { CanvasTokensProvider } from "@/lib/graph-theme";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -51,7 +52,9 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
       </head>
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        <CanvasTokensProvider>{children}</CanvasTokensProvider>
+      </body>
     </html>
   );
 }

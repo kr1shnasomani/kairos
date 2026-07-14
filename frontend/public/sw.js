@@ -30,7 +30,9 @@ self.addEventListener("fetch", (e) => {
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
-  const isApi = url.port === "8000" || url.pathname.startsWith("/api/");
+  // The API is the only cross-origin fetch the app makes, so any non-frontend
+  // origin is API traffic — works for :8000 in dev and real domains in prod.
+  const isApi = url.origin !== self.location.origin || url.pathname.startsWith("/api/");
 
   if (isApi) {
     const shouldCache = DATA_PATTERNS.some((p) => url.pathname.includes(p));

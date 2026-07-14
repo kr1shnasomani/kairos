@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { Brief, BriefPriority, BriefsResponse } from "@/lib/types";
 import { priorityMeta, relativeTime } from "@/lib/utils";
 import { BriefCard } from "./brief-card";
-import { FilterTabs } from "./ui";
+import { EmptyState, FilterTabs } from "./ui";
 
 // PTW-critical first, then by priority order per EEMUA-191.
 const PRIORITY_ORDER: BriefPriority[] = ["critical", "high", "normal", "medium", "low"];
@@ -19,7 +19,7 @@ function GovernorBanner({ response }: { response: BriefsResponse }) {
   if (!suppressed && response.suppressed_count === 0) {
     // Show a compact pill when everything is normal
     return (
-      <div className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-[12px]">
+      <div className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-caption">
         <span className="font-semibold text-muted">Push governor</span>
         <div className="h-1 w-24 overflow-hidden rounded-full bg-line">
           <div className="h-full rounded-full bg-verified" style={{ width: `${pct}%` }} />
@@ -33,18 +33,18 @@ function GovernorBanner({ response }: { response: BriefsResponse }) {
     <div className="rounded-xl border border-[color-mix(in_srgb,var(--danger)_35%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] px-4 py-3">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-[13px] font-semibold text-danger">
+          <p className="text-body font-semibold text-danger">
             {response.suppressed_count} brief{response.suppressed_count !== 1 ? "s" : ""} held — governor suppressed
           </p>
-          <p className="mt-0.5 text-[12px] text-muted">
+          <p className="mt-0.5 text-caption text-muted">
             {gov.push_count_last_hour}/{gov.ceiling} pushes this hour
             {response.next_delivery_allowed_at && (
               <> · next delivery {relativeTime(response.next_delivery_allowed_at)}</>
             )}
           </p>
         </div>
-        <span className="tabular text-[22px] font-semibold text-danger">
-          {gov.push_count_last_hour}<span className="text-[14px] text-muted">/{gov.ceiling}</span>
+        <span className="tabular text-display font-semibold text-danger">
+          {gov.push_count_last_hour}<span className="text-sm text-muted">/{gov.ceiling}</span>
         </span>
       </div>
       <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-line">
@@ -92,7 +92,7 @@ export function BriefInbox({ response }: { response: BriefsResponse }) {
 
       <div className="flex flex-col gap-6">
         {groups.length === 0 && (
-          <p className="py-10 text-center text-[13px] text-muted">No briefs in this view.</p>
+          <EmptyState message="No briefs in this view." />
         )}
         {groups.map((p) => {
           const group = sortGroup(filtered.filter((b) => b.priority === p));
@@ -100,10 +100,10 @@ export function BriefInbox({ response }: { response: BriefsResponse }) {
             <section key={p} aria-label={`${priorityMeta(p).label} briefs`}>
               <div className="mb-2 flex items-center gap-2 px-0.5">
                 <span className="size-1.5 rounded-full" style={{ background: priorityMeta(p).color }} aria-hidden="true" />
-                <h2 className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
+                <h2 className="text-label font-bold uppercase tracking-[0.1em] text-muted">
                   {priorityMeta(p).label}
                 </h2>
-                <span className="tabular text-[11px] text-muted">{group.length}</span>
+                <span className="tabular text-label text-muted">{group.length}</span>
               </div>
               <div className="flex flex-col gap-3">
                 {group.map((b) => <BriefCard key={b.brief_id} brief={b} />)}

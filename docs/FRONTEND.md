@@ -414,7 +414,7 @@ volumes:
 
 **Env vars:**
 ```
-NEXT_PUBLIC_API_URL=http://localhost:8000   # browser → host port-mapping
+NEXT_PUBLIC_API_URL=http://localhost:8000   # browser → host port-mapping; embedded at next build
 API_INTERNAL_URL=http://kairos-backend-api:8000  # SSR → Docker internal network
 NODE_ENV=development
 ```

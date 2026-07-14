@@ -587,21 +587,33 @@ export interface HealthDetailed {
   checked_at: string;
 }
 
-// --- Audit pack (GET /compliance/audit-pack) ---
+// --- Audit pack (GET /compliance/audit-pack) — mirrors backend routers/compliance.py ---
+export interface AuditPackEvidence {
+  document_id: string;
+  document_type: string | null;
+  confidence: number | null;
+  verification_status: string | null;
+}
+
 export interface AuditPackClause {
   clause_id: string;
-  requirement_text: string;
-  documents: VaultDocument[];
-  confidence: number;
-  requires_review: boolean;
-  cleared: boolean;
-  reviewed_by?: string | null;
+  requirement_text: string | null;
+  applies_to: string | null;
+  authority_level: number;
+  severity: string;
+  evidence: AuditPackEvidence[];
+  verified_evidence_count: number;
+  clearance_blocked: boolean;
 }
 
 export interface AuditPack {
   framework: string;
   clauses: AuditPackClause[];
-  generated_at: string;
+  total_clauses: number;
+  total_evidence_docs: number;
+  human_review_required: string[];
+  note?: string;
+  status?: string;
 }
 
 // --- OT instrumentation coverage (GET /ot/coverage/{asset_id}) ---

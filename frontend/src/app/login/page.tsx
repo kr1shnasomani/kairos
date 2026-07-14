@@ -8,8 +8,8 @@ import { getToken } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("engineer@kairos.local");
-  const [password, setPassword] = useState("KairosEngineer123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -46,35 +46,50 @@ export default function LoginPage() {
               <path d="M13 20 L18.5 8 L21.5 20 Z" fill="var(--on-accent)" />
             </svg>
           </span>
-          <h1 className="mt-4 text-[26px] font-semibold">Sign in to Kairos</h1>
-          <p className="mt-1.5 text-[13px] text-muted">The right knowledge, at the moment of action.</p>
+          <h1 className="mt-4 text-display font-semibold">Sign in to Kairos</h1>
+          <p className="mt-1.5 text-body text-muted">The right knowledge, at the moment of action.</p>
         </div>
 
         <form onSubmit={signIn} className="mt-7 flex flex-col gap-3">
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-muted">Email</span>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-              className="h-11 rounded-lg border border-line bg-surface px-3.5 text-[14px] outline-none focus:border-accent" />
+            <span className="text-caption font-medium text-muted">Email</span>
+            <input
+              type="email"
+              name="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="engineer@kairos.local"
+              className="h-11 rounded-lg border border-line bg-surface px-3.5 text-sm outline-none focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent"
+            />
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-muted">Password</span>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+            <span className="text-caption font-medium text-muted">Password</span>
+            <input
+              type="password"
+              name="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="h-11 rounded-lg border border-line bg-surface px-3.5 text-[14px] outline-none focus:border-accent" />
+              className="h-11 rounded-lg border border-line bg-surface px-3.5 text-sm outline-none focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent"
+            />
           </label>
           {error && (
-            <p className="rounded-lg border border-[color-mix(in_srgb,var(--danger)_35%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface))] px-3 py-2 text-[12.5px] text-danger">
+            <p className="rounded-lg border border-[color-mix(in_srgb,var(--danger)_35%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface))] px-3 py-2 text-caption text-danger">
               {error}
             </p>
           )}
           <button type="submit" disabled={busy}
-            className="mt-1 h-11 rounded-lg bg-ink text-[14px] font-semibold text-canvas transition-opacity hover:opacity-90 disabled:opacity-60">
+            className="mt-1 h-11 rounded-lg bg-ink text-sm font-semibold text-canvas transition-opacity hover:opacity-90 disabled:opacity-60">
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
 
-        <p className="mt-5 text-center text-[11.5px] text-muted">
-          Seeded users: admin · engineer · field_worker (password prefilled for the engineer).
+        <p className="mt-5 text-center text-label text-muted">
+          Seeded users: admin · engineer · field_worker.
         </p>
       </div>
     </main>

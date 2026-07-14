@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { CircuitBreakerState, CircuitBreakerEntry } from "@/lib/types";
 import { getCircuitBreaker } from "@/lib/api";
-import { StatusBadge } from "@/components/ui";
+import { EmptyState, StatusBadge, DemoChip } from "@/components/ui";
 
 const FIXTURE: CircuitBreakerState = {
   halted_count: 2,
@@ -26,7 +26,7 @@ function ZScoreBar({ z }: { z: number }) {
       <div className="relative h-2 w-24 overflow-hidden rounded-full bg-surface-2">
         <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      <span className="tabular text-[11.5px]" style={{ color }}>{z.toFixed(1)}σ</span>
+      <span className="tabular text-label" style={{ color }}>{z.toFixed(1)}σ</span>
     </div>
   );
 }
@@ -34,10 +34,10 @@ function ZScoreBar({ z }: { z: number }) {
 function CircuitRow({ e }: { e: CircuitBreakerEntry }) {
   return (
     <div className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 ${e.halted ? "bg-[color-mix(in_srgb,var(--danger)_5%,var(--surface))]" : "bg-surface"}`}>
-      <span className="tabular w-28 shrink-0 text-[13px] font-semibold text-ink">{e.asset_class}</span>
+      <span className="tabular w-28 shrink-0 text-body font-semibold text-ink">{e.asset_class}</span>
       <StatusBadge tone={e.halted ? "danger" : "verified"}>{e.halted ? "halted" : "ok"}</StatusBadge>
       <ZScoreBar z={e.z_score} />
-      <span className="tabular text-[11.5px] text-muted">{e.override_count_7d} override{e.override_count_7d !== 1 ? "s" : ""}/7d</span>
+      <span className="tabular text-label text-muted">{e.override_count_7d} override{e.override_count_7d !== 1 ? "s" : ""}/7d</span>
     </div>
   );
 }
@@ -63,7 +63,7 @@ export default function CircuitBreakerPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link href="/governance" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link href="/governance" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
@@ -71,36 +71,31 @@ export default function CircuitBreakerPage() {
       </Link>
 
       <header className="mt-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Layer 11 · SPC governor</p>
-        <h1 className="mt-1 text-[26px] font-semibold leading-tight">Circuit breaker</h1>
-        <p className="mt-1 text-[13.5px] text-muted text-pretty">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 11 · SPC governor</p>
+        <h1 className="mt-1 text-display font-semibold leading-tight">Circuit breaker</h1>
+        <p className="mt-1 text-body text-muted text-pretty">
           Statistical process control gates that halt ingestion for an asset class when z-score anomalies
           exceed threshold. Halted classes require admin override or human-verified resolution.
         </p>
       </header>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        {isDemo && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
-            <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo data
-          </span>
-        )}
+        {isDemo && <DemoChip />}
       </div>
 
       {/* KPI row */}
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-line bg-surface p-3.5">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">Total classes</p>
-          <p className="tabular mt-1.5 text-[26px] font-semibold leading-none text-ink">{state ? states.length : "—"}</p>
+          <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Total classes</p>
+          <p className="tabular mt-1.5 text-display font-semibold leading-none text-ink">{state ? states.length : "—"}</p>
         </div>
         <div className="rounded-xl border border-[color-mix(in_srgb,var(--danger)_30%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_5%,var(--surface))] p-3.5">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">Halted</p>
-          <p className="tabular mt-1.5 text-[26px] font-semibold leading-none text-danger">{halted.length}</p>
+          <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Halted</p>
+          <p className="tabular mt-1.5 text-display font-semibold leading-none text-danger">{halted.length}</p>
         </div>
         <div className="rounded-xl border border-[color-mix(in_srgb,var(--verified)_30%,var(--line))] bg-[color-mix(in_srgb,var(--verified)_5%,var(--surface))] p-3.5">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">Operating</p>
-          <p className="tabular mt-1.5 text-[26px] font-semibold leading-none text-verified">{ok.length}</p>
+          <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Operating</p>
+          <p className="tabular mt-1.5 text-display font-semibold leading-none text-verified">{ok.length}</p>
         </div>
       </div>
 
@@ -114,8 +109,8 @@ export default function CircuitBreakerPage() {
           </span>
         </div>
       ) : states.length === 0 ? (
-        <div className="mt-5 rounded-xl border border-line bg-surface px-4 py-8 text-center text-[13px] text-muted">
-          No asset class has recorded extraction overrides — all ingestion paths are open.
+        <div className="mt-5">
+          <EmptyState message="No asset class has recorded extraction overrides — all ingestion paths are open." />
         </div>
       ) : (
         <div className="mt-5 overflow-hidden rounded-xl border border-line divide-y divide-line">
@@ -125,7 +120,7 @@ export default function CircuitBreakerPage() {
         </div>
       )}
 
-      <div className="mt-4 rounded-xl border border-dashed border-line bg-surface p-4 text-[12.5px] text-muted">
+      <div className="mt-4 rounded-xl border border-dashed border-line bg-surface p-4 text-caption text-muted">
         <span className="font-semibold text-ink">What triggers a halt?</span>{" "}
         A z-score ≥ 2.0σ on ingested values for an asset class. Overrides by field workers increment the counter; ≥ 5 overrides/7d
         auto-escalates to admin review. Only admins can manually clear a halt.

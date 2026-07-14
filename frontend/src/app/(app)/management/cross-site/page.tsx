@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { StatusBadge } from "@/components/ui";
+import { StatusBadge, DemoChip } from "@/components/ui";
 import { relativeTime } from "@/lib/utils";
 
 export const metadata = { title: "Cross-site alerts — Kairos" };
@@ -17,7 +17,7 @@ interface CrossSiteAlert {
   description: string;
 }
 
-// ponytail: no cross-site API endpoint yet; demo fixture until Layer-13 implemented
+// No cross-site aggregation API yet — demo fixture until it's implemented.
 const FIXTURE: CrossSiteAlert[] = [
   {
     id: "csa-001",
@@ -59,7 +59,7 @@ const PATTERN_TYPES = Array.from(new Set(FIXTURE.map((a) => a.pattern_type)));
 export default function CrossSiteAlertsPage() {
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link href="/management" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link href="/management" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
@@ -67,20 +67,17 @@ export default function CrossSiteAlertsPage() {
       </Link>
 
       <header className="mt-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Layer 13 · Cross-site</p>
-        <h1 className="mt-1 text-[26px] font-semibold leading-tight">Cross-site pattern alerts</h1>
-        <p className="mt-1 text-[13.5px] text-muted text-pretty">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 13 · Cross-site</p>
+        <h1 className="mt-1 text-display font-semibold leading-tight">Cross-site pattern alerts</h1>
+        <p className="mt-1 text-body text-muted text-pretty">
           Statistical signatures matched across sites. Pattern detection compares asset telemetry,
           inspection cadences, and failure histories to surface recurring precursors before they escalate.
         </p>
       </header>
 
-      <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
-        <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-        Demo data — cross-site aggregation API in roadmap
-      </div>
+      <div className="mt-4"><DemoChip detail="cross-site aggregation API in roadmap" /></div>
 
-      <div className="mt-4 flex flex-wrap gap-2 text-[11.5px] text-muted">
+      <div className="mt-4 flex flex-wrap gap-2 text-label text-muted">
         <span>Pattern types:</span>
         {PATTERN_TYPES.map((p) => (
           <span key={p} className="rounded-md border border-line bg-surface-2 px-2 py-0.5">{p}</span>
@@ -91,16 +88,16 @@ export default function CrossSiteAlertsPage() {
         {FIXTURE.map((a) => (
           <article key={a.id} className="rounded-xl border border-line bg-surface p-5">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <h2 className="text-[14.5px] font-semibold text-ink">{a.title}</h2>
+              <h2 className="text-sm font-semibold text-ink">{a.title}</h2>
               <StatusBadge tone={a.severity}>{a.severity === "danger" ? "Critical" : "Watch"}</StatusBadge>
-              <span className="tabular ml-auto text-[11px] text-muted">{relativeTime(a.first_seen)}</span>
+              <span className="tabular ml-auto text-label text-muted">{relativeTime(a.first_seen)}</span>
             </div>
 
-            <p className="mt-1 text-[11.5px] text-muted">{a.pattern_type}</p>
+            <p className="mt-1 text-label text-muted">{a.pattern_type}</p>
 
-            <p className="mt-2.5 text-[13px] leading-relaxed text-ink">{a.description}</p>
+            <p className="mt-2.5 text-body leading-relaxed text-ink">{a.description}</p>
 
-            <div className="mt-3 flex flex-wrap gap-4 text-[12px]">
+            <div className="mt-3 flex flex-wrap gap-4 text-caption">
               <div>
                 <span className="text-muted">Sites: </span>
                 <span className="font-medium">{a.sites_affected.join(", ")}</span>

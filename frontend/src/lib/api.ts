@@ -4,7 +4,6 @@ import type {
   ComplianceDashboard,
   ComplianceGapsResponse,
   AssetsResponse,
-  AssetSummary,
   ConflictsResponse,
   QuarantineResponse,
   PromoteQuarantineRequest,
@@ -26,7 +25,6 @@ import type {
   BlastRadiusItem,
   Annotation,
   AnnotationStats,
-  ElicitationQuestion,
   ElicitationSession,
   OffboardingProgramme,
   OperationalEvent,
@@ -38,7 +36,6 @@ import type {
   TopologyGraph,
   TopologyNode,
   TopologyEdge,
-  AuditLogEntry,
   AuditLogResponse,
   HealthDetailed,
   AuditPack,
@@ -68,6 +65,36 @@ export const API_BASE =
     : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000");
 
 const TOKEN_KEY = "kairos-token";
+const REFRESH_KEY = "kairos-refresh";
+const ACCESS_COOKIE = "kairos-access";
+
+export function isStrictAuth(): boolean {
+  return process.env.NEXT_PUBLIC_AUTH_STRICT === "true";
+}
+
+function accessTokenMaxAge(token: string): number {
+  try {
+    const payload = token.split(".")[1];
+    const { exp } = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/"))) as { exp?: number };
+    if (typeof exp === "number") return Math.max(0, Math.floor(exp - Date.now() / 1000));
+  } catch {
+    // Non-JWT development tokens still need a bounded browser session.
+  }
+  return 60 * 60;
+}
+
+export function storeSession(accessToken: string, refreshToken?: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(TOKEN_KEY, accessToken);
+    if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
+  } catch {
+    // Storage can be disabled; strict mode retains the short-lived cookie.
+  }
+  if (isStrictAuth()) {
+    document.cookie = `${ACCESS_COOKIE}=${encodeURIComponent(accessToken)}; Path=/; SameSite=Lax; Max-Age=${accessTokenMaxAge(accessToken)}${location.protocol === "https:" ? "; Secure" : ""}`;
+  }
+}
 
 /** Client-side bearer token (set at login). Server reads use the dev-mode bypass. */
 export function getToken(): string | null {
@@ -79,10 +106,28 @@ export function getToken(): string | null {
   }
 }
 
-async function refreshAccessToken(): Promise<boolean> {
+async function getStrictReadToken(): Promise<string | null> {
+  if (!isStrictAuth()) return null;
+  if (typeof window !== "undefined") return getToken();
+  const { cookies } = await import("next/headers");
+  return (await cookies()).get(ACCESS_COOKIE)?.value ?? null;
+}
+
+export function clearSession(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+  } catch {
+    // Storage can be disabled; the redirect still prevents a stale protected view.
+  }
+  document.cookie = `${ACCESS_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
+
+export async function refreshAccessToken(): Promise<boolean> {
   if (typeof window === "undefined") return false;
   try {
-    const refreshToken = localStorage.getItem("kairos-refresh");
+    const refreshToken = localStorage.getItem(REFRESH_KEY);
     if (!refreshToken) return false;
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
@@ -91,13 +136,33 @@ async function refreshAccessToken(): Promise<boolean> {
     });
     if (!res.ok) return false;
     const data = (await res.json()) as { access_token: string; refresh_token?: string };
-    localStorage.setItem("kairos-token", data.access_token);
-    if (data.refresh_token) localStorage.setItem("kairos-refresh", data.refresh_token);
+    storeSession(data.access_token, data.refresh_token);
     return true;
   } catch {
     return false;
   }
 }
+
+export async function fetchWithSession(path: string, init: RequestInit, timeoutMs = WRITE_TIMEOUT_MS): Promise<Response> {
+  const makeRequest = () => {
+    const token = getToken();
+    return fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: { Accept: "application/json", ...init.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
+    });
+  };
+
+  let res = await makeRequest();
+  if (res.status !== 401) return res;
+  if (await refreshAccessToken()) res = await makeRequest();
+  if (res.status === 401) clearSession();
+  return res;
+}
+
+// Writes have no fixture to fall back to, so give them more room than reads' 1500ms
+// fail-fast — but still bounded, so a hung backend fails visibly instead of hanging forever.
+const WRITE_TIMEOUT_MS = 8000;
 
 /** Authenticated write from the browser. Retries once after a silent token refresh on 401. */
 export async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -110,6 +175,7 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
         ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_TIMEOUT_MS),
     });
 
   let res = await makeReq(getToken());
@@ -123,6 +189,20 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
     }
     res = await makeReq(getToken());
   }
+  if (res.status === 401) {
+    clearSession();
+    if (typeof window !== "undefined") window.location.assign("/login");
+  }
+  if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
+
+// Uploads (voice notes, scanned P&IDs) can be large on slow field links — the 8s write
+// budget would abort them mid-transfer, so give multipart a much longer ceiling.
+const UPLOAD_TIMEOUT_MS = 120_000;
+
+async function postMultipart<T>(path: string, body: FormData): Promise<T> {
+  const res = await fetchWithSession(path, { method: "POST", body }, UPLOAD_TIMEOUT_MS);
   if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
   return (await res.json()) as T;
 }
@@ -145,11 +225,28 @@ export interface Fetched<T> {
 // Default 1500ms fails fast so a down/hanging backend falls back to fixtures quickly.
 // Endpoints that hit slow Supabase queries and have no fixture pass a longer timeout.
 async function getJson<T>(path: string, timeoutMs = 1500): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    cache: "no-store",
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  const makeRequest = async () => {
+    const token = await getStrictReadToken();
+    return fetch(`${API_BASE}${path}`, {
+      cache: "no-store",
+      headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  };
+
+  let res = await makeRequest();
+  if (res.status === 401 && isStrictAuth()) {
+    if (!await refreshAccessToken()) {
+      clearSession();
+      if (typeof window !== "undefined") window.location.assign("/login");
+      throw new Error(`${path} → HTTP 401`);
+    }
+    res = await makeRequest();
+  }
+  if (res.status === 401 && isStrictAuth()) {
+    clearSession();
+    if (typeof window !== "undefined") window.location.assign("/login");
+  }
   if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
   return (await res.json()) as T;
 }
@@ -252,6 +349,13 @@ export function disputeQuarantine(itemId: string, reason: string) {
   return postJson<{ status: string; item_id: string }>(
     `/governance/quarantine/${itemId}/dispute`,
     { reason },
+  );
+}
+
+export function requestQuarantineInfo(itemId: string, note: string) {
+  return postJson<{ status: "requested"; item_id: string }>(
+    `/governance/quarantine/${itemId}/request-info`,
+    { note },
   );
 }
 
@@ -529,15 +633,7 @@ export function submitVoiceNote(workOrderId: string, blob: Blob, submittedBy: st
   // Endpoint expects the field named "file" (UploadFile param in elicitation router).
   form.append("file", blob, "recording.webm");
   form.append("submitted_by", submittedBy);
-  const token = getToken();
-  return fetch(`${API_BASE}/elicitation/${workOrderId}/voice`, {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
-  }).then((r) => {
-    if (!r.ok) throw new Error(`voice → HTTP ${r.status}`);
-    return r.json() as Promise<{ task_id: string; status: string }>;
-  });
+  return postMultipart<{ task_id: string; status: string }>(`/elicitation/${workOrderId}/voice`, form);
 }
 
 // --- Offboarding ---
@@ -600,25 +696,32 @@ export function submitOffboardingResponses(
 }
 
 // --- Events ---
-export function postTagOut(body: { asset_id: string; reason: string; permit_number?: string }) {
-  return postJson<OperationalEvent>("/events/tag-out", body);
+type EventIngestResponse = { status: string; event_id: string };
+
+export function postTagOut(body: {
+  source_system: string; site_id: string; asset_id: string; tag_out_reason: string; performed_by: string; expected_return_date?: string;
+}) {
+  return postJson<EventIngestResponse>("/events/tag-out", body);
 }
 
 export function postInspectionComplete(body: {
-  asset_id: string;
+  source_system: string; site_id: string; asset_id: string; inspection_type: string;
   result: "passed" | "failed" | "conditional";
-  findings?: string;
-  performed_by: string;
+  findings?: string; performed_by: string; document_id?: string; confidence?: number;
 }) {
-  return postJson<OperationalEvent>("/events/inspection-complete", body);
+  return postJson<EventIngestResponse>("/events/inspection-complete", body);
 }
 
-export function postAlarm(body: { asset_id: string; alarm_tag: string; description: string; priority: string }) {
-  return postJson<OperationalEvent>("/events/alarm", body);
+export function postAlarm(body: {
+  source_system: string; site_id: string; asset_id: string; alarm_id: string; alarm_tag: string; alarm_description: string; severity: "critical" | "high" | "medium" | "low"; acknowledged_by: string;
+}) {
+  return postJson<EventIngestResponse>("/events/alarm", body);
 }
 
-export function postShiftHandover(body: { from_shift: string; to_shift: string; notes: string; site_id: string }) {
-  return postJson<OperationalEvent>("/events/shift-handover", body);
+export function postShiftHandover(body: {
+  source_system: string; site_id: string; outgoing_shift_lead_id: string; incoming_shift_lead_id: string; handover_time: string;
+}) {
+  return postJson<EventIngestResponse>("/events/shift-handover", body);
 }
 
 export function postDeviationFlag(body: {
@@ -631,9 +734,10 @@ export function postDeviationFlag(body: {
 
 export function resolveDeviationFlag(
   flagId: string,
-  resolution: { action: "promote" | "dispute"; moc_warranted?: boolean; note?: string },
+  // Mirrors backend DeviationFlagResolveRequest (models/event.py)
+  body: { resolution: "promoted" | "disputed"; moc_warranted?: boolean; notes?: string },
 ) {
-  return postJson<{ status: string }>(`/events/deviation-flag/${flagId}/resolve`, resolution);
+  return postJson<{ status: string }>(`/events/deviation-flag/${flagId}/resolve`, body);
 }
 
 export function setPlantState(body: {
@@ -662,8 +766,8 @@ export async function getEvent(eventId: string): Promise<Fetched<OperationalEven
   }
 }
 
-export function ackEvent(eventId: string) {
-  return postJson<{ status: string }>(`/events/${eventId}/ack`, {});
+export function ackEvent(eventId: string, body: { user_id: string; role: string; signature?: string; notes?: string }) {
+  return postJson<{ status: string }>(`/events/${eventId}/ack`, body);
 }
 
 export async function getGovernorState(userId: string): Promise<Fetched<GovernorEventState | null>> {
@@ -744,15 +848,7 @@ export async function getDocumentTopology(documentId: string): Promise<Fetched<T
 }
 
 export function supersedeDocument(documentId: string, formData: FormData) {
-  const token = getToken();
-  return fetch(`${API_BASE}/documents/${documentId}/supersede`, {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  }).then((r) => {
-    if (!r.ok) throw new Error(`supersede → HTTP ${r.status}`);
-    return r.json() as Promise<VaultDocument>;
-  });
+  return postMultipart<VaultDocument>(`/documents/${documentId}/supersede`, formData);
 }
 
 export async function getDocumentStatus(documentId: string): Promise<Fetched<DocumentStatus | null>> {
@@ -807,25 +903,30 @@ export async function getOtCoverage(assetId: string): Promise<Fetched<OtCoverage
 // server-side; the asset becomes canonical and linkable.
 export function confirmAssetIdentity(body: {
   asset_id: string;
+  tag_number: string;
   name: string;
   equipment_class: string;
-  identity_confirmed_by: string;
-  site_id?: string;
+  criticality: "safety_critical" | "critical" | "non_critical";
+  site_id: string;
+  facility_id: string;
+  confirmed_by_user_id: string;
 }) {
-  return postJson<AssetSummary>("/assets", body);
+  return postJson<{ asset_id: string; tag_number: string; status: "created" }>("/assets", body);
 }
 
 // --- Document ingest (multipart) ---
 export function ingestDocument(formData: FormData) {
-  const token = getToken();
-  return fetch(`${API_BASE}/documents/ingest`, {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  }).then((r) => {
-    if (!r.ok) throw new Error(`ingest → HTTP ${r.status}`);
-    return r.json() as Promise<VaultDocument & { already_ingested?: boolean }>;
-  });
+  return postMultipart<DocumentIngestResponse>("/documents/ingest", formData);
+}
+
+export interface DocumentIngestResponse {
+  status: "accepted" | "duplicate";
+  document_id: string;
+  sha256: string;
+  message: string;
+  job_id?: string;
+  vault_path?: string;
+  workflow?: string;
 }
 
 // --- Events: list ---
@@ -834,7 +935,7 @@ export async function getEvents(params?: { event_type?: string; limit?: number }
     const qs = new URLSearchParams();
     if (params?.event_type) qs.set("event_type", params.event_type);
     if (params?.limit) qs.set("limit", String(params.limit));
-    const data = await getJson<EventsResponse>(`/events?${qs}`);
+    const data = await getJson<EventsResponse>(`/events/?${qs}`);
     return { data, source: "live" };
   } catch {
     return { data: { items: [], total: 0, limit: 50, offset: 0 }, source: "demo" };

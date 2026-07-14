@@ -49,13 +49,13 @@ export default function DeviationPage() {
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
         </div>
-        <h1 className="mt-4 text-[20px] font-semibold">Deviation flag raised</h1>
+        <h1 className="mt-4 text-title font-semibold">Deviation flag raised</h1>
         {eventId && (
-          <p className="mt-1 text-[12px] text-muted">
+          <p className="mt-1 text-caption text-muted">
             Event <span className="tabular font-medium text-ink">{eventId}</span>
           </p>
         )}
-        <p className="mt-3 text-[13.5px] leading-relaxed text-muted">
+        <p className="mt-3 text-body leading-relaxed text-muted">
           Briefs for asset{" "}
           <span className="font-semibold text-ink">{assetId}</span> are now frozen
           pending engineering review. An engineer must resolve this flag before normal brief
@@ -68,11 +68,11 @@ export default function DeviationPage() {
   return (
     <div className="mx-auto max-w-md px-5 pb-8 pt-6">
       <header className="mb-6">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
           Field capture
         </p>
-        <h1 className="mt-0.5 text-[20px] font-semibold">Physical deviation flag</h1>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+        <h1 className="mt-0.5 text-title font-semibold">Physical deviation flag</h1>
+        <p className="mt-1.5 text-body leading-relaxed text-muted">
           Flag a physical condition that deviates from the P&ID or procedure. Briefs for the
           affected asset will be frozen until an engineer reviews and resolves this flag.
         </p>
@@ -80,7 +80,7 @@ export default function DeviationPage() {
 
       <form onSubmit={submit} className="flex flex-col gap-5" noValidate>
         <div>
-          <label htmlFor="asset-id" className="block text-[13px] font-semibold">
+          <label htmlFor="asset-id" className="block text-body font-semibold">
             Asset / tag number <span aria-hidden="true" className="text-danger">*</span>
           </label>
           <input
@@ -91,12 +91,12 @@ export default function DeviationPage() {
             placeholder="e.g. P-101"
             required
             aria-required="true"
-            className="mt-1.5 h-[52px] w-full rounded-xl border border-line bg-surface px-4 text-[14px] outline-none transition-colors focus-visible:border-accent"
+            className="mt-1.5 h-[52px] w-full rounded-xl border border-line bg-surface px-4 text-sm outline-none transition-colors focus-visible:border-accent"
           />
         </div>
 
         <div>
-          <label htmlFor="description" className="block text-[13px] font-semibold">
+          <label htmlFor="description" className="block text-body font-semibold">
             Description of deviation <span aria-hidden="true" className="text-danger">*</span>
           </label>
           <textarea
@@ -107,12 +107,12 @@ export default function DeviationPage() {
             rows={4}
             required
             aria-required="true"
-            className="mt-1.5 w-full resize-none rounded-xl border border-line bg-surface px-4 py-3 text-[14px] leading-relaxed outline-none transition-colors focus-visible:border-accent"
+            className="mt-1.5 w-full resize-none rounded-xl border border-line bg-surface px-4 py-3 text-sm leading-relaxed outline-none transition-colors focus-visible:border-accent"
           />
         </div>
 
         <div>
-          <label htmlFor="topology" className="block text-[13px] font-semibold">
+          <label htmlFor="topology" className="block text-body font-semibold">
             Affected topology path{" "}
             <span className="font-normal text-muted">(optional)</span>
           </label>
@@ -122,12 +122,12 @@ export default function DeviationPage() {
             value={topology}
             onChange={(e) => setTopology(e.target.value)}
             placeholder="e.g. P-101 → suction valve → isolation boundary"
-            className="mt-1.5 h-[52px] w-full rounded-xl border border-line bg-surface px-4 text-[14px] outline-none transition-colors focus-visible:border-accent"
+            className="mt-1.5 h-[52px] w-full rounded-xl border border-line bg-surface px-4 text-sm outline-none transition-colors focus-visible:border-accent"
           />
         </div>
 
         {stage === "error" && (
-          <p role="alert" className="text-[13px] text-danger">
+          <p role="alert" className="text-body text-danger">
             Submission failed. Check your connection and try again.
           </p>
         )}
@@ -137,11 +137,11 @@ export default function DeviationPage() {
             type="submit"
             variant="danger"
             disabled={!assetId.trim() || !description.trim() || stage === "submitting"}
-            className="h-[52px] w-full text-[15px]"
+            className="h-[52px] w-full text-subtitle"
           >
             {stage === "submitting" ? "Raising flag…" : "Raise deviation flag"}
           </Button>
-          <p className="mt-2 text-center text-[12px] text-muted">
+          <p className="mt-2 text-center text-caption text-muted">
             This action freezes briefs for the asset until engineering resolves the flag.
           </p>
         </div>

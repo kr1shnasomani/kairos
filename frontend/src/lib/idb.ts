@@ -1,6 +1,6 @@
 // IndexedDB write queue — stores failed POSTs for offline replay.
 // Only called client-side; no-ops when indexedDB is unavailable (SSR).
-import { getToken, API_BASE } from "./api";
+import { getToken, refreshAccessToken, API_BASE } from "./api";
 
 const DB = "kairos-queue";
 const STORE = "write-queue";
@@ -25,60 +25,94 @@ function open(): Promise<IDBDatabase> {
 export async function enqueueWrite(path: string, method: string, body: unknown): Promise<void> {
   if (typeof indexedDB === "undefined") return;
   const db = await open();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).add({ url: `${API_BASE}${path}`, method, body: JSON.stringify(body) });
-    tx.oncomplete = () => res();
-    tx.onerror = () => rej(tx.error);
-  });
+  try {
+    await new Promise<void>((res, rej) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).add({ url: `${API_BASE}${path}`, method, body: JSON.stringify(body) });
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+  } finally {
+    db.close();
+  }
 }
 
 export async function getQueueLength(): Promise<number> {
   if (typeof indexedDB === "undefined") return 0;
   const db = await open();
-  return new Promise((res, rej) => {
-    const r = db.transaction(STORE, "readonly").objectStore(STORE).count();
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
+  try {
+    return await new Promise<number>((res, rej) => {
+      const r = db.transaction(STORE, "readonly").objectStore(STORE).count();
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  } finally {
+    db.close();
+  }
 }
+
+// Bounded so one hung endpoint can't stall the whole sequential replay loop.
+const REPLAY_TIMEOUT_MS = 8000;
 
 export async function flushQueue(): Promise<{ replayed: number; failed: number }> {
   if (typeof indexedDB === "undefined") return { replayed: 0, failed: 0 };
   const db = await open();
-  const items = await new Promise<QueuedWrite[]>((res, rej) => {
-    const r = db.transaction(STORE, "readonly").objectStore(STORE).getAll();
-    r.onsuccess = () => res(r.result as QueuedWrite[]);
-    r.onerror = () => rej(r.error);
-  });
+  try {
+    const items = await new Promise<QueuedWrite[]>((res, rej) => {
+      const r = db.transaction(STORE, "readonly").objectStore(STORE).getAll();
+      r.onsuccess = () => res(r.result as QueuedWrite[]);
+      r.onerror = () => rej(r.error);
+    });
 
-  const token = getToken();
-  let replayed = 0;
-  let failed = 0;
+    const remove = (id: number) =>
+      new Promise<void>((res2) => {
+        const tx = db.transaction(STORE, "readwrite");
+        tx.objectStore(STORE).delete(id);
+        tx.oncomplete = () => res2();
+      });
 
-  for (const item of items) {
-    try {
-      const r = await fetch(item.url, {
+    const replay = (item: QueuedWrite) => {
+      const token = getToken();
+      return fetch(item.url, {
         method: item.method,
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: item.body,
+        signal: AbortSignal.timeout(REPLAY_TIMEOUT_MS),
       });
-      if (r.ok || r.status === 409) {
-        await new Promise<void>((res2) => {
-          const tx = db.transaction(STORE, "readwrite");
-          tx.objectStore(STORE).delete(item.id!);
-          tx.oncomplete = () => res2();
-        });
-        replayed++;
-      } else {
+    };
+
+    let replayed = 0;
+    let failed = 0;
+    let refreshTried = false;
+
+    for (const item of items) {
+      try {
+        let r = await replay(item);
+        // A token that expired while offline 401s every item — refresh once per flush.
+        if (r.status === 401 && !refreshTried) {
+          refreshTried = true;
+          if (await refreshAccessToken()) r = await replay(item);
+        }
+        if (r.ok || r.status === 409) {
+          await remove(item.id!);
+          replayed++;
+        } else if (r.status >= 400 && r.status < 500 && r.status !== 401) {
+          // Client error: replaying the same payload can never succeed. Drop it so
+          // one bad write can't poison the queue and inflate the badge forever.
+          await remove(item.id!);
+          failed++;
+        } else {
+          failed++; // network/5xx/unrefreshed 401: keep for the next flush
+        }
+      } catch {
         failed++;
       }
-    } catch {
-      failed++;
     }
+    return { replayed, failed };
+  } finally {
+    db.close();
   }
-  return { replayed, failed };
 }

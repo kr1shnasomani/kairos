@@ -34,13 +34,13 @@ function SessionList({
             type="button"
             onClick={() => onSelect(s.id)}
             className={cn(
-              "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] transition-colors",
+              "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-body transition-colors",
               s.id === activeId
                 ? "bg-accent-soft font-semibold text-accent"
                 : "text-muted hover:bg-surface-2 hover:text-ink",
             )}
           >
-            <span className="tabular text-[11px]">Session {s.session_number}</span>
+            <span className="tabular text-label">Session {s.session_number}</span>
             <span className="min-w-0 flex-1 truncate">{s.equipment_family}</span>
             {s.status === "completed" ? (
               <svg className="size-3.5 shrink-0 text-verified" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-label="Completed">
@@ -75,17 +75,19 @@ function Interview({
   const [voiceAnswers, setVoiceAnswers] = useState<Record<number, boolean>>({});
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const allAnswered = questions.every((_, i) => (answers[i] ?? "").trim());
 
   async function submit() {
     setSubmitting(true);
+    setError(null);
     const responses = questions.map((_, i) => ({ question_index: i, answer: answers[i] ?? "" }));
     try {
       await submitOffboardingResponses(programmeId, item.id, responses);
       setSubmitted(true);
     } catch {
-      setSubmitted(true); // offline path — queuing out of scope for desktop
+      setError("Responses were not saved. Check the connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -99,8 +101,8 @@ function Interview({
             <path d="M20 6 9 17l-5-5" />
           </svg>
         </div>
-        <p className="text-[16px] font-semibold">Session complete</p>
-        <p className="max-w-sm text-[13px] text-muted">
+        <p className="text-subtitle font-semibold">Session complete</p>
+        <p className="max-w-sm text-body text-muted">
           Responses entered the knowledge quarantine. Engineering will review and promote verified
           insights to the knowledge graph.
         </p>
@@ -112,15 +114,15 @@ function Interview({
   return (
     <div className="flex flex-col gap-7">
       <div>
-        <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">{item.equipment_family}</p>
-        <h2 className="mt-0.5 text-[20px] font-semibold">Session {item.session_number} — interview</h2>
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">{item.equipment_family}</p>
+        <h2 className="mt-0.5 text-title font-semibold">Session {item.session_number} — interview</h2>
       </div>
 
       <div className="flex flex-col gap-6">
         {questions.map((q, i) => (
           <div key={i} className="rounded-xl border border-line bg-surface p-5">
-            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-muted">Q{i + 1}</p>
-            <p className="mt-1 text-[15px] font-semibold leading-snug">{q}</p>
+            <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Q{i + 1}</p>
+            <p className="mt-1 text-subtitle font-semibold leading-snug">{q}</p>
 
             <div className="mt-3 flex flex-col gap-3">
               <textarea
@@ -129,13 +131,13 @@ function Interview({
                 placeholder="Describe your expert knowledge on this topic…"
                 rows={3}
                 aria-label={q}
-                className="w-full resize-none rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-[13.5px] leading-relaxed outline-none focus-visible:border-accent"
+                className="w-full resize-none rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-body leading-relaxed outline-none focus-visible:border-accent"
               />
               {!voiceAnswers[i] ? (
                 <button
                   type="button"
                   onClick={() => setVoiceAnswers((v) => ({ ...v, [i]: true }))}
-                  className="inline-flex items-center gap-1.5 text-[12px] font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+                  className="inline-flex items-center gap-1.5 text-caption font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent"
                 >
                   <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                     <path d="M12 1a4 4 0 0 0-4 4v7a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4z" />
@@ -144,12 +146,15 @@ function Interview({
                   Use voice instead
                 </button>
               ) : (
-                <VoiceRecorder
-                  onBlob={(b) => {
-                    setAnswers((a) => ({ ...a, [i]: (a[i] ?? "") + " [voice recording attached]" }));
-                    void b; // full transcription runs via the /field/voice endpoint
-                  }}
-                />
+                <div>
+                  {/* No off-boarding audio endpoint exists — the recording never leaves the
+                      browser, so the UI must not claim it was attached. */}
+                  <VoiceRecorder onBlob={() => {}} />
+                  <p className="mt-1.5 text-caption text-muted">
+                    Recording is a memory aid only — audio is not uploaded from off-boarding.
+                    Type the key points into the answer above.
+                  </p>
+                </div>
               )}
             </div>
           </div>
@@ -159,6 +164,7 @@ function Interview({
       <Button variant="primary" onClick={submit} disabled={!allAnswered || submitting} className="mt-2 h-[48px] w-full">
         {submitting ? "Submitting…" : "Submit session responses"}
       </Button>
+      {error && <p role="alert" className="text-body text-danger">{error}</p>}
     </div>
   );
 }
@@ -211,11 +217,11 @@ export default function OffboardingSessionPage() {
   if (!programme) {
     return (
       <div className="mx-auto max-w-lg px-5 py-16 text-center">
-        <p className="text-[16px] font-semibold">Programme not found</p>
-        <p className="mt-1.5 text-[13px] text-muted">
+        <p className="text-subtitle font-semibold">Programme not found</p>
+        <p className="mt-1.5 text-body text-muted">
           This off-boarding programme doesn&apos;t exist or was cancelled.
         </p>
-        <Link href="/offboarding" className="mt-4 inline-block text-[13px] font-medium text-accent hover:underline">
+        <Link href="/offboarding" className="mt-4 inline-block text-body font-medium text-accent hover:underline">
           ← Back to programmes
         </Link>
       </div>
@@ -224,7 +230,7 @@ export default function OffboardingSessionPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8">
-      <div className="mb-4 flex items-center gap-2 text-[13px] text-muted">
+      <div className="mb-4 flex items-center gap-2 text-body text-muted">
         <Link href="/offboarding" className="hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">Offboarding</Link>
         <span aria-hidden="true">›</span>
         <span className="text-ink">{programme.personnel_email}</span>
@@ -233,8 +239,8 @@ export default function OffboardingSessionPage() {
 
       <div className="grid gap-6 md:grid-cols-[220px_1fr]">
         <div className="rounded-xl border border-line bg-surface p-4">
-          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Sessions</p>
-          <p className="mb-3 text-[11px] text-muted">
+          <p className="mb-1 text-label font-bold uppercase tracking-[0.1em] text-muted">Sessions</p>
+          <p className="mb-3 text-label text-muted">
             Retires {new Date(programme.retirement_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
           </p>
           <SessionList items={items} activeId={activeId} onSelect={setSelectedId} />
@@ -242,9 +248,10 @@ export default function OffboardingSessionPage() {
 
         <div>
           {!active ? (
-            <p className="text-[14px] text-muted">No sessions in this programme yet.</p>
+            <p className="text-sm text-muted">No sessions in this programme yet.</p>
           ) : active.status === "questions_ready" && activeQuestions.length > 0 ? (
             <Interview
+              key={active.id}
               programmeId={programmeId}
               item={active}
               questions={activeQuestions}
@@ -252,9 +259,9 @@ export default function OffboardingSessionPage() {
             />
           ) : (
             <div className="rounded-xl border border-line bg-surface p-6">
-              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">{active.equipment_family}</p>
-              <h2 className="mt-0.5 text-[18px] font-semibold">Session {active.session_number}</h2>
-              <p className="mt-1 text-[13px] text-muted">
+              <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">{active.equipment_family}</p>
+              <h2 className="mt-0.5 text-title font-semibold">Session {active.session_number}</h2>
+              <p className="mt-1 text-body text-muted">
                 Scheduled: {new Date(active.scheduled_for).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}
               </p>
               <div className="mt-4">

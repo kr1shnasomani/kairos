@@ -1,51 +1,52 @@
 "use client";
 
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import {
   ReactFlow,
   Background,
   useNodesState,
   useEdgesState,
-  MarkerType,
   type Node,
   type Edge,
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { getBlastRadius } from "@/lib/api";
-import type { BlastRadiusReport, BlastRadiusItem } from "@/lib/types";
-import { StatusBadge } from "@/components/ui";
+import type { BlastRadiusReport } from "@/lib/types";
+import { StatusBadge, DemoChip, EmptyState } from "@/components/ui";
 import Link from "next/link";
+import { useCanvasTokens, arrowMarker, type CanvasTokens } from "@/lib/graph-theme";
 
 // ── Mini diagram ─────────────────────────────────────────────────────────────
+// Colors are resolved Paper design tokens (lib/graph-theme.tsx), not hardcoded hex.
 
-const ITEM_TYPE_COLORS: Record<string, string> = {
-  procedure: "#3b82f6",
-  inspection: "#e79d13",
-  fact: "#8b8d98",
-  document: "#5e6ad2",
-  compliance: "#e5484d",
+const ITEM_TYPE_TOKENS: Record<string, keyof CanvasTokens> = {
+  procedure: "--info",
+  inspection: "--caution",
+  fact: "--muted",
+  document: "--accent",
+  compliance: "--danger",
 };
-const DEFAULT_ITEM_COLOR = "#8b8d98";
 
 const BlastNode = memo(function BlastNode({ data }: NodeProps) {
   const d = data as { label: string; itemType: string; isCenter: boolean; flagged: boolean };
-  const color = d.isCenter ? "#5e6ad2" : (ITEM_TYPE_COLORS[d.itemType] ?? DEFAULT_ITEM_COLOR);
+  const tokens = useCanvasTokens();
+  const color = d.isCenter ? tokens["--accent"] : tokens[ITEM_TYPE_TOKENS[d.itemType] ?? "--muted"];
   return (
     <div
       style={{ borderColor: color }}
       className={`min-w-[80px] max-w-[130px] rounded-xl border-2 px-2.5 py-1.5 text-center shadow-sm ${d.isCenter ? "bg-[color-mix(in_srgb,var(--accent)_8%,var(--surface))]" : "bg-surface"}`}
     >
       <p className="text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color }}>{d.itemType}</p>
-      <p className="mt-0.5 truncate text-[10.5px] font-semibold leading-snug text-ink">{d.label}</p>
-      {d.flagged && <p className="mt-0.5 text-[8.5px] font-semibold text-danger">FLAGGED</p>}
+      <p className="mt-0.5 truncate text-micro font-semibold leading-snug text-ink">{d.label}</p>
+      {d.flagged && <p className="mt-0.5 text-label font-bold text-danger">FLAGGED</p>}
     </div>
   );
 });
 
 const blastNodeTypes = { blast: BlastNode };
 
-function buildBlastDiagram(report: BlastRadiusReport): { nodes: Node[]; edges: Edge[] } {
+function buildBlastDiagram(report: BlastRadiusReport, tokens: CanvasTokens): { nodes: Node[]; edges: Edge[] } {
   const center: Node = {
     id: "__doc__",
     type: "blast",
@@ -70,13 +71,16 @@ function buildBlastDiagram(report: BlastRadiusReport): { nodes: Node[]; edges: E
     }),
   ];
 
-  const rfEdges: Edge[] = shown.map((item) => ({
-    id: `e-${item.item_id}`,
-    source: "__doc__",
-    target: item.item_id,
-    style: { stroke: item.flagged_for_review ? "#e5484d" : "#c1c5d0", strokeWidth: 1.2 },
-    markerEnd: { type: MarkerType.ArrowClosed, width: 10, height: 10, color: item.flagged_for_review ? "#e5484d" : "#c1c5d0" },
-  }));
+  const rfEdges: Edge[] = shown.map((item) => {
+    const color = item.flagged_for_review ? tokens["--danger"] : tokens["--line"];
+    return {
+      id: `e-${item.item_id}`,
+      source: "__doc__",
+      target: item.item_id,
+      style: { stroke: color, strokeWidth: 1.2 },
+      markerEnd: arrowMarker(color, 10),
+    };
+  });
 
   return { nodes: rfNodes, edges: rfEdges };
 }
@@ -99,7 +103,12 @@ function fixtureReport(documentId: string): BlastRadiusReport {
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
-export function BlastRadiusPanel({ documentId }: { documentId: string }) {
+export function BlastRadiusPanel(props: { documentId: string }) {
+  return <BlastRadiusPanelInner {...props} />;
+}
+
+function BlastRadiusPanelInner({ documentId }: { documentId: string }) {
+  const tokens = useCanvasTokens();
   const [report, setReport] = useState<BlastRadiusReport | null>(null);
   const [isDemo, setIsDemo] = useState(false);
   const [open, setOpen] = useState(false);
@@ -113,14 +122,19 @@ export function BlastRadiusPanel({ documentId }: { documentId: string }) {
       const resolved = data ?? fixtureReport(documentId);
       setReport(resolved);
       setIsDemo(source === "demo" || !data);
-      if (resolved.items.length > 0) {
-        const { nodes: n, edges: e } = buildBlastDiagram(resolved);
-        setNodes(n);
-        setEdges(e);
-      }
     });
     return () => { alive = false; };
   }, [documentId]);
+
+  // Edge/node colors are baked-in token strings, so rebuild whenever the report
+  // or the resolved theme tokens change.
+  useEffect(() => {
+    if (report && report.items.length > 0) {
+      const { nodes: n, edges: e } = buildBlastDiagram(report, tokens);
+      setNodes(n);
+      setEdges(e);
+    }
+  }, [report, tokens, setNodes, setEdges]);
 
   if (!report) return null;
 
@@ -134,7 +148,7 @@ export function BlastRadiusPanel({ documentId }: { documentId: string }) {
         <span>
           Blast radius
           {report.affected_count > 0 && (
-            <span className="ml-2 inline-flex items-center rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-semibold text-white">
+            <span className="ml-2 inline-flex items-center rounded-full bg-danger px-1.5 py-0.5 text-micro font-semibold text-white">
               {report.affected_count}
             </span>
           )}
@@ -150,17 +164,12 @@ export function BlastRadiusPanel({ documentId }: { documentId: string }) {
 
       {open && (
         <div className="mt-3 space-y-4">
-          {isDemo && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
-              <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-              Demo data
-            </span>
-          )}
+          {isDemo && <DemoChip />}
 
           {report.items.length === 0 ? (
-            <p className="rounded-xl border border-line bg-surface px-4 py-5 text-center text-[13px] text-muted">
-              No downstream items affected.
-            </p>
+            <div className="rounded-xl border border-line bg-surface">
+              <EmptyState message="No downstream items affected." />
+            </div>
           ) : (
             <>
               {/* Mini React Flow diagram */}
@@ -176,12 +185,12 @@ export function BlastRadiusPanel({ documentId }: { documentId: string }) {
                   nodesDraggable={false}
                   nodesConnectable={false}
                   elementsSelectable={false}
-                  attributionPosition="bottom-left"
+                  proOptions={{ hideAttribution: true }}
                   zoomOnScroll={false}
                   panOnScroll={false}
                   panOnDrag={false}
                 >
-                  <Background gap={20} size={1} color="#e2e4e9" />
+                  <Background gap={20} size={1} color={tokens["--line"]} />
                 </ReactFlow>
               </div>
 
@@ -190,12 +199,12 @@ export function BlastRadiusPanel({ documentId }: { documentId: string }) {
                 {report.items.map((item) => (
                   <div key={item.item_id} className="flex items-start gap-3 bg-surface px-4 py-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[12.5px] text-ink leading-snug">{item.description}</p>
-                      <p className="mt-0.5 text-[11px] text-muted capitalize">{item.item_type}</p>
+                      <p className="text-caption text-ink leading-snug">{item.description}</p>
+                      <p className="mt-0.5 text-label text-muted capitalize">{item.item_type}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {item.asset_id && (
-                        <Link href={`/assets/${item.asset_id}`} className="text-[11px] text-accent hover:underline">
+                        <Link href={`/assets/${item.asset_id}`} className="text-label text-accent hover:underline">
                           {item.asset_id}
                         </Link>
                       )}
@@ -208,7 +217,7 @@ export function BlastRadiusPanel({ documentId }: { documentId: string }) {
               </div>
 
               {report.affected_count > report.items.length && (
-                <p className="text-center text-[11.5px] text-muted">
+                <p className="text-center text-label text-muted">
                   + {report.affected_count - report.items.length} more items
                 </p>
               )}

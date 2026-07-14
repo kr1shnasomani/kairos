@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import type { DocumentPipelineStage, DocumentStatus, VaultDocument } from "@/lib/types";
-import { ingestDocument, getDocumentStatus } from "@/lib/api";
+import type { DocumentPipelineStage, DocumentStatus } from "@/lib/types";
+import { ingestDocument, getDocumentStatus, type DocumentIngestResponse } from "@/lib/api";
 import { useRole, RESOLVE_ROLES } from "@/components/use-role";
 import { Button, StatusBadge, Timeline } from "@/components/ui";
 import { triggerLabel } from "@/lib/utils";
@@ -20,8 +20,6 @@ const STAGE_LABEL: Record<DocumentPipelineStage, string> = {
   complete: "Complete", review_required: "Review required", failed: "Failed",
 };
 
-interface Ingested extends VaultDocument { already_ingested?: boolean; }
-
 export default function IngestPage() {
   const role = useRole();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -32,7 +30,7 @@ export default function IngestPage() {
   const [authority, setAuthority] = useState("3");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<Ingested | null>(null);
+  const [result, setResult] = useState<DocumentIngestResponse | null>(null);
   const [status, setStatus] = useState<DocumentStatus | null>(null);
 
   const canIngest = RESOLVE_ROLES.includes(role);
@@ -91,7 +89,7 @@ export default function IngestPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-5 py-8 sm:px-8 sm:py-10">
-      <Link href="/documents" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link href="/documents" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
@@ -99,16 +97,16 @@ export default function IngestPage() {
       </Link>
 
       <header className="mt-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">Flow C · Universal document ingestion</p>
-        <h1 className="mt-1 text-[28px] font-semibold leading-tight">Ingest a document</h1>
-        <p className="mt-1.5 text-[13.5px] text-muted text-pretty">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Flow C · Universal document ingestion</p>
+        <h1 className="mt-1 text-display font-semibold leading-tight">Ingest a document</h1>
+        <p className="mt-1.5 text-body text-muted text-pretty">
           The entry point of the platform. Files are stored byte-for-byte in the immutable vault and
           run through the extraction pipeline. Identical files (same SHA-256) are de-duplicated, never re-stored.
         </p>
       </header>
 
       {!canIngest && (
-        <div className="mt-5 rounded-xl border border-line bg-surface p-5 text-[13px] text-muted">
+        <div className="mt-5 rounded-xl border border-line bg-surface p-5 text-body text-muted">
           Document ingestion requires the <span className="font-semibold text-ink">engineer</span> or{" "}
           <span className="font-semibold text-ink">admin</span> role.
         </div>
@@ -124,8 +122,8 @@ export default function IngestPage() {
             <svg className="size-7 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
             </svg>
-            <span className="text-[13.5px] font-semibold text-ink">{file ? file.name : "Choose a file or drag it here"}</span>
-            <span className="text-[11.5px] text-muted">{file ? `${(file.size / 1024).toFixed(0)} KB` : "PDF, image, or scanned form"}</span>
+            <span className="text-body font-semibold text-ink">{file ? file.name : "Choose a file or drag it here"}</span>
+            <span className="text-label text-muted">{file ? `${(file.size / 1024).toFixed(0)} KB` : "PDF, image, or scanned form"}</span>
           </button>
           <input
             ref={fileRef}
@@ -136,29 +134,29 @@ export default function IngestPage() {
           />
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-[12.5px]">
+            <label className="block text-caption">
               <span className="font-semibold text-ink">Document type</span>
               <select value={docType} onChange={(e) => setDocType(e.target.value)}
-                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-[13px]">
+                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-body">
                 {DOC_TYPES.map((t) => <option key={t} value={t}>{triggerLabel(t)}</option>)}
               </select>
             </label>
-            <label className="block text-[12.5px]">
+            <label className="block text-caption">
               <span className="font-semibold text-ink">Authority level</span>
               <select value={authority} onChange={(e) => setAuthority(e.target.value)}
-                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-[13px]">
+                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-body">
                 {[1, 2, 3, 4, 5].map((l) => <option key={l} value={l}>L{l}</option>)}
               </select>
             </label>
-            <label className="block text-[12.5px]">
+            <label className="block text-caption">
               <span className="font-semibold text-ink">Asset link <span className="font-normal text-muted">(optional)</span></span>
               <input value={assetId} onChange={(e) => setAssetId(e.target.value)} placeholder="P-101"
-                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-[13px]" />
+                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-body" />
             </label>
-            <label className="block text-[12.5px]">
+            <label className="block text-caption">
               <span className="font-semibold text-ink">Source system</span>
               <input value={sourceSystem} onChange={(e) => setSourceSystem(e.target.value)}
-                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-[13px]" />
+                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-body" />
             </label>
           </div>
 
@@ -166,7 +164,7 @@ export default function IngestPage() {
             <Button type="submit" variant="primary" disabled={!file || busy}>
               {busy ? "Uploading…" : "Ingest document"}
             </Button>
-            {error && <span className="text-[13px] text-danger">{error}</span>}
+            {error && <span className="text-body text-danger">{error}</span>}
           </div>
         </form>
       )}
@@ -175,37 +173,35 @@ export default function IngestPage() {
         <section className="mt-5 space-y-4">
           <div className="rounded-xl border border-line bg-surface p-5">
             <div className="flex flex-wrap items-center gap-3">
-              {result.already_ingested
+              {result.status === "duplicate"
                 ? <StatusBadge tone="caution">Already ingested</StatusBadge>
                 : <StatusBadge tone="verified">Stored in vault</StatusBadge>}
-              <span className="tabular text-[13px] font-semibold text-accent">{result.document_id}</span>
+              <span className="tabular text-body font-semibold text-accent">{result.document_id}</span>
             </div>
-            <p className="mt-2 text-[12.5px] text-muted">
-              {result.already_ingested
-                ? "This exact file already exists — the vault returned the existing document (SHA-256 dedup)."
-                : "The raw file was stored unchanged. Extraction runs asynchronously below."}
+            <p className="mt-2 text-caption text-muted">
+              {result.message}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Link href={`/documents/${result.document_id}`} className="text-[12.5px] text-accent underline hover:no-underline">Open document ↗</Link>
-              {result.document_type === "pid_drawing" && (
-                <Link href={`/documents/${result.document_id}/topology`} className="text-[12.5px] text-accent underline hover:no-underline">View topology ↗</Link>
+              <Link href={`/documents/${result.document_id}`} className="text-caption text-accent underline hover:no-underline">Open document ↗</Link>
+              {docType === "pid_drawing" && (
+                <Link href={`/documents/${result.document_id}/topology`} className="text-caption text-accent underline hover:no-underline">View topology ↗</Link>
               )}
             </div>
           </div>
 
           <div className="rounded-xl border border-line bg-surface p-5">
             <div className="flex items-center justify-between">
-              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Pipeline status</p>
+              <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Pipeline status</p>
               {status?.stage === "review_required" && <StatusBadge tone="caution">Review required</StatusBadge>}
               {status?.stage === "failed" && <StatusBadge tone="danger">Failed</StatusBadge>}
             </div>
             <div className="mt-4">
               {timelineEvents.length > 0
                 ? <Timeline events={timelineEvents} />
-                : <p className="text-[13px] text-muted">Waiting for the first pipeline update…</p>}
+                : <p className="text-body text-muted">Waiting for the first pipeline update…</p>}
             </div>
             {status?.stage === "review_required" && (
-              <Link href="/governance/quarantine" className="mt-2 inline-block text-[12.5px] text-accent underline hover:no-underline">
+              <Link href="/governance/quarantine" className="mt-2 inline-block text-caption text-accent underline hover:no-underline">
                 Low-confidence extraction — review in quarantine ↗
               </Link>
             )}

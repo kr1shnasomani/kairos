@@ -16,8 +16,8 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
         role="alert"
         className="rounded-xl border border-[color-mix(in_srgb,var(--danger)_35%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface))] p-6"
       >
-        <h1 className="text-[18px] font-semibold text-danger">Something went wrong</h1>
-        <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">
+        <h1 className="text-title font-semibold text-danger">Something went wrong</h1>
+        <p className="mt-1.5 text-body leading-relaxed text-muted">
           This screen failed to load. Your data and the evidence vault are unaffected — retry, or move to
           another screen.
         </p>

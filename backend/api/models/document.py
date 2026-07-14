@@ -153,3 +153,9 @@ class PromoteQuarantineRequest(BaseModel):
     relationship_type: str = Field(..., description="Neo4j relationship type for the promoted edge, e.g. DOCUMENTED_BY")
     document_type: str = Field("procedure", description="Type of document for the promoted edge: procedure, inspection_report, oem_manual, etc.")
     notes: Optional[str] = None
+
+
+class RequestQuarantineInfoRequest(BaseModel):
+    """A durable, reviewer-authored follow-up request for a pending item."""
+
+    note: str = Field(..., min_length=1, max_length=2000)

@@ -14,7 +14,7 @@ function authorityColor(level: number): string {
   return "var(--caution)";
 }
 
-// ── Validity timeline bars (Task 16) ─────────────────────────────────────────
+// ── Validity timeline bars ────────────────────────────────────────────────────
 
 function ValidityTimeline({ edges }: { edges: GraphEdgeData[] }) {
   if (edges.length === 0) return null;
@@ -34,7 +34,7 @@ function ValidityTimeline({ edges }: { edges: GraphEdgeData[] }) {
 
   return (
     <section className="mt-6">
-      <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
+      <h2 className="mb-3 text-label font-bold uppercase tracking-[0.1em] text-muted">
         Validity windows
       </h2>
       <div className="space-y-2">
@@ -49,7 +49,7 @@ function ValidityTimeline({ edges }: { edges: GraphEdgeData[] }) {
           return (
             <div key={e.id ?? i} className="flex items-center gap-3">
               <span
-                className="w-40 shrink-0 truncate text-[11px] text-muted"
+                className="w-28 shrink-0 truncate text-label text-muted sm:w-40"
                 title={e.label}
               >
                 {e.label}
@@ -65,7 +65,7 @@ function ValidityTimeline({ edges }: { edges: GraphEdgeData[] }) {
                   }}
                 />
               </div>
-              <span className="w-14 shrink-0 text-right text-[10px] text-muted">
+              <span className="w-14 shrink-0 text-right text-micro text-muted">
                 {isOpen
                   ? "Current"
                   : endD.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })}
@@ -74,7 +74,7 @@ function ValidityTimeline({ edges }: { edges: GraphEdgeData[] }) {
           );
         })}
       </div>
-      <div className="mt-1.5 flex justify-between text-[10px] text-muted">
+      <div className="mt-1.5 flex justify-between text-micro text-muted">
         <span>
           {new Date(minMs).toLocaleDateString("en-IN", {
             month: "short",
@@ -99,7 +99,7 @@ const LEGEND_ITEMS = [
 
 function GraphLegend() {
   return (
-    <div className="flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-muted">
+    <div className="flex flex-wrap gap-x-5 gap-y-2 text-label text-muted">
       {LEGEND_ITEMS.map(({ var: c, label, dashed }) => (
         <div key={label} className="flex items-center gap-1.5">
           {dashed
@@ -142,13 +142,13 @@ export default function GraphPage() {
   return (
     <div className="mx-auto max-w-5xl px-5 py-8 sm:px-8 sm:py-10">
       <header className="mb-6">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
           Layer 4 · Knowledge graph
         </p>
-        <h1 className="mt-1 text-[26px] font-semibold leading-tight text-balance">
+        <h1 className="mt-1 text-display font-semibold leading-tight text-balance">
           Temporal asset graph
         </h1>
-        <p className="mt-1 text-[13.5px] text-muted text-pretty">
+        <p className="mt-1 text-body text-muted text-pretty">
           1–2 hop neighborhood around the selected asset. Edges colored by authority level and styled
           by verification status. Click a node or edge to inspect its properties.
         </p>
@@ -158,7 +158,7 @@ export default function GraphPage() {
       <div className="mb-5 flex flex-wrap items-end gap-3">
         {/* Asset search */}
         <div className="flex flex-col gap-1">
-          <label htmlFor="asset-id" className="text-[11px] font-medium text-muted">
+          <label htmlFor="asset-id" className="text-label font-medium text-muted">
             Asset ID
           </label>
           <form
@@ -173,11 +173,11 @@ export default function GraphPage() {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder="e.g. P-101"
-              className="h-9 w-40 rounded-lg border border-line bg-surface px-3 text-[13px] outline-none focus-visible:border-accent"
+              className="h-9 w-40 rounded-lg border border-line bg-surface px-3 text-body outline-none focus-visible:border-accent"
             />
             <button
               type="submit"
-              className="h-9 rounded-lg border border-accent bg-accent-soft px-3 text-[13px] font-medium text-accent transition-colors hover:bg-[color-mix(in_srgb,var(--accent)_15%,transparent)]"
+              className="h-9 rounded-lg border border-accent bg-accent-soft px-3 text-body font-medium text-accent transition-colors hover:bg-[color-mix(in_srgb,var(--accent)_15%,transparent)]"
             >
               View
             </button>
@@ -191,7 +191,7 @@ export default function GraphPage() {
               key={id}
               onClick={() => handleLoadGraph(id)}
               className={cn(
-                "h-9 rounded-lg border px-3 text-[12px] font-medium transition-colors",
+                "h-9 rounded-lg border px-3 text-caption font-medium transition-colors",
                 assetId === id
                   ? "border-accent bg-accent-soft text-accent"
                   : "border-line bg-surface text-muted hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-ink"
@@ -202,9 +202,9 @@ export default function GraphPage() {
           ))}
         </div>
 
-        {/* Time-travel (Task 16) */}
+        {/* Time-travel */}
         <div className="ml-auto flex flex-col gap-1">
-          <label htmlFor="graph-asof" className="text-[11px] font-medium text-muted">
+          <label htmlFor="graph-asof" className="text-label font-medium text-muted">
             As of (time travel)
           </label>
           <div className="flex items-center gap-2">
@@ -214,12 +214,12 @@ export default function GraphPage() {
               value={asOf}
               onChange={(e) => handleAsOfChange(e.target.value)}
               max={today}
-              className="h-9 rounded-lg border border-line bg-surface px-2 text-[12px] outline-none focus-visible:border-accent"
+              className="h-9 rounded-lg border border-line bg-surface px-2 text-caption outline-none focus-visible:border-accent"
             />
             {asOf && (
               <button
                 onClick={() => handleAsOfChange("")}
-                className="text-[11px] text-muted hover:text-ink"
+                className="text-label text-muted hover:text-ink"
                 aria-label="Clear time travel date"
               >
                 Clear

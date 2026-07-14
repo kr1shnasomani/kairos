@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { ThemeToggle, ContrastToggle } from "./theme-toggle";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ThemeToggle } from "./theme-toggle";
+import { CommandPalette, ShortcutsHelp, type PaletteItem } from "./command-palette";
 import { getMe, logout } from "@/lib/auth";
-import { getToken, getGovernorState, getPlantState } from "@/lib/api";
+import { getToken, getGovernorState, getPlantState, isStrictAuth } from "@/lib/api";
 import { flushQueue, getQueueLength } from "@/lib/idb";
 import type { Role, User, GovernorEventState, PlantState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { PhaseBadge } from "./ui";
+import { PageSkeleton } from "./skeleton";
 
 // Staff surfaces (Assure group + RCA) are hidden from field workers. Dev-bypass (no session)
 // defaults to engineer, so an unauthenticated demo still sees everything.
@@ -18,7 +20,7 @@ const STAFF: Role[] = ["engineer", "reliability", "admin"];
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
   | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph" | "audit"
-  | "events" | "offboarding" | "projects";
+  | "events" | "offboarding" | "projects" | "voice";
 
 function Icon({ name, className = "size-[18px]" }: { name: IconName; className?: string }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -38,6 +40,7 @@ function Icon({ name, className = "size-[18px]" }: { name: IconName; className?:
     events: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
     offboarding: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M17 11l4-4M21 11l-4-4" /></>,
     projects: <><path d="M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 12l9 4 9-4M3 17l9 4 9-4" /></>,
+    voice: <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><path d="M12 19v4M8 23h8" /></>,
   };
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -77,7 +80,15 @@ const NAV: { group: string; items: NavItem[] }[] = [
 function KairosMark({ size = 30 }: { size?: number }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src="/logo.jpeg" alt="Kairos" className="rounded-lg object-cover" style={{ width: size, height: size }} aria-hidden="true" />
+    <img
+      src="/logo.jpeg"
+      alt=""
+      width={size}
+      height={size}
+      className="rounded-lg object-cover"
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    />
   );
 }
 
@@ -94,7 +105,7 @@ function GovernorPill({ userId }: { userId: string }) {
     <div
       title={`Governor: ${gov.push_count_last_hour}/${gov.ceiling} briefs/hr`}
       className={cn(
-        "mx-3 my-1 flex items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px]",
+        "mx-3 my-1 flex items-center justify-between rounded-lg px-2.5 py-1.5 text-label",
         suppressed
           ? "bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-danger"
           : "bg-surface-2 text-muted",
@@ -106,7 +117,7 @@ function GovernorPill({ userId }: { userId: string }) {
   );
 }
 
-function SidebarContent({ onNavigate, role, user, onSignOut, queueCount }: { onNavigate?: () => void; role: Role; user: User | null; onSignOut: () => void; queueCount: number }) {
+function SidebarContent({ onNavigate, role, user, onSignOut, queueCount, onOpenPalette }: { onNavigate?: () => void; role: Role; user: User | null; onSignOut: () => void; queueCount: number; onOpenPalette?: () => void }) {
   const pathname = usePathname();
   const sections = NAV
     .map((s) => ({ ...s, items: s.items.filter((it) => !it.roles || it.roles.includes(role)) }))
@@ -122,15 +133,32 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount }: { onN
       <div className="flex items-center justify-between gap-2 px-4 py-4">
         <div className="flex items-center gap-2.5">
           <KairosMark />
-          <span className="text-[15px] font-semibold tracking-tight">Kairos</span>
+          <span className="text-subtitle font-semibold tracking-tight">Kairos</span>
         </div>
         <PhaseBadge />
       </div>
 
+      {onOpenPalette && (
+        <div className="px-3 pb-2">
+          <button
+            type="button"
+            onClick={onOpenPalette}
+            className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-caption text-muted transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-ink"
+          >
+            <Icon name="search" />
+            Search…
+            {/* Platform-aware; suppressHydrationWarning because the server can't know the OS */}
+            <kbd suppressHydrationWarning className="ml-auto rounded border border-line bg-surface px-1.5 py-0.5 text-micro">
+              {typeof navigator !== "undefined" && /Mac|iPhone/.test(navigator.platform) ? "⌘K" : "Ctrl K"}
+            </kbd>
+          </button>
+        </div>
+      )}
+
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-2">
         {sections.map((section) => (
           <div key={section.group}>
-            <p className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+            <p className="px-2 pb-1.5 text-micro font-bold uppercase tracking-[0.1em] text-muted">
               {section.group}
             </p>
             <ul className="space-y-0.5">
@@ -142,7 +170,7 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount }: { onN
                       href={item.href}
                       onClick={onNavigate}
                       className={cn(
-                        "flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13.5px] transition-colors",
+                        "flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-body transition-colors",
                         active
                           ? "bg-accent-soft font-semibold text-accent"
                           : "text-muted hover:bg-surface-2 hover:text-ink",
@@ -162,26 +190,30 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount }: { onN
       {user && <GovernorPill userId={user.user_id} />}
 
       <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-3">
-        <div className="flex min-w-0 items-center gap-2 px-1">
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-bold text-on-accent">
+        <Link
+          href="/settings"
+          onClick={onNavigate}
+          title="Preferences"
+          className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 transition-colors hover:bg-surface-2"
+        >
+          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-label font-bold text-on-accent">
             {initials}
           </span>
           <div className="min-w-0 leading-tight">
             <p className="truncate text-xs font-semibold">{name}</p>
-            <p className="truncate text-[11px] text-muted">{roleLine}</p>
+            <p className="truncate text-label text-muted">{roleLine}</p>
           </div>
-        </div>
+        </Link>
         <div className="flex items-center gap-1">
           {queueCount > 0 && (
             <span
               title={`${queueCount} write${queueCount !== 1 ? "s" : ""} queued offline`}
-              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--caution)_18%,transparent)] px-1 text-[10px] font-bold text-caution"
+              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--caution)_18%,transparent)] px-1 text-micro font-bold text-caution"
               aria-label={`${queueCount} pending sync`}
             >
               {queueCount}
             </span>
           )}
-          <ContrastToggle />
           <ThemeToggle />
           <button
             onClick={onSignOut}
@@ -205,12 +237,12 @@ function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut:
     { href: "/briefs", label: "Briefs", icon: "briefs" as IconName },
     { href: "/copilot", label: "Copilot", icon: "copilot" as IconName },
     { href: "/assets", label: "Assets", icon: "assets" as IconName },
-    { href: "/field/voice", label: "Voice", icon: "search" as IconName },
+    { href: "/field/voice", label: "Voice", icon: "voice" as IconName },
   ] as const;
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface"
+      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]"
       aria-label="Field navigation"
     >
       {tabs.map((tab) => {
@@ -220,7 +252,7 @@ function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut:
             key={tab.href}
             href={tab.href}
             className={cn(
-              "flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-[10px] font-semibold transition-colors",
+              "flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-micro font-semibold transition-colors",
               active ? "text-accent" : "text-muted hover:text-ink",
             )}
             aria-current={active ? "page" : undefined}
@@ -233,7 +265,7 @@ function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut:
       {/* Me tab */}
       <button
         onClick={onSignOut}
-        className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-[10px] font-semibold text-muted transition-colors hover:text-ink"
+        className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-micro font-semibold text-muted transition-colors hover:text-ink"
         aria-label="Sign out"
       >
         <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -247,21 +279,56 @@ function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut:
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
+  const [palette, setPalette] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const goSeqRef = useRef<number | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [queueCount, setQueueCount] = useState(0);
   const [plantState, setPlantState] = useState<PlantState | null>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
 
+  // Route-aware browser titles from the nav config — one effect covers every page
+  // (client pages can't export Next metadata).
   useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-      return;
+    const nav = NAV.flatMap((g) => g.items).find(
+      (i) => pathname === i.href || pathname.startsWith(i.href + "/"),
+    );
+    const tail = decodeURIComponent(pathname.split("/").filter(Boolean).pop() ?? "");
+    const base =
+      nav?.label ?? (tail ? tail.charAt(0).toUpperCase() + tail.slice(1).replace(/-/g, " ") : "Briefs");
+    document.title =
+      nav && pathname !== nav.href ? `${tail} · ${nav.label} · KAIROS` : `${base} · KAIROS`;
+  }, [pathname]);
+
+  useEffect(() => {
+    let alive = true;
+    async function authorize() {
+      const token = getToken();
+      if (isStrictAuth()) {
+        if (!token) {
+          router.replace("/login");
+          return;
+        }
+        const profile = await getMe();
+        if (!alive) return;
+        if (!profile) {
+          logout();
+          router.replace("/login");
+          return;
+        }
+        setUser(profile);
+      } else if (token) {
+        const profile = await getMe();
+        if (!alive) return;
+        setUser(profile);
+      }
+      if (alive) setAuthed(true);
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-once auth gate reading the persisted token
-    setAuthed(true);
-    getMe().then(setUser);
+    void authorize();
     // Service worker: production only. In dev it caches the app shell and fights
     // HMR — stale chunk hashes trigger a hard reload that re-serves the stale
     // cache, an infinite refresh loop. Unregister any stale SW so dev self-heals.
@@ -281,20 +348,108 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setQueueCount(n);
     }
     window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
+    return () => {
+      alive = false;
+      window.removeEventListener("online", onOnline);
+    };
   }, [router]);
 
   useEffect(() => {
-    if (user?.site_id) {
-      getPlantState(user.site_id).then((r) => {
-        if (r.data && r.data.state !== "normal") setPlantState(r.data);
-        else setPlantState(null);
-      });
-    }
+    if (!user?.site_id) return;
+    let alive = true;
+    getPlantState(user.site_id).then((r) => {
+      if (!alive) return;
+      if (r.data && r.data.state !== "normal") setPlantState(r.data);
+      else setPlantState(null);
+    });
+    return () => { alive = false; };
   }, [user]);
+
+  useEffect(() => {
+    if (!drawer) return;
+    const trigger = menuTriggerRef.current;
+    drawerRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDrawer(false);
+      if (event.key === "Tab" && drawerRef.current) {
+        const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!first || !last) {
+          event.preventDefault();
+        } else if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      trigger?.focus();
+    };
+  }, [drawer]);
 
   const role: Role = user?.role ?? "engineer";
   const isField = role === "field_worker";
+
+  const paletteItems = useMemo<PaletteItem[]>(() => {
+    const nav = NAV.flatMap((g) =>
+      g.items
+        .filter((i) => !i.roles || i.roles.includes(role))
+        .map((i) => ({ group: g.group, label: i.label, href: i.href })),
+    );
+    return [
+      ...nav,
+      {
+        group: "Actions",
+        label: "Toggle dark mode",
+        action: () => {
+          const root = document.documentElement;
+          const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+          root.setAttribute("data-theme", next);
+          try { localStorage.setItem("kairos-theme", next); } catch {}
+        },
+      },
+      { group: "Actions", label: "Preferences", href: "/settings" },
+      { group: "Actions", label: "Keyboard shortcuts", hint: "?", action: () => setHelpOpen(true) },
+    ];
+  }, [role]);
+
+  // Global keys: ⌘K palette, ? help, g-then-letter navigation. Ignored while typing.
+  useEffect(() => {
+    const GO: Record<string, string> = {
+      b: "/briefs", c: "/copilot", a: "/assets", e: "/events", g: "/graph",
+      d: "/documents", q: "/governance/quarantine", v: "/governance", m: "/management",
+    };
+    const isTyping = (t: EventTarget | null) =>
+      t instanceof HTMLElement &&
+      (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((p) => !p);
+        return;
+      }
+      if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "?") { setHelpOpen(true); return; }
+      const now = Date.now();
+      if (goSeqRef.current && now - goSeqRef.current < 1500) {
+        goSeqRef.current = null;
+        const href = GO[e.key.toLowerCase()];
+        if (href) { e.preventDefault(); router.push(href); }
+        return;
+      }
+      if (e.key.toLowerCase() === "g") goSeqRef.current = now;
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [router]);
 
   function signOut() {
     logout();
@@ -302,36 +457,74 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
-  if (authed !== true) return null;
+// Auth gate: never blank. Show shell chrome + skeleton until token resolves.
+  if (authed !== true) {
+    return (
+      <div className="flex min-h-dvh">
+        <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block" aria-hidden="true">
+          <div className="sticky top-0 h-dvh px-4 py-4">
+            <div className="flex items-center gap-2.5">
+              <KairosMark />
+              <span className="text-subtitle font-semibold tracking-tight">Kairos</span>
+            </div>
+          </div>
+        </aside>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <main id="main" className="min-w-0 flex-1" aria-busy="true">
+            <PageSkeleton />
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-dvh">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:text-body focus:font-semibold focus:text-ink focus:shadow-lg focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
+      >
+        Skip to content
+      </a>
+
+      <CommandPalette open={palette} onClose={() => setPalette(false)} items={paletteItems} />
+      <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+
       {/* Desktop sidebar — all roles */}
       <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block">
         <div className="sticky top-0 h-dvh">
-          <SidebarContent role={role} user={user} onSignOut={signOut} queueCount={queueCount} />
+          <SidebarContent role={role} user={user} onSignOut={signOut} queueCount={queueCount} onOpenPalette={() => setPalette(true)} />
         </div>
       </aside>
 
       {/* Mobile: field workers get a bottom tab bar, others get a hamburger drawer */}
       {!isField && drawer && (
-        <div className="fixed inset-0 z-40 md:hidden">
+        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
           <button
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-black/40"
             aria-label="Close menu"
             onClick={() => setDrawer(false)}
           />
-          <div className="absolute inset-y-0 left-0 w-[244px] border-r border-line bg-surface">
+          <div ref={drawerRef} tabIndex={-1} className="absolute inset-y-0 left-0 w-[244px] animate-[drawer-in_200ms_ease-out] border-r border-line bg-surface outline-none">
             <SidebarContent onNavigate={() => setDrawer(false)} role={role} user={user} onSignOut={signOut} queueCount={queueCount} />
           </div>
         </div>
       )}
 
-      <div className={cn("flex min-w-0 flex-1 flex-col", isField && "pb-[56px] md:pb-0")}>
+      {/* Field mobile: 56px tabs + safe-area; desktop field uses sidebar only */}
+      {/* inert while the drawer dialog is open so screen readers can't wander behind it */}
+      <div
+        inert={drawer || undefined}
+        className={cn(
+          "flex min-w-0 flex-1 flex-col",
+          isField && "pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0",
+        )}
+      >
         {/* Non-field mobile top bar */}
         {!isField && (
           <header className="flex items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden">
             <button
+              ref={menuTriggerRef}
               className="grid size-9 place-items-center rounded-lg border border-line text-muted"
               aria-label="Open menu"
               onClick={() => setDrawer(true)}
@@ -350,7 +543,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div
             role="alert"
             className={cn(
-              "flex items-center gap-3 px-5 py-2.5 text-[13px] font-semibold",
+              "flex items-center gap-3 px-5 py-2.5 text-body font-semibold",
               plantState.state === "emergency"
                 ? "bg-danger text-white"
                 : "bg-[color-mix(in_srgb,var(--caution)_18%,var(--surface))] text-caution",
@@ -361,7 +554,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {" — only critical briefs are being delivered"}
           </div>
         )}
-        <main className="min-w-0 flex-1">{children}</main>
+        <main id="main" className="min-w-0 flex-1">{children}</main>
       </div>
 
       {/* Field bottom tab bar — mobile only */}

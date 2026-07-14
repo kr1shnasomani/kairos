@@ -11,7 +11,6 @@ import {
   Position,
   useNodesState,
   useEdgesState,
-  MarkerType,
   type Node,
   type Edge,
   type NodeProps,
@@ -21,18 +20,22 @@ import "@xyflow/react/dist/style.css";
 import { getDocumentTopology } from "@/lib/api";
 import type { TopologyGraph, TopologyNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useCanvasTokens, arrowMarker, type CanvasTokens } from "@/lib/graph-theme";
+import { EmptyState } from "@/components/ui";
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 
-// Canvas hex: React Flow cannot resolve CSS custom properties at paint time
-const NODE_COLORS: Record<string, string> = {
-  Pump: "#3b82f6", Vessel: "#5e6ad2", Equipment: "#5e6ad2",
-  Valve: "#30a46c", Instrument: "#e79d13", Separator: "#5e6ad2",
+// Canvas: resolved Paper design tokens (lib/graph-theme.tsx) — React Flow cannot
+// resolve CSS custom properties at paint time, so these are concrete color
+// strings re-resolved on theme toggle, not hardcoded hex.
+const NODE_TOKENS: Record<string, keyof CanvasTokens> = {
+  Pump: "--info", Vessel: "--accent", Equipment: "--accent",
+  Valve: "--verified", Instrument: "--caution", Separator: "--accent",
 };
-function nodeColor(type: string, status: TopologyNode["verification_status"]): string {
-  if (status === "disputed") return "#e5484d";
-  if (status === "unverified") return "#e79d13";
-  return NODE_COLORS[type] ?? "#8b8d98";
+function nodeColor(type: string, status: TopologyNode["verification_status"], tokens: CanvasTokens): string {
+  if (status === "disputed") return tokens["--danger"];
+  if (status === "unverified") return tokens["--caution"];
+  return tokens[NODE_TOKENS[type] ?? "--muted"];
 }
 
 // DOM vars: outside canvas, must use CSS variables
@@ -50,7 +53,8 @@ function nodeVar(type: string, status: TopologyNode["verification_status"]): str
 
 const TopoNode = memo(function TopoNode({ data, selected }: NodeProps) {
   const n = data as unknown as TopologyNode;
-  const color = nodeColor(n.node_type, n.verification_status);
+  const tokens = useCanvasTokens();
+  const color = nodeColor(n.node_type, n.verification_status, tokens);
   const dashed = n.verification_status === "unverified";
   return (
     <>
@@ -65,10 +69,10 @@ const TopoNode = memo(function TopoNode({ data, selected }: NodeProps) {
           selected && "ring-2 ring-offset-1"
         )}
       >
-        <p className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color }}>
+        <p className="text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color }}>
           {n.node_type}
         </p>
-        <p className="mt-0.5 truncate text-[11.5px] font-semibold leading-snug text-ink">
+        <p className="mt-0.5 truncate text-label font-semibold leading-snug text-ink">
           {n.label}
         </p>
         {n.verification_status !== "verified" && (
@@ -109,12 +113,12 @@ const FIXTURE: TopologyGraph = {
 // ── Layout ────────────────────────────────────────────────────────────────────
 
 const CENTER_TYPES = new Set(["Pump", "Vessel", "Separator", "Equipment"]);
-const EDGE_TYPE_COLOR: Record<string, string> = {
-  flow_connection: "#5e6ad2",
-  instrumentation_loop: "#e79d13",
+const EDGE_TYPE_TOKENS: Record<string, keyof CanvasTokens> = {
+  flow_connection: "--accent",
+  instrumentation_loop: "--caution",
 };
 
-function buildLayout(topo: TopologyGraph): { nodes: Node[]; edges: Edge[] } {
+function buildLayout(topo: TopologyGraph, tokens: CanvasTokens): { nodes: Node[]; edges: Edge[] } {
   const center = topo.nodes.find((n) => CENTER_TYPES.has(n.node_type)) ?? topo.nodes[0];
   const others = topo.nodes.filter((n) => n.node_id !== center.node_id);
 
@@ -134,7 +138,7 @@ function buildLayout(topo: TopologyGraph): { nodes: Node[]; edges: Edge[] } {
   ];
 
   const rfEdges: Edge[] = topo.edges.map((e) => {
-    const color = EDGE_TYPE_COLOR[e.edge_type] ?? "#8b8d98";
+    const color = tokens[EDGE_TYPE_TOKENS[e.edge_type] ?? "--muted"];
     const isLoop = e.edge_type === "instrumentation_loop";
     return {
       id: e.edge_id,
@@ -142,7 +146,7 @@ function buildLayout(topo: TopologyGraph): { nodes: Node[]; edges: Edge[] } {
       target: e.target_id,
       label: e.label,
       style: { stroke: color, strokeWidth: isLoop ? 1.2 : 1.8, strokeDasharray: isLoop ? "4,3" : undefined },
-      markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color },
+      markerEnd: arrowMarker(color, 12),
     };
   });
 
@@ -156,7 +160,7 @@ function NodeDetail({ node, onClose }: { node: TopologyNode; onClose: () => void
   return (
     <div className="absolute right-3 top-3 z-10 w-64 rounded-xl border border-line bg-surface shadow-lg">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <p className="truncate text-[13px] font-semibold text-ink">{node.label}</p>
+        <p className="truncate text-body font-semibold text-ink">{node.label}</p>
         <button
           onClick={onClose}
           aria-label="Close"
@@ -167,7 +171,7 @@ function NodeDetail({ node, onClose }: { node: TopologyNode; onClose: () => void
           </svg>
         </button>
       </div>
-      <div className="p-4 space-y-2 text-[11.5px]">
+      <div className="p-4 space-y-2 text-label">
         <div className="flex gap-2">
           <span className="w-24 shrink-0 font-medium text-muted">Type</span>
           <span style={{ color }} className="font-semibold">{node.node_type}</span>
@@ -199,7 +203,7 @@ const TOPO_LEGEND = [
 
 function TopoLegend() {
   return (
-    <div className="flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-muted">
+    <div className="flex flex-wrap gap-x-5 gap-y-2 text-label text-muted">
       {TOPO_LEGEND.map(({ cssVar, dashed, label }) => (
         <div key={label} className="flex items-center gap-1.5">
           {dashed
@@ -215,7 +219,12 @@ function TopoLegend() {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TopologyPage() {
+  return <TopologyPageInner />;
+}
+
+function TopologyPageInner() {
   const { id } = useParams<{ id: string }>();
+  const tokens = useCanvasTokens();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [topo, setTopo] = useState<TopologyGraph | null>(null);
@@ -228,12 +237,18 @@ export default function TopologyPage() {
       const resolved = data ?? FIXTURE;
       setTopo(resolved);
       setIsDemo(source === "demo" || !data);
-      const { nodes: n, edges: e } = buildLayout(resolved);
-      setNodes(n);
-      setEdges(e);
       setLoading(false);
     });
   }, [id]);
+
+  // Node/edge colors are baked-in token strings, so rebuild whenever the
+  // topology data or the resolved theme tokens change.
+  useEffect(() => {
+    if (!topo) return;
+    const { nodes: n, edges: e } = buildLayout(topo, tokens);
+    setNodes(n);
+    setEdges(e);
+  }, [topo, tokens, setNodes, setEdges]);
 
   const onNodeClick = useCallback<NodeMouseHandler>((_evt, node) => {
     setSelectedNode(node.data as unknown as TopologyNode);
@@ -246,7 +261,7 @@ export default function TopologyPage() {
       <div className="flex items-center justify-between">
         <Link
           href={`/documents/${id}`}
-          className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+          className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M15 18l-6-6 6-6" />
@@ -254,7 +269,7 @@ export default function TopologyPage() {
           Document
         </Link>
         {isDemo && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-label text-muted">
             <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
             Demo topology
           </span>
@@ -262,13 +277,13 @@ export default function TopologyPage() {
       </div>
 
       <header className="mt-4 mb-5">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">
+        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
           Layer 3 · P&ID topology
         </p>
-        <h1 className="mt-1 text-[26px] font-semibold leading-tight text-balance">
+        <h1 className="mt-1 text-display font-semibold leading-tight text-balance">
           {id}
         </h1>
-        <p className="mt-1 text-[13.5px] text-muted text-pretty">
+        <p className="mt-1 text-body text-muted text-pretty">
           Equipment, valves, instruments, and flow connections extracted from the P&ID drawing.
           Unverified elements are highlighted — confirm via the quarantine queue.
         </p>
@@ -282,6 +297,8 @@ export default function TopologyPage() {
             ))}
           </span>
         </div>
+      ) : topo && topo.nodes.length === 0 ? (
+        <EmptyState message="No topology extracted from this document yet." />
       ) : (
         <div className="relative overflow-hidden rounded-xl border border-line" style={{ height: 520 }}>
           <ReactFlow
@@ -294,9 +311,9 @@ export default function TopologyPage() {
             onPaneClick={onPaneClick}
             fitView
             fitViewOptions={{ padding: 0.35 }}
-            attributionPosition="bottom-left"
+            proOptions={{ hideAttribution: true }}
           >
-            <Background gap={24} size={1} color="#e2e4e9" />
+            <Background gap={24} size={1} color={tokens["--line"]} />
             <Controls showInteractive={false} />
           </ReactFlow>
           {selectedNode && (
@@ -311,7 +328,7 @@ export default function TopologyPage() {
 
       {topo && (
         <section className="mt-6">
-          <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
+          <h2 className="mb-3 text-label font-bold uppercase tracking-[0.1em] text-muted">
             Elements ({topo.nodes.length})
           </h2>
           <div className="divide-y divide-line rounded-xl border border-line overflow-hidden">
@@ -320,9 +337,9 @@ export default function TopologyPage() {
               return (
                 <div key={n.node_id} className="flex items-center gap-3 px-4 py-3 bg-surface">
                   <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: color }} aria-hidden="true" />
-                  <span className="text-[12.5px] font-semibold w-24 shrink-0">{n.label}</span>
-                  <span className="text-[11.5px] text-muted">{n.node_type}</span>
-                  <span className="ml-auto text-[11px] capitalize" style={{ color }}>{n.verification_status}</span>
+                  <span className="text-caption font-semibold w-24 shrink-0">{n.label}</span>
+                  <span className="text-label text-muted">{n.node_type}</span>
+                  <span className="ml-auto text-label capitalize" style={{ color }}>{n.verification_status}</span>
                 </div>
               );
             })}

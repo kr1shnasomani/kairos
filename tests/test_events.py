@@ -118,6 +118,19 @@ async def test_get_event(admin_client):
     assert "correlated_event_ids" in body
 
 
+async def test_list_events_filters_and_paginates(admin_client, shared_asset_id):
+    created = await admin_client.post("/events/work-order", json=_work_order_payload(shared_asset_id))
+    assert created.status_code == 202
+
+    response = await admin_client.get("/events/?event_type=work_order_created&limit=1&offset=0")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["limit"] == 1
+    assert body["offset"] == 0
+    assert body["total"] >= 1
+    assert all(item["event_type"] == "work_order_created" for item in body["items"])
+
+
 async def test_acknowledge_event(admin_client, shared_asset_id):
     payload = _work_order_payload(shared_asset_id)
     r = await admin_client.post("/events/work-order", json=payload)

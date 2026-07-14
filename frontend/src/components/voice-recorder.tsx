@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui";
 
 type State = "idle" | "recording" | "stopped";
 const MAX_MB = 10;
@@ -16,6 +17,7 @@ export function VoiceRecorder({ onBlob, disabled }: Props) {
   const [blob, setBlob] = useState<Blob | null>(null);
   const [denied, setDenied] = useState(false);
   const [tooLarge, setTooLarge] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -27,6 +29,19 @@ export function VoiceRecorder({ onBlob, disabled }: Props) {
     },
     [],
   );
+
+  // One object URL per blob, revoked on replacement/unmount — avoids leaking a
+  // blob: URL on every render (createObjectURL is not idempotent).
+  useEffect(() => {
+    if (!blob) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing the URL for an external Blob resource, not derived React state
+      setAudioUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    setAudioUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [blob]);
 
   async function startRecording() {
     setDenied(false);
@@ -83,14 +98,14 @@ export function VoiceRecorder({ onBlob, disabled }: Props) {
   if (denied) {
     return (
       <div className="flex flex-col gap-2">
-        <p className="text-[13px] text-muted">
+        <p className="text-body text-muted">
           Microphone access denied. Upload an audio file instead.
         </p>
         <input
           type="file"
           accept="audio/*"
           aria-label="Upload audio recording"
-          className="text-[13px] text-ink"
+          className="text-body text-ink"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) {
@@ -134,7 +149,7 @@ export function VoiceRecorder({ onBlob, disabled }: Props) {
       {state === "recording" && (
         <div className="flex flex-col items-center gap-3">
           <span
-            className="tabular text-[32px] font-semibold text-danger"
+            className="tabular text-display font-semibold text-danger"
             aria-live="polite"
             aria-label={`Recording ${mm}:${ss}`}
           >
@@ -148,30 +163,26 @@ export function VoiceRecorder({ onBlob, disabled }: Props) {
           >
             <span className="size-5 rounded-sm bg-danger" aria-hidden="true" />
           </button>
-          <span className="text-[12px] text-muted">Tap square to stop</span>
+          <span className="text-caption text-muted">Tap square to stop</span>
         </div>
       )}
 
-      {state === "stopped" && blob && (
+      {state === "stopped" && blob && audioUrl && (
         <div className="flex w-full max-w-xs flex-col items-center gap-3">
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
           <audio
             controls
-            src={URL.createObjectURL(blob)}
+            src={audioUrl}
             className="w-full rounded-lg"
             aria-label="Playback of your recording"
           />
-          <button
-            onClick={reset}
-            className="rounded-lg border border-line px-4 py-2 text-[13px] font-medium text-muted transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-accent"
-          >
+          <Button variant="ghost" onClick={reset}>
             Re-record
-          </button>
+          </Button>
         </div>
       )}
 
       {tooLarge && (
-        <p role="alert" className="text-[13px] text-danger">
+        <p role="alert" className="text-body text-danger">
           Recording too large (max {MAX_MB} MB). Please record a shorter clip.
         </p>
       )}

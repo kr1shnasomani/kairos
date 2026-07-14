@@ -14,7 +14,7 @@ function progressBar(done: number, total: number) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="tabular shrink-0 text-[11px] text-muted">
+      <span className="tabular shrink-0 text-label text-muted">
         {done}/{total}
       </span>
     </div>
@@ -28,13 +28,13 @@ export default async function OffboardingPage() {
     <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent">
+          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
             Knowledge transfer
           </p>
-          <h1 className="mt-1 text-[28px] font-semibold leading-tight">
+          <h1 className="mt-1 text-display font-semibold leading-tight">
             Offboarding programmes
           </h1>
-          <p className="mt-1.5 text-[13.5px] text-muted">
+          <p className="mt-1.5 text-body text-muted">
             Structured knowledge transfer for departing experts — graph-derived sessions targeting
             top failure modes by equipment family.
           </p>
@@ -44,8 +44,8 @@ export default async function OffboardingPage() {
 
       {programmes.length === 0 ? (
         <div className="mt-10 rounded-xl border border-line bg-surface px-6 py-12 text-center">
-          <p className="text-[14px] font-semibold">No active programmes</p>
-          <p className="mt-1 text-[13px] text-muted">
+          <p className="text-sm font-semibold">No active programmes</p>
+          <p className="mt-1 text-body text-muted">
             Programmes are created when a departing expert is registered with a retirement date.
           </p>
         </div>
@@ -63,8 +63,8 @@ export default async function OffboardingPage() {
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-[15px] font-semibold">{p.personnel_email}</p>
-                    <p className="mt-0.5 text-[12px] text-muted">
+                    <p className="text-subtitle font-semibold">{p.personnel_email}</p>
+                    <p className="mt-0.5 text-caption text-muted">
                       Retires{" "}
                       {new Date(p.retirement_date).toLocaleDateString("en-IN", {
                         day: "numeric",

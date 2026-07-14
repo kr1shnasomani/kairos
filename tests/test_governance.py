@@ -153,7 +153,7 @@ async def test_dispute_quarantine_item(admin_client, shared_asset_id):
     assert r2.json()["status"] == "disputed"
 
 
-async def test_request_info_quarantine_item(admin_client, shared_asset_id):
+async def test_request_quarantine_info_is_audited(admin_client, shared_asset_id):
     """Layer 6 fourth review action: request more info leaves the item pending."""
     now = datetime.now(timezone.utc).isoformat()
     r = await admin_client.post("/events/inspection-complete", json={
@@ -164,18 +164,19 @@ async def test_request_info_quarantine_item(admin_client, shared_asset_id):
         "received_at": now,
         "asset_id": shared_asset_id,
         "inspection_type": "visual",
-        "result": "failed",
+        "result": "conditional",
         "performed_by": "TECH-TEST",
         "confidence": 0.4,
     })
     item_id = r.json()["quarantine_item_id"]
 
-    r2 = await admin_client.post(
+    response = await admin_client.post(
         f"/governance/quarantine/{item_id}/request-info",
-        json={"note": "Which seal face — inboard or outboard?"},
+        json={"note": "Please attach the calibration record."},
     )
-    assert r2.status_code == 200
-    assert r2.json()["status"] == "info_requested"
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "requested", "item_id": item_id}
 
     # Item stays pending (still actionable), so it can still be promoted/disputed after.
     listing = await admin_client.get("/governance/quarantine", params={"review_status": "pending"})

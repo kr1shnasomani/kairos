@@ -26,8 +26,8 @@ export function nowMs(): number {
 }
 
 /** SLA countdown label + tone class for a due timestamp. */
-export function slaCountdown(sla_due_at: string): { label: string; tone: string } {
-  const hoursLeft = Math.floor((new Date(sla_due_at).getTime() - Date.now()) / 3600000);
+export function slaCountdown(sla_due_at: string, currentMs = nowMs()): { label: string; tone: string } {
+  const hoursLeft = Math.floor((new Date(sla_due_at).getTime() - currentMs) / 3600000);
   const tone = hoursLeft < 4 ? "text-danger" : hoursLeft < 24 ? "text-caution" : "text-muted";
   const label = hoursLeft < 24 ? `${hoursLeft}h left` : `${Math.floor(hoursLeft / 24)}d left`;
   return { label, tone };
@@ -57,7 +57,7 @@ export function priorityMeta(p: BriefPriority): PriorityMeta {
     case "high":
       return { label: "High", color: "var(--caution)" };
     case "normal":
-      return { label: "Normal", color: "var(--info)" };
+      return { label: "Normal", color: "var(--muted)" };
     case "medium":
       return { label: "Medium", color: "var(--info)" };
     default:

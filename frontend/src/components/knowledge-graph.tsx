@@ -9,7 +9,6 @@ import {
   Position,
   useNodesState,
   useEdgesState,
-  MarkerType,
   type Node,
   type Edge,
   type NodeProps,
@@ -19,37 +18,40 @@ import {
 import "@xyflow/react/dist/style.css";
 import { getKnowledgeGraph, getOtCoverage } from "@/lib/api";
 import type { GraphNodeData, GraphEdgeData, KnowledgeGraphData, OtCoverage, AuthorityLevel } from "@/lib/types";
-import { AuthorityBadge, StatusBadge } from "@/components/ui";
+import { AuthorityBadge, EmptyState, StatusBadge } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { useCanvasTokens, arrowMarker, type CanvasTokens } from "@/lib/graph-theme";
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
+// Colors are resolved Paper design tokens (see lib/graph-theme.tsx), not hardcoded
+// hex — this canvas now recolors with the rest of the UI on theme/contrast toggle.
 
-const KIND_COLORS: Record<string, string> = {
-  Asset: "#5e6ad2",       // accent
-  Event: "#e5484d",       // danger
-  Document: "#e79d13",    // caution
-  Concept: "#8b8d98",     // muted
-  Person: "#3b82f6",      // blue
-  Organization: "#30a46c",// verified
-  Valve: "#5e6ad2",
-  Instrument: "#e79d13",
-  Procedure: "#3b82f6",
+const KIND_TOKENS: Record<string, CanvasTokenNameKey> = {
+  Asset: "--accent",
+  Event: "--danger",
+  Document: "--caution",
+  Concept: "--muted",
+  Person: "--info",
+  Organization: "--verified",
+  Valve: "--accent",
+  Instrument: "--caution",
+  Procedure: "--info",
 };
 
-const DEFAULT_COLOR = "#8b8d98";
+type CanvasTokenNameKey = keyof CanvasTokens;
 
-function kindColor(kind: string) {
-  return KIND_COLORS[kind] ?? DEFAULT_COLOR;
+function kindColor(kind: string, tokens: CanvasTokens) {
+  return tokens[KIND_TOKENS[kind] ?? "--muted"];
 }
 
-function authorityStrokeColor(level: number): string {
-  if (level <= 2) return "#30a46c";  // verified green
-  if (level === 3) return "#3b82f6"; // blue
-  return "#e79d13";                   // caution orange
+function authorityStrokeColor(level: number, tokens: CanvasTokens): string {
+  if (level <= 2) return tokens["--verified"];
+  if (level === 3) return tokens["--info"];
+  return tokens["--caution"];
 }
 
-function edgeStyle(e: GraphEdgeData): React.CSSProperties {
-  const color = e.verification_status === "disputed" ? "#e5484d" : authorityStrokeColor(e.authority_level);
+function edgeStyle(e: GraphEdgeData, tokens: CanvasTokens): React.CSSProperties {
+  const color = e.verification_status === "disputed" ? tokens["--danger"] : authorityStrokeColor(e.authority_level, tokens);
   return {
     stroke: color,
     strokeWidth: 1.8,
@@ -62,7 +64,8 @@ function edgeStyle(e: GraphEdgeData): React.CSSProperties {
 
 const KairosNode = memo(function KairosNode({ data, selected }: NodeProps) {
   const nd = data as unknown as GraphNodeData;
-  const color = kindColor(nd.kind);
+  const tokens = useCanvasTokens();
+  const color = kindColor(nd.kind, tokens);
   return (
     <>
       <Handle type="target" position={Position.Top} style={{ opacity: 0, pointerEvents: "none" }} />
@@ -70,13 +73,13 @@ const KairosNode = memo(function KairosNode({ data, selected }: NodeProps) {
         style={{ borderColor: color }}
         className={cn(
           "min-w-[90px] max-w-[150px] rounded-xl border-2 bg-surface px-3 py-2 text-center shadow-sm",
-          selected && "ring-2 ring-offset-1"
+          selected && "ring-2 ring-accent ring-offset-1 ring-offset-surface"
         )}
       >
-        <p className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color }}>
+        <p className="text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color }}>
           {nd.kind}
         </p>
-        <p className="mt-0.5 truncate text-[11.5px] font-semibold leading-snug text-ink">
+        <p className="mt-0.5 truncate text-label font-semibold leading-snug text-ink">
           {nd.label}
         </p>
       </div>
@@ -96,7 +99,7 @@ function buildRFNodes(graph: KnowledgeGraphData): Node[] {
   const nodes: Node[] = [];
   // Center node
   const center = graph.nodes.find((n) => n.id === graph.asset_id) ?? graph.nodes[0];
-  nodes.push({ id: center.id, type: "kairos", position: { x: 0, y: 0 }, data: center as unknown as Record<string, unknown>, draggable: true });
+  nodes.push({ id: center.id, type: "kairos", position: { x: 0, y: 0 }, data: center as unknown as Record<string, unknown>, draggable: true, focusable: true, ariaLabel: `${center.kind}: ${center.label}` });
   // Satellite nodes
   others.forEach((n, i) => {
     const angle = (i / count) * 2 * Math.PI - Math.PI / 2;
@@ -107,25 +110,24 @@ function buildRFNodes(graph: KnowledgeGraphData): Node[] {
       position: { x: Math.cos(angle) * r, y: Math.sin(angle) * r },
       data: n as unknown as Record<string, unknown>,
       draggable: true,
+      focusable: true,
+      ariaLabel: `${n.kind}: ${n.label}`,
     });
   });
   return nodes;
 }
 
-function buildRFEdges(graph: KnowledgeGraphData): Edge[] {
+function buildRFEdges(graph: KnowledgeGraphData, tokens: CanvasTokens): Edge[] {
   return graph.edges.map((e) => ({
     id: e.id,
     source: e.source,
     target: e.target,
     label: e.label,
-    style: edgeStyle(e),
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      width: 14,
-      height: 14,
-      color: e.verification_status === "disputed" ? "#e5484d" : authorityStrokeColor(e.authority_level),
-    },
+    style: edgeStyle(e, tokens),
+    markerEnd: arrowMarker(e.verification_status === "disputed" ? tokens["--danger"] : authorityStrokeColor(e.authority_level, tokens)),
     data: e as unknown as Record<string, unknown>,
+    focusable: true,
+    ariaLabel: `${e.label}: ${e.verification_status}`,
   }));
 }
 
@@ -142,7 +144,7 @@ function SidePanel({ title, children, onClose }: { title: string; children: Reac
   return (
     <div className="absolute right-3 top-3 z-10 w-64 rounded-xl border border-line bg-surface shadow-lg">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <p className="truncate text-[13px] font-semibold text-ink">{title}</p>
+        <p className="truncate text-body font-semibold text-ink">{title}</p>
         <button
           onClick={onClose}
           aria-label="Close panel"
@@ -159,16 +161,16 @@ function SidePanel({ title, children, onClose }: { title: string; children: Reac
 }
 
 function NodePanel({ node, onClose }: { node: GraphNodeData; onClose: () => void }) {
-  const props = Object.entries(node.properties).slice(0, 8);
+  const props = Object.entries(node.properties);
   return (
     <SidePanel title={node.label} onClose={onClose}>
-      <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted">{node.kind}</p>
+      <p className="text-micro font-bold uppercase tracking-[0.1em] text-muted">{node.kind}</p>
       {props.length > 0 && (
         <dl className="mt-2.5 space-y-1.5">
           {props.map(([k, v]) => (
-            <div key={k} className="flex gap-2 text-[11.5px]">
+            <div key={k} className="flex gap-2 text-label">
               <dt className="w-24 shrink-0 truncate font-medium text-muted">{k}</dt>
-              <dd className="min-w-0 truncate text-ink">{String(v ?? "—")}</dd>
+              <dd className="min-w-0 break-words text-ink">{String(v ?? "—")}</dd>
             </div>
           ))}
         </dl>
@@ -183,11 +185,11 @@ function EdgePanel({ edge, onClose }: { edge: GraphEdgeData; onClose: () => void
   return (
     <SidePanel title={edge.label} onClose={onClose}>
       <dl className="space-y-2">
-        <div className="flex items-center gap-2 text-[11.5px]">
+        <div className="flex items-center gap-2 text-label">
           <dt className="w-24 shrink-0 font-medium text-muted">Authority</dt>
           <dd><AuthorityBadge level={edge.authority_level as AuthorityLevel} /></dd>
         </div>
-        <div className="flex items-center gap-2 text-[11.5px]">
+        <div className="flex items-center gap-2 text-label">
           <dt className="w-24 shrink-0 font-medium text-muted">Verification</dt>
           <dd><StatusBadge tone={VERIF_TONE[edge.verification_status] ?? "neutral"}>{edge.verification_status}</StatusBadge></dd>
         </div>
@@ -197,9 +199,9 @@ function EdgePanel({ edge, onClose }: { edge: GraphEdgeData; onClose: () => void
           ["Valid from", edge.valid_from.slice(0, 10)],
           ["Valid to", validTo],
         ].map(([label, value]) => (
-          <div key={label} className="flex gap-2 text-[11.5px]">
+          <div key={label} className="flex gap-2 text-label">
             <dt className="w-24 shrink-0 font-medium text-muted">{label}</dt>
-            <dd className="min-w-0 truncate text-ink">{value}</dd>
+            <dd className="min-w-0 break-words text-ink">{value}</dd>
           </div>
         ))}
       </dl>
@@ -212,7 +214,9 @@ function EdgePanel({ edge, onClose }: { edge: GraphEdgeData; onClose: () => void
 function CoverageIndicator({ assetId }: { assetId: string }) {
   const [cov, setCov] = useState<OtCoverage | null>(null);
   useEffect(() => {
-    getOtCoverage(assetId).then(({ data }) => setCov(data));
+    let alive = true;
+    getOtCoverage(assetId).then(({ data }) => { if (alive) setCov(data); });
+    return () => { alive = false; };
   }, [assetId]);
   if (!cov) return null;
 
@@ -234,7 +238,11 @@ function CoverageIndicator({ assetId }: { assetId: string }) {
 
 // ── Public component ─────────────────────────────────────────────────────────
 
-export function KnowledgeGraph({
+export function KnowledgeGraph(props: { assetId: string; asOf?: string; height?: number }) {
+  return <KnowledgeGraphInner {...props} />;
+}
+
+function KnowledgeGraphInner({
   assetId,
   asOf,
   height = 480,
@@ -243,6 +251,7 @@ export function KnowledgeGraph({
   asOf?: string;
   height?: number;
 }) {
+  const tokens = useCanvasTokens();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [graphData, setGraphData] = useState<KnowledgeGraphData | null>(null);
@@ -259,15 +268,18 @@ export function KnowledgeGraph({
       const { data } = await getKnowledgeGraph(assetId, asOf);
       if (!alive) return;
       setGraphData(data);
-      if (data) {
-        setNodes(buildRFNodes(data));
-        setEdges(buildRFEdges(data));
-      }
+      if (data) setNodes(buildRFNodes(data));
       setLoading(false);
     };
     load();
     return () => { alive = false; };
-  }, [assetId, asOf, setNodes, setEdges]);
+  }, [assetId, asOf, setNodes]);
+
+  // Edge colors are baked-in token strings (see lib/graph-theme.tsx), so rebuild
+  // whenever the graph data or the resolved theme tokens change.
+  useEffect(() => {
+    if (graphData) setEdges(buildRFEdges(graphData, tokens));
+  }, [graphData, tokens, setEdges]);
 
   const onNodeClick = useCallback<NodeMouseHandler>((_evt, node) => {
     setSelectedNode(node.data as unknown as GraphNodeData);
@@ -306,10 +318,10 @@ export function KnowledgeGraph({
   if (!graphData || graphData.nodes.length === 0) {
     return (
       <div
-        className="flex items-center justify-center rounded-xl border border-line bg-surface text-[13px] text-muted"
+        className="flex items-center justify-center rounded-xl border border-line bg-surface"
         style={{ height }}
       >
-        No knowledge graph data for this asset.
+        <EmptyState message="No knowledge graph data for this asset." />
       </div>
     );
   }
@@ -327,9 +339,9 @@ export function KnowledgeGraph({
         onPaneClick={onPaneClick}
         fitView
         fitViewOptions={{ padding: 0.35 }}
-        attributionPosition="bottom-left"
+        proOptions={{ hideAttribution: true }}
       >
-        <Background gap={24} size={1} color="#e2e4e9" />
+        <Background gap={24} size={1} color={tokens["--line"]} />
         <Controls showInteractive={false} />
       </ReactFlow>
       <CoverageIndicator assetId={assetId} />
