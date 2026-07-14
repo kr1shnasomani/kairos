@@ -82,11 +82,22 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     NVIDIA_NIM_API_KEY: str = ""
     NVIDIA_NIM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
-    NVIDIA_NIM_MODEL: str = "meta/llama-3.3-70b-instruct"
+    NVIDIA_NIM_MODEL: str = "meta/llama-3.1-70b-instruct"  # 3.3-70b currently 400s/hangs on NIM; 3.1-70b responds in ~0.4s
     NVIDIA_NIM_MAX_TOKENS: int = 4096
     NVIDIA_NIM_TEMPERATURE: float = 0.1
+    NVIDIA_NIM_TIMEOUT: float = 90.0  # per-call cap; on timeout the cascade falls through to Gemini
     # Vision-language model for P&ID topology extraction (Layer 3, Path B)
     NVIDIA_NIM_VISION_MODEL: str = "meta/llama-3.2-11b-vision-instruct"
+
+    # -------------------------------------------------------------------------
+    # Gemini — optional LLM fallback via Google's OpenAI-compatible endpoint.
+    # Empty key = disabled; the cascade then stays on NIM (→ Ollama if configured).
+    # Fill GEMINI_API_KEY to enable NIM → Gemini → Ollama. (Any OpenAI-compatible
+    # provider works — just change GEMINI_BASE_URL + GEMINI_MODEL.)
+    # -------------------------------------------------------------------------
+    GEMINI_API_KEY: str = ""
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+    GEMINI_MODEL: str = "gemini-2.5-flash-lite"
 
     # -------------------------------------------------------------------------
     # Jina AI (embeddings — keeps NIM key free for synthesis/LLM tasks)

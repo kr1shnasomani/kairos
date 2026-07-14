@@ -1,5 +1,5 @@
 """
-LLM service — NVIDIA NIM + Ollama synthesis (Layer 11).
+LLM service — synthesis (Layer 11). Provider cascade: NVIDIA NIM → Gemini → Ollama.
 Implements the synthesis layer with mandatory source citation enforcement
 and explicit refusal for safety-critical parameter queries.
 """
@@ -43,6 +43,10 @@ class LLMService:
     @property
     def ollama_available(self) -> bool:
         return bool(self.settings.OLLAMA_BASE_URL)
+
+    @property
+    def gemini_available(self) -> bool:
+        return bool(self.settings.GEMINI_API_KEY)
 
     async def synthesize(
         self,
@@ -91,18 +95,8 @@ class LLMService:
         context_block = self._format_context(retrieved_context)
         prompt = self._build_synthesis_prompt(query, context_block)
 
-        # Try NIM first, fall back to Ollama
-        if self.nim_available:
-            return await self._synthesize_nim(prompt, retrieved_context)
-        elif self.ollama_available:
-            return await self._synthesize_ollama(prompt, retrieved_context)
-        else:
-            return {
-                "answer": None,
-                "sources": retrieved_context,
-                "confidence": None,
-                "message": "No LLM configured. Set NVIDIA_NIM_API_KEY or ensure Ollama is running.",
-            }
+        # Provider cascade: NIM → Gemini → Ollama
+        return await self._synthesize_cascade(prompt, retrieved_context)
 
     def _format_context(self, context: List[Dict[str, Any]]) -> str:
         """Formats retrieved chunks into a structured context block."""
@@ -137,7 +131,7 @@ SOURCES_USED: [comma-separated source numbers]"""
     async def _synthesize_nim(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Calls NVIDIA NIM (OpenAI-compatible API)."""
         try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
+            async with httpx.AsyncClient(timeout=self.settings.NVIDIA_NIM_TIMEOUT) as client:
                 response = await client.post(
                     f"{self.settings.NVIDIA_NIM_BASE_URL}/chat/completions",
                     headers={
@@ -172,6 +166,51 @@ SOURCES_USED: [comma-separated source numbers]"""
                 return {"answer": data.get("response"), "sources": context, "model": "ollama"}
         except Exception as e:
             log.error("ollama.synthesis_failed", error=str(e))
+            return {"answer": None, "error": str(e), "sources": context}
+
+    async def _synthesize_cascade(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Provider cascade: NIM → Gemini → Ollama. Each tier is tried only if
+        configured; on failure (answer is None) it falls through to the next. With
+        only NVIDIA_NIM_API_KEY set, this is NIM-only — same behaviour as before."""
+        result: Optional[Dict[str, Any]] = None
+        if self.nim_available:
+            result = await self._synthesize_nim(prompt, context)
+        if (result is None or result.get("answer") is None) and self.gemini_available:
+            result = await self._synthesize_gemini(prompt, context)
+        if (result is None or result.get("answer") is None) and self.ollama_available:
+            result = await self._synthesize_ollama(prompt, context)
+        if result is None:
+            return {
+                "answer": None,
+                "sources": context,
+                "confidence": None,
+                "message": "No LLM configured. Set NVIDIA_NIM_API_KEY, GEMINI_API_KEY, or OLLAMA_BASE_URL.",
+            }
+        return result
+
+    async def _synthesize_gemini(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Calls Gemini via Google's OpenAI-compatible endpoint — fallback when NIM fails."""
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                response = await client.post(
+                    f"{self.settings.GEMINI_BASE_URL}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.settings.GEMINI_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.settings.GEMINI_MODEL,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": self.settings.NVIDIA_NIM_MAX_TOKENS,
+                        "temperature": self.settings.NVIDIA_NIM_TEMPERATURE,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+                answer_text = data["choices"][0]["message"]["content"]
+                return {"answer": answer_text, "sources": context, "model": "gemini", "raw": data}
+        except Exception as e:
+            log.error("gemini.synthesis_failed", error=str(e), exc_type=type(e).__name__)
             return {"answer": None, "error": str(e), "sources": context}
 
     @staticmethod
@@ -243,16 +282,7 @@ HYPOTHESES:
 CONFIDENCE: [0.0-1.0]
 UNCERTAINTY: [what is not yet known or requires further investigation]"""
 
-        if self.nim_available:
-            return await self._synthesize_nim(prompt, evidence)
-        elif self.ollama_available:
-            return await self._synthesize_ollama(prompt, evidence)
-        return {
-            "answer": None,
-            "sources": evidence,
-            "confidence": None,
-            "message": "No LLM configured. Set NVIDIA_NIM_API_KEY or ensure Ollama is running.",
-        }
+        return await self._synthesize_cascade(prompt, evidence)
 
     @staticmethod
     def parse_rca_response(text: str) -> Dict[str, Any]:

@@ -79,6 +79,11 @@ kairos/                          # repo root
 │   │   ├── purge_test_data.py       # Delete test-prefixed rows from all stores (`make purge-test-data`)
 │   │   └── wipe_local_stores.py     # Empty Neo4j + ES + Qdrant entirely (`make wipe-local` / `reset-local`)
 │   └── requirements.txt
+├── benchmark/                   # Evaluation harness + evidence (mounted at /app/benchmark)
+│   ├── run_benchmark.py         # Retrieval · KG-linkage · answer quality · time-to-answer (`make benchmark`)
+│   ├── verify_layers.py         # Per-layer smoke + latency (`make verify`)
+│   ├── questions.json           # 12 domain-expert Q&A (grounded in the dataset canon)
+│   └── BENCHMARKS.md            # Scorecard + methodology
 ├── db/                          # Database schemas (mounted into Python containers)
 │   ├── schema.sql               # Consolidated Supabase schema — single source of truth (001–016 folded in)
 │   ├── maintenance/             # Cloud-Supabase reset SQL (reset_all_data.sql) + CHANGELOG.md (tracked runs)
@@ -257,16 +262,18 @@ Wraps Qdrant.
 
 LLM synthesis + embedding. Never originates knowledge — only assembles retrieved context.
 
-- `synthesize(query, context, query_category)` — NIM `meta/llama-3.3-70b-instruct`
+- `synthesize(query, context, query_category)` — NIM `meta/llama-3.1-70b-instruct`
 - `rca_synthesize(query, context)` — RCA-specific prompt, returns timeline + hypotheses
 - `embed(text, task)` — Jina `jina-embeddings-v3` (1024-dim)
 - `parse_synthesis_response(answer)` — extracts structured fields from LLM output
 - `parse_rca_response(answer)` — extracts `hypothesis|evidence_weight|sources` lines
 
-> **Cloud-only.** The code retains a local **Ollama** fallback (`ollama_available` = `bool(OLLAMA_BASE_URL)`),
-> but `OLLAMA_BASE_URL` is intentionally **empty** in `.env` and `docker-compose.yml`, so the fallback is
-> disabled — all inference goes to the cloud (NIM / Jina / Groq). This was deliberate: an accidental local
-> Ollama was consuming ~6 GB RAM. Leave `OLLAMA_BASE_URL` empty unless you explicitly want the local path.
+> **Provider cascade (`_synthesize_cascade`): NIM → Gemini → Ollama.** Each tier is tried only if
+> configured and falls through to the next on failure (a NIM timeout counts as failure → auto-falls to
+> Gemini). Defaults ship with **only `NVIDIA_NIM_API_KEY` set, so it is NIM-only** — identical to before.
+> Fill `GEMINI_API_KEY` (Google's OpenAI-compatible endpoint, `_synthesize_gemini`) to add a generous
+> free-tier cloud fallback; set `OLLAMA_BASE_URL` to add the local air-gapped tier (intentionally empty by
+> default — an accidental local Ollama once consumed ~6 GB RAM). Embeddings stay Jina → Ollama.
 
 **Safety-critical categories** (explicit refusal when evidence confidence < 0.7):
 `max_allowable_pressure`, `isolation_interlock_sequence`, `torque_specification`, `electrical_rating`, `pressure_relief_setting`, `safety_shutdown_setpoint`
@@ -629,7 +636,7 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `NVIDIA_NIM_API_KEY` | `""` | Required for NIM synthesis, NER, and OCR |
-| `NVIDIA_NIM_MODEL` | `meta/llama-3.3-70b-instruct` | LLM synthesis |
+| `NVIDIA_NIM_MODEL` | `meta/llama-3.1-70b-instruct` | LLM synthesis |
 | `NVIDIA_NIM_NER_MODEL` | `mistralai/ministral-14b-instruct-2512` | NER extraction |
 | `NVIDIA_NIM_OCR_MODEL` | `nvidia/nemotron-ocr-v2` | OCR for scanned docs/images |
 | `NVIDIA_NIM_VISION_MODEL` | `meta/llama-3.2-11b-vision-instruct` | P&ID drawing → topology JSON (Layer 3, Path B) |
@@ -638,6 +645,9 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 | `JINA_EMBED_MODEL` | `jina-embeddings-v3` | 1024-dim output, primary embeddings |
 | `GROQ_API_KEY` | `""` | Required for voice transcription |
 | `GROQ_WHISPER_MODEL` | `whisper-large-v3` | STT via Groq API |
+| `GEMINI_API_KEY` | `""` | Optional LLM fallback (Google OpenAI-compatible). Empty ⇒ disabled; cascade stays NIM-only. |
+| `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` | Gemini OpenAI-compatible endpoint |
+| `GEMINI_MODEL` | `gemini-2.5-flash-lite` | Gemini fallback model (15 RPM / 1000 RPD free tier) |
 | `OLLAMA_BASE_URL` | **`""` (empty in `.env`)** | Local fallback LLM/NER/embeddings — **disabled**: empty URL ⇒ `ollama_available` is False, so all inference stays cloud-only. Set a URL only to re-enable the local path. |
 | `OLLAMA_MODEL` | `qwen2.5:14b` | Fallback synthesis model (unused while `OLLAMA_BASE_URL` empty) |
 | `OLLAMA_NER_MODEL` | `llama3.1:8b` | Fallback NER model (unused while `OLLAMA_BASE_URL` empty) |

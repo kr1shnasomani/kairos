@@ -67,7 +67,14 @@ class SearchEngineService:
         body = {
             "query": {"bool": {"must": must_clauses}},
             "size": limit,
-            "highlight": {"fields": {"content": {}, "title": {}}},
+            # Larger, multiple fragments so the snippet captures the matching passage
+            # (e.g. a part number deep in the doc), not just the first header match.
+            "highlight": {
+                "fields": {
+                    "content": {"fragment_size": 220, "number_of_fragments": 3},
+                    "title": {},
+                }
+            },
         }
 
         try:
@@ -79,7 +86,7 @@ class SearchEngineService:
                     "asset_id": h["_source"].get("asset_id"),
                     "title": h["_source"].get("title"),
                     "document_type": h["_source"].get("document_type", "unknown"),
-                    "snippet": h.get("highlight", {}).get("content", [""])[0],
+                    "snippet": " … ".join(h.get("highlight", {}).get("content", [])) or (h["_source"].get("content", "")[:220]),
                     "score": h["_score"],
                     "authority_level": h["_source"].get("authority_level", 5),
                 }

@@ -91,6 +91,7 @@ services:
       - ./fixtures:/app/fixtures
       - ./db:/app/db
       - ./dataset:/app/dataset:ro
+      - ./benchmark:/app/benchmark:ro
     depends_on:
       kairos-neo4j:
         condition: service_healthy

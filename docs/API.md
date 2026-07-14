@@ -667,7 +667,7 @@ Search within a specific asset's knowledge. Same engines but asset pre-filtered.
   "refused": false,
   "safety_critical": true,
   "sources_used": [0],
-  "model": "meta/llama-3.3-70b-instruct"
+  "model": "meta/llama-3.1-70b-instruct"
 }
 ```
 

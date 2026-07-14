@@ -184,6 +184,7 @@ make ps           # Container status
 make seed         # seed_regulations.py + seed_users.py
 make load-dataset # Load dataset/ through the real pipeline (ARGS=--fast to skip docs)
 make purge-test-data  # Delete ASSET-TEST/DEDUP/EV/ACK-*, WO-*, DOC-* from every store
+make verify        # Per-layer smoke + latency (PASS/FAIL table); ARGS=--full adds LLM/VLM checks
 
 # Rebuild specific containers
 docker compose up -d --no-deps --build kairos-frontend          # new npm deps only

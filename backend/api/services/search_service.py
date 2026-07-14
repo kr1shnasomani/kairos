@@ -129,7 +129,7 @@ class SearchService:
                 asset_id=p.get("asset_id"),
                 document_type=p.get("document_type", "unknown"),
                 title="",
-                snippet=(p.get("text") or "")[:300],
+                snippet=(p.get("text") or "")[:1800],  # full semantic chunk so synthesis sees facts not near the query terms
                 authority_level=p.get("authority_level", 5),
                 status="active",
                 relevance_score=float(h.get("score") or 0),

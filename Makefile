@@ -119,6 +119,14 @@ test-api:
 test-connectors:
 	docker compose exec kairos-backend-go go test ./...
 
+# Per-layer smoke + latency table (append ARGS=--full for the slow LLM/VLM checks)
+verify:
+	docker compose exec kairos-backend-api python benchmark/verify_layers.py $(ARGS)
+
+# Domain-expert benchmark scorecard (append ARGS=--synthesize for answer quality; hits NIM)
+benchmark:
+	docker compose exec kairos-backend-api python benchmark/run_benchmark.py $(ARGS)
+
 # =============================================================================
 # Quality (Executes inside containers)
 # =============================================================================
