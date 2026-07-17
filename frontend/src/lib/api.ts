@@ -254,6 +254,26 @@ async function getJson<T>(path: string, timeoutMs = 1500): Promise<T> {
   return (await res.json()) as T;
 }
 
+// Liveness probe for a single endpoint — returns HTTP status + latency, never throws.
+// Used by the System Health page to show each API surface live. Pass only safe read-only GETs.
+export type ProbeResult = { ok: boolean; status: number; latencyMs: number };
+export async function probeEndpoint(path: string, timeoutMs = 8000): Promise<ProbeResult> {
+  const t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  try {
+    const token = await getStrictReadToken();
+    const res = await fetch(`${API_BASE}${path}`, {
+      cache: "no-store",
+      headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const latencyMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - t0;
+    return { ok: res.ok, status: res.status, latencyMs };
+  } catch {
+    const latencyMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - t0;
+    return { ok: false, status: 0, latencyMs };
+  }
+}
+
 export async function getBriefs(): Promise<Fetched<BriefsResponse>> {
   try {
     const data = await getJson<BriefsResponse>("/briefs/?unacknowledged_only=false&limit=20");
