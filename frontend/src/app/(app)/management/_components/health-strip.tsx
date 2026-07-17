@@ -1,6 +1,7 @@
 import { Skeleton } from "@/components/skeleton";
 import { StatusBadge } from "@/components/ui";
 import type { HealthDetailed, ServiceHealth } from "@/lib/types";
+import { capitalize } from "@/lib/utils";
 
 const STATUS_RANK: Record<ServiceHealth["status"], number> = { down: 0, degraded: 1, healthy: 2 };
 const OVERALL_TONE = { healthy: "verified", degraded: "caution", down: "danger" } as const;
@@ -12,9 +13,9 @@ export function HealthStrip({ health, loading = false }: { health: HealthDetaile
     <section data-testid="overview-health" className="mt-4 rounded-xl border border-line bg-surface p-5">
       <div className="flex items-center justify-between">
         <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">System health</h2>
-        {health && (
+        {health?.overall && (
           <StatusBadge tone={OVERALL_TONE[health.overall]}>
-            {health.overall.charAt(0).toUpperCase() + health.overall.slice(1)}
+            {capitalize(health.overall)}
           </StatusBadge>
         )}
       </div>

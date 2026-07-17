@@ -17,7 +17,7 @@ export default async function DocumentsPage() {
       <PageHeader
         eyebrow="Immutable evidence vault"
         title="Documents"
-        lede="Every source is stored byte-for-byte and never deleted — superseding closes a validity window, it does not erase."
+        lede="Every source is stored byte-for-byte and never deleted. Superseding closes a validity window; it does not erase."
         actions={
           <>
             {source === "demo" && <DemoChip detail="backend offline" />}

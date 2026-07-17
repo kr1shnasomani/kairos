@@ -24,3 +24,34 @@ export const RESOLVE_ROLES: Role[] = ["engineer", "reliability", "admin"];
 export const ADMIN_ROLES: Role[] = ["admin"];
 /** Field worker personas — mobile-first, read-only on staff surfaces. */
 export const FIELD_ROLES: Role[] = ["field_worker"];
+
+/** Staff surfaces (engineers, reliability, admin) — field workers are excluded. */
+const STAFF_ONLY: Role[] = ["engineer", "reliability", "admin"];
+
+// Path-prefix access rules. First match wins; unlisted paths (e.g. /briefs, /copilot,
+// /assets, /field, /settings) are open to any authenticated role. Enforced centrally in
+// the app shell so no page can be reached by URL without the right role.
+const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: Role[] }> = [
+  { prefix: "/system-health", roles: ADMIN_ROLES },
+  { prefix: "/management", roles: STAFF_ONLY },
+  { prefix: "/events", roles: STAFF_ONLY },
+  { prefix: "/rca", roles: STAFF_ONLY },
+  { prefix: "/graph", roles: STAFF_ONLY },
+  { prefix: "/compliance", roles: STAFF_ONLY },
+  { prefix: "/governance", roles: STAFF_ONLY },
+  { prefix: "/audit", roles: STAFF_ONLY },
+  { prefix: "/documents", roles: STAFF_ONLY },
+  { prefix: "/projects", roles: STAFF_ONLY },
+  { prefix: "/offboarding", roles: STAFF_ONLY },
+];
+
+/** Is `role` allowed to view `path`? Unlisted paths are open to all authenticated roles. */
+export function routeAllowed(path: string, role: Role): boolean {
+  const rule = ROUTE_ACCESS.find((r) => path === r.prefix || path.startsWith(r.prefix + "/"));
+  return !rule || rule.roles.includes(role);
+}
+
+/** The landing surface for a role — where an unauthorized redirect sends them. */
+export function roleHome(role: Role): string {
+  return role === "field_worker" ? "/briefs" : "/management";
+}

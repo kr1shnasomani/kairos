@@ -11,7 +11,7 @@ type AppHeaderProps = {
 };
 
 export function AppHeader({ name, role, onOpenSearch, onOpenCapture, onCreate, onOpenBriefs, onOpenUser, userInitial, notificationCount }: AppHeaderProps) {
-  const roleLabel = role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, " ");
+  const roleLabel = capitalize(role).replace(/_/g, " ");
   const shortcut = getSearchShortcut(typeof navigator === "undefined" ? undefined : navigator.platform);
 
   return (
@@ -31,3 +31,4 @@ export function AppHeader({ name, role, onOpenSearch, onOpenCapture, onCreate, o
   );
 }
 import { getSearchShortcut } from "@/lib/search-shortcut";
+import { capitalize } from "@/lib/utils";

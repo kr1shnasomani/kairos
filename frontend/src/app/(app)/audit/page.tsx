@@ -120,7 +120,7 @@ export default function AuditPage() {
       <PageHeader
         eyebrow="Layer 7–8 · Immutable record"
         title="Audit trail"
-        lede="Every governance decision, delivery, and model gate result — in chronological order. Immutable by design."
+        lede="Every governance decision, delivery, and model gate result, in chronological order. Immutable by design."
         actions={
           <>
             {isDemo && <DemoChip />}

@@ -12,7 +12,7 @@ export default async function BriefsPage() {
       <PageHeader
         eyebrow="Proactive delivery"
         title="Briefs"
-        lede="Knowledge delivered at the moment of action — before you had to ask."
+        lede="Knowledge delivered at the moment of action, before you had to ask."
         actions={source === "demo" && <DemoChip />}
       />
 

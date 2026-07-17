@@ -95,7 +95,7 @@ export default function AuditPackPage() {
         className="mt-4"
         eyebrow="Layer 11 · Audit preparation"
         title="Audit-pack assembly"
-        lede="Evidence organised by regulatory clause. This accelerates audit preparation — it is not automated compliance: clauses below the confidence threshold are blocked and require human sign-off."
+        lede="Evidence organised by regulatory clause. This accelerates audit preparation; it is not automated compliance. Clauses below the confidence threshold are blocked and require human sign-off."
         actions={
           <>
             {isDemo && <DemoChip />}

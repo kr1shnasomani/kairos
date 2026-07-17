@@ -6,6 +6,7 @@ All settings are read from environment variables (via .env file in development).
 from functools import lru_cache
 from typing import List
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +26,10 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     APP_SECRET_KEY: str = "CHANGE_ME_IN_PRODUCTION"
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+
+    # Abuse guards for the public API
+    MAX_UPLOAD_MB: int = 25                 # reject document uploads larger than this
+    RATE_LIMIT_PER_MINUTE: int = 120        # per-client-IP request cap (0 = disabled)
 
     # -------------------------------------------------------------------------
     # Supabase (cloud — filled in later)
@@ -181,6 +186,33 @@ class Settings(BaseSettings):
     # Ingestion pipeline
     # -------------------------------------------------------------------------
     TIMESTAMP_DRIFT_TOLERANCE_MINUTES: int = 60
+
+    @model_validator(mode="after")
+    def _no_insecure_defaults_in_prod(self) -> "Settings":
+        """Fail-closed: refuse to boot in production while any secret that protects the live
+        system is still its dev default. Dev/test are untouched. Set these in the environment.
+        INTERNAL_API_KEY is the critical one — its default is an admin auth-bypass (dependencies.py)."""
+        if self.APP_ENV != "production":
+            return self
+        bad: List[str] = []
+        if self.INTERNAL_API_KEY == "kairos-internal-dev-key":
+            bad.append("INTERNAL_API_KEY (default grants admin — critical)")
+        if self.APP_SECRET_KEY == "CHANGE_ME_IN_PRODUCTION":
+            bad.append("APP_SECRET_KEY")
+        if self.NEO4J_PASSWORD == "kairos_dev_password":
+            bad.append("NEO4J_PASSWORD")
+        if not self.SUPABASE_SERVICE_ROLE_KEY:
+            bad.append("SUPABASE_SERVICE_ROLE_KEY")
+        if not self.SUPABASE_JWT_SECRET:
+            bad.append("SUPABASE_JWT_SECRET")
+        if self.APP_DEBUG:
+            bad.append("APP_DEBUG must be false in production (leaks tracebacks + bypasses OPA authz)")
+        if bad:
+            raise ValueError(
+                "APP_ENV=production but insecure defaults remain: " + "; ".join(bad)
+                + ". Set them in the environment before deploying."
+            )
+        return self
 
 
 @lru_cache

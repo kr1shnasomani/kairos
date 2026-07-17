@@ -4,7 +4,7 @@
 
 <div align="center">
 
-### Industrial Operational Intelligence Platform
+## Industrial Operational Intelligence Platform
 
 **[Demo Video](#quick-start)** · **[Architecture](./docs/ARCHITECTURE.md)** · **[Documentation](#documentation)**
 

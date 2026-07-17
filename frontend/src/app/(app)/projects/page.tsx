@@ -58,7 +58,7 @@ export default function ProjectsPage() {
 
   return (
     <div data-testid="projects-workspace" className="mx-auto max-w-[1400px]">
-      <PageHeader eyebrow="Project &amp; procurement" title="Engineering portfolio" lede="Documents, revisions, and failure/maintenance history organised by equipment class — the record a procurement officer needs when evaluating a replacement or a vendor." />
+      <PageHeader eyebrow="Project &amp; procurement" title="Engineering portfolio" lede="Documents, revisions, and failure/maintenance history organised by equipment class: the record a procurement officer needs when evaluating a replacement or a vendor." />
 
       <div data-testid="projects-portfolio-pulse" className="mt-6 grid overflow-hidden rounded-xl border border-line bg-surface shadow-sm sm:grid-cols-2 lg:grid-cols-[minmax(0,1.25fr)_repeat(3,minmax(130px,0.55fr))]">
         <div className="relative bg-[linear-gradient(120deg,color-mix(in_srgb,var(--info)_7%,var(--surface)),var(--surface))] px-5 py-5 sm:col-span-2 lg:col-span-1">

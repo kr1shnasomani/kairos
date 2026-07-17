@@ -9,7 +9,7 @@ describe("BrandLink", () => {
     render(<BrandLink />);
 
     expect(screen.getByRole("link", { name: /kairos home/i })).toHaveAttribute("href", "/");
-    expect(screen.getByAltText("Kairos")).toHaveAttribute("src", "/logo.jpeg");
+    expect(screen.getByAltText("Kairos")).toHaveAttribute("src", "/logo.png");
   });
 
   it("accepts an in-app overview destination", () => {

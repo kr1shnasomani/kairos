@@ -242,7 +242,8 @@ services:
       NEO4J_AUTH: "${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-kairos_dev_password}"
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
-      NEO4J_dbms_memory_heap_initial__size: "512m"
+      # Xms == Xmx: pre-allocate the full heap so the JVM never pauses to resize under load.
+      NEO4J_dbms_memory_heap_initial__size: "1G"
       NEO4J_dbms_memory_heap_max__size: "1G"
     volumes:
       - kairos-neo4j_data:/data
@@ -289,7 +290,7 @@ services:
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
-      ES_JAVA_OPTS: "-Xms512m -Xmx1g"
+      ES_JAVA_OPTS: "-Xms1g -Xmx1g"   # Xms == Xmx: avoid heap-resize pauses (ES bootstrap warning)
     volumes:
       - kairos-elasticsearch_data:/usr/share/elasticsearch/data
     healthcheck:
@@ -473,6 +474,35 @@ services:
         limits:
           memory: 512m
 
+  # ===========================================================================
+  # HTTPS reverse proxy — prod/AWS only (auto-TLS via Let's Encrypt).
+  #   docker compose -f docker-compose.yml --profile prod up -d --build
+  # Skipped by local dev (no profile). Needs KAIROS_DOMAIN in .env, DNS → the box,
+  # and the frontend built with NEXT_PUBLIC_API_URL=https://$KAIROS_DOMAIN/api.
+  # Open only 80/443 in the AWS security group; 3000/8000 stay unreachable externally.
+  # ===========================================================================
+  kairos-caddy:
+    <<: *svc
+    profiles: ["prod"]
+    image: caddy:2-alpine
+    container_name: kairos-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      KAIROS_DOMAIN: ${KAIROS_DOMAIN:-localhost}
+      KAIROS_TLS_EMAIL: ${KAIROS_TLS_EMAIL:-}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - kairos-caddy_data:/data
+      - kairos-caddy_config:/config
+    depends_on: [kairos-frontend, kairos-backend-api]
+    networks: [edge]
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
 # =============================================================================
 # Networks — edge (public-facing) vs internal (datastores, never published)
 # =============================================================================
@@ -494,3 +524,5 @@ volumes:
   kairos-temporal_postgres_data:
   kairos-tempo_data:
   kairos-grafana_data:
+  kairos-caddy_data:      # Let's Encrypt certs — persist so restarts don't re-provision (rate limits)
+  kairos-caddy_config:

@@ -1,5 +1,9 @@
 name: Frontend CI
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main, develop]
@@ -17,78 +21,28 @@ defaults:
     working-directory: frontend
 
 jobs:
-  typecheck:
-    name: TypeScript
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check
-        run: npx tsc --noEmit
-
-  lint:
-    name: ESLint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-  build:
-    name: Next.js build
+  ci:
+    # One job, one `npm ci` — typecheck → lint → build → audit run as sequential steps.
+    # Fail-fast: the first failing step stops the run (fewer wasted minutes than 4 parallel jobs).
+    name: Typecheck · Lint · Build · Audit
     runs-on: ubuntu-latest
     env:
-      # Stub env vars so Next.js config resolves at build time
-      NEXT_PUBLIC_API_URL: "http://localhost:8000"
+      NEXT_PUBLIC_API_URL: "http://localhost:8000"   # stub so next build resolves config
       NEXT_PUBLIC_KAIROS_PHASE: "3"
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
-
       - name: Install dependencies
         run: npm ci
-
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint
       - name: Build
         run: npm run build
-
-  audit:
-    name: Dependency audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
       - name: Audit (high + critical only)
         run: npm audit --audit-level=high

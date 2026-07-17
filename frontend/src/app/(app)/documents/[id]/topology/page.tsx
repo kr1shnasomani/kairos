@@ -87,7 +87,7 @@ function TopologyPageInner() {
         className="mt-4 mb-5"
         eyebrow="Layer 3 · P&ID topology"
         title={id}
-        lede="Equipment, valves, instruments, and flow connections extracted from the P&ID drawing. Unverified elements are highlighted — confirm via the quarantine queue."
+        lede="Equipment, valves, instruments, and flow connections extracted from the P&ID drawing. Unverified elements are highlighted; confirm via the quarantine queue."
       />
 
       <div data-testid="topology-layout" className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">

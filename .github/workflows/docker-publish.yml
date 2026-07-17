@@ -1,16 +1,24 @@
 name: Docker
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # This workflow uses actions that are not certified by GitHub.
 # They are provided by a third-party and are governed by
 # separate terms of service, privacy policy, and support
 # documentation.
 
+# Continuous backend image on main + PR validation. Tags/releases are owned by release.yml
+# (which builds the versioned API + Go images) — no tag trigger here, so a release never
+# builds the backend twice.
 on:
   push:
     branches: [ "main" ]
-    tags: [ 'v*.*.*' ]
+    paths: [ 'backend/**' ]
   pull_request:
     branches: [ "main" ]
+    paths: [ 'backend/**' ]
 
 env:
   # Use docker.io for Docker Hub if empty
@@ -20,23 +28,7 @@ env:
 
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            backend:
-              - 'backend/**'
-
   build:
-    needs: changes
-    # Tag pushes always publish; branch/PR pushes only when backend files changed
-    if: needs.changes.outputs.backend == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: read

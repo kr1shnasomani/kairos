@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -25,18 +26,27 @@ export default function LoginPage() {
   }, [router]);
 
   // Real login → POST /auth/login (Supabase). Stores tokens, then routes directly in.
-  async function signIn(e: React.FormEvent) {
-    e.preventDefault();
+  async function doLogin(em: string, pw: string) {
     setError(null);
     setBusy(true);
     try {
-      await login(email, password);
+      await login(em, pw);
       const user = await getMe();
       router.push(workspacePath(user?.role));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed.");
       setBusy(false);
     }
+  }
+
+  function signIn(e: React.FormEvent) {
+    e.preventDefault();
+    void doLogin(email, password);
+  }
+
+  // One-click demo → signs straight into the seeded admin account.
+  function tryDemo() {
+    void doLogin("admin@kairos.local", "KairosAdmin123!");
   }
 
   return (
@@ -72,12 +82,7 @@ export default function LoginPage() {
         <section data-testid="login-form-panel" className="flex items-center justify-center px-5 py-10 sm:px-10">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center text-center">
-          <span className="grid size-12 place-items-center rounded-xl bg-accent" aria-hidden="true">
-            <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-              <path d="M4 15.5 L9 20 L22 5" stroke="var(--on-accent)" strokeWidth="3.4" strokeLinecap="square" />
-              <path d="M13 20 L18.5 8 L21.5 20 Z" fill="var(--on-accent)" />
-            </svg>
-          </span>
+          <Image src="/logo.png" alt="Kairos" width={48} height={48} priority className="size-12 rounded-xl object-cover" />
           <h1 className="mt-4 text-display font-semibold">Sign in to Kairos</h1>
           <p className="mt-1.5 text-body text-muted">The right knowledge, at the moment of action.</p>
         </div>
@@ -117,6 +122,10 @@ export default function LoginPage() {
           <button type="submit" disabled={busy}
             className="mt-1 min-h-11 rounded-lg bg-ink text-sm font-semibold text-canvas transition-opacity hover:opacity-90 disabled:opacity-60">
             {busy ? "Signing in…" : "Sign in"}
+          </button>
+          <button type="button" onClick={tryDemo} disabled={busy}
+            className="min-h-11 rounded-lg border border-line bg-surface text-sm font-semibold text-ink transition-colors hover:bg-surface-2 disabled:opacity-60">
+            Try demo · signs in as admin
           </button>
         </form>
 

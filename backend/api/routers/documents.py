@@ -49,7 +49,17 @@ async def ingest_document(
     Returns immediately with document_id + job_id. Poll /documents/{document_id}/status.
     """
     _ingest_start = time.monotonic()
+
+    # Abuse guard: reject oversized uploads. Check the declared size first (avoids buffering a
+    # huge body into memory), then backstop against the actual bytes read.
+    max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
+    if file.size is not None and file.size > max_bytes:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            detail=f"File exceeds the {settings.MAX_UPLOAD_MB} MB limit.")
     file_bytes = await file.read()
+    if len(file_bytes) > max_bytes:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            detail=f"File exceeds the {settings.MAX_UPLOAD_MB} MB limit.")
     sha256 = hashlib.sha256(file_bytes).hexdigest()
 
     # Idempotency: same file ingested twice returns the existing record

@@ -40,7 +40,7 @@ export default async function OffboardingPage() {
       <PageHeader
         eyebrow="Knowledge transfer"
         title="Expert handovers"
-        lede="Structured knowledge transfer for departing experts — graph-derived sessions targeting top failure modes by equipment family."
+        lede="Structured knowledge transfer for departing experts: graph-derived sessions targeting top failure modes by equipment family."
       />
 
       <div data-testid="offboarding-summary" className="mt-6 grid overflow-hidden rounded-xl border border-line bg-surface shadow-sm sm:grid-cols-2 lg:grid-cols-[minmax(0,1.25fr)_repeat(3,minmax(130px,0.55fr))]">

@@ -96,7 +96,7 @@ export default function SlaPage() {
         className="mt-4"
         eyebrow="Layer 7 · Case management"
         title="SLA escalations"
-        lede="Where governance SLAs are breached right now — overdue conflicts and quarantine reviews, escalated for attention."
+        lede="Where governance SLAs are breached right now: overdue conflicts and quarantine reviews, escalated for attention."
         actions={state.status === "demo" ? <DemoChip /> : undefined}
       />
       {report && <p className="mt-2 text-caption text-muted">Checked {fmtRelTime(report.checked_at)}</p>}

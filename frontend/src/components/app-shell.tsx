@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandLink } from "./brand-link";
@@ -12,8 +11,9 @@ import { getMe, logout } from "@/lib/auth";
 import { getToken, getGovernorState, getPlantState, isStrictAuth } from "@/lib/api";
 import { flushQueue } from "@/lib/idb";
 import { getUserInitials } from "@/lib/user-initials";
+import { ADMIN_ROLES, routeAllowed, roleHome } from "./use-role";
 import type { Role, User, GovernorEventState, PlantState } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { capitalize, cn } from "@/lib/utils";
 import { ThemeToggle } from "./theme-toggle";
 import { PageSkeleton } from "./skeleton";
 
@@ -24,7 +24,7 @@ const STAFF: Role[] = ["engineer", "reliability", "admin"];
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
   | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph" | "audit"
-  | "events" | "offboarding" | "projects" | "voice" | "chevron" | "settings";
+  | "events" | "offboarding" | "projects" | "voice" | "chevron" | "settings" | "health";
 
 function Icon({ name, className = "size-[18px]" }: { name: IconName; className?: string }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -47,6 +47,7 @@ function Icon({ name, className = "size-[18px]" }: { name: IconName; className?:
     voice: <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><path d="M12 19v4M8 23h8" /></>,
     chevron: <path d="M9 6l6 6-6 6" />,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /></>,
+    health: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
   };
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -186,13 +187,13 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
 
       {user && <GovernorPill userId={user.user_id} />}
 
-      <div className="mx-3 mb-4 mt-2 border-t border-line pt-3">
+      <div className="mx-3 mb-4 mt-2 space-y-0.5 border-t border-line pt-3">
+        {ADMIN_ROLES.includes(role) && (
+          <Link href="/system-health" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
+            <Icon name="health" className="size-[18px]" />System health
+          </Link>
+        )}
         <Link href="/settings" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink"><Icon name="settings" className="size-[18px]" />Settings</Link>
-        <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-label text-muted" aria-label="Help coming soon">
-          <Image src="/logo.png" alt="" width={20} height={20} className="size-5 rounded object-cover" />
-          <span>Help</span>
-          <span className="ml-auto text-micro">Soon</span>
-        </div>
       </div>
 
     </div>
@@ -297,18 +298,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Route-aware browser titles from the nav config — one effect covers every page
-  // (client pages can't export Next metadata).
+  // Route-aware browser titles: "Kairos: <page>" (client pages can't export Next metadata).
   useEffect(() => {
     const nav = NAV.flatMap((g) => g.items).find(
       (i) => pathname === i.href || pathname.startsWith(i.href + "/"),
     );
     const tail = decodeURIComponent(pathname.split("/").filter(Boolean).pop() ?? "");
-    const base =
-      nav?.label ?? (tail ? tail.charAt(0).toUpperCase() + tail.slice(1).replace(/-/g, " ") : "Briefs");
-    document.title =
-      nav && pathname !== nav.href ? `${tail} · ${nav.label} · KAIROS` : `${base} · KAIROS`;
+    const page = nav?.label ?? (tail ? capitalize(tail.replace(/-/g, " ")) : "");
+    document.title = page ? `Kairos: ${page}` : "Kairos";
   }, [pathname]);
+
+  // Central role guard: no staff/admin page is reachable by URL without the right role.
+  // Only enforced once a real user is resolved (anonymous dev sessions = backend engineer default).
+  useEffect(() => {
+    if (user && !routeAllowed(pathname, user.role)) {
+      router.replace(roleHome(user.role));
+    }
+  }, [pathname, user, router]);
 
   useEffect(() => {
     let alive = true;
@@ -566,7 +572,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           >
             <span className="size-2 shrink-0 animate-pulse rounded-full bg-current" aria-hidden="true" />
-            {plantState.state.charAt(0).toUpperCase() + plantState.state.slice(1)} mode active
+            {capitalize(plantState.state)} mode active
             {" — only critical briefs are being delivered"}
           </div>
         )}

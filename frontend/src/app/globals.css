@@ -64,7 +64,6 @@
   --color-verified: var(--verified);
   --color-info: var(--info);
 
-  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
   --font-sans: var(--font-geist-sans), var(--font-noto-devanagari), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
 
@@ -149,9 +148,9 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Headings carry the warm editorial serif — used with restraint */
+/* Headings use Geist Sans like the rest of the UI (single sans typeface) */
 h1, h2, h3, .font-display {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   letter-spacing: -0.01em;
   text-wrap: balance;
 }

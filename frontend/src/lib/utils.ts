@@ -102,3 +102,8 @@ export function triggerLabel(t: string): string {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 }
+
+/** First letter uppercased, rest unchanged. Safe on undefined/empty (live data can drift). */
+export function capitalize(s?: string | null): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
+}

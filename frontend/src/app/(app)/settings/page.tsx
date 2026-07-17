@@ -9,7 +9,7 @@ export default function SettingsPage() {
       <PageHeader
         eyebrow="Account"
         title="Preferences"
-        lede="Display settings for this browser. Stored locally — they follow the device, not the account."
+        lede="Display settings for this browser. Stored locally, so they follow the device, not the account."
       />
 
       <div data-testid="settings-layout" className="mt-6 grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">

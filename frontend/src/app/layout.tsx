@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Newsreader, Noto_Sans_Devanagari } from "next/font/google";
+import { Geist, Geist_Mono, Noto_Sans_Devanagari } from "next/font/google";
 import "./globals.css";
 import { CanvasTokensProvider } from "@/lib/graph-theme";
 
@@ -13,13 +13,6 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const newsreader = Newsreader({
-  variable: "--font-newsreader",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  style: ["normal", "italic"],
-});
-
 // Multi-script fallback for Hindi/Hinglish/Devanagari content (Layer 3)
 const notoDevanagari = Noto_Sans_Devanagari({
   variable: "--font-noto-devanagari",
@@ -29,8 +22,8 @@ const notoDevanagari = Noto_Sans_Devanagari({
 
 export const metadata: Metadata = {
   title: {
-    template: "%s | Kairos: Operational Intelligence",
-    default: "Kairos: Operational Intelligence",
+    template: "Kairos: %s",
+    default: "Kairos",
   },
   description:
     "The right knowledge to the right person at the moment of action. Governed industrial operational intelligence.",
@@ -49,7 +42,7 @@ export default function RootLayout({
     <html
       lang="en"
       data-theme="light"
-      className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable} ${notoDevanagari.variable} h-full`}
+      className={`${geistSans.variable} ${geistMono.variable} ${notoDevanagari.variable} h-full`}
       suppressHydrationWarning
     >
       <head>

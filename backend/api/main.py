@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from api.config import settings
 from api.dependencies import get_es_client, get_qdrant_client
 from api.middleware.opa import OPAMiddleware
+from api.middleware.ratelimit import RateLimitMiddleware
 from api.middleware.telemetry import setup_telemetry
 from api.services.search_engine import SearchEngineService
 from api.services.vector_store import VectorStoreService
@@ -85,6 +86,17 @@ def create_app() -> FastAPI:
         opa_url=settings.OPA_URL,
         jwt_secret=settings.SUPABASE_JWT_SECRET or settings.APP_SECRET_KEY,
         debug=settings.APP_DEBUG,
+    )
+
+    # -------------------------------------------------------------------------
+    # Per-IP rate limit (added last = outermost → rejects spam before any work)
+    # -------------------------------------------------------------------------
+    app.add_middleware(
+        RateLimitMiddleware,
+        redis_url=settings.REDIS_URL,
+        # Enforced only in production (0 = pass-through) so dev + the test suite, which burst many
+        # requests from one IP, never trip it. It's a public-exposure guard, not a dev concern.
+        limit_per_minute=settings.RATE_LIMIT_PER_MINUTE if settings.APP_ENV == "production" else 0,
     )
 
     # -------------------------------------------------------------------------

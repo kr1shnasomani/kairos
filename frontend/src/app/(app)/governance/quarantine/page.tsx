@@ -98,7 +98,7 @@ export default function QuarantinePage() {
         className="mt-4"
         eyebrow="Layer 6 · Quarantine"
         title="Review queue"
-        lede="Unverified field inputs awaiting human review. Promotion to the canonical graph is a one-way gate — nothing is auto-promoted, ever."
+        lede="Unverified field inputs awaiting human review. Promotion to the canonical graph is a one-way gate: nothing is auto-promoted, ever."
         actions={state.status === "demo" ? <DemoChip /> : undefined}
       />
 

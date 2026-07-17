@@ -39,6 +39,7 @@ import type {
   AuditLogEntry,
   AuditLogResponse,
   HealthDetailed,
+  ServiceHealth,
   AuditPack,
   OtCoverage,
   GraphNodeData,
@@ -890,10 +891,35 @@ export async function getAuditLog(params: {
 }
 
 // --- Health ---
+// Backend /health/detailed returns { status, checks: { neo4j: "ok"|"error: …", … } }.
+// Adapt to the UI's { overall, services[] } shape here (same adapter pattern as blast-radius).
+const _SERVICE_LABELS: Record<string, string> = {
+  neo4j: "Neo4j · Knowledge graph",
+  qdrant: "Qdrant · Vector store",
+  elasticsearch: "Elasticsearch · Exact search",
+  redis: "Redis · Cache & streams",
+  temporal: "Temporal · Workflows",
+};
+
 export async function getHealthDetailed(): Promise<Fetched<HealthDetailed | null>> {
   try {
-    const data = await getJson<HealthDetailed>("/health/detailed");
-    return { data, source: "live" };
+    const raw = await getJson<{ status: string; checks: Record<string, string> }>("/health/detailed");
+    const services: ServiceHealth[] = Object.entries(raw.checks ?? {}).map(([name, state]) => ({
+      name: _SERVICE_LABELS[name] ?? name,
+      status: state === "ok" ? "healthy" : "down",
+      details: state === "ok" ? null : state,
+    }));
+    // The API itself answered, so it's up — surface it as the first service.
+    services.unshift({ name: "FastAPI · Core API", status: "healthy", details: null });
+    const anyDown = services.some((s) => s.status !== "healthy");
+    return {
+      data: {
+        overall: anyDown ? "degraded" : "healthy",
+        services,
+        checked_at: new Date().toISOString(),
+      },
+      source: "live",
+    };
   } catch {
     return { data: null, source: "demo" };
   }
