@@ -2,53 +2,70 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getHealthDetailed, probeEndpoint, type ProbeResult } from "@/lib/api";
+import { getHealthDetailed, probeEndpoint, probeModel, type ProbeResult, type ModelProbe } from "@/lib/api";
 import { getMe } from "@/lib/auth";
 import { ADMIN_ROLES } from "@/components/use-role";
-import { PageHeader, StatusBadge, DemoChip } from "@/components/ui";
+import { PageHeader, StatusBadge } from "@/components/ui";
 import { Skeleton } from "@/components/skeleton";
-import { capitalize } from "@/lib/utils";
+import { capitalize, cn } from "@/lib/utils";
 import { fmtRelTime } from "@/lib/format";
 import type { HealthDetailed, ServiceHealth } from "@/lib/types";
 
-const POLL_MS = 15000;
+// Cheap DB-read probes poll at 30s (13 req/cycle ≈ 26/min, far under the 120/min rate limit).
+const POLL_MS = 30000;
+// Model providers are rate-limited (each probe spends quota) — opt-in, and only once/minute when on.
+const MODEL_POLL_MS = 60000;
+const MODELS_LS_KEY = "kairos-health-models";
 
-// Every API surface (docs/API.md), each mapped to a safe read-only GET we probe live.
-// The Go OT connector (port 8090) is on the internal network, not browser-reachable, so it is
-// covered by the datastore section rather than a direct probe.
+// Every API surface (docs/API.md) with a cheap, side-effect-free read-only GET we probe live.
+// Search is NOT here: it embeds via Jina on every call (rate-limited) → covered by the Jina toggle.
 const API_GROUPS: { group: string; layer: string; endpoint: string; probe: string }[] = [
   { group: "Health", layer: "Liveness", endpoint: "GET /health", probe: "/health/" },
   { group: "Authentication", layer: "Auth", endpoint: "GET /auth/me", probe: "/auth/me" },
-  { group: "Assets", layer: "Layer 1 · MDM", endpoint: "GET /assets", probe: "/assets/?limit=1" },
-  { group: "Documents", layer: "Layer 2-3 · Vault", endpoint: "GET /documents", probe: "/documents/?limit=1" },
-  { group: "Search", layer: "Layer 11 · Retrieval", endpoint: "GET /search", probe: "/search/?q=status&limit=1" },
-  { group: "Events", layer: "Layer 8", endpoint: "GET /events/plant-state", probe: "/events/plant-state/SITE_001" },
-  { group: "Briefs", layer: "Layer 8", endpoint: "GET /briefs/governor/status", probe: "/briefs/governor/status" },
-  { group: "Governance", layer: "Layer 7", endpoint: "GET /governance/circuit-breaker", probe: "/governance/circuit-breaker" },
+  { group: "Assets", layer: "L1 · MDM", endpoint: "GET /assets", probe: "/assets/?limit=1" },
+  { group: "Documents", layer: "L2–3 · Vault", endpoint: "GET /documents", probe: "/documents/?limit=1" },
+  { group: "Events", layer: "L8 · Operational", endpoint: "GET /events/plant-state", probe: "/events/plant-state/SITE_001" },
+  { group: "Briefs", layer: "L8 · Delivery", endpoint: "GET /briefs/governor/status", probe: "/briefs/governor/status" },
+  { group: "Governance", layer: "L7", endpoint: "GET /governance/circuit-breaker", probe: "/governance/circuit-breaker" },
   { group: "Compliance", layer: "Compliance", endpoint: "GET /compliance/frameworks", probe: "/compliance/frameworks" },
-  { group: "Elicitation", layer: "Layer 6", endpoint: "GET /elicitation/offboarding", probe: "/elicitation/offboarding" },
-  { group: "Annotations", layer: "Layer 3", endpoint: "GET /annotations/stats", probe: "/annotations/stats" },
+  { group: "Elicitation", layer: "L6", endpoint: "GET /elicitation/offboarding", probe: "/elicitation/offboarding" },
+  { group: "Annotations", layer: "L3", endpoint: "GET /annotations/stats", probe: "/annotations/stats" },
   { group: "Audit Log", layer: "Governance", endpoint: "GET /audit-log", probe: "/audit-log/?limit=1" },
 ];
 
-const OVERALL_TONE = { healthy: "verified", degraded: "caution", down: "danger" } as const;
+// Rate-limited external model providers — opt-in monitoring only.
+const MODELS: { key: string; name: string; sub: string }[] = [
+  { key: "nim", name: "NVIDIA NIM", sub: "LLM synthesis · llama-3.1-70b" },
+  { key: "gemini", name: "Google Gemini", sub: "LLM fallback · gemini-2.5-flash-lite" },
+  { key: "jina", name: "Jina", sub: "Embeddings · powers Search & RAG" },
+  { key: "groq", name: "Groq", sub: "Whisper STT · voice notes" },
+];
+
+const TONE = { healthy: "verified", degraded: "caution", down: "danger" } as const;
 const DOT = { healthy: "bg-verified", degraded: "bg-caution", down: "bg-danger" } as const;
-const STATUS_RANK: Record<ServiceHealth["status"], number> = { down: 0, degraded: 1, healthy: 2 };
+const STORE_RANK: Record<ServiceHealth["status"], number> = { down: 0, degraded: 1, healthy: 2 };
 
 type ProbeRow = (typeof API_GROUPS)[number] & { result?: ProbeResult };
 
-function StatusRow({ dot, title, subtitle, right }: { dot: keyof typeof DOT; title: string; subtitle?: string; right: React.ReactNode }) {
+function StatusDot({ tone }: { tone: keyof typeof DOT }) {
+  return <span className={cn("size-2 shrink-0 rounded-full", DOT[tone], tone !== "healthy" && "animate-pulse")} aria-hidden="true" />;
+}
+
+function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
   return (
-    <li className="flex items-center justify-between gap-4 rounded-xl border border-line bg-surface p-4">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className={`size-2.5 shrink-0 rounded-full ${DOT[dot]} ${dot !== "healthy" ? "animate-pulse" : ""}`} aria-hidden="true" />
-        <div className="min-w-0">
-          <p className="truncate text-body font-medium text-ink">{title}</p>
-          {subtitle && <p className="truncate text-caption text-muted">{subtitle}</p>}
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-3">{right}</div>
-    </li>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onClick}
+      className={cn(
+        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-150 ease-out",
+        on ? "bg-accent" : "bg-surface-2 border border-line",
+      )}
+    >
+      <span className={cn("inline-block size-3.5 rounded-full bg-canvas shadow-sm transition-transform duration-150 ease-out", on ? "translate-x-[18px]" : "translate-x-[3px]")} />
+    </button>
   );
 }
 
@@ -56,11 +73,21 @@ export default function SystemHealthPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [stores, setStores] = useState<HealthDetailed | null>(null);
-  const [storesDemo, setStoresDemo] = useState(false);
   const [apis, setApis] = useState<ProbeRow[]>(API_GROUPS);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const runRef = useRef<() => void>(() => {});
+
+  // Model monitoring is opt-in and persisted per browser (read once via lazy init).
+  const [enabled, setEnabled] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try { const raw = localStorage.getItem(MODELS_LS_KEY); return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+  });
+  const [modelResults, setModelResults] = useState<Record<string, ModelProbe>>({});
+  const [modelBusy, setModelBusy] = useState<Record<string, boolean>>({});
+  const modelTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Admin-only.
   useEffect(() => {
@@ -74,104 +101,243 @@ export default function SystemHealthPage() {
     return () => { alive = false; };
   }, [router]);
 
+  // Always-on cheap probes.
   useEffect(() => {
     if (!authorized) return;
     let alive = true;
     const load = async () => {
-      const [{ data, source }, results] = await Promise.all([
+      setRefreshing(true);
+      const [health, results] = await Promise.all([
         getHealthDetailed(),
         Promise.all(API_GROUPS.map((g) => probeEndpoint(g.probe))),
       ]);
       if (!alive) return;
-      setStores(data);
-      setStoresDemo(source === "demo" || !data);
+      setStores(health.data);
       setApis(API_GROUPS.map((g, i) => ({ ...g, result: results[i] })));
       setCheckedAt(new Date().toISOString());
       setLoading(false);
+      setRefreshing(false);
     };
+    runRef.current = () => { void load(); };
     void load();
     timer.current = setInterval(() => { void load(); }, POLL_MS);
     return () => { alive = false; if (timer.current) clearInterval(timer.current); };
   }, [authorized]);
 
+  // Opt-in model probes: probe enabled providers now, then every 60s.
+  useEffect(() => {
+    if (!authorized) return;
+    let alive = true;
+    const on = MODELS.filter((m) => enabled[m.key]).map((m) => m.key);
+    if (on.length === 0) return;
+    const probe = async () => {
+      setModelBusy((b) => ({ ...b, ...Object.fromEntries(on.map((k) => [k, true])) }));
+      const results = await Promise.all(on.map((k) => probeModel(k)));
+      if (!alive) return;
+      setModelResults((r) => ({ ...r, ...Object.fromEntries(on.map((k, i) => [k, results[i]])) }));
+      setModelBusy((b) => ({ ...b, ...Object.fromEntries(on.map((k) => [k, false])) }));
+    };
+    void probe();
+    modelTimer.current = setInterval(() => { void probe(); }, MODEL_POLL_MS);
+    return () => { alive = false; if (modelTimer.current) clearInterval(modelTimer.current); };
+  }, [authorized, enabled]);
+
+  function toggleModel(key: string) {
+    setEnabled((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(MODELS_LS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      if (!next[key]) setModelResults((r) => { const copy = { ...r }; delete copy[key]; return copy; });
+      return next;
+    });
+  }
+
   if (authorized === null || authorized === false) return null;
 
-  const services = [...(stores?.services ?? [])].sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]);
+  const services = [...(stores?.services ?? [])].sort((a, b) => STORE_RANK[a.status] - STORE_RANK[b.status]);
   const apiUp = apis.filter((a) => a.result?.ok).length;
   const storesUp = services.filter((s) => s.status === "healthy").length;
   const allUp = !loading && apiUp === apis.length && stores?.overall === "healthy";
-  const overall: keyof typeof OVERALL_TONE = loading ? "degraded" : allUp ? "healthy" : "degraded";
+  const overall: keyof typeof TONE = loading ? "degraded" : allUp ? "healthy" : "degraded";
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="w-full">
       <PageHeader
         eyebrow="Infrastructure"
-        title="System health"
-        lede="Live status of every API surface and datastore, grouped by domain. Auto-refreshes every 15 seconds."
+        title="System Health"
+        lede="Live status of every API surface and datastore, grouped by domain. Auto-refreshes every 30 seconds."
         actions={
-          <StatusBadge tone={OVERALL_TONE[overall]} pulse={overall !== "healthy"}>
-            {loading ? "Checking…" : capitalize(overall)}
-          </StatusBadge>
+          <button
+            type="button"
+            onClick={() => runRef.current()}
+            disabled={refreshing}
+            className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-caption font-semibold text-ink transition-[transform,background-color] duration-150 ease-out hover:bg-surface-2 active:scale-[0.97] disabled:opacity-60"
+          >
+            <svg className={cn("size-3.5", refreshing && "animate-spin")} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
+            </svg>
+            {refreshing ? "Checking…" : "Refresh"}
+          </button>
         }
       />
 
-      {storesDemo && <div className="mt-4"><DemoChip detail="Live datastore probe unavailable." /></div>}
-
-      <div className="mt-5 flex items-center justify-between text-caption text-muted">
-        <span className="tabular font-medium">{apiUp}/{apis.length} APIs · {storesUp}/{services.length || 5} datastores healthy</span>
-        {checkedAt && <span>Checked {fmtRelTime(checkedAt)}</span>}
+      {/* Overall banner — the at-a-glance answer */}
+      <div
+        className={cn(
+          "mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4",
+          overall === "healthy"
+            ? "border-[color-mix(in_srgb,var(--verified)_35%,var(--line))] bg-[color-mix(in_srgb,var(--verified)_7%,var(--surface))]"
+            : "border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_7%,var(--surface))]",
+        )}
+      >
+        <div className="flex items-center gap-3">
+          <StatusDot tone={overall} />
+          <p className="text-body font-semibold text-ink">
+            {loading ? "Checking all systems…" : allUp ? "All systems operational" : "Attention needed — one or more checks are failing"}
+          </p>
+        </div>
+        <div className="flex items-center gap-4 text-caption text-muted">
+          <span className="tabular font-medium">{apiUp}/{apis.length} APIs</span>
+          <span className="tabular font-medium">{storesUp}/{services.length || 5} datastores</span>
+          {checkedAt && <span>Checked {fmtRelTime(checkedAt)}</span>}
+        </div>
       </div>
 
-      {/* API surfaces */}
-      <h2 className="mt-6 text-label font-bold uppercase tracking-[0.1em] text-muted">API surfaces</h2>
-      {loading ? (
-        <div className="mt-3 space-y-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
-      ) : (
-        <ul className="mt-3 space-y-2">
-          {apis.map((a) => {
-            const ok = a.result?.ok ?? false;
+      {/* Two full-width columns on wide screens */}
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.7fr_1fr]">
+        {/* API surfaces */}
+        <section>
+          <h2 className="text-label font-bold uppercase tracking-[0.1em] text-muted">API surfaces</h2>
+          <div className="mt-3 overflow-hidden rounded-xl border border-line">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-line bg-surface-2 text-label uppercase tracking-wide text-muted">
+                  <th scope="col" className="px-4 py-2.5 font-semibold">Domain</th>
+                  <th scope="col" className="hidden px-4 py-2.5 font-semibold sm:table-cell">Endpoint</th>
+                  <th scope="col" className="px-4 py-2.5 text-right font-semibold">Latency</th>
+                  <th scope="col" className="px-4 py-2.5 text-right font-semibold">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading
+                  ? Array.from({ length: API_GROUPS.length }).map((_, i) => (
+                      <tr key={i} className="border-b border-line last:border-0">
+                        <td className="px-4 py-3" colSpan={4}><Skeleton className="h-5 w-full rounded" /></td>
+                      </tr>
+                    ))
+                  : apis.map((a) => {
+                      const ok = a.result?.ok ?? false;
+                      return (
+                        <tr key={a.group} className="border-b border-line last:border-0">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <StatusDot tone={ok ? "healthy" : "down"} />
+                              <div className="min-w-0">
+                                <p className="truncate text-body font-medium text-ink">{a.group}</p>
+                                <p className="truncate text-label text-muted">{a.layer}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="hidden px-4 py-3 sm:table-cell"><code className="text-caption text-muted">{a.endpoint}</code></td>
+                          <td className="px-4 py-3 text-right">
+                            {a.result && a.result.status !== 0
+                              ? <span className="tabular text-caption text-muted">{Math.round(a.result.latencyMs)} ms</span>
+                              : <span className="text-caption text-muted">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <StatusBadge tone={ok ? "verified" : "danger"}>
+                              {ok ? "OK" : a.result?.status ? `HTTP ${a.result.status}` : "Unreachable"}
+                            </StatusBadge>
+                          </td>
+                        </tr>
+                      );
+                    })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-label text-muted">Search &amp; retrieval run on Jina embeddings + the datastores below — monitor them in AI models.</p>
+        </section>
+
+        {/* Datastores */}
+        <section>
+          <h2 className="text-label font-bold uppercase tracking-[0.1em] text-muted">Datastores &amp; dependencies</h2>
+          <div className="mt-3 overflow-hidden rounded-xl border border-line">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-line bg-surface-2 text-label uppercase tracking-wide text-muted">
+                  <th scope="col" className="px-4 py-2.5 font-semibold">Service</th>
+                  <th scope="col" className="px-4 py-2.5 text-right font-semibold">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading
+                  ? Array.from({ length: 6 }).map((_, i) => (
+                      <tr key={i} className="border-b border-line last:border-0">
+                        <td className="px-4 py-3" colSpan={2}><Skeleton className="h-5 w-full rounded" /></td>
+                      </tr>
+                    ))
+                  : services.length === 0
+                    ? <tr><td className="px-4 py-4 text-caption text-muted" colSpan={2}>Live datastore status is unavailable.</td></tr>
+                    : services.map((s) => (
+                        <tr key={s.name} className="border-b border-line last:border-0">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <StatusDot tone={s.status} />
+                              <div className="min-w-0">
+                                <p className="truncate text-body font-medium text-ink">{s.name}</p>
+                                {s.details && <p className="truncate text-label text-danger" title={s.details}>{s.details}</p>}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <StatusBadge tone={TONE[s.status]}>{capitalize(s.status)}</StatusBadge>
+                          </td>
+                        </tr>
+                      ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      {/* AI models & rate-limited services — opt-in */}
+      <section className="mt-8">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-label font-bold uppercase tracking-[0.1em] text-muted">AI models &amp; rate-limited services</h2>
+          <p className="text-label text-muted">Off by default — each probe spends provider quota. When on, checks once per minute.</p>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {MODELS.map((m) => {
+            const on = !!enabled[m.key];
+            const res = modelResults[m.key];
+            const busy = !!modelBusy[m.key];
             return (
-              <StatusRow
-                key={a.group}
-                dot={ok ? "healthy" : "down"}
-                title={a.group}
-                subtitle={`${a.layer} · ${a.endpoint}`}
-                right={
-                  <>
-                    {a.result && a.result.status !== 0 && <span className="tabular text-caption text-muted">{Math.round(a.result.latencyMs)} ms</span>}
-                    <StatusBadge tone={ok ? "verified" : "danger"}>{ok ? "Operational" : a.result?.status ? `HTTP ${a.result.status}` : "Unreachable"}</StatusBadge>
-                  </>
-                }
-              />
+              <div key={m.key} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface p-4">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <StatusDot tone={!on ? "degraded" : res?.ok ? "healthy" : busy ? "degraded" : "down"} />
+                  <div className="min-w-0">
+                    <p className="truncate text-body font-medium text-ink">{m.name}</p>
+                    <p className="truncate text-label text-muted">{m.sub}</p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  {on && (
+                    busy
+                      ? <span className="text-caption text-muted">Checking…</span>
+                      : res
+                        ? <>
+                            {res.latencyMs != null && <span className="tabular text-caption text-muted">{res.latencyMs} ms</span>}
+                            <StatusBadge tone={res.ok ? "verified" : "danger"}>{res.ok ? "OK" : res.detail === "not configured" ? "No key" : "Down"}</StatusBadge>
+                          </>
+                        : <span className="text-caption text-muted">—</span>
+                  )}
+                  {!on && <span className="text-caption text-muted">Monitoring off</span>}
+                  <Toggle on={on} onClick={() => toggleModel(m.key)} label={`Monitor ${m.name}`} />
+                </div>
+              </div>
             );
           })}
-        </ul>
-      )}
-
-      {/* Datastores */}
-      <h2 className="mt-8 text-label font-bold uppercase tracking-[0.1em] text-muted">Datastores & dependencies</h2>
-      {loading ? (
-        <div className="mt-3 space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
-      ) : services.length === 0 ? (
-        <p className="mt-3 text-body text-muted">Live datastore status is unavailable.</p>
-      ) : (
-        <ul className="mt-3 space-y-2">
-          {services.map((s) => (
-            <StatusRow
-              key={s.name}
-              dot={s.status}
-              title={s.name}
-              subtitle={s.details ?? undefined}
-              right={
-                <>
-                  {s.latency_ms != null && <span className="tabular text-caption text-muted">{Math.round(s.latency_ms)} ms</span>}
-                  <StatusBadge tone={OVERALL_TONE[s.status]}>{capitalize(s.status)}</StatusBadge>
-                </>
-              }
-            />
-          ))}
-        </ul>
-      )}
+        </div>
+      </section>
     </div>
   );
 }

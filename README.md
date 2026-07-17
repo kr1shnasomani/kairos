@@ -6,6 +6,8 @@
 
 ## Industrial Operational Intelligence Platform
 
+--- 
+
 **[Demo Video](#quick-start)** · **[Architecture](./docs/ARCHITECTURE.md)** · **[Documentation](#documentation)**
 
 ---

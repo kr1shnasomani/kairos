@@ -21,8 +21,13 @@ class GraphService:
 
     _SAFETY_CRITICAL_KEYWORDS = {"pressure", "temperature", "inspection", "isolation", "material"}
 
-    def __init__(self, driver: AsyncDriver, database: str = "neo4j"):
+    def __init__(self, driver: AsyncDriver, database: str | None = None):
         self.driver = driver
+        # Default to the configured database, not a hardcoded "neo4j" — Aura names its DB after the
+        # instance ID (e.g. "2016aa75"), so callers that omit `database` must still hit the right one.
+        if database is None:
+            from api.config import settings
+            database = settings.NEO4J_DATABASE
         self.database = database
 
     async def health_check(self) -> bool:

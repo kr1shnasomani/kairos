@@ -69,7 +69,7 @@ async def generate_interview_questions(params: Dict[str, Any]) -> Dict[str, Any]
     known: List[str] = []
     unknown: List[str] = []
     try:
-        async with driver.session() as neo4j_session:
+        async with driver.session(database=os.environ.get("NEO4J_DATABASE", "neo4j")) as neo4j_session:
             result = await neo4j_session.run(
                 """
                 MATCH (a:Asset {asset_id: $asset_id})-[r]->(n)

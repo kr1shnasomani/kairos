@@ -15,6 +15,7 @@ _NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 _NEO4J_USER = os.getenv("NEO4J_USERNAME", "neo4j")
 _NEO4J_PASS = os.getenv("NEO4J_PASSWORD", "kairos_dev_password")
 _QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+_QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None  # required for Qdrant Cloud
 _ES_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 _QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION_DOCUMENTS", "kairos_documents")
 _ES_INDEX = os.getenv("ELASTICSEARCH_INDEX_DOCUMENTS", "kairos_documents")
@@ -137,7 +138,7 @@ async def test_qdrant_vectors_indexed(admin_client):
 
     doc_id = await _ingest_and_wait(admin_client)
 
-    client = QdrantClient(url=_QDRANT_URL)
+    client = QdrantClient(url=_QDRANT_URL, api_key=_QDRANT_API_KEY)
     points, _ = client.scroll(
         collection_name=_QDRANT_COLLECTION,
         scroll_filter=Filter(must=[

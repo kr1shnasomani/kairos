@@ -11,11 +11,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import structlog
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import Distance, PayloadSchemaType, VectorParams
 
 from api.config import settings
 
 log = structlog.get_logger(__name__)
+
+# Payload fields we filter on — Qdrant Cloud REQUIRES an index on any field used in a filter
+# (local Qdrant is lenient). Without these, asset-scoped / quarantine searches 400 on cloud.
+PAYLOAD_INDEXES = {
+    "asset_id": PayloadSchemaType.KEYWORD,
+    "document_id": PayloadSchemaType.KEYWORD,
+    "is_quarantine": PayloadSchemaType.BOOL,
+}
 
 COLLECTIONS = {
     settings.QDRANT_COLLECTION_KNOWLEDGE: {
@@ -47,16 +55,20 @@ async def init_collections():
         for name, config in COLLECTIONS.items():
             if name in existing_names:
                 log.info("qdrant.collection_exists", name=name)
-                continue
+            else:
+                await client.create_collection(
+                    collection_name=name,
+                    vectors_config=VectorParams(size=config["size"], distance=config["distance"]),
+                )
+                log.info("qdrant.collection_created", name=name, size=config["size"])
 
-            await client.create_collection(
-                collection_name=name,
-                vectors_config=VectorParams(
-                    size=config["size"],
-                    distance=config["distance"],
-                ),
-            )
-            log.info("qdrant.collection_created", name=name, size=config["size"])
+            # Payload indexes (idempotent — skip if already present). Required by Qdrant Cloud.
+            for field, schema in PAYLOAD_INDEXES.items():
+                try:
+                    await client.create_payload_index(collection_name=name, field_name=field, field_schema=schema)
+                    log.info("qdrant.payload_index_created", name=name, field=field)
+                except Exception as exc:  # noqa: BLE001 — already-exists is fine
+                    log.info("qdrant.payload_index_skip", name=name, field=field, reason=str(exc)[:60])
 
         log.info("qdrant.init_complete")
 

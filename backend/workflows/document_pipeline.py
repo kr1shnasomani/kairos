@@ -88,6 +88,7 @@ def _get_qdrant_client():
         from qdrant_client import AsyncQdrantClient
         _qdrant_client = AsyncQdrantClient(
             url=os.environ.get("QDRANT_URL", "http://kairos-qdrant:6333"),
+            api_key=os.environ.get("QDRANT_API_KEY") or None,  # required for Qdrant Cloud (else 403)
         )
     return _qdrant_client
 

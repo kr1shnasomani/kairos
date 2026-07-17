@@ -158,6 +158,25 @@ If any service is unreachable, its value is `"error: <message>"`.
 
 ---
 
+### `GET /health/model`
+
+Opt-in liveness probe for a **rate-limited model provider**. Makes the smallest possible real call
+(1 token / 1 embedding / a models list) so the System Health page can show live model status.
+
+**Auth required:** Yes — `admin` only. **Not** polled by default (each call spends provider quota).
+
+**Query params:** `provider` — one of `nim | gemini | jina | groq`.
+
+**Response `200`:**
+```json
+{ "provider": "nim", "ok": true, "status": 200, "model": "meta/llama-3.1-70b-instruct", "latency_ms": 2603, "detail": null }
+```
+
+`ok: false` with `detail: "not configured"` when the provider's API key is unset; `detail` carries the
+error text when the upstream call fails. `400` for an unknown provider.
+
+---
+
 ## 3. Assets (MDM)
 
 **Prefix:** `/assets`

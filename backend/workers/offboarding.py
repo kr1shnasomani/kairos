@@ -59,7 +59,7 @@ async def _generate(item_id: str) -> Dict[str, Any]:
     unknown: List[str] = []
     now = datetime.now(timezone.utc).isoformat()
     try:
-        async with driver.session() as neo4j_session:
+        async with driver.session(database=settings.NEO4J_DATABASE) as neo4j_session:
             result = await neo4j_session.run(
                 """
                 MATCH (a:Asset)-[r]->(n)

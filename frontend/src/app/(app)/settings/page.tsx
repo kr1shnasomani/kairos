@@ -8,7 +8,7 @@ export default function SettingsPage() {
     <div data-testid="settings-workspace" className="mx-auto max-w-[1100px]">
       <PageHeader
         eyebrow="Account"
-        title="Preferences"
+        title="System settings"
         lede="Display settings for this browser. Stored locally, so they follow the device, not the account."
       />
 

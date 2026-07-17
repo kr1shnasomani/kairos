@@ -453,14 +453,14 @@ export function DataTable<T extends Record<string, unknown>>({
   return (
     <div className="overflow-x-auto rounded-xl border border-line">
       {toolbar && <div className="flex items-center gap-2 border-b border-line bg-surface px-3 py-2">{toolbar}</div>}
-      <table className="w-full text-body">
+      <table className="w-full table-fixed text-body">
         <thead>
           <tr className="border-b border-line bg-surface-2">
             {columns.map((col) => (
               <th
                 key={col.key}
                 aria-sort={sort?.key === col.key ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
-                className={cn("sticky top-0 bg-surface-2 px-3 py-2.5 text-left font-semibold text-muted", col.className)}
+                className={cn("sticky top-0 bg-surface-2 px-3 py-2.5 text-left text-caption font-semibold text-muted overflow-hidden", col.className)}
               >
                 {col.sortable || col.sortValue ? (
                   <button
@@ -491,7 +491,7 @@ export function DataTable<T extends Record<string, unknown>>({
               )}
             >
               {columns.map((col) => (
-                <td key={col.key} className={cn("px-3 py-2.5 align-middle", col.className)}>
+                <td key={col.key} className={cn("px-3 py-2 align-top overflow-hidden", col.className)}>
                   {col.render ? col.render(row) : String(row[col.key] ?? "")}
                 </td>
               ))}

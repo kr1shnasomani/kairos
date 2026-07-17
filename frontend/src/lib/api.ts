@@ -168,7 +168,7 @@ export async function fetchWithSession(path: string, init: RequestInit, timeoutM
 const WRITE_TIMEOUT_MS = 8000;
 
 /** Authenticated write from the browser. Retries once after a silent token refresh on 401. */
-export async function postJson<T>(path: string, body: unknown): Promise<T> {
+export async function postJson<T>(path: string, body: unknown, timeoutMs = WRITE_TIMEOUT_MS): Promise<T> {
   const makeReq = (tok: string | null) =>
     fetch(`${API_BASE}${path}`, {
       method: "POST",
@@ -178,7 +178,7 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
         ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(WRITE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
   let res = await makeReq(getToken());
@@ -271,6 +271,20 @@ export async function probeEndpoint(path: string, timeoutMs = 8000): Promise<Pro
   } catch {
     const latencyMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - t0;
     return { ok: false, status: 0, latencyMs };
+  }
+}
+
+// Opt-in liveness probe for a rate-limited model provider (nim/gemini/jina/groq). Each call spends
+// real quota, so the System Health page only fires this when the provider's toggle is on. Never throws.
+export type ModelProbe = { provider: string; ok: boolean; status?: number; model?: string; latencyMs?: number; detail?: string | null };
+export async function probeModel(provider: string): Promise<ModelProbe> {
+  try {
+    const r = await getJson<{ provider: string; ok: boolean; status?: number; model?: string; latency_ms?: number; detail?: string | null }>(
+      `/health/model?provider=${provider}`, 25000,
+    );
+    return { provider: r.provider, ok: r.ok, status: r.status, model: r.model, latencyMs: r.latency_ms, detail: r.detail };
+  } catch (e) {
+    return { provider, ok: false, detail: e instanceof Error ? e.message : "probe failed" };
   }
 }
 
@@ -387,6 +401,25 @@ export function requestQuarantineInfo(itemId: string, note: string) {
 
 export async function synthesize(query: string, asOf?: string): Promise<CopilotAnswer> {
   try {
+    // Step 1 — RETRIEVE. Synthesis assembles only from context it is given, so we must run hybrid
+    // search first (exactly what the benchmark does). Without this the answer is always empty.
+    const qs = new URLSearchParams({ q: query, limit: "6" });
+    if (asOf) qs.set("as_of", asOf);
+    const search = await getJson<{ results: Array<{ document_id: string; snippet?: string; title?: string; authority_level?: number; asset_id?: string | null }> }>(
+      `/search?${qs.toString()}`, 12000,
+    );
+    const results = search.results ?? [];
+    if (results.length === 0) return answerFor(query);  // nothing governed to answer from
+
+    const context = results.map((r) => ({
+      text: r.snippet ?? "",
+      document_id: r.document_id,
+      title: r.title ?? r.document_id,
+      authority_level: r.authority_level ?? 5,
+      asset_id: r.asset_id ?? null,
+    }));
+
+    // Step 2 — SYNTHESIZE from the retrieved context. Long timeout: NIM/Gemini can take ~10–30s.
     const live = await postJson<{
       answer: string | null;
       sources: { document_id: string; authority_level: number }[];
@@ -395,17 +428,28 @@ export async function synthesize(query: string, asOf?: string): Promise<CopilotA
       refusal_reason?: string;
       safety_critical: boolean;
       model?: string;
-    }>("/search/synthesize", asOf ? { query, as_of: asOf } : { query });
-    // KB unseeded → live answers null/empty with no refusal. Don't render a blank bubble;
-    // fall back to the curated answer (demo-primary). A genuine safety refusal is kept.
-    if (!live.refused && !live.answer?.trim()) return answerFor(query);
+    }>("/search/synthesize", asOf ? { query, context, as_of: asOf } : { query, context }, 90000);
+
+    // Genuine safety refusal is kept. Empty answer despite context → surface the retrieved sources
+    // instead of a blank bubble (still real data, not the fixture).
+    if (!live.refused && !live.answer?.trim()) {
+      return {
+        answer: null,
+        sources: context.map((c) => ({ document_id: c.document_id, title: c.title, authority_level: c.authority_level as CopilotAnswer["sources"][number]["authority_level"], excerpt: c.text.slice(0, 200) })),
+        confidence: 0,
+        refused: false,
+        safety_critical: false,
+      };
+    }
+    // Map the answer's cited sources back to their snippets from the retrieved context.
+    const byId = new Map(context.map((c) => [c.document_id, c]));
     return {
       answer: live.answer,
       sources: (live.sources ?? []).map((s) => ({
         document_id: s.document_id,
-        title: s.document_id,
+        title: byId.get(s.document_id)?.title ?? s.document_id,
         authority_level: (s.authority_level as CopilotAnswer["sources"][number]["authority_level"]) ?? 5,
-        excerpt: "",
+        excerpt: byId.get(s.document_id)?.text.slice(0, 200) ?? "",
       })),
       confidence: live.confidence ?? 0,
       refused: !!live.refused,

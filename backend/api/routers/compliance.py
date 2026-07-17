@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
+from api.config import settings
 from api.dependencies import CurrentUserDep, Neo4jDep
 
 router = APIRouter()
@@ -116,7 +117,7 @@ async def list_compliance_gaps(
     Detects gaps: Regulation nodes with no verified procedure edge on applicable assets.
     High-recall: errs toward flagging. False-negative control — never auto-clears safety-critical.
     """
-    async with driver.session(database="neo4j") as session:
+    async with driver.session(database=settings.NEO4J_DATABASE) as session:
         result = await session.run(
             _GAP_CYPHER,
             framework=framework,
@@ -145,7 +146,7 @@ async def compliance_dashboard(
     Aggregated compliance gap counts by severity, framework, and equipment class.
     Designed for Quality Managers and Compliance Officers.
     """
-    async with driver.session(database="neo4j") as session:
+    async with driver.session(database=settings.NEO4J_DATABASE) as session:
         result = await session.run(_DASHBOARD_CYPHER, site_id=site_id)
         rows = [dict(r) async for r in result]
 
@@ -187,7 +188,7 @@ async def generate_audit_pack(
     Clauses with all evidence below confidence 0.7 require human review before clearance.
     Human sign-off is mandatory — this is audit-preparation acceleration, not automated compliance.
     """
-    async with driver.session(database="neo4j") as session:
+    async with driver.session(database=settings.NEO4J_DATABASE) as session:
         result = await session.run(_AUDIT_CYPHER, framework=framework, clauses=clauses)
         rows = [dict(r) async for r in result]
 
@@ -232,7 +233,7 @@ async def list_frameworks(
     driver: Neo4jDep,
 ) -> dict:
     """Returns frameworks present in the Neo4j knowledge graph (i.e. already seeded)."""
-    async with driver.session(database="neo4j") as session:
+    async with driver.session(database=settings.NEO4J_DATABASE) as session:
         result = await session.run(
             "MATCH (c:Concept {type: 'Regulation'}) RETURN DISTINCT c.framework AS framework ORDER BY framework"
         )

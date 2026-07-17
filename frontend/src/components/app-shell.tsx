@@ -24,7 +24,7 @@ const STAFF: Role[] = ["engineer", "reliability", "admin"];
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
   | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph" | "audit"
-  | "events" | "offboarding" | "projects" | "voice" | "chevron" | "settings" | "health";
+  | "events" | "offboarding" | "projects" | "voice" | "chevron" | "settings" | "health" | "info";
 
 function Icon({ name, className = "size-[18px]" }: { name: IconName; className?: string }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -48,6 +48,7 @@ function Icon({ name, className = "size-[18px]" }: { name: IconName; className?:
     chevron: <path d="M9 6l6 6-6 6" />,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /></>,
     health: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
+    info: <><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></>,
   };
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -188,12 +189,15 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
       {user && <GovernorPill userId={user.user_id} />}
 
       <div className="mx-3 mb-4 mt-2 space-y-0.5 border-t border-line pt-3">
+        <Link href="/system-information" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
+          <Icon name="info" className="size-[18px]" />System Information
+        </Link>
         {ADMIN_ROLES.includes(role) && (
           <Link href="/system-health" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
-            <Icon name="health" className="size-[18px]" />System health
+            <Icon name="health" className="size-[18px]" />System Health
           </Link>
         )}
-        <Link href="/settings" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink"><Icon name="settings" className="size-[18px]" />Settings</Link>
+        <Link href="/settings" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink"><Icon name="settings" className="size-[18px]" />System Settings</Link>
       </div>
 
     </div>
@@ -276,7 +280,7 @@ function AccountMenu({ open, onClose, name, role, onSignOut }: { open: boolean; 
       <button className="absolute inset-0" aria-label="Close user menu" onClick={onClose} />
       <div className="sidebar-scope absolute right-4 top-16 w-64 rounded-xl border border-line p-2 shadow-xl animate-[overlay-in_150ms_ease-out]">
         <div className="flex items-start justify-between gap-3 px-3 py-2"><div className="min-w-0"><p className="truncate text-sm font-semibold">{name}</p><p className="text-caption text-muted">{role.replace(/_/g, " ")}</p></div><ThemeToggle className="-mr-1 -mt-1 shrink-0" /></div>
-        <Link href="/settings" onClick={onClose} className="flex rounded-lg px-3 py-2 text-sm transition-colors hover:bg-surface-2">Settings</Link>
+        <Link href="/settings" onClick={onClose} className="flex rounded-lg px-3 py-2 text-sm transition-colors hover:bg-surface-2">System Settings</Link>
         <button type="button" onClick={onSignOut} className="flex w-full rounded-lg px-3 py-2 text-left text-sm text-danger transition-colors hover:bg-surface-2">Sign out</button>
       </div>
     </div>
@@ -425,7 +429,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           try { localStorage.setItem("kairos-theme", next); } catch {}
         },
       },
-      { group: "Actions", label: "Preferences", href: "/settings" },
+      { group: "Actions", label: "System Settings", href: "/settings" },
       { group: "Actions", label: "Keyboard shortcuts", hint: "?", action: () => setHelpOpen(true) },
     ];
   }, [role]);

@@ -43,40 +43,44 @@ const ENTITY_TYPES = ["document", "brief", "asset"];
 const COLUMNS: TableColumn<AuditRow>[] = [
   {
     key: "timestamp", label: "Recorded", sortValue: (r) => Date.parse(r.timestamp),
-    render: (r) => <span className="tabular whitespace-nowrap text-caption text-muted" title={r.timestamp}>{relativeTime(r.timestamp)}</span>,
+    className: "w-[10%]",
+    render: (r) => <span className="tabular-nums whitespace-nowrap text-caption text-muted" title={r.timestamp}>{relativeTime(r.timestamp)}</span>,
   },
   {
     key: "action", label: "Action", sortable: true,
+    className: "w-[18%]",
     render: (r) => <StatusBadge tone={ACTION_TONE[r.action] ?? "neutral"} dot={false}>{r.action.replace(/_/g, " ")}</StatusBadge>,
   },
   {
     key: "entity_id", label: "Entity", sortable: true,
+    className: "w-[20%]",
     render: (r) => (
       <span className="block min-w-0">
-        <span className="tabular block truncate font-semibold text-accent">{r.entity_id}</span>
+        <span className="tabular-nums block truncate font-semibold text-accent" title={String(r.entity_id)}>{r.entity_id}</span>
         <span className="block text-label capitalize text-muted">{r.entity_type}</span>
       </span>
     ),
   },
   {
     key: "performed_by", label: "Performed by", sortable: true,
+    className: "w-[20%]",
     render: (r) => (
       <span className="block min-w-0">
-        <span className="block truncate font-medium text-ink">{r.performed_by}</span>
-        <span className="tabular block truncate text-label text-muted">{r.log_id}</span>
+        <span className="block truncate font-medium text-ink" title={String(r.performed_by)}>{r.performed_by}</span>
+        <span className="tabular-nums block truncate text-label text-muted">{r.log_id}</span>
       </span>
     ),
   },
   {
-    key: "metadata", label: "Details", className: "w-full",
+    key: "metadata", label: "Details",
+    // fills remaining ~32% — no explicit width needed with table-fixed
     render: (r) => {
       const meta = r.metadata ?? null;
       if (!meta || Object.keys(meta).length === 0) return <span className="text-muted">—</span>;
       return (
-        // Native disclosure keeps the immutable record inspectable without row state.
         <details onClick={(e) => e.stopPropagation()}>
-          <summary className="cursor-pointer text-label font-medium text-muted hover:text-ink">metadata</summary>
-          <pre className="mt-1 max-w-[320px] overflow-x-auto rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-label text-muted">{JSON.stringify(meta, null, 2)}</pre>
+          <summary className="cursor-pointer list-none text-label font-medium text-muted hover:text-ink">▶ metadata</summary>
+          <pre className="mt-1 max-w-full overflow-x-auto rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-label text-muted">{JSON.stringify(meta, null, 2)}</pre>
         </details>
       );
     },

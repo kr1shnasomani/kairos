@@ -728,6 +728,10 @@ Created by `docker exec kairos-backend-api python scripts/seed_users.py`.
 
 `OPAMiddleware` in `api/middleware/opa.py` intercepts all `POST/PUT/PATCH/DELETE` requests (except `/health`, `/auth`, `/docs`). Maps route prefix to OPA action name, calls `http://kairos-opa:8181/v1/data/kairos/authz/allow`. 403 if denied.
 
+### Rate-limit Middleware
+
+`RateLimitMiddleware` in `api/middleware/ratelimit.py` (outermost) caps requests per client IP using a Redis fixed-window counter (`RATE_LIMIT_PER_MINUTE`, default 120). **Enforced only when `APP_ENV=production`** (0 = off in dev/test so bursts never trip it). Fails open if Redis is unreachable; `/health*` exempt. Trusts the first `X-Forwarded-For` hop (behind Caddy). Pairs with the `MAX_UPLOAD_MB` (25) cap on `/documents/ingest` — both are public-exposure abuse guards.
+
 ### Internal Service Auth
 
 Go connector and service-to-service calls use `Authorization: Bearer <INTERNAL_API_KEY>`. `get_current_user` recognizes this and returns a service admin account without calling Supabase.

@@ -120,10 +120,13 @@ frontend/
 | `/field/voice` | Ad-hoc voice note — tag an asset/WO, record → quarantine | Live (mobile field capture) |
 | `/field/voice/[workOrderId]` | Voice note tied to a specific work order | Live (mobile field capture) |
 
-> **Field routes** render at mobile width and have **no role gate** (any authenticated user can open
-> them). Only the field bottom-tab navigation is gated to `field_worker` (see §4). The bare
-> `/field/voice` is the destination of the "Voice" bottom tab; `/field/voice/[workOrderId]` is the
-> deep-linked variant reached from a brief or elicitation.
+> **Role-based route access** is enforced centrally in `AppShell`: `routeAllowed(path, role)` +
+> `roleHome(role)` in `use-role.ts`. Staff surfaces (`/management`, `/events`, `/rca`, `/graph`,
+> `/compliance`, `/governance`, `/audit`, `/documents`, `/projects`, `/offboarding`) require
+> engineer/reliability/admin; `/system-health` is **admin-only**. A field worker who navigates to a
+> gated URL is redirected to `/briefs`. Open-to-all routes (briefs, copilot, assets, `/field/*`,
+> `/settings`, `/system-information`) are unlisted. Field routes render at mobile width; the field
+> bottom-tab nav is gated to `field_worker` (see §4).
 
 > Client-only components that must not SSR (React Flow graph, blast-radius, supersede action) are
 > loaded via `dynamic(..., { ssr: false })` from the `"use client"` module `components/lazy.tsx` —
@@ -140,8 +143,13 @@ frontend/
 - **Operate:** Briefs · Copilot · Assets · RCA · Graph · Events
 - **Assure:** Compliance · Governance · Audit trail · Documents · Projects · Off-boarding
 - **Manage:** Overview (management)
+- **Footer:** System information (all roles) · System health (**admin only**) · System settings
 
 Active route highlighted with `bg-accent-soft text-accent`. User chip at the bottom shows the live authenticated user's name, role, and site from `GET /auth/me`. Sign-out clears tokens and redirects to `/login`. The sidebar logo is `public/logo.png`, a 30px rounded square.
+
+- **`/system-information`** — static visual architecture explainer (pipeline, 13 layers, stack). Open to all.
+- **`/system-health`** — admin-only live dashboard: probes all 11 cheap API surfaces + 5 datastores every 30s, plus an opt-in "AI models" section (NIM/Gemini/Jina/Groq) that probes `GET /health/model?provider=…` once/minute **only when toggled on** (each probe spends provider quota; off by default, persisted in `localStorage`).
+- **Login** (`/login`) has a **"Try demo"** button that signs straight into the seeded admin account. Browser tab titles are `Kairos: <page>` (landing = `Kairos`).
 
 **Field bottom tabs** (`FieldBottomTabs` in `app-shell.tsx`) — shown **only for `field_worker`** at mobile width, replacing the sidebar with a fixed bottom bar:
 
