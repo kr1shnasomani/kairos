@@ -7,16 +7,8 @@ import { getPlantState, setPlantState } from "@/lib/api";
 import { getMe } from "@/lib/auth";
 import { ADMIN_ROLES } from "@/components/use-role";
 import { Modal, StatusBadge, Button, DemoChip, PageHeader } from "@/components/ui";
-import { relativeTime } from "@/lib/utils";
-
-const STATE_META: Record<PlantOperatingState, { label: string; tone: "verified" | "caution" | "danger" | "neutral"; desc: string }> = {
-  normal:      { label: "Normal",      tone: "verified", desc: "Full operations. All ingestion, briefs, and governors active." },
-  turnaround:  { label: "Turnaround",  tone: "caution",  desc: "Planned maintenance. Brief cadence reduced; PTW governor exempt." },
-  shutdown:    { label: "Shutdown",    tone: "caution",  desc: "Operations suspended. Safety interlocks remain active." },
-  emergency:   { label: "Emergency",   tone: "danger",   desc: "Emergency state. Critical-only briefs; all non-safety automation paused." },
-};
-
-const STATES: PlantOperatingState[] = ["normal", "turnaround", "shutdown", "emergency"];
+import { fmtRelTime } from "@/lib/format";
+import { STATE_META, STATES, toneToken } from "./_components/state-meta";
 
 export default function PlantStatePage() {
   const [current, setCurrent] = useState<PlantState | null>(null);
@@ -63,7 +55,7 @@ export default function PlantStatePage() {
   const activeMeta = current ? STATE_META[current.state] : null;
 
   return (
-    <div className="mx-auto max-w-2xl px-5 py-8 sm:px-8 sm:py-10">
+    <div data-testid="plant-state-workspace" className="mx-auto max-w-[1200px]">
       <Link href="/management" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -73,15 +65,23 @@ export default function PlantStatePage() {
 
       <PageHeader className="mt-4" eyebrow="Plant control" title="Plant operating state" lede="Sets the operating mode for the whole site. Affects brief cadence, governor ceilings, and automation behaviour. Changes are logged and irreversible without an explicit transition." />
 
-      {/* Current state */}
-      <section className="mt-5 rounded-xl border border-line bg-surface p-5">
+      <div data-testid="plant-state-layout" className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <main data-testid="plant-state-control" className="min-w-0 space-y-5">
+      {/* Current state — tone-coded banner */}
+      <section
+        className="rounded-xl border border-line bg-surface p-5 shadow-sm"
+        style={activeMeta ? {
+          borderColor: `color-mix(in srgb, var(--${toneToken(activeMeta.tone)}) 35%, var(--line))`,
+          backgroundColor: `color-mix(in srgb, var(--${toneToken(activeMeta.tone)}) 5%, var(--surface))`,
+        } : undefined}
+      >
         <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Current state</p>
         {current ? (
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
             <StatusBadge tone={activeMeta!.tone}>{activeMeta!.label}</StatusBadge>
             <span className="text-body text-ink">{activeMeta!.desc}</span>
             <span className="tabular ml-auto text-label text-muted">
-              Set by {current.set_by} · {relativeTime(current.set_at)}
+              Set by {current.set_by} · {fmtRelTime(current.set_at)}
             </span>
           </div>
         ) : (
@@ -97,14 +97,14 @@ export default function PlantStatePage() {
 
       {/* State selector — admin only */}
       {!isAdmin && (
-        <div className="mt-5 rounded-xl border border-line bg-surface p-5 text-body text-muted">
+        <div className="rounded-xl border border-line bg-surface p-5 text-body text-muted shadow-sm">
           Plant state changes require the <span className="font-semibold text-ink">admin</span> role.
           Contact your site administrator to request a state transition.
         </div>
       )}
 
       {isAdmin && (
-        <section className="mt-5">
+        <section className="rounded-xl border border-line bg-surface p-5 shadow-sm">
           <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Transition to</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {STATES.map((s) => {
@@ -118,7 +118,7 @@ export default function PlantStatePage() {
                   disabled={isCurrent}
                   aria-pressed={isSelected}
                   className={[
-                    "rounded-xl border p-4 text-left transition-colors",
+                    "min-h-[96px] rounded-xl border p-4 text-left transition-colors",
                     isCurrent
                       ? "cursor-default border-line bg-surface-2 opacity-50"
                       : isSelected
@@ -146,7 +146,7 @@ export default function PlantStatePage() {
               </Button>
               <button
                 onClick={() => { setSelected(null); setSuccess(false); }}
-                className="text-body text-muted hover:text-ink"
+                className="min-h-11 px-3 text-body text-muted hover:text-ink"
               >
                 Cancel
               </button>
@@ -161,13 +161,28 @@ export default function PlantStatePage() {
           {error && <p className="mt-3 text-body text-danger">{error}</p>}
         </section>
       )}
+        </main>
+
+        <aside data-testid="plant-state-context" className="rounded-xl border border-line bg-surface p-4 shadow-sm lg:sticky lg:top-20">
+          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Site scope</p>
+          <p className="tabular mt-1 text-title font-semibold">{siteId ?? "Loading…"}</p>
+          <div className="mt-4 border-t border-line pt-4">
+            <p className="text-label font-semibold text-ink">Operational impact</p>
+            <p className="mt-1.5 text-caption leading-relaxed text-muted">A transition immediately changes brief cadence, governor ceilings, and eligible automation for every user at this site.</p>
+          </div>
+          <div className="mt-4 border-t border-line pt-4">
+            <p className="text-label font-semibold text-ink">Audit trail</p>
+            <p className="mt-1.5 text-caption leading-relaxed text-muted">Every state change records the responsible user and timestamp. Reversal requires another explicit transition.</p>
+          </div>
+        </aside>
+      </div>
 
       {/* Confirm modal */}
       {confirming && selected && (
         <Modal title={`Confirm: set to ${STATE_META[selected].label}`} onClose={() => setConfirming(false)}>
           <p className="text-body text-muted leading-relaxed">
             This will immediately transition <span className="font-semibold text-ink">{siteId}</span> to{" "}
-            <span className="font-semibold" style={{ color: `var(--${STATE_META[selected].tone === "neutral" ? "muted" : STATE_META[selected].tone})` }}>
+            <span className="font-semibold" style={{ color: `var(--${toneToken(STATE_META[selected].tone)})` }}>
               {STATE_META[selected].label}
             </span>{" "}
             mode. The transition is logged and visible to all site users. Are you sure?

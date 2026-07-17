@@ -1,9 +1,11 @@
 "use client";
 
+// Voice-note capture deep-linked from a work order — transcribed and routed to quarantine.
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { submitVoiceNote } from "@/lib/api";
+import { PageHeader } from "@/components/ui";
 
 type Stage = "record" | "submitting" | "done" | "error";
 
@@ -30,18 +32,17 @@ export default function VoicePage() {
   }
 
   return (
-    <div className="mx-auto max-w-md px-5 pb-8 pt-6">
-      <header className="mb-6">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
-          Work order {workOrderId}
-        </p>
-        <h1 className="mt-0.5 text-title font-semibold">Voice note</h1>
-        <p className="mt-1.5 text-body text-muted">
-          Record a field observation. Transcribed by Whisper and routed to the knowledge quarantine
-          for engineering review.
-        </p>
-      </header>
+    <div data-testid="work-order-voice-workspace" className="mx-auto max-w-[1100px]">
+      <PageHeader
+        compact
+        className="mb-6"
+        eyebrow={`Work order ${workOrderId}`}
+        title="Voice note"
+        lede="Record a field observation. Transcribed by Whisper and routed to the knowledge quarantine for engineering review."
+      />
 
+      <div data-testid="work-order-voice-layout" className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <main data-testid="work-order-voice-capture" className="min-w-0 rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-6">
       {stage === "record" && (
         <div className="flex flex-col items-center gap-6 py-8">
           <VoiceRecorder onBlob={handleBlob} />
@@ -106,13 +107,24 @@ export default function VoicePage() {
           </p>
           <button
             onClick={() => setStage("record")}
-            className="mt-3 rounded-lg border border-line px-4 py-2 text-body font-medium text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
+            className="mt-3 min-h-11 rounded-lg border border-line px-4 py-2 text-body font-medium text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
           >
             Try again
           </button>
         </div>
       )}
+        </main>
 
+        <aside data-testid="work-order-voice-context" className="rounded-xl border border-line bg-surface p-4 shadow-sm lg:sticky lg:top-20">
+          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Work order</p>
+          <p className="tabular mt-1 text-title font-semibold text-ink">{workOrderId}</p>
+          <div className="mt-4 border-t border-line pt-4">
+            <p className="text-label font-semibold text-ink">Quarantine route</p>
+            <p className="mt-1.5 text-caption leading-relaxed text-muted">The transcription stays linked to this work order and requires engineering review before promotion.</p>
+          </div>
+          <p className="mt-4 rounded-lg bg-surface-2 p-3 text-caption text-muted">State the observed condition, location, and timing. Avoid assumptions about the cause.</p>
+        </aside>
+      </div>
     </div>
   );
 }

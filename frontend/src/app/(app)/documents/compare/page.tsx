@@ -54,7 +54,7 @@ function ComparePage() {
   }, [sp]);
 
   return (
-    <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
+    <div data-testid="compare-workspace" className="mx-auto max-w-[1200px]">
       <Link href="/documents" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -64,27 +64,31 @@ function ComparePage() {
 
       <PageHeader className="mt-4" eyebrow="Layer 2 · Immutable vault" title="Compare versions" lede="Walk the supersede chain and diff metadata across two versions. A superseded document is never presented as current — supersession closes a validity window, it does not erase." />
 
-      <div className="mt-5 flex flex-wrap items-end gap-3">
-        <label className="block text-caption">
+      <div data-testid="compare-toolbar" className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+        <div className="mb-3">
+          <p className="text-label font-semibold uppercase tracking-[0.1em] text-accent">Select evidence</p>
+          <p className="mt-1 text-body text-muted">Enter two immutable document IDs to align their metadata and highlight changes.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] sm:items-end">
+        <label className="block min-w-0 text-caption">
           <span className="font-semibold text-ink">Document A</span>
           <input value={idA} onChange={(e) => setIdA(e.target.value)} placeholder="DOC-001"
-            className="mt-1 h-9 w-40 rounded-lg border border-line bg-surface px-2.5 text-body" />
+            className="mt-1 min-h-11 w-full rounded-lg border border-line bg-surface px-3 text-body sm:min-h-9" />
         </label>
-        <label className="block text-caption">
+        <span className="hidden h-9 items-center text-muted sm:flex" aria-hidden="true">⇄</span>
+        <label className="block min-w-0 text-caption">
           <span className="font-semibold text-ink">Document B</span>
           <input value={idB} onChange={(e) => setIdB(e.target.value)} placeholder="DOC-002"
-            className="mt-1 h-9 w-40 rounded-lg border border-line bg-surface px-2.5 text-body" />
+            className="mt-1 min-h-11 w-full rounded-lg border border-line bg-surface px-3 text-body sm:min-h-9" />
         </label>
         <Button variant="primary" onClick={compare} disabled={busy || !idA || !idB}>
           {busy ? "Loading…" : "Compare"}
         </Button>
+        </div>
       </div>
 
       {docA || docB ? (
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <DocCard doc={docA} label="A" other={docB} />
-          <DocCard doc={docB} label="B" other={docA} />
-        </div>
+        <CompareMatrix docA={docA} docB={docB} />
       ) : (
         <div className="mt-6">
           <EmptyState message="Enter two document IDs above to compare their versions." />
@@ -94,44 +98,77 @@ function ComparePage() {
   );
 }
 
-function Row({ label, value, changed }: { label: string; value: React.ReactNode; changed?: boolean }) {
+function CompareMatrix({ docA, docB }: { docA: VaultDocument | null; docB: VaultDocument | null }) {
+  const rows = [
+    { key: "file", label: "Filename", a: docA?.file_name, b: docB?.file_name },
+    { key: "type", label: "Document type", a: docA ? triggerLabel(docA.document_type) : undefined, b: docB ? triggerLabel(docB.document_type) : undefined },
+    { key: "authority", label: "Authority", a: docA ? authorityLabel(docA.authority_level) : undefined, b: docB ? authorityLabel(docB.authority_level) : undefined },
+    { key: "source", label: "Source system", a: docA?.source_system, b: docB?.source_system },
+    { key: "ingested", label: "Ingested", a: docA ? relativeTime(docA.ingested_at) : undefined, b: docB ? relativeTime(docB.ingested_at) : undefined, rawA: docA?.ingested_at, rawB: docB?.ingested_at },
+    { key: "by", label: "Ingested by", a: docA?.ingested_by, b: docB?.ingested_by },
+    { key: "assets", label: "Linked assets", a: docA?.asset_links?.join(", ") || "None", b: docB?.asset_links?.join(", ") || "None" },
+    { key: "hash", label: "SHA-256", a: shortHash(docA?.sha256_hash), b: shortHash(docB?.sha256_hash), rawA: docA?.sha256_hash, rawB: docB?.sha256_hash },
+    { key: "chain", label: "Supersession chain", a: docA?.version_chain || "None", b: docB?.version_chain || "None" },
+  ];
+
   return (
-    <div className={`flex justify-between gap-3 px-3 py-2 text-caption ${changed ? "bg-[color-mix(in_srgb,var(--caution)_10%,transparent)]" : ""}`}>
-      <span className="text-muted">{label}</span>
-      <span className="tabular text-right font-medium text-ink">{value}</span>
+    <section data-testid="document-compare-matrix" className="mt-6 overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+      <div className="grid grid-cols-2 bg-surface-2 md:grid-cols-[minmax(120px,0.45fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="hidden border-r border-line p-4 md:block">
+          <p className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Compared field</p>
+        </div>
+        <DocumentColumnHeader doc={docA} label="A" />
+        <DocumentColumnHeader doc={docB} label="B" />
+      </div>
+      <div className="divide-y divide-line">
+        {rows.map((row) => {
+          const rawA = row.rawA ?? row.a;
+          const rawB = row.rawB ?? row.b;
+          const changed = docA != null && docB != null && rawA !== rawB;
+          return <ComparisonRow key={row.key} rowKey={row.key} label={row.label} a={row.a} b={row.b} changed={changed} />;
+        })}
+      </div>
+    </section>
+  );
+}
+
+function DocumentColumnHeader({ doc, label }: { doc: VaultDocument | null; label: "A" | "B" }) {
+  return (
+    <div className="min-w-0 border-r border-line p-4 last:border-r-0">
+      <p className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Document {label}</p>
+      {doc ? (
+        <>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <span className="tabular truncate text-body font-semibold text-accent">{doc.document_id}</span>
+            <StatusBadge tone={doc.status === "superseded" ? "caution" : "verified"} dot={false}>{doc.status}</StatusBadge>
+            <AuthorityBadge level={doc.authority_level} />
+          </div>
+          <Link href={`/documents/${doc.document_id}`} className="mt-2 inline-flex min-h-9 items-center text-caption font-medium text-accent hover:underline">Open document {label} ↗</Link>
+        </>
+      ) : <p className="mt-2 text-body text-muted">Document {label} not found</p>}
     </div>
   );
 }
 
-function DocCard({ doc, label, other }: { doc: VaultDocument | null; label: string; other: VaultDocument | null }) {
-  if (!doc) return (
-    <div className="grid place-items-center rounded-xl border border-dashed border-line py-10 text-body text-muted">
-      Document {label} not found
+function ComparisonRow({ rowKey, label, a, b, changed }: { rowKey: string; label: string; a?: string; b?: string; changed: boolean }) {
+  const changedClass = changed ? "bg-[color-mix(in_srgb,var(--caution)_10%,transparent)]" : "";
+  return (
+    <div data-testid={`compare-row-${rowKey}`} className="grid grid-cols-2 md:grid-cols-[minmax(120px,0.45fr)_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="col-span-2 border-b border-line bg-surface-2 px-4 py-2 md:col-span-1 md:border-b-0 md:border-r">
+        <span className="text-label font-semibold uppercase tracking-[0.08em] text-muted">{label}</span>
+      </div>
+      <div data-testid={`compare-value-${rowKey}-a`} className={`min-w-0 border-r border-line px-4 py-3 ${changedClass}`}>
+        <span className="mb-1 block text-micro font-semibold uppercase text-muted md:hidden">A</span>
+        <span className="tabular break-words text-caption font-medium text-ink">{a ?? "—"}</span>
+      </div>
+      <div data-testid={`compare-value-${rowKey}-b`} className={`min-w-0 px-4 py-3 ${changedClass}`}>
+        <span className="mb-1 block text-micro font-semibold uppercase text-muted md:hidden">B</span>
+        <span className="tabular break-words text-caption font-medium text-ink">{b ?? "—"}</span>
+      </div>
     </div>
   );
-  const diff = (a: unknown, b: unknown) => other != null && a !== b;
-  return (
-    <section className="overflow-hidden rounded-xl border border-line">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface-2 px-3 py-2.5">
-        <span className="tabular text-body font-semibold text-accent">{doc.document_id}</span>
-        {doc.status === "superseded"
-          ? <StatusBadge tone="caution" dot={false}>superseded</StatusBadge>
-          : <StatusBadge tone="verified" dot={false}>active</StatusBadge>}
-        <AuthorityBadge level={doc.authority_level} />
-      </div>
-      <div className="divide-y divide-line/60 bg-surface">
-        <Row label="File" value={doc.file_name} changed={diff(doc.file_name, other?.file_name)} />
-        <Row label="Type" value={triggerLabel(doc.document_type)} changed={diff(doc.document_type, other?.document_type)} />
-        <Row label="Authority" value={authorityLabel(doc.authority_level)} changed={diff(doc.authority_level, other?.authority_level)} />
-        <Row label="Source" value={doc.source_system} changed={diff(doc.source_system, other?.source_system)} />
-        <Row label="Ingested" value={relativeTime(doc.ingested_at)} changed={diff(doc.ingested_at, other?.ingested_at)} />
-        <Row label="By" value={doc.ingested_by} changed={diff(doc.ingested_by, other?.ingested_by)} />
-        {doc.sha256_hash && <Row label="SHA-256" value={<span title={doc.sha256_hash}>{doc.sha256_hash.slice(0, 12)}…</span>} changed={diff(doc.sha256_hash, other?.sha256_hash)} />}
-        {doc.version_chain && <Row label="Chain" value={doc.version_chain} />}
-      </div>
-      <div className="border-t border-line bg-surface px-3 py-2">
-        <Link href={`/documents/${doc.document_id}`} className="text-caption text-accent underline hover:no-underline">Open document {label} ↗</Link>
-      </div>
-    </section>
-  );
+}
+
+function shortHash(hash?: string) {
+  return hash ? `${hash.slice(0, 12)}…` : "Not available";
 }

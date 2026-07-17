@@ -36,6 +36,7 @@ import type {
   TopologyGraph,
   TopologyNode,
   TopologyEdge,
+  AuditLogEntry,
   AuditLogResponse,
   HealthDetailed,
   AuditPack,
@@ -45,10 +46,11 @@ import type {
   KnowledgeGraphData,
 } from "./types";
 import { fixtureBriefs } from "./fixtures";
-import { complianceFixture } from "./compliance";
+import { auditPackFixtureFor, complianceFixture } from "./compliance";
 import { assets as fixtureAssets, getAsset as getAssetFixture, type KnowledgeEdge } from "./assets";
 import { conflictsFixture, quarantineFixture } from "./governance";
 import { documentsFixture, getDocumentFixture } from "./documents";
+import { eventFixtures, getEventFixture } from "./events";
 import { answerFor, type CopilotAnswer } from "./copilot";
 import { rcaFor } from "./rca";
 import { criticalityMeta } from "./utils";
@@ -461,7 +463,7 @@ export async function getAuditPack(framework: string): Promise<Fetched<AuditPack
     const data = await getJson<AuditPack>(`/compliance/audit-pack?framework=${encodeURIComponent(framework)}`);
     return { data, source: "live" };
   } catch {
-    return { data: null, source: "demo" };
+    return { data: auditPackFixtureFor(framework), source: "demo" };
   }
 }
 
@@ -762,7 +764,7 @@ export async function getEvent(eventId: string): Promise<Fetched<OperationalEven
     const data = await getJson<OperationalEvent>(`/events/${eventId}`);
     return { data, source: "live" };
   } catch {
-    return { data: null, source: "demo" };
+    return { data: getEventFixture(eventId), source: "demo" };
   }
 }
 
@@ -871,8 +873,17 @@ export async function getAuditLog(params: {
     if (params.entity_type) qs.set("entity_type", params.entity_type);
     if (params.entity_id) qs.set("entity_id", params.entity_id);
     if (params.limit) qs.set("limit", String(params.limit));
-    const data = await getJson<AuditLogResponse>(`/audit-log?${qs}`);
-    return { data, source: "live" };
+    // Live payload uses numeric `id` + `details`; the UI shape is `log_id` +
+    // `metadata`. Adapt here (same pattern as blast-radius/topology) so every
+    // consumer keeps a stable, unique key.
+    type RawAuditEntry = AuditLogEntry & { id?: number; details?: Record<string, unknown> | null };
+    const raw = await getJson<{ items: RawAuditEntry[]; total: number }>(`/audit-log?${qs}`);
+    const items = raw.items.map((it, i) => ({
+      ...it,
+      log_id: it.log_id ?? String(it.id ?? i),
+      metadata: it.metadata ?? it.details ?? null,
+    }));
+    return { data: { items, total: raw.total }, source: "live" };
   } catch {
     return { data: { items: [], total: 0 }, source: "demo" };
   }
@@ -930,15 +941,22 @@ export interface DocumentIngestResponse {
 }
 
 // --- Events: list ---
+function demoEvents(params?: { event_type?: string; limit?: number }): Fetched<EventsResponse> {
+  const matched = eventFixtures().filter((event) => !params?.event_type || event.event_type === params.event_type);
+  const limit = params?.limit ?? 50;
+  return { data: { items: matched.slice(0, limit), total: matched.length, limit, offset: 0 }, source: "demo" };
+}
+
 export async function getEvents(params?: { event_type?: string; limit?: number }): Promise<Fetched<EventsResponse>> {
   try {
     const qs = new URLSearchParams();
     if (params?.event_type) qs.set("event_type", params.event_type);
     if (params?.limit) qs.set("limit", String(params.limit));
     const data = await getJson<EventsResponse>(`/events/?${qs}`);
+    if (data.items.length === 0) return demoEvents(params);
     return { data, source: "live" };
   } catch {
-    return { data: { items: [], total: 0, limit: 50, offset: 0 }, source: "demo" };
+    return demoEvents(params);
   }
 }
 

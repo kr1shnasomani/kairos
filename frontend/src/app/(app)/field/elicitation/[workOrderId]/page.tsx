@@ -1,12 +1,13 @@
 "use client";
 
+// Step-through elicitation questionnaire for a work order — answers feed the knowledge quarantine.
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { getElicitationQuestions, submitElicitationResponses } from "@/lib/api";
 import { enqueueWrite } from "@/lib/idb";
 import type { ElicitationQuestion, ElicitationSession } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Button, DemoChip } from "@/components/ui";
+import { Button, DemoChip, PageHeader } from "@/components/ui";
 
 const DEMO: ElicitationSession = {
   session_id: "demo-session",
@@ -163,7 +164,7 @@ export default function ElicitationPage() {
 
   if (submitted) {
     return (
-      <div className="mx-auto max-w-md px-5 py-16 text-center">
+      <div className="mx-auto max-w-xl rounded-2xl border border-line bg-surface px-5 py-8 text-center shadow-sm sm:px-8">
         <div className="mx-auto grid size-14 place-items-center rounded-full bg-[color-mix(in_srgb,var(--verified)_12%,transparent)]">
           <svg
             className="size-7 text-verified"
@@ -196,20 +197,18 @@ export default function ElicitationPage() {
   }
 
   return (
-    <div className="mx-auto max-w-md px-5 pb-8 pt-6">
-      <header className="mb-6 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
-            Work order {workOrderId}
-          </p>
-          <h1 className="mt-0.5 text-title font-semibold">Knowledge capture</h1>
-        </div>
-        {source === "demo" && <DemoChip />}
-      </header>
+    <div data-testid="elicitation-workspace" className="mx-auto max-w-[1100px]">
+      <PageHeader
+        compact
+        className="mb-6"
+        eyebrow={`Work order ${workOrderId}`}
+        title="Knowledge capture"
+        actions={source === "demo" && <DemoChip />}
+      />
 
       {/* Progress */}
       <div
-        className="mb-8 flex items-center gap-2"
+        className="mb-5 flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm"
         role="progressbar"
         aria-valuenow={step + 1}
         aria-valuemin={1}
@@ -234,6 +233,8 @@ export default function ElicitationPage() {
         </span>
       </div>
 
+      <div data-testid="elicitation-layout" className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <main data-testid="elicitation-question" className="min-w-0 rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-6">
       <div className="min-h-[320px]">
         {current.context && (
           <div className="mb-4 rounded-lg border border-line bg-surface-2 px-3 py-2.5">
@@ -257,12 +258,22 @@ export default function ElicitationPage() {
         </div>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-6 flex items-center gap-3">
+        {step > 0 && (
+          <Button
+            variant="ghost"
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            disabled={submitting}
+            className="min-h-[52px] px-5 text-subtitle"
+          >
+            Back
+          </Button>
+        )}
         <Button
           variant="primary"
           onClick={advance}
           disabled={!currentAnswer.trim() || submitting}
-          className="h-[52px] w-full text-subtitle"
+          className="min-h-[52px] flex-1 text-subtitle"
         >
           {isLast
             ? submitting
@@ -270,6 +281,21 @@ export default function ElicitationPage() {
               : "Submit responses"
             : "Next →"}
         </Button>
+      </div>
+        </main>
+
+        <aside data-testid="elicitation-context" className="rounded-xl border border-line bg-surface p-4 shadow-sm lg:sticky lg:top-20">
+          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Work order</p>
+          <p className="tabular mt-1 text-title font-semibold">{workOrderId}</p>
+          <div className="mt-4 border-t border-line pt-4">
+            <p className="text-label font-semibold text-ink">Session progress</p>
+            <p className="mt-1.5 text-caption text-muted">Question {step + 1} of {questions.length} · {Object.keys(answers).length} answered</p>
+          </div>
+          <div className="mt-4 border-t border-line pt-4">
+            <p className="text-label font-semibold text-ink">Offline ready</p>
+            <p className="mt-1.5 text-caption leading-relaxed text-muted">If the connection drops during submission, responses are queued locally and synced when connectivity returns.</p>
+          </div>
+        </aside>
       </div>
     </div>
   );

@@ -1,8 +1,9 @@
+// Vault document detail: provenance, version chain, topology link, supersede action.
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDocument } from "@/lib/api";
 import { authorityLabel, relativeTime, triggerLabel } from "@/lib/utils";
-import { AuthorityBadge, SourceChip, StatusBadge, Timeline, type TimelineEvent, DemoChip } from "@/components/ui";
+import { AuthorityBadge, SourceChip, StatusBadge, Timeline, type TimelineEvent, DemoChip, PageHeader } from "@/components/ui";
 import { BlastRadiusPanel, SupersedeAction } from "@/components/lazy";
 import type { VaultDocument } from "@/lib/types";
 
@@ -52,7 +53,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
   ];
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
+    <div data-testid="document-detail-workspace" className="mx-auto max-w-[1400px]">
       <Link href="/documents" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -60,17 +61,21 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
         Documents
       </Link>
 
-      <header className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h1 className="tabular text-display font-semibold text-accent">{d.document_id}</h1>
+      <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <AuthorityBadge level={d.authority_level} />
         {d.status === "superseded"
           ? <StatusBadge tone="neutral" dot={false}>Superseded</StatusBadge>
           : <StatusBadge tone="verified">Active</StatusBadge>}
         {source === "demo" && <DemoChip />}
-      </header>
-      <p className="mt-1.5 text-body">{d.file_name}</p>
+      </div>
+      <PageHeader
+        compact
+        className="mt-1"
+        title={<span className="tabular text-accent">{d.document_id}</span>}
+        lede={d.file_name}
+      />
 
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div data-testid="document-detail-summary" className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {meta.map((m) => (
           <div key={m.label} className="rounded-xl border border-line bg-surface p-3.5">
             <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">{m.label}</p>
@@ -103,20 +108,9 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
         </div>
       )}
 
-      {d.asset_links && d.asset_links.length > 0 && (
-        <section className="mt-6">
-          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Linked assets</h2>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            {d.asset_links.map((aid) => (
-              <Link key={aid} href={`/assets/${aid}`}>
-                <SourceChip>{aid}</SourceChip>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="mt-6">
+      <div data-testid="document-detail-layout" className="mt-6 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <main data-testid="document-evidence" className="min-w-0 space-y-6">
+      <section>
         <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Provenance</h2>
         <div className="mt-2.5 space-y-2 rounded-xl border border-line bg-surface p-4 text-caption">
           <Row label="Authority">{authorityLabel(d.authority_level)}</Row>
@@ -131,7 +125,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
 
       {/* Version chain */}
       {supersedingDoc && (
-        <section className="mt-6">
+        <section>
           <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-muted">
             Version chain
           </h2>
@@ -157,15 +151,34 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
         </section>
       )}
 
+      <BlastRadiusPanel documentId={d.document_id} />
+        </main>
+
+        <aside data-testid="document-context" className="space-y-5 rounded-xl border border-line bg-surface p-4 shadow-sm lg:sticky lg:top-20">
+          <section>
+            <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Linked assets</h2>
+            {d.asset_links && d.asset_links.length > 0 ? (
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {d.asset_links.map((aid) => (
+                  <Link key={aid} href={`/assets/${aid}`} className="inline-flex min-h-11 items-center">
+                    <SourceChip>{aid}</SourceChip>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-caption text-muted">No assets linked to this artifact.</p>
+            )}
+          </section>
+
       {/* Supersede action (engineer/admin, client-side role gate) */}
-      <div className="mt-6 flex items-center justify-between">
+      <div className="border-t border-line pt-4">
         <p className="text-caption text-muted">
           Superseded documents are retained in the vault. This action is irreversible.
         </p>
-        <SupersedeAction documentId={d.document_id} />
+        <div className="mt-3"><SupersedeAction documentId={d.document_id} /></div>
       </div>
-
-      <BlastRadiusPanel documentId={d.document_id} />
+        </aside>
+      </div>
     </div>
   );
 }

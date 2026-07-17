@@ -98,3 +98,57 @@ describe("strict-auth reads", () => {
     }));
   });
 });
+
+describe("audit-pack fallback", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("returns a visualizable frontend fixture when the backend is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    const { getAuditPack } = await import("./api");
+
+    const result = await getAuditPack("OISD-117");
+
+    expect(result.source).toBe("demo");
+    expect(result.data?.framework).toBe("OISD-117");
+    expect(result.data?.clauses.length).toBeGreaterThan(0);
+    expect(result.data?.clauses.some((clause) => clause.clearance_blocked)).toBe(true);
+    expect(result.data?.clauses.some((clause) => clause.evidence.length > 0)).toBe(true);
+  });
+});
+
+describe("event demo fixtures", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("returns varied click-through events when the backend is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+
+    const { getEvent, getEvents } = await import("./api");
+    const list = await getEvents({ limit: 4 });
+
+    expect(list.source).toBe("demo");
+    expect(list.data.items).toHaveLength(4);
+    expect(new Set(list.data.items.map((event) => event.priority)).size).toBeGreaterThan(1);
+    expect(list.data.items.some((event) => event.acknowledged)).toBe(true);
+    expect(list.data.items.some((event) => !event.acknowledged)).toBe(true);
+
+    const detail = await getEvent(list.data.items[0].event_id);
+    expect(detail.source).toBe("demo");
+    expect(detail.data).toMatchObject({ event_id: list.data.items[0].event_id });
+    expect(detail.data?.payload).not.toEqual({});
+  });
+
+  it("uses demo events when the live event feed is empty", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      items: [], total: 0, limit: 50, offset: 0,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    const { getEvents } = await import("./api");
+    const result = await getEvents();
+
+    expect(result.source).toBe("demo");
+    expect(result.data.items.length).toBeGreaterThan(0);
+  });
+});

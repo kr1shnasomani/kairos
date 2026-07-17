@@ -1,50 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { PageHeader } from "@/components/ui";
-import type { RcaPack, BriefSource, RcaHypothesis } from "@/lib/types";
-import { RCA_PRESETS } from "@/lib/rca";
+import { Button, EvidenceLineage, PageHeader, RefusalCard } from "@/components/ui";
+import { Card } from "@/components/ui-card";
+import { DetailSkeleton } from "@/components/skeleton";
 import { getRcaPack } from "@/lib/api";
-import {
-  AuthorityBadge,
-  Button,
-  SourceChip,
-  StatusBadge,
-  Timeline,
-  ConfidenceMeter,
-  RefusalCard,
-  type TimelineEvent,
-} from "@/components/ui";
-
-const SOURCE_TONE: Record<string, TimelineEvent["tone"]> = {
-  neo4j: "verified",
-  historian: "info",
-  supabase: "neutral",
-  quarantine: "caution",
-};
-
-const SOURCE_LABEL: Record<string, string> = {
-  neo4j: "graph",
-  historian: "telemetry",
-  supabase: "events",
-  quarantine: "unverified",
-};
-
-function toTimelineEvents(pack: RcaPack): TimelineEvent[] {
-  return pack.timeline.map((e, i) => ({
-    id: `${e.event_type}-${i}`,
-    timestamp: new Date(e.occurred_at).toLocaleString("en-GB", {
-      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
-    }),
-    label: e.event_type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-    description: e.description,
-    tone: SOURCE_TONE[e.source] ?? "neutral",
-    meta: SOURCE_LABEL[e.source] ?? e.source,
-  }));
-}
+import { useScrollReveal } from "@/lib/motion";
+import { nowMs } from "@/lib/utils";
+import { RCA_PRESETS } from "@/lib/rca";
+import type { BriefSource, RcaPack } from "@/lib/types";
+import { HypothesesPanel } from "./_components/hypotheses-panel";
+import { ResultHeader } from "./_components/result-header";
+import { SupportingDocs } from "./_components/supporting-docs";
+import { TimelineCard } from "./_components/timeline-card";
 
 function docsToBriefSources(pack: RcaPack): BriefSource[] {
-  return pack.supporting_documents.map((d) => ({
+  return (pack.supporting_documents ?? []).map((d) => ({
     document_id: d.document_id,
     document_type: "document",
     title: d.title,
@@ -58,64 +29,72 @@ function docsToBriefSources(pack: RcaPack): BriefSource[] {
 export default function RcaPage() {
   const [asset, setAsset] = useState("P-101");
   const [code, setCode] = useState("SEAL-FAIL");
-  const [incidentDate, setIncidentDate] = useState(new Date().toISOString().split("T")[0]);
+  const [today] = useState(() => new Date(nowMs()).toISOString().slice(0, 10));
+  const [incidentDate, setIncidentDate] = useState(today);
   const [includeQuarantine, setIncludeQuarantine] = useState(false);
   const [pack, setPack] = useState<RcaPack | null>(null);
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   function assemble(a = asset, c = code, d = incidentDate, q = includeQuarantine) {
     setAsset(a);
     setCode(c);
     setLoading(true);
     setPack(null);
-    getRcaPack(a, c, `${d}T00:00:00Z`, q).then((p) => {
-      setPack(p);
-      setLoading(false);
-    });
+    setFailed(false);
+    getRcaPack(a, c, `${d}T00:00:00Z`, q)
+      .then((p) => setPack(p))
+      .catch(() => setFailed(true))
+      .finally(() => setLoading(false));
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <PageHeader eyebrow="Layer 11 · Root cause" title="RCA workspace" lede="Failure timeline, evidence-weighted hypotheses, and supporting documents — fused from the graph, telemetry, and event history." />
+    <div data-testid="rca-workspace" className="mx-auto max-w-[1400px]">
+      <PageHeader eyebrow="Layer 11 · Root cause" title="RCA workspace" lede="Assemble failure timelines, evidence-weighted hypotheses, and supporting documents for engineering review." />
 
       <form
+        data-testid="rca-builder"
         onSubmit={(e) => { e.preventDefault(); assemble(); }}
-        className="mt-6 space-y-4 rounded-xl border border-line bg-surface p-4"
+        className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5"
       >
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Asset</span>
+        <div>
+          <h2 className="text-sm font-semibold text-ink">Build an investigation pack</h2>
+          <p className="mt-0.5 text-caption text-muted">Select the incident context to assemble evidence from connected systems.</p>
+        </div>
+        <div data-testid="rca-builder-fields" className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(140px,0.7fr)_minmax(180px,1fr)_180px_auto] lg:items-end">
+          <label className="grid gap-1">
+            <span className="text-label font-semibold text-muted">Asset</span>
             <input
               value={asset}
               onChange={(e) => setAsset(e.target.value)}
-              className="tabular h-9 w-32 rounded-lg border border-line bg-surface-2 px-3 text-body outline-none focus:border-accent"
+              className="tabular h-11 w-full rounded-lg border border-line bg-surface px-3 text-body outline-none focus:border-accent lg:h-9"
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Failure code</span>
+          <label className="grid gap-1">
+            <span className="text-label font-semibold text-muted">Failure code</span>
             <input
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              className="tabular h-9 w-40 rounded-lg border border-line bg-surface-2 px-3 text-body outline-none focus:border-accent"
+              className="tabular h-11 w-full rounded-lg border border-line bg-surface px-3 text-body outline-none focus:border-accent lg:h-9"
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Incident date</span>
+          <label className="grid gap-1">
+            <span className="text-label font-semibold text-muted">Incident date</span>
             <input
               type="date"
               required
               value={incidentDate}
               onChange={(e) => setIncidentDate(e.target.value)}
-              max={new Date().toISOString().split("T")[0]}
-              className="h-9 rounded-lg border border-line bg-surface-2 px-2 text-caption outline-none focus:border-accent"
+              max={today}
+              className="h-11 w-full rounded-lg border border-line bg-surface px-3 text-caption outline-none focus:border-accent lg:h-9"
             />
           </label>
-          <Button variant="primary" type="submit" className="mt-auto">
-            Assemble
+          <Button variant="primary" type="submit" className="h-11 sm:col-span-2 lg:col-span-1 lg:h-9">
+            Assemble RCA pack
           </Button>
         </div>
 
-        <label className="flex cursor-pointer items-center gap-2 text-caption text-muted">
+        <label className="mt-4 flex min-h-11 cursor-pointer items-center gap-2 text-caption text-muted sm:min-h-0">
           <input
             type="checkbox"
             checked={includeQuarantine}
@@ -126,27 +105,26 @@ export default function RcaPage() {
         </label>
       </form>
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-label font-semibold text-muted">Example investigations</span>
         {RCA_PRESETS.map((p) => (
           <button
             key={p.label}
             onClick={() => assemble(p.asset_id, p.failure_code)}
-            className="rounded-full border border-line bg-surface px-3 py-1.5 text-caption text-muted transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-accent"
+            className="min-h-9 rounded-full border border-line bg-surface px-3 py-1.5 text-caption text-muted transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-accent"
           >
             {p.label}
           </button>
         ))}
       </div>
 
-      {loading && (
-        <p className="mt-8 flex items-center gap-2 text-body text-muted">
-          <span className="inline-flex gap-1" aria-hidden="true">
-            {[0, 1, 2].map((i) => (
-              <span key={i} className="size-1.5 animate-bounce rounded-full bg-muted" style={{ animationDelay: `${i * 0.15}s` }} />
-            ))}
-          </span>
-          Assembling timeline, hypotheses, and evidence…
-        </p>
+      {loading && <div className="mt-6"><DetailSkeleton /></div>}
+
+      {failed && (
+        <Card className="mt-6 p-4 sm:p-5">
+          <p className="text-body text-ink">Could not assemble the RCA pack.</p>
+          <Button variant="ghost" className="mt-3" onClick={() => assemble()}>Retry</Button>
+        </Card>
       )}
 
       {pack && <RcaResult pack={pack} />}
@@ -155,122 +133,48 @@ export default function RcaPage() {
 }
 
 function RcaResult({ pack }: { pack: RcaPack }) {
-  const timelineEvents = toTimelineEvents(pack);
+  const { ref: gridRef, revealed: gridRevealed } = useScrollReveal<HTMLDivElement>();
+  const { ref: lowerRef, revealed: lowerRevealed } = useScrollReveal<HTMLDivElement>();
+  const revealCls = (revealed: boolean) =>
+    `min-w-0 transition-all duration-500 ${revealed ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"}`;
   const briefSources = docsToBriefSources(pack);
 
   return (
-    <div className="mt-8 space-y-7">
-      {/* Header */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line pb-4">
-        <span className="tabular text-subtitle font-semibold text-accent">{pack.asset_id}</span>
-        <span className="tabular rounded-md border border-line bg-surface-2 px-2 py-0.5 text-caption">
-          {pack.failure_code}
-        </span>
-        <span className="tabular text-caption text-muted">
-          {new Date(pack.incident_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
-        </span>
-        <div className="ml-auto flex items-center gap-3">
-          {pack.synthesis_available
-            ? <StatusBadge tone="verified">Synthesis</StatusBadge>
-            : <StatusBadge tone="caution">Timeline only</StatusBadge>}
-          <ConfidenceMeter value={pack.confidence} />
-        </div>
-      </div>
+    <div className="mt-6 space-y-6">
+      <ResultHeader pack={pack} />
 
-      {/* Pack-level refusal */}
       {pack.refused ? (
         <RefusalCard
           reason="This failure code is safety-critical. KAIROS does not synthesize hypotheses — source documents are returned directly for engineer review."
           sources={briefSources}
           escalateTo="Reliability Engineer or Plant Safety Officer"
         />
-      ) : null}
+      ) : (
+        <>
+          {!pack.synthesis_available && (
+            <div className="rounded-xl border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,var(--surface))] px-4 py-3">
+              <p className="text-caption text-ink">
+                <span className="font-semibold">Synthesis unavailable</span> — raw event timeline shown.
+                The graph may lack sufficient history for this failure code.
+              </p>
+            </div>
+          )}
 
-      {/* Synthesis unavailable — not a safety refusal, just no synthesis */}
-      {!pack.refused && !pack.synthesis_available && (
-        <div className="rounded-xl border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,var(--surface))] px-4 py-3">
-          <p className="text-caption text-ink">
-            <span className="font-semibold">Synthesis unavailable</span> — raw event timeline shown.
-            The graph may lack sufficient history for this failure code.
-          </p>
-        </div>
-      )}
-
-      {/* Timeline */}
-      <section>
-        <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-muted">Timeline</h2>
-        <Timeline events={timelineEvents} />
-      </section>
-
-      {/* Hypotheses */}
-      {pack.hypotheses.length > 0 && (
-        <section>
-          <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-muted">
-            Ranked hypotheses
-          </h2>
-          <div className="space-y-2.5">
-            {pack.hypotheses.map((h, i) => (
-              <HypothesisCard key={h.hypothesis.slice(0, 60)} h={h} rank={i + 1} />
-            ))}
+          {/* Two independent column stacks — supporting docs pull up under the
+              timeline instead of stranding blank space beside the hypotheses. */}
+          <div ref={gridRef} data-testid="rca-result-grid" className={`grid items-start gap-6 lg:grid-cols-[3fr_2fr] ${revealCls(gridRevealed)}`}>
+            <div className="space-y-6">
+              <TimelineCard pack={pack} />
+              <SupportingDocs docs={pack.supporting_documents ?? []} />
+            </div>
+            <HypothesesPanel hypotheses={pack.hypotheses ?? []} />
           </div>
-        </section>
-      )}
 
-      {/* Supporting documents */}
-      {pack.supporting_documents.length > 0 && (
-        <section>
-          <h2 className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-muted">
-            Supporting documents
-          </h2>
-          <div className="space-y-2">
-            {pack.supporting_documents.map((d) => (
-              <div
-                key={d.document_id}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-3"
-              >
-                <span className="text-body font-semibold">{d.title}</span>
-                <AuthorityBadge level={d.authority_level} />
-                <span className="tabular ml-auto text-label text-muted">
-                  conf {d.confidence.toFixed(2)}
-                </span>
-                <SourceChip>{d.document_id}</SourceChip>
-              </div>
-            ))}
+          <div ref={lowerRef} className={revealCls(lowerRevealed)} style={{ transitionDelay: lowerRevealed ? "100ms" : "0ms" }}>
+            <EvidenceLineage sources={briefSources} />
           </div>
-        </section>
+        </>
       )}
     </div>
-  );
-}
-
-function HypothesisCard({ h, rank }: { h: RcaHypothesis; rank: number }) {
-  if (h.refused) {
-    return (
-      <RefusalCard
-        reason={`Hypothesis #${rank}: ${h.hypothesis}`}
-        escalateTo="Reliability Engineer"
-      />
-    );
-  }
-
-  return (
-    <article className="rounded-xl border border-line bg-surface p-4">
-      <div className="flex items-center gap-3">
-        <span className="tabular text-label font-bold text-muted">#{rank}</span>
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
-          <div
-            className="h-full rounded-full bg-accent"
-            style={{ width: `${Math.round(h.evidence_weight * 100)}%` }}
-          />
-        </div>
-        <span className="tabular text-caption font-semibold">{h.evidence_weight.toFixed(2)}</span>
-      </div>
-      <p className="mt-2.5 text-body leading-relaxed text-ink">{h.hypothesis}</p>
-      {h.sources.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {h.sources.map((s) => <SourceChip key={s}>{s}</SourceChip>)}
-        </div>
-      )}
-    </article>
   );
 }

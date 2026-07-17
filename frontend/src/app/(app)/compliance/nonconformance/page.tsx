@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { getConflicts, getQuarantine, getEvents } from "@/lib/api";
-import { FilterTabs, StatusBadge, EmptyState, DemoChip, PageHeader } from "@/components/ui";
+import { useFetch } from "@/lib/use-fetch";
 import { relativeTime } from "@/lib/utils";
+import { Button, DataTable, DemoChip, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import { StatPills } from "@/components/stat-pills";
 
 type NcSource = "conflict" | "inspection" | "dispute";
 
-interface Nc {
+interface Nc extends Record<string, unknown> {
   id: string;
   source: NcSource;
   asset_id: string | null;
@@ -16,7 +18,7 @@ interface Nc {
   detail: string;
   tone: "danger" | "caution";
   when: string;
-  origin?: { href: string; label: string };
+  origin: { href: string; label: string };
 }
 
 const SOURCE_LABEL: Record<NcSource, string> = {
@@ -25,71 +27,110 @@ const SOURCE_LABEL: Record<NcSource, string> = {
   dispute: "Disputed input",
 };
 
+const COLUMNS: TableColumn<Nc>[] = [
+  {
+    key: "title", label: "Issue", className: "min-w-[180px]",
+    render: (r) => (
+      <span className="block min-w-0">
+        <StatusBadge tone={r.tone}>{SOURCE_LABEL[r.source]}</StatusBadge>
+        <span className="mt-1 block truncate font-semibold text-ink">{r.title}</span>
+      </span>
+    ),
+  },
+  {
+    key: "tone", label: "Severity", sortValue: (r) => (r.tone === "danger" ? 0 : 1),
+    render: (r) => <span className={`whitespace-nowrap text-caption font-semibold ${r.tone === "danger" ? "text-danger" : "text-caution"}`}>{r.tone === "danger" ? "Urgent" : "Attention"}</span>,
+  },
+  {
+    key: "detail", label: "Finding", className: "w-full max-w-[320px]",
+    render: (r) => <span className="block truncate text-caption text-muted" title={r.detail}>{r.detail}</span>,
+  },
+  {
+    key: "asset_id", label: "Asset",
+    render: (r) => r.asset_id
+      ? <Link href={`/assets/${r.asset_id}`} className="tabular whitespace-nowrap text-caption font-medium text-accent hover:underline">{r.asset_id}</Link>
+      : <span className="text-muted">—</span>,
+  },
+  {
+    key: "when", label: "Raised", sortValue: (r) => Date.parse(r.when),
+    render: (r) => <span className="tabular whitespace-nowrap text-caption text-muted" title={r.when}>{relativeTime(r.when)}</span>,
+  },
+  {
+    key: "origin", label: "Source",
+    render: (r) => <Link href={r.origin.href} className="whitespace-nowrap text-caption text-accent hover:underline">Open {r.origin.label.toLowerCase()} ↗</Link>,
+  },
+  {
+    key: "rca", label: "Actions",
+    render: () => (
+      <Link aria-label="Root-cause analysis" href="/rca" className="inline-flex h-8 items-center whitespace-nowrap rounded-lg border border-line px-3 text-caption font-semibold text-ink transition-colors hover:border-accent hover:text-accent">
+        Open RCA
+      </Link>
+    ),
+  },
+];
+
 export default function NonConformancePage() {
-  const [items, setItems] = useState<Nc[]>([]);
-  const [isDemo, setIsDemo] = useState(false);
   const [filter, setFilter] = useState<"all" | NcSource>("all");
 
-  useEffect(() => {
-    let alive = true;
-    Promise.all([getConflicts(), getQuarantine(), getEvents({ limit: 50 })]).then(([c, q, e]) => {
-      if (!alive) return;
-      const ncs: Nc[] = [];
-
-      for (const cf of c.data.items) {
-        if (cf.status === "resolved") continue;
-        ncs.push({
-          id: cf.conflict_id, source: "conflict", asset_id: cf.asset_id,
-          title: `Conflict on ${cf.parameter}`,
-          detail: `${cf.track} track · severity ${cf.severity}`,
-          tone: cf.severity === "safety_critical" || cf.is_overdue ? "danger" : "caution",
-          when: cf.created_at,
-          origin: { href: "/governance/conflicts", label: "Conflict" },
-        });
-      }
-
-      for (const qi of q.data.items) {
-        if (qi.review_status !== "disputed") continue;
-        ncs.push({
-          id: qi.item_id, source: "dispute", asset_id: qi.asset_id,
-          title: "Disputed field input",
-          detail: qi.content.slice(0, 80),
-          tone: "caution",
-          when: qi.submitted_at,
-          origin: { href: "/governance/quarantine", label: "Quarantine" },
-        });
-      }
-
-      for (const ev of e.data.items) {
-        const result = String((ev.payload as Record<string, unknown>)?.result ?? "");
-        if (ev.event_type !== "inspection_complete" || result !== "failed") continue;
-        ncs.push({
-          id: ev.event_id, source: "inspection", asset_id: ev.asset_id ?? null,
-          title: "Inspection failed",
-          detail: String((ev.payload as Record<string, unknown>)?.findings ?? "See event"),
-          tone: "danger",
-          when: ev.occurred_at,
-          origin: { href: `/events/${ev.event_id}`, label: "Event" },
-        });
-      }
-
-      ncs.sort((a, b) => (a.when < b.when ? 1 : -1));
-      setItems(ncs);
-      setIsDemo(c.source === "demo" || q.source === "demo" || e.source === "demo");
-    });
-    return () => { alive = false; };
+  // Spec §5: same three fetchers, identical params, composed in one useFetch.
+  const state = useFetch(async () => {
+    const [c, q, e] = await Promise.all([getConflicts(), getQuarantine(), getEvents({ limit: 50 })]);
+    return {
+      data: { conflicts: c.data.items ?? [], quarantine: q.data.items ?? [], events: e.data.items ?? [] },
+      source: [c, q, e].some((r) => r.source === "demo") ? ("demo" as const) : ("live" as const),
+    };
   }, []);
+  const loading = state.status === "loading";
+  const hasData = state.status === "live" || state.status === "demo";
+
+  const items = useMemo<Nc[]>(() => {
+    if (!hasData) return [];
+    const { conflicts, quarantine, events } = state.data;
+    const ncs: Nc[] = [];
+    for (const cf of conflicts) {
+      if (cf.status === "resolved") continue;
+      ncs.push({
+        id: cf.conflict_id, source: "conflict", asset_id: cf.asset_id,
+        title: `Conflict on ${cf.parameter}`,
+        detail: `${cf.track} track · severity ${cf.severity}`,
+        tone: cf.severity === "safety_critical" || cf.is_overdue ? "danger" : "caution",
+        when: cf.created_at,
+        origin: { href: "/governance/conflicts", label: "Conflict" },
+      });
+    }
+    for (const qi of quarantine) {
+      if (qi.review_status !== "disputed") continue;
+      ncs.push({
+        id: qi.item_id, source: "dispute", asset_id: qi.asset_id,
+        title: "Disputed field input", detail: qi.content.slice(0, 80),
+        tone: "caution", when: qi.submitted_at,
+        origin: { href: "/governance/quarantine", label: "Quarantine" },
+      });
+    }
+    for (const ev of events) {
+      const payload = (ev.payload ?? {}) as Record<string, unknown>;
+      if (ev.event_type !== "inspection_complete" || String(payload.result ?? "") !== "failed") continue;
+      ncs.push({
+        id: ev.event_id, source: "inspection", asset_id: ev.asset_id ?? null,
+        title: "Inspection failed", detail: String(payload.findings ?? "See event"),
+        tone: "danger", when: ev.occurred_at,
+        origin: { href: `/events/${ev.event_id}`, label: "Event" },
+      });
+    }
+    return ncs.sort((a, b) => (a.when < b.when ? 1 : -1));
+  }, [state, hasData]);
 
   const counts = useMemo(() => ({
     conflict: items.filter((i) => i.source === "conflict").length,
     inspection: items.filter((i) => i.source === "inspection").length,
     dispute: items.filter((i) => i.source === "dispute").length,
+    urgent: items.filter((i) => i.tone === "danger").length,
   }), [items]);
 
-  const visible = filter === "all" ? items : items.filter((i) => i.source === filter);
+  const rows = filter === "all" ? items : items.filter((i) => i.source === filter);
 
   return (
-    <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
+    <div data-testid="nonconformance-workspace" className="mx-auto max-w-[1400px]">
       <Link href="/compliance" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -97,14 +138,26 @@ export default function NonConformancePage() {
         Compliance
       </Link>
 
-      <PageHeader className="mt-4" eyebrow="Layer 7 · Quality" title="Non-conformance tracking" lede="Open non-conformances composed from unresolved conflicts, failed inspections, and disputed field inputs. Each links to its root-cause workspace and originating record." />
+      <PageHeader
+        className="mt-4"
+        eyebrow="Layer 7 · Quality"
+        title="Non-conformance tracking"
+        lede="Open non-conformances composed from unresolved conflicts, failed inspections, and disputed field inputs. Each links to its root-cause workspace and originating record."
+        actions={state.status === "demo" ? <DemoChip /> : undefined}
+      />
 
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
-        <span className="tabular font-medium text-ink">{items.length} open</span>
-        {isDemo && <DemoChip />}
-      </div>
+      <section data-testid="nonconformance-summary" className="mt-5">
+        <StatPills
+          loading={loading}
+          pills={[
+            { key: "open", label: "Open", value: items.length },
+            { key: "urgent", label: "Urgent", value: counts.urgent, tone: "danger" },
+            { key: "attention", label: "Attention", value: items.length - counts.urgent },
+          ]}
+        />
+      </section>
 
-      <div className="mt-5">
+      <section data-testid="nonconformance-filters" className="mt-4 flex flex-wrap items-center gap-3">
         <FilterTabs
           tabs={[
             { key: "all", label: "All", count: items.length },
@@ -115,26 +168,27 @@ export default function NonConformancePage() {
           active={filter}
           onChange={(k) => setFilter(k as "all" | NcSource)}
         />
-      </div>
+        <span className="tabular ml-auto text-caption font-medium text-muted">{rows.length} of {items.length}</span>
+      </section>
 
-      <div className="mt-4 space-y-2">
-        {visible.length === 0 && <EmptyState message="No open non-conformances." />}
-        {visible.map((nc) => (
-          <div key={`${nc.source}-${nc.id}`} className="rounded-xl border border-line bg-surface px-4 py-3">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <StatusBadge tone={nc.tone}>{SOURCE_LABEL[nc.source]}</StatusBadge>
-              <span className="text-body font-semibold text-ink">{nc.title}</span>
-              {nc.asset_id && <span className="tabular text-caption text-accent">{nc.asset_id}</span>}
-              <span className="tabular ml-auto text-label text-muted">{relativeTime(nc.when)}</span>
-            </div>
-            <p className="mt-1 text-caption text-muted">{nc.detail}</p>
-            <div className="mt-2 flex flex-wrap gap-3 text-caption">
-              <Link href="/rca" className="text-accent underline hover:no-underline">Root-cause analysis ↗</Link>
-              {nc.origin && <Link href={nc.origin.href} className="text-accent underline hover:no-underline">{nc.origin.label} ↗</Link>}
-            </div>
+      <section data-testid="nonconformance-queue" className="mt-4">
+        {state.status === "error" ? (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-line bg-surface px-4 py-10 text-center">
+            <p className="text-body text-muted">Could not load non-conformances.</p>
+            <Button variant="primary" onClick={state.retry}>Retry</Button>
           </div>
-        ))}
-      </div>
+        ) : (
+          <DataTable<Nc>
+            key={filter}
+            columns={COLUMNS}
+            rows={rows}
+            keyFn={(r) => `${r.source}-${r.id}`}
+            pageSize={25}
+            loading={loading}
+            emptyState={<EmptyState message="No nonconformances open ✓" />}
+          />
+        )}
+      </section>
     </div>
   );
 }

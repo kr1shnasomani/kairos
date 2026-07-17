@@ -75,7 +75,7 @@ export default function BootstrapPage() {
   if (!ready) return <PageSkeleton />;
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
+    <div data-testid="identity-workspace" className="mx-auto max-w-5xl">
       <Link href="/assets" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -83,33 +83,67 @@ export default function BootstrapPage() {
         Assets
       </Link>
 
-      <PageHeader className="mt-4" eyebrow="Layer 1 · Master data management" title="Asset identity confirmation" lede="No AI-invented identities. Extracted knowledge that cannot link to a human-confirmed asset stays in quarantine under a provisional node — it is never fabricated. A qualified authority confirms identity here before any knowledge links to it." />
+      <PageHeader
+        className="mt-4"
+        eyebrow="Layer 1 · Master data management"
+        title="Asset identity confirmation"
+        lede="Review provisional equipment records and approve only identities that belong to a canonical asset."
+      />
+
+      <div data-testid="identity-guardrail" className="mt-5 flex gap-3 rounded-xl border border-line bg-surface p-4 shadow-sm">
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[color-mix(in_srgb,var(--caution)_14%,transparent)] text-caution" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3l7 3v5c0 4.6-2.9 8.1-7 10-4.1-1.9-7-5.4-7-10V6l7-3z" />
+            <path d="M9 12l2 2 4-4" />
+          </svg>
+        </span>
+        <div className="min-w-0">
+          <p className="text-body font-semibold text-ink">Human confirmation required</p>
+          <p className="mt-0.5 max-w-3xl text-caption leading-relaxed text-muted">
+            Extracted knowledge remains quarantined until a qualified user confirms its asset identity. Kairos never invents the missing identity.
+          </p>
+        </div>
+      </div>
 
       {!isAdmin && (
-        <div className="mt-5 rounded-xl border border-line bg-surface p-5 text-body text-muted">
+        <div className="mt-6 rounded-xl border border-line bg-surface p-5 text-body text-muted">
           Identity confirmation requires the <span className="font-semibold text-ink">admin</span> role.
         </div>
       )}
 
       {isAdmin && (
-        <>
-          <section className="mt-6">
-            {error && <p role="alert" className="mb-3 text-body text-danger">{error}</p>}
-            <h2 className="text-sm font-semibold">Provisional assets · {provisional.length}</h2>
-            <p className="mt-0.5 text-caption text-muted">Holding nodes lacking <span className="tabular">identity_confirmed_by</span>.</p>
-            <div className="mt-3 space-y-2">
-              {provisional.length === 0 && <EmptyState message="All provisional assets confirmed." />}
+        <div className="mt-6 space-y-6">
+          <section data-testid="provisional-queue" className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
+              <div>
+                <h2 className="text-sm font-semibold text-ink">Provisional assets</h2>
+                <p className="mt-0.5 text-caption text-muted">Records awaiting a canonical identity.</p>
+              </div>
+              <StatusBadge tone={provisional.length ? "caution" : "verified"} dot={false}>
+                {provisional.length} pending
+              </StatusBadge>
+            </div>
+            {error && <p role="alert" className="border-b border-line px-4 py-3 text-body text-danger sm:px-5">{error}</p>}
+            <div className="divide-y divide-line">
+              {provisional.length === 0 && <div className="p-4 sm:p-5"><EmptyState message="All provisional assets confirmed." /></div>}
               {provisional.map((p) => (
-                <div key={p.asset_id} className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3">
+                <div
+                  key={p.asset_id}
+                  data-testid={`provisional-${p.asset_id}`}
+                  className="grid gap-3 px-4 py-4 transition-colors hover:bg-surface-2 md:grid-cols-[minmax(0,1fr)_minmax(150px,0.55fr)_auto] md:items-center sm:px-5"
+                >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="tabular text-body font-semibold text-accent">{p.asset_id}</span>
                       <StatusBadge tone="caution" dot={false}>provisional</StatusBadge>
                     </div>
-                    <p className="mt-0.5 text-caption text-ink">{p.name}</p>
-                    <p className="text-label text-muted">{p.equipment_class} · from {p.origin}</p>
+                    <p className="mt-1 truncate text-caption font-medium text-ink">{p.name}</p>
                   </div>
-                  <Button variant="primary" disabled={busy === p.asset_id} onClick={() => confirm(p)}>
+                  <div className="min-w-0 text-label text-muted">
+                    <p className="truncate font-medium text-ink">{p.equipment_class.replaceAll("_", " ")}</p>
+                    <p className="mt-0.5 truncate">Source · {p.origin.replaceAll("_", " ")}</p>
+                  </div>
+                  <Button className="h-11 w-full md:h-9 md:w-auto" variant="primary" disabled={busy === p.asset_id} onClick={() => confirm(p)}>
                     {busy === p.asset_id ? "Confirming…" : "Confirm identity"}
                   </Button>
                 </div>
@@ -117,28 +151,41 @@ export default function BootstrapPage() {
             </div>
           </section>
 
-          <section className="mt-8">
-            <h2 className="text-sm font-semibold">Unresolved tag aliases · {aliases.length}</h2>
-            <p className="mt-0.5 text-caption text-muted">Confirm a mapping so search resolves the variant to the canonical id.</p>
-            <div className="mt-3 space-y-2">
-              {aliases.length === 0 && <EmptyState message="No pending aliases." />}
+          <section data-testid="alias-queue" className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
+              <div>
+                <h2 className="text-sm font-semibold text-ink">Unresolved tag aliases</h2>
+                <p className="mt-0.5 text-caption text-muted">Map each variant to its proposed canonical asset.</p>
+              </div>
+              <StatusBadge tone={aliases.length ? "info" : "verified"} dot={false}>
+                {aliases.length} pending
+              </StatusBadge>
+            </div>
+            <div className="divide-y divide-line">
+              {aliases.length === 0 && <div className="p-4 sm:p-5"><EmptyState message="No pending aliases." /></div>}
               {aliases.map((a) => (
-                <div key={a.alias} className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3">
-                  <div className="min-w-0 flex-1 text-caption">
-                    <span className="tabular font-semibold text-ink">{a.alias}</span>
-                    <span className="mx-2 text-muted">→</span>
-                    <span className="tabular font-semibold text-accent">{a.canonical_asset_id}</span>
-                    <span className="ml-2 text-label text-muted">proposed · {Math.round(a.confidence * 100)}%</span>
+                <div key={a.alias} className="grid gap-3 px-4 py-4 transition-colors hover:bg-surface-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center sm:px-5">
+                  <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <p className="text-label text-muted">Observed tag</p>
+                      <p className="tabular mt-0.5 truncate text-caption font-semibold text-ink">{a.alias}</p>
+                    </div>
+                    <span className="hidden text-muted sm:block" aria-hidden="true">→</span>
+                    <div className="min-w-0">
+                      <p className="text-label text-muted">Canonical asset</p>
+                      <p className="tabular mt-0.5 truncate text-caption font-semibold text-accent">{a.canonical_asset_id}</p>
+                    </div>
+                    <StatusBadge tone="info" dot={false}>{Math.round(a.confidence * 100)}% match</StatusBadge>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="ghost" className="h-8" onClick={() => setAliases((l) => l.filter((x) => x.alias !== a.alias))}>Confirm</Button>
-                    <Button variant="ghost" className="h-8 text-danger" onClick={() => setAliases((l) => l.filter((x) => x.alias !== a.alias))}>Reject</Button>
+                  <div className="grid grid-cols-2 gap-2 md:flex">
+                    <Button variant="ghost" className="h-11 md:h-9" aria-label={`Confirm alias ${a.alias}`} onClick={() => setAliases((l) => l.filter((x) => x.alias !== a.alias))}>Confirm</Button>
+                    <Button variant="ghost" className="h-11 text-danger md:h-9" aria-label={`Reject alias ${a.alias}`} onClick={() => setAliases((l) => l.filter((x) => x.alias !== a.alias))}>Reject</Button>
                   </div>
                 </div>
               ))}
             </div>
           </section>
-        </>
+        </div>
       )}
     </div>
   );

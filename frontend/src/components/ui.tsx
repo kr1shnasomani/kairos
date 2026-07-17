@@ -3,7 +3,9 @@
 import Link from "next/link";
 import type { AuthorityLevel, AuditLogEntry, BriefSource } from "@/lib/types";
 import { authorityLabel, cn } from "@/lib/utils";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCountUp } from "@/lib/motion";
+import { MetricCardSkeleton, TableSkeleton } from "@/components/skeleton";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 type Tone = "danger" | "caution" | "verified" | "info" | "neutral";
 
@@ -20,10 +22,13 @@ export function StatusBadge({
   tone,
   children,
   dot = true,
+  pulse = false,
 }: {
   tone: Tone;
   children: React.ReactNode;
   dot?: boolean;
+  /** Subtle attention pulse on the dot — reserve for overdue/critical items. */
+  pulse?: boolean;
 }) {
   return (
     <span
@@ -32,7 +37,7 @@ export function StatusBadge({
         TONE_STYLE[tone],
       )}
     >
-      {dot && <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />}
+      {dot && <span className={cn("size-1.5 rounded-full bg-current", pulse && "animate-pulse")} aria-hidden="true" />}
       {children}
     </span>
   );
@@ -216,37 +221,145 @@ export function DemoChip({ detail }: { detail?: string } = {}) {
   );
 }
 
+// ─── TrendDelta ──────────────────────────────────────────────────────────────
+
+/** Signed percent-change chip. `invert` for metrics where up is bad (gaps, overdue). */
+export function TrendDelta({ value, invert = false }: { value: number; invert?: boolean }) {
+  if (value === 0) {
+    return <span className="tabular text-label font-semibold text-muted">±0%</span>;
+  }
+  const up = value > 0;
+  const good = invert ? !up : up;
+  return (
+    <span className={cn("tabular inline-flex items-center gap-0.5 text-label font-semibold", good ? "text-verified" : "text-danger")}>
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {up ? <path d="M6 15l6-6 6 6" /> : <path d="M6 9l6 6 6-6" />}
+      </svg>
+      {up ? "+" : ""}{value}%
+    </span>
+  );
+}
+
+// ─── Sparkline ───────────────────────────────────────────────────────────────
+
+/** Inline trend line — pure SVG so ui.tsx stays free of the chart bundle.
+ *  Colored via currentColor: wrap in a text-* tone class. */
+export function Sparkline({
+  data,
+  width = 88,
+  height = 26,
+  className,
+}: {
+  data: number[];
+  width?: number;
+  height?: number;
+  className?: string;
+}) {
+  if (data.length < 2) return null;
+  const min = Math.min(...data);
+  const span = Math.max(...data) - min || 1;
+  const points = data
+    .map((v, i) => `${((i / (data.length - 1)) * (width - 2) + 1).toFixed(1)},${(height - 2 - ((v - min) / span) * (height - 4)).toFixed(1)}`)
+    .join(" ");
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className={cn("shrink-0", className)} aria-hidden="true">
+      <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // ─── KpiCard (Task 4) ────────────────────────────────────────────────────────
 
-/** Executive KPI tile — mono numeral, label, optional threshold colour.
- *  Pure CSS, no chart library. */
+/** Executive KPI tile — mono numeral, label, optional threshold colour,
+ *  optional trend delta + sparkline. Numeric values count up on change. */
 export function KpiCard({
   label,
   value,
   tone,
   sub,
+  icon,
   onClick,
+  href,
+  loading = false,
+  delta,
+  invertDelta,
+  spark,
 }: {
   label: string;
-  value: string | number;
-  tone?: "danger" | "caution" | "verified" | "neutral";
+  /** null/undefined renders an em dash — no metric ever shows "NaN"/"undefined". */
+  value: string | number | null | undefined;
+  tone?: "accent" | "danger" | "caution" | "verified" | "info" | "neutral";
   sub?: string;
+  icon?: React.ReactNode;
   onClick?: () => void;
+  /** Renders the tile as a Link with the interactive hover treatment. */
+  href?: string;
+  /** Renders MetricCardSkeleton with identical geometry (zero layout shift). */
+  loading?: boolean;
+  /** Percent change vs previous period — renders a TrendDelta chip. */
+  delta?: number;
+  /** Up is bad for this metric (open gaps, overdue items). */
+  invertDelta?: boolean;
+  /** Recent series for an inline sparkline. */
+  spark?: number[];
 }) {
   const valueColor =
+    tone === "accent" ? "text-accent" :
     tone === "danger" ? "text-danger" :
     tone === "caution" ? "text-caution" :
     tone === "verified" ? "text-verified" :
+    tone === "info" ? "text-info" :
     "text-ink";
+  const markerStyle =
+    tone === "accent" ? "bg-accent" :
+    tone === "danger" ? "bg-danger" :
+    tone === "caution" ? "bg-caution" :
+    tone === "verified" ? "bg-verified" :
+    tone === "info" ? "bg-info" :
+    "bg-line";
+  const surfaceStyle =
+    tone === "accent" ? "bg-[color-mix(in_srgb,var(--accent)_5%,var(--surface))]" :
+    tone === "danger" ? "bg-[color-mix(in_srgb,var(--danger)_5%,var(--surface))]" :
+    tone === "caution" ? "bg-[color-mix(in_srgb,var(--caution)_5%,var(--surface))]" :
+    tone === "verified" ? "bg-[color-mix(in_srgb,var(--verified)_4%,var(--surface))]" :
+    tone === "info" ? "bg-[color-mix(in_srgb,var(--info)_4%,var(--surface))]" :
+    "bg-surface";
+
+  const numeric = typeof value === "number" ? value : null;
+  const shown = useCountUp(numeric ?? 0);
+  const display = numeric === null ? (value ?? "—") : Math.round(shown).toLocaleString();
+
+  if (loading) return <MetricCardSkeleton />;
 
   const inner = (
     <>
-      <span className="text-label font-medium uppercase tracking-[0.1em] text-muted">{label}</span>
-      <span className={cn("tabular text-display font-semibold leading-none", valueColor)}>{value}</span>
-      {sub && <span className="text-label text-muted">{sub}</span>}
+      <span data-testid="kpi-accent" className={cn("absolute bottom-2 left-2 top-2 w-[3px] rounded-full", markerStyle)} aria-hidden="true" />
+      <span className="flex items-start justify-between gap-3 pl-1">
+        <span className="text-label font-medium uppercase tracking-[0.1em] text-muted">{label}</span>
+        {icon && <span className={cn("shrink-0", valueColor)} aria-hidden="true">{icon}</span>}
+      </span>
+      <span className="flex items-end justify-between gap-2">
+        <span className={cn("tabular pl-1 text-display font-semibold leading-none", valueColor)}>{display}</span>
+        {spark && <Sparkline data={spark} className="text-accent opacity-70" />}
+      </span>
+      {(sub || delta !== undefined) && (
+        <span className="flex items-center gap-2">
+          {delta !== undefined && <TrendDelta value={delta} invert={invertDelta} />}
+          {sub && <span className="text-label text-muted">{sub}</span>}
+        </span>
+      )}
     </>
   );
-  const base = "group flex w-full flex-col gap-1 rounded-xl border border-line bg-surface p-4 text-left transition-colors";
+  const base = cn("group relative flex min-h-[104px] w-full flex-col gap-1 overflow-hidden rounded-xl border border-line px-5 py-4 text-left transition-colors", surfaceStyle);
+  const interactive = "cursor-pointer transition-colors hover:border-accent/40 hover:bg-surface-2";
+
+  if (href) {
+    return (
+      <Link href={href} className={cn(base, interactive)}>
+        {inner}
+      </Link>
+    );
+  }
 
   // Static stat tiles must not be announced as interactive controls.
   if (!onClick) return <div className={base}>{inner}</div>;
@@ -255,12 +368,15 @@ export function KpiCard({
     <button
       type="button"
       onClick={onClick}
-      className={cn(base, "cursor-pointer hover:border-accent/40 hover:bg-surface-2")}
+      className={cn(base, interactive)}
     >
       {inner}
     </button>
   );
 }
+
+// Redesign-v2 spec name for the same tile.
+export { KpiCard as MetricCard };
 
 // ─── DataTable (Task 4) ──────────────────────────────────────────────────────
 
@@ -269,43 +385,110 @@ export interface TableColumn<T> {
   label: string;
   render?: (row: T) => React.ReactNode;
   className?: string;
+  /** Enables the sort toggle; sorts on this value (defaults to row[key]). */
+  sortValue?: (row: T) => string | number;
+  sortable?: boolean;
 }
 
-/** Dense data table with an optional empty state. */
+/** Dense data table — optional tri-state column sort, client pagination
+ *  (sticky header, "Showing X–Y of N"), optional empty state and row click. */
 export function DataTable<T extends Record<string, unknown>>({
   columns,
   rows,
   keyFn,
   emptyState,
+  pageSize,
+  onRowClick,
+  loading = false,
+  toolbar,
 }: {
   columns: TableColumn<T>[];
   rows: T[];
   keyFn: (row: T) => string;
   emptyState?: React.ReactNode;
+  /** Paginate past this many rows. Omit for a short, known-small list. */
+  pageSize?: number;
+  onRowClick?: (row: T) => void;
+  /** Renders TableSkeleton sized to the real column count. */
+  loading?: boolean;
+  /** Filter/search row rendered above the header inside the table chrome. */
+  toolbar?: React.ReactNode;
 }) {
+  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
+  const [page, setPage] = useState(0);
+
+  const sorted = useMemo(() => {
+    if (!sort) return rows;
+    const col = columns.find((c) => c.key === sort.key);
+    const val = col?.sortValue ?? ((row: T) => row[sort.key] as string | number);
+    return [...rows].sort((a, b) => {
+      const av = val(a) ?? "";
+      const bv = val(b) ?? "";
+      const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
+      return sort.dir === "asc" ? cmp : -cmp;
+    });
+  }, [rows, sort, columns]);
+
+  if (loading) {
+    return <TableSkeleton rows={pageSize ? Math.min(pageSize, 10) : 8} cols={columns.length} />;
+  }
+
   if (rows.length === 0 && emptyState) {
     return <>{emptyState}</>;
   }
+
+  const pages = pageSize ? Math.ceil(sorted.length / pageSize) : 1;
+  const safePage = Math.min(page, pages - 1);
+  const visible = pageSize ? sorted.slice(safePage * pageSize, (safePage + 1) * pageSize) : sorted;
+
+  function toggleSort(key: string) {
+    setPage(0);
+    setSort((s) =>
+      s?.key !== key ? { key, dir: "asc" } :
+      s.dir === "asc" ? { key, dir: "desc" } :
+      null,
+    );
+  }
+
   return (
     <div className="overflow-x-auto rounded-xl border border-line">
+      {toolbar && <div className="flex items-center gap-2 border-b border-line bg-surface px-3 py-2">{toolbar}</div>}
       <table className="w-full text-body">
         <thead>
           <tr className="border-b border-line bg-surface-2">
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={cn("px-3 py-2.5 text-left font-semibold text-muted", col.className)}
+                aria-sort={sort?.key === col.key ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
+                className={cn("sticky top-0 bg-surface-2 px-3 py-2.5 text-left font-semibold text-muted", col.className)}
               >
-                {col.label}
+                {col.sortable || col.sortValue ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleSort(col.key)}
+                    className="inline-flex items-center gap-1 hover:text-ink"
+                  >
+                    {col.label}
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={cn("transition-opacity", sort?.key === col.key ? "opacity-100" : "opacity-30")}>
+                      {sort?.key === col.key && sort.dir === "desc" ? <path d="M6 9l6 6 6-6" /> : <path d="M6 15l6-6 6 6" />}
+                    </svg>
+                  </button>
+                ) : (
+                  col.label
+                )}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {visible.map((row) => (
             <tr
               key={keyFn(row)}
-              className="border-b border-line/60 bg-surface last:border-0"
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              className={cn(
+                "border-b border-line/60 bg-surface last:border-0",
+                onRowClick && "cursor-pointer transition-colors hover:bg-surface-2",
+              )}
             >
               {columns.map((col) => (
                 <td key={col.key} className={cn("px-3 py-2.5 align-middle", col.className)}>
@@ -316,6 +499,21 @@ export function DataTable<T extends Record<string, unknown>>({
           ))}
         </tbody>
       </table>
+      {pageSize && sorted.length > pageSize && (
+        <div className="flex items-center justify-between border-t border-line bg-surface-2 px-3 py-2">
+          <span className="tabular text-label text-muted">
+            Showing {safePage * pageSize + 1}–{Math.min((safePage + 1) * pageSize, sorted.length)} of {sorted.length}
+          </span>
+          <span className="flex gap-1">
+            <Button className="h-7 px-2.5 text-caption" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
+              Prev
+            </Button>
+            <Button className="h-7 px-2.5 text-caption" disabled={safePage >= pages - 1} onClick={() => setPage(safePage + 1)}>
+              Next
+            </Button>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -333,14 +531,16 @@ export function FilterTabs({
   onChange: (key: string) => void;
 }) {
   return (
-    <div role="group" aria-label="Filters" className="flex flex-wrap gap-1 rounded-lg border border-line bg-surface-2 p-1">
+    // Mobile: single-row horizontal scroll (wrapping breaks the segmented look);
+    // sm+: wrap as before.
+    <div role="group" aria-label="Filters" className="flex gap-1 overflow-x-auto rounded-lg border border-line bg-surface-2 p-1 sm:flex-wrap">
       {tabs.map((tab) => (
         <button
           key={tab.key}
           aria-pressed={active === tab.key}
           onClick={() => onChange(tab.key)}
           className={cn(
-            "flex h-7 items-center gap-1.5 rounded-md px-3 text-caption font-semibold transition-colors",
+            "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-3 text-caption font-semibold transition-colors",
             active === tab.key
               ? "bg-surface text-ink shadow-sm"
               : "text-muted hover:text-ink",

@@ -1,181 +1,172 @@
 "use client";
 
+// Management overview — KPI strip (deep-linked), 14-day event trend, ranked
+// attention queue, live signals feed, system health. One useFetch drives
+// every zone: loading skeletons → live/demo → error + retry.
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { DemoChip, KpiCard, StatusBadge } from "@/components/ui";
-import { getConflicts, getComplianceDashboard, getQuarantine, getSlaReport } from "@/lib/api";
+import { useMemo } from "react";
+import { Area, AreaChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
+import { AXIS, ChartCard, GRID, TOOLTIP } from "@/components/charts";
+import { DemoChip, MetricCard, PageHeader } from "@/components/ui";
+import type { Fetched } from "@/lib/api";
+import { getComplianceDashboard, getConflicts, getEvents, getHealthDetailed, getQuarantine, getSlaReport } from "@/lib/api";
+import { useScrollReveal } from "@/lib/motion";
+import type { ComplianceDashboard, HealthDetailed, OperationalEvent, SlaReport } from "@/lib/types";
+import { useFetch } from "@/lib/use-fetch";
+import { nowMs } from "@/lib/utils";
+import { AttentionList } from "./_components/attention-list";
+import { HealthStrip } from "./_components/health-strip";
+import { SignalsFeed } from "./_components/signals-feed";
 
-const COVERAGE = [
-  { klass: "Rotating equipment", pct: 88 },
-  { klass: "Static / vessels",   pct: 74 },
-  { klass: "Instrumentation",    pct: 69 },
-  { klass: "Electrical",         pct: 52 },
-];
+const DAY_MS = 86_400_000;
+const TREND_DAYS = 14;
 
-const ALERTS = [
-  { text: "Seal thermal-cycling pattern seen at 3 sister pumps (P-101, P-204, P-311)", tone: "caution" as const, tag: "Cross-site", href: "/management/cross-site" },
-  { text: "Feed-water hardness excursions driving fouling across HX-3xx series",       tone: "caution" as const, tag: "Cross-site", href: "/management/cross-site" },
-  { text: "OISD-117 §6.4 relief-device evidence blocked on 2 assets",                  tone: "danger"  as const, tag: "Compliance", href: "/compliance" },
-];
+interface Overview {
+  conflictsTotal: number | null;
+  quarantineTotal: number | null;
+  sla: SlaReport | null;
+  compliance: ComplianceDashboard | null;
+  events: OperationalEvent[];
+  health: HealthDetailed | null;
+}
 
-const SERVICES = ["Neo4j", "Qdrant", "Elasticsearch", "Redis", "Supabase"];
+/** All six sources in parallel; demo when any single source fell back. */
+async function fetchOverview(): Promise<Fetched<Overview>> {
+  const [cr, qr, sr, dr, er, hr] = await Promise.all([
+    getConflicts(),
+    getQuarantine(),
+    getSlaReport(),
+    getComplianceDashboard(),
+    getEvents({ limit: 250 }),
+    getHealthDetailed(),
+  ]);
+  return {
+    data: {
+      conflictsTotal: cr.data?.total ?? null,
+      quarantineTotal: qr.data?.total ?? null,
+      sla: sr.data,
+      compliance: dr.data,
+      events: er.data?.items ?? [],
+      health: hr.data,
+    },
+    source: [cr, qr, sr, dr, er, hr].some((r) => r.source === "demo") ? "demo" : "live",
+  };
+}
+
+/** Bucket events into daily counts for the last TREND_DAYS days. */
+function dailyCounts(events: OperationalEvent[], endMs: number) {
+  const start = endMs - (TREND_DAYS - 1) * DAY_MS;
+  const buckets = Array.from({ length: TREND_DAYS }, (_, i) => {
+    const d = new Date(start + i * DAY_MS);
+    return { day: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }), count: 0 };
+  });
+  for (const ev of events) {
+    const t = Date.parse(ev.occurred_at);
+    if (Number.isNaN(t) || t < start - DAY_MS) continue;
+    buckets[Math.min(TREND_DAYS - 1, Math.max(0, Math.floor((t - start) / DAY_MS)))].count += 1;
+  }
+  return buckets;
+}
 
 export default function ManagementPage() {
-  const [conflicts, setConflicts] = useState<number | null>(null);
-  const [compliance, setCompliance] = useState<{ total: number; critical: number; lastScan: string } | null>(null);
-  const [attention, setAttention] = useState<{ overdueConflicts: number; overdueQuarantine: number; pendingQuarantine: number } | null>(null);
-  const [isDemo, setIsDemo] = useState(false);
+  const state = useFetch(fetchOverview);
+  const loading = state.status === "loading";
+  const data = state.status === "live" || state.status === "demo" ? state.data : null;
 
-  useEffect(() => {
-    let alive = true;
-    Promise.all([getConflicts(), getComplianceDashboard(), getSlaReport(), getQuarantine()]).then(([cr, dr, sr, qr]) => {
-      if (!alive) return;
-      setConflicts(cr.data?.total ?? null);
-      if (dr.data) {
-        const t = dr.data.total_gaps;
-        setCompliance({ total: t.critical + t.major + t.minor, critical: t.critical, lastScan: dr.data.last_updated ?? "" });
-      }
-      setAttention({
-        overdueConflicts: sr.data?.overdue_conflicts_total ?? 0,
-        overdueQuarantine: sr.data?.overdue_quarantine_total ?? 0,
-        pendingQuarantine: qr.data.items.filter((it) => it.review_status === "pending").length,
-      });
-      setIsDemo(cr.source === "demo" || dr.source === "demo" || sr.source === "demo" || qr.source === "demo");
-    }).catch(() => { if (alive) setIsDemo(true); });
-    return () => { alive = false; };
-  }, []);
+  const trend = useMemo(() => (data ? dailyCounts(data.events, nowMs()) : null), [data]);
+  // All-zero series draws a misleading flat line — show nothing instead.
+  const spark = useMemo(() => {
+    const s = trend?.map((b) => b.count);
+    return s?.some((v) => v > 0) ? s : undefined;
+  }, [trend]);
 
-  const attentionRows = attention
-    ? [
-        { count: attention.overdueConflicts, label: "conflicts past SLA", href: "/governance/conflicts", tone: "danger" as const },
-        { count: attention.overdueQuarantine, label: "quarantine items past SLA", href: "/governance/quarantine", tone: "danger" as const },
-        { count: attention.pendingQuarantine, label: "quarantine items awaiting review", href: "/governance/quarantine", tone: "caution" as const },
-        { count: compliance?.critical ?? 0, label: "critical compliance gaps", href: "/compliance", tone: "caution" as const },
-      ].filter((r) => r.count > 0)
-    : [];
+  const overdueSla = data?.sla ? data.sla.overdue_conflicts_total + data.sla.overdue_quarantine_total : null;
+  const criticalGaps = data?.compliance?.total_gaps.critical ?? null;
 
-  const coveragePct = 78; // ponytail: no coverage API endpoint; static until Layer-4 aggregation added
-  const kpis: Array<{
-    label: string;
-    value: string;
-    sub: string;
-    tone?: "danger" | "caution" | "verified" | "neutral";
-  }> = [
-    { label: "Knowledge coverage", value: `${coveragePct}%`, sub: "illustrative — live metric pending", tone: "neutral" },
-    { label: "Open conflicts", value: conflicts !== null ? String(conflicts) : "—", sub: "awaiting resolution", tone: "danger" },
-    { label: "Compliance posture", value: compliance ? `${compliance.total} gaps` : "—", sub: "pending remediation", tone: "caution" },
-    { label: "Cross-site alerts", value: String(ALERTS.filter((a) => a.tag === "Cross-site").length), sub: "pattern matches", tone: "neutral" },
-  ];
+  const { ref: attentionRef, revealed: attentionRevealed } = useScrollReveal<HTMLDivElement>();
+  const { ref: signalsRef, revealed: signalsRevealed } = useScrollReveal<HTMLDivElement>();
+  const revealCls = (revealed: boolean) =>
+    `min-w-0 transition-all duration-500 ${revealed ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"}`;
 
   return (
-    <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Cross-functional</p>
-          <h1 className="mt-1 text-display font-semibold leading-tight">Plant overview</h1>
-          <p className="mt-1.5 text-body text-muted">Situational awareness across knowledge, conflicts, and compliance.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {isDemo && <DemoChip />}
-          <Link
-            href="/management/plant-state"
-            className="inline-flex h-8 items-center rounded-lg border border-line bg-surface px-3 text-caption font-medium text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+    <div data-testid="overview-workspace" className="mx-auto max-w-[1400px]">
+      <PageHeader
+        eyebrow="Cross-functional"
+        title="Plant overview"
+        lede="Situational awareness across knowledge, conflicts, and compliance."
+        actions={
+          <>
+            {state.status === "demo" && <DemoChip />}
+            <Link
+              href="/management/plant-state"
+              className="inline-flex min-h-11 items-center rounded-lg border border-line bg-surface px-3 text-caption font-medium text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+            >
+              Plant state
+            </Link>
+          </>
+        }
+      />
+
+      {state.status === "error" ? (
+        <section data-testid="overview-error" className="mt-6 rounded-xl border border-line bg-surface p-8 text-center">
+          <p className="text-body font-medium text-ink">Couldn&apos;t load the overview.</p>
+          <p className="mt-1 text-caption text-muted">{state.error.message}</p>
+          <button
+            type="button"
+            onClick={state.retry}
+            className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-line bg-surface-2 px-4 text-caption font-medium text-ink transition-colors hover:bg-canvas"
           >
-            Plant state
-          </Link>
-        </div>
-      </header>
-
-      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {kpis.map((k) => (
-          <KpiCard key={k.label} label={k.label} value={k.value} sub={k.sub} tone={k.tone} />
-        ))}
-      </div>
-
-      {/* What requires action right now, composed from SLA + quarantine + compliance */}
-      {attention && (
-        <section className="mt-6 rounded-xl border border-line bg-surface p-5">
-          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Needs attention</h2>
-          {attentionRows.length === 0 ? (
-            <p className="mt-3 flex items-center gap-2 text-body text-verified">
-              <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-              All clear — no overdue or pending items.
-            </p>
-          ) : (
-            <ul className="mt-3 divide-y divide-line">
-              {attentionRows.map((r) => (
-                <li key={r.label}>
-                  <Link
-                    href={r.href}
-                    className="group flex items-center gap-3 py-2.5 text-body text-ink transition-colors hover:text-accent"
-                  >
-                    <StatusBadge tone={r.tone} dot={false}>{r.count}</StatusBadge>
-                    <span>{r.label}</span>
-                    <span className="ml-auto text-label text-muted transition-colors group-hover:text-accent" aria-hidden="true">→</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+            Retry
+          </button>
         </section>
+      ) : (
+        <>
+          {/* KPI strip — deep-linked tiles; numbers count up as live data lands */}
+          <div data-testid="overview-kpis" className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <MetricCard label="Open conflicts" value={data?.conflictsTotal} sub="awaiting resolution" tone="caution" href="/governance/conflicts" loading={loading} />
+            <MetricCard label="Quarantine backlog" value={data?.quarantineTotal} sub="items in review queue" tone="info" href="/governance/quarantine" loading={loading} />
+            <MetricCard label="Overdue SLA items" value={overdueSla} sub="past deadline" tone="danger" href="/governance/sla" loading={loading} />
+            <MetricCard label="Critical gaps" value={criticalGaps} sub="compliance findings" tone={criticalGaps === 0 ? "verified" : "danger"} href="/compliance" loading={loading} />
+          </div>
+
+          {/* Event volume trend — the page's live pulse (AC10 waived: chart stays) */}
+          <div className="mt-4">
+            <ChartCard
+              title="Operational events"
+              sub={`Daily volume, last ${TREND_DAYS} days`}
+              height={180}
+              loading={trend === null}
+              empty={trend !== null && trend.every((b) => b.count === 0) && "No events in this window."}
+            >
+              <AreaChart data={trend ?? []} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="event-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid {...GRID} />
+                <XAxis dataKey="day" {...AXIS} interval="preserveStartEnd" minTickGap={24} />
+                <YAxis {...AXIS} allowDecimals={false} width={36} />
+                <Tooltip {...TOOLTIP} />
+                <Area type="monotone" dataKey="count" name="Events" stroke="var(--accent)" strokeWidth={2} fill="url(#event-fill)" dot={false} />
+              </AreaChart>
+            </ChartCard>
+          </div>
+
+          {/* Triage (wider) + signals feed — two independent column stacks so a
+              short attention card never strands blank space beside the feed. */}
+          <div data-testid="overview-priority-layout" className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            <div ref={attentionRef} className={revealCls(attentionRevealed)}>
+              <AttentionList sla={data?.sla ?? null} compliance={data?.compliance ?? null} loading={loading} />
+              <HealthStrip health={data?.health ?? null} loading={loading} />
+            </div>
+            <div ref={signalsRef} className={revealCls(signalsRevealed)} style={{ transitionDelay: "100ms" }}>
+              <SignalsFeed events={data?.events ?? []} spark={spark} loading={loading} />
+            </div>
+          </div>
+        </>
       )}
-
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
-        <section className="rounded-xl border border-line bg-surface p-5">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Coverage by asset class</h2>
-            <span className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Illustrative</span>
-          </div>
-          <div className="mt-4 space-y-3.5">
-            {COVERAGE.map((c) => (
-              <div key={c.klass}>
-                <div className="flex items-center justify-between text-caption">
-                  <span>{c.klass}</span>
-                  <span className="tabular text-muted">{c.pct}%</span>
-                </div>
-                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-line">
-                  <div className="h-full rounded-full bg-accent" style={{ width: `${c.pct}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-line bg-surface p-5">
-          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Cross-site &amp; compliance alerts</h2>
-          <ul className="mt-4 space-y-3">
-            {ALERTS.map((a) => (
-              <li key={a.text} className="flex flex-col gap-1.5">
-                <StatusBadge tone={a.tone}>{a.tag}</StatusBadge>
-                <Link href={a.href} className="text-body leading-relaxed text-ink hover:text-accent hover:underline">
-                  {a.text}
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <Link
-            href="/management/cross-site"
-            className="mt-4 inline-flex text-caption font-medium text-accent hover:underline"
-          >
-            View all cross-site alerts →
-          </Link>
-        </section>
-      </div>
-
-      <section className="mt-4 rounded-xl border border-line bg-surface p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">System health</h2>
-          <StatusBadge tone="verified">All services up</StatusBadge>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {SERVICES.map((s) => (
-            <span key={s} className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2.5 py-1 text-caption">
-              <span className="size-1.5 rounded-full bg-verified" aria-hidden="true" />
-              {s}
-            </span>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }

@@ -2,44 +2,25 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import type { Conflict } from "@/lib/types";
-import { getConflicts, resolveConflict, type DataSource } from "@/lib/api";
-import { authorityLabel, relativeTime, slaCountdown } from "@/lib/utils";
-import { FilterTabs, StatusBadge, DemoChip, PageHeader } from "@/components/ui";
-
-// ── SLA countdown ─────────────────────────────────────────────────────────────
-
-function SlaChip({ sla_due_at, is_overdue, nowMs }: { sla_due_at: string | null; is_overdue: boolean; nowMs: number }) {
-  if (!sla_due_at) return null;
-  if (is_overdue) {
-    return <span className="tabular text-label font-semibold text-danger">SLA overdue</span>;
-  }
-  const { label, tone } = slaCountdown(sla_due_at, nowMs);
-  return <span className={`tabular text-label font-semibold ${tone}`}>{label}</span>;
-}
-
-// ── Test-data IDs ─────────────────────────────────────────────────────────────
+import { getConflicts, resolveConflict } from "@/lib/api";
+import { useFetch } from "@/lib/use-fetch";
+import { Button, DataTable, DemoChip, EmptyState, FilterTabs, PageHeader } from "@/components/ui";
+import { StatPills } from "@/components/stat-pills";
+import { buildColumns, type ConflictRow } from "./_components/columns";
 
 const TEST_PREFIXES = ["ASSET-TEST-", "ASSET-EV-", "ASSET-DEDUP-"];
-function isTestData(c: Conflict) {
-  return TEST_PREFIXES.some((p) => c.asset_id?.startsWith(p));
-}
+const isTestData = (c: ConflictRow) => TEST_PREFIXES.some((p) => c.asset_id?.startsWith(p));
 
-// ── Page ──────────────────────────────────────────────────────────────────────
-
-const SEV_TONE: Record<string, "danger" | "caution" | "verified" | "neutral"> = {
-  critical: "danger",
-  major: "caution",
-  minor: "verified",
-};
 
 export default function ConflictsPage() {
-  const [items, setItems] = useState<Conflict[]>([]);
-  const [source, setSource] = useState<DataSource>("demo");
-  const [loaded, setLoaded] = useState(false);
+  // Spec §5: params unchanged — same zero-arg getConflicts() call as before.
+  const state = useFetch(() => getConflicts(), []);
+  const loading = state.status === "loading";
+  const hasData = state.status === "live" || state.status === "demo";
+
+  const [resolved, setResolved] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   const [statusFilter, setStatusFilter] = useState("open");
   const [trackFilter, setTrackFilter] = useState("all");
   const [showTestData, setShowTestData] = useState(false);
@@ -52,49 +33,46 @@ export default function ConflictsPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    let alive = true;
-    getConflicts().then(({ data, source }) => {
-      if (!alive) return;
-      setItems(data.items);
-      setSource(source);
-      setLoaded(true);
-    });
-    return () => { alive = false; };
-  }, []);
+  // Fetched items with optimistic resolve overrides applied.
+  const items = useMemo<ConflictRow[]>(() => {
+    const fetched = hasData ? state.data.items ?? [] : [];
+    return fetched.map((c) => (resolved.has(c.conflict_id) ? { ...c, status: "resolved" as const } : c));
+  }, [state, hasData, resolved]);
 
-  async function resolve(c: Conflict) {
+  async function resolve(c: ConflictRow) {
     setBusy(c.conflict_id);
     setError(null);
-    const prev = items;
-    setItems((xs) => xs.map((x) => x.conflict_id === c.conflict_id ? { ...x, status: "resolved" } : x));
+    setResolved((s) => new Set(s).add(c.conflict_id));
     try {
       await resolveConflict(c.conflict_id, { decision: "accept_higher_authority" });
     } catch {
-      setItems(prev);
+      setResolved((s) => { const next = new Set(s); next.delete(c.conflict_id); return next; });
       setError(`Could not resolve ${c.conflict_id} — backend offline or rejected.`);
     } finally {
       setBusy(null);
     }
   }
 
-  const visible = useMemo(() => {
-    return items.filter((c) => {
-      if (!showTestData && isTestData(c)) return false;
-      if (statusFilter === "open" && c.status === "resolved") return false;
-      if (statusFilter === "resolved" && c.status !== "resolved") return false;
-      if (trackFilter === "administrative" && c.track !== "administrative") return false;
-      if (trackFilter === "engineering" && c.track !== "engineering") return false;
-      return true;
-    });
-  }, [items, statusFilter, trackFilter, showTestData]);
+  const scoped = useMemo(() => items.filter((c) => showTestData || !isTestData(c)), [items, showTestData]);
+  const counts = useMemo(() => ({
+    open: scoped.filter((c) => c.status === "open").length,
+    pendingMoc: scoped.filter((c) => c.status === "pending_moc").length,
+    resolved: scoped.filter((c) => c.status === "resolved").length,
+    overdue: scoped.filter((c) => c.status !== "resolved" && c.is_overdue).length,
+  }), [scoped]);
 
-  const openCount = items.filter((c) => c.status !== "resolved" && (showTestData || !isTestData(c))).length;
-  const adminCount = visible.filter((c) => c.track === "administrative").length;
-  const engCount = visible.filter((c) => c.track === "engineering").length;
+  const rows = useMemo(() => scoped.filter((c) => {
+    if (statusFilter === "open" && c.status === "resolved") return false;
+    if (statusFilter === "resolved" && c.status !== "resolved") return false;
+    if (trackFilter !== "all" && c.track !== trackFilter) return false;
+    return true;
+  }), [scoped, statusFilter, trackFilter]);
+
+  const columns = useMemo(() => buildColumns(nowMs, busy, resolve), [nowMs, busy]);
+  const hasFilters = statusFilter !== "all" || trackFilter !== "all";
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
+    <div data-testid="conflicts-workspace" className="mx-auto max-w-[1400px]">
       <Link href="/governance" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -102,29 +80,31 @@ export default function ConflictsPage() {
         Governance
       </Link>
 
-      <PageHeader className="mt-4" eyebrow="Layer 7 · Dual-track governance" title="Conflicts" lede="Contradictions between sources, split by track. Administrative conflicts resolve here; engineering conflicts are safety-critical and route through Management of Change." />
+      <PageHeader
+        className="mt-4"
+        eyebrow="Layer 7 · Dual-track governance"
+        title="Conflicts"
+        lede="Contradictions between sources, split by track. Administrative conflicts resolve here; engineering conflicts are safety-critical and route through Management of Change."
+        actions={state.status === "demo" ? <DemoChip /> : undefined}
+      />
 
-      {/* Stats row */}
-      <div className="mt-4 flex flex-wrap items-center gap-3 text-caption text-muted">
-        <span className="tabular font-medium text-ink">{openCount} open</span>
-        {source === "demo" && <DemoChip />}
-        <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-label">
-          <input
-            type="checkbox"
-            checked={showTestData}
-            onChange={(e) => setShowTestData(e.target.checked)}
-            className="size-3 rounded accent-accent"
-          />
-          Show test data
-        </label>
-      </div>
+      <section data-testid="conflicts-summary" className="mt-5">
+        <StatPills
+          loading={loading}
+          pills={[
+            { key: "open", label: "Open", value: counts.open },
+            { key: "pending_moc", label: "Pending MoC", value: counts.pendingMoc },
+            { key: "resolved", label: "Resolved", value: counts.resolved },
+            { key: "overdue", label: "SLA overdue", value: counts.overdue, tone: "danger" },
+          ]}
+        />
+      </section>
 
-      {/* Filter row */}
-      <div className="mt-3 flex flex-wrap gap-3">
+      <section data-testid="conflicts-filters" className="mt-4 flex flex-wrap items-center gap-3">
         <FilterTabs
           tabs={[
             { key: "all", label: "All" },
-            { key: "open", label: "Open", count: openCount },
+            { key: "open", label: "Open", count: counts.open + counts.pendingMoc },
             { key: "resolved", label: "Resolved" },
           ]}
           active={statusFilter}
@@ -133,13 +113,17 @@ export default function ConflictsPage() {
         <FilterTabs
           tabs={[
             { key: "all", label: "All tracks" },
-            { key: "administrative", label: "Administrative", count: adminCount },
-            { key: "engineering", label: "Engineering", count: engCount },
+            { key: "administrative", label: "Administrative" },
+            { key: "engineering", label: "Engineering" },
           ]}
           active={trackFilter}
           onChange={setTrackFilter}
         />
-      </div>
+        <label className="ml-auto flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-label text-muted hover:bg-surface-2">
+          <input type="checkbox" checked={showTestData} onChange={(e) => setShowTestData(e.target.checked)} className="size-4 rounded accent-accent" />
+          Show test data
+        </label>
+      </section>
 
       {error && (
         <p className="mt-3 rounded-lg border border-[color-mix(in_srgb,var(--danger)_35%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface))] px-3 py-2 text-caption text-danger">
@@ -147,110 +131,25 @@ export default function ConflictsPage() {
         </p>
       )}
 
-      <div className="mt-4 flex flex-col gap-3">
-        {loaded && visible.length === 0 && (
-          <div className="rounded-xl border border-line bg-surface px-4 py-8 text-center text-body text-muted">
-            No conflicts match the current filters.
+      <section data-testid="conflicts-queue" className="mt-4">
+        {state.status === "error" ? (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-line bg-surface px-4 py-10 text-center">
+            <p className="text-body text-muted">Could not load the conflict queue.</p>
+            <Button variant="primary" onClick={state.retry}>Retry</Button>
           </div>
-        )}
-        {visible.map((c) => <ConflictCard key={c.conflict_id} c={c} busy={busy} nowMs={nowMs} onResolve={resolve} />)}
-      </div>
-    </div>
-  );
-}
-
-// ── Conflict card ─────────────────────────────────────────────────────────────
-
-function ConflictCard({
-  c,
-  busy,
-  nowMs,
-  onResolve,
-}: {
-  c: Conflict;
-  busy: string | null;
-  nowMs: number;
-  onResolve: (c: Conflict) => void;
-}) {
-  const isEng = c.track === "engineering";
-  const resolved = c.status === "resolved";
-  const pendingMoc = isEng && c.status === "pending_moc";
-
-  return (
-    <article className="rounded-xl border border-line bg-surface p-4">
-      {/* Engineering-track MoC warning */}
-      {pendingMoc && (
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,var(--surface))] px-3 py-2">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-caution" aria-hidden="true">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-          </svg>
-          <p className="text-caption text-caution">
-            Pending Management of Change —{" "}
-            <Link href="/governance/moc" className="font-semibold underline hover:opacity-80">
-              view MoC queue
-            </Link>
-          </p>
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="tabular text-body font-semibold text-accent">{c.conflict_id}</span>
-        <StatusBadge tone={isEng ? "danger" : "info"} dot={false}>{c.track}</StatusBadge>
-        <StatusBadge tone={SEV_TONE[c.severity] ?? "neutral"}>{c.severity}</StatusBadge>
-        {c.asset_id ? (
-          <Link href={`/assets/${c.asset_id}`} className="tabular text-label text-accent hover:underline">
-            {c.asset_id}
-          </Link>
-        ) : null}
-        <SlaChip sla_due_at={c.sla_due_at} is_overdue={c.is_overdue && !resolved} nowMs={nowMs} />
-        <span className="tabular ml-auto text-label text-muted">{relativeTime(c.created_at)}</span>
-      </div>
-
-      <p className="mt-2.5 text-body">
-        Contradiction on <span className="font-semibold">{c.parameter.replace(/_/g, " ")}</span>
-      </p>
-
-      <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
-        {[
-          { s: c.source_a, auth: c.authority_a, tag: "A" },
-          { s: c.source_b, auth: c.authority_b, tag: "B" },
-        ].map(({ s, auth, tag }) => (
-          <div key={tag} className="rounded-lg border border-line bg-surface-2 p-3">
-            <div className="flex items-center justify-between">
-              <span className="tabular text-label font-semibold text-muted">Source {tag}</span>
-              <span className="tabular text-micro text-muted">{authorityLabel(auth)}</span>
-            </div>
-            <p className="mt-1 text-body font-medium">{String(s?.value ?? "—")}</p>
-            {s?.document_id && (
-              <Link href={`/documents/${s.document_id}`} className="tabular mt-0.5 block text-label text-accent hover:underline">
-                {s.document_id}
-              </Link>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-3 flex items-center gap-2 border-t border-line pt-3">
-        {resolved ? (
-          <span className="inline-flex items-center gap-1.5 text-caption font-semibold text-verified">
-            <span className="size-1.5 rounded-full bg-verified" aria-hidden="true" />
-            Resolved
-          </span>
-        ) : isEng ? (
-          <p className="text-caption text-muted">
-            Engineering track — resolution requires a signed Management of Change.
-            Direct resolve is blocked; the MoC governs the old edge&rsquo;s validity window.
-          </p>
         ) : (
-          <button
-            onClick={() => onResolve(c)}
-            disabled={busy === c.conflict_id}
-            className="inline-flex h-8 items-center rounded-lg bg-accent px-3 text-caption font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {busy === c.conflict_id ? "Resolving…" : "Resolve · accept higher authority"}
-          </button>
+          <DataTable<ConflictRow>
+            key={`${statusFilter}:${trackFilter}:${showTestData}`}
+            columns={columns}
+            rows={rows}
+            keyFn={(r) => r.conflict_id}
+            pageSize={25}
+            loading={loading}
+            emptyState={<EmptyState message={hasFilters && scoped.length > 0 ? "No conflicts match the current filters." : "No conflicts — knowledge is consistent ✓"} />}
+          />
         )}
-      </div>
-    </article>
+        {hasData && <p className="tabular mt-2 text-label text-muted">{rows.length} of {scoped.length} conflicts</p>}
+      </section>
+    </div>
   );
 }

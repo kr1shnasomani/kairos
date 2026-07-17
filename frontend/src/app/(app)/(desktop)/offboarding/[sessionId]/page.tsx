@@ -27,14 +27,14 @@ function SessionList({
   onSelect: (id: string) => void;
 }) {
   return (
-    <ol className="flex flex-col gap-1">
+    <ol className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
       {items.map((s) => (
-        <li key={s.id}>
+        <li key={s.id} className="shrink-0 lg:w-full">
           <button
             type="button"
             onClick={() => onSelect(s.id)}
             className={cn(
-              "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-body transition-colors",
+              "flex min-h-11 w-full min-w-48 items-center gap-3 rounded-lg px-3 py-2.5 text-left text-body transition-colors lg:min-w-0",
               s.id === activeId
                 ? "bg-accent-soft font-semibold text-accent"
                 : "text-muted hover:bg-surface-2 hover:text-ink",
@@ -78,6 +78,8 @@ function Interview({
   const [error, setError] = useState<string | null>(null);
 
   const allAnswered = questions.every((_, i) => (answers[i] ?? "").trim());
+  const answeredCount = questions.filter((_, i) => (answers[i] ?? "").trim()).length;
+  const answeredPct = questions.length > 0 ? Math.round((answeredCount / questions.length) * 100) : 0;
 
   async function submit() {
     setSubmitting(true);
@@ -112,16 +114,25 @@ function Interview({
   }
 
   return (
-    <div className="flex flex-col gap-7">
-      <div>
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">{item.equipment_family}</p>
-        <h2 className="mt-0.5 text-title font-semibold">Session {item.session_number} — interview</h2>
+    <div data-testid="offboarding-interview" className="flex flex-col gap-6">
+      <div className="rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">{item.equipment_family}</p>
+            <h2 className="mt-0.5 text-title font-semibold">Session {item.session_number} — expert interview</h2>
+          </div>
+          <span className="tabular text-caption font-medium text-muted">{answeredCount} of {questions.length} answered</span>
+        </div>
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line" aria-label={`${answeredPct}% answered`}>
+          <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${answeredPct}%` }} />
+        </div>
+        <p className="mt-3 text-label text-muted">Responses enter knowledge quarantine for engineering review before promotion.</p>
       </div>
 
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         {questions.map((q, i) => (
-          <div key={i} className="rounded-xl border border-line bg-surface p-5">
-            <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Q{i + 1}</p>
+          <div key={i} className="rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+            <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Question {i + 1} of {questions.length}</p>
             <p className="mt-1 text-subtitle font-semibold leading-snug">{q}</p>
 
             <div className="mt-3 flex flex-col gap-3">
@@ -131,13 +142,13 @@ function Interview({
                 placeholder="Describe your expert knowledge on this topic…"
                 rows={3}
                 aria-label={q}
-                className="w-full resize-none rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-body leading-relaxed outline-none focus-visible:border-accent"
+                className="min-h-28 w-full resize-y rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-body leading-relaxed outline-none focus-visible:border-accent"
               />
               {!voiceAnswers[i] ? (
                 <button
                   type="button"
                   onClick={() => setVoiceAnswers((v) => ({ ...v, [i]: true }))}
-                  className="inline-flex items-center gap-1.5 text-caption font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+                  className="inline-flex min-h-11 items-center gap-1.5 text-caption font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent sm:min-h-9"
                 >
                   <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                     <path d="M12 1a4 4 0 0 0-4 4v7a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4z" />
@@ -201,6 +212,8 @@ export default function OffboardingSessionPage() {
       : (items.find((s) => s.status === "questions_ready") ?? items[0])?.id ?? "";
   const active = items.find((s) => s.id === activeId);
   const activeQuestions = active ? (questionsByItem[active.id] ?? []) : [];
+  const completedSessions = items.filter((item) => item.status === "completed").length;
+  const programmePct = items.length > 0 ? Math.round((completedSessions / items.length) * 100) : 0;
 
   if (!loaded) {
     return (
@@ -229,7 +242,7 @@ export default function OffboardingSessionPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8">
+    <div data-testid="offboarding-session-workspace" className="mx-auto max-w-[1200px]">
       <div className="mb-4 flex items-center gap-2 text-body text-muted">
         <Link href="/offboarding" className="hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">Offboarding</Link>
         <span aria-hidden="true">›</span>
@@ -237,16 +250,29 @@ export default function OffboardingSessionPage() {
         {source === "demo" && <DemoChip />}
       </div>
 
-      <div className="grid gap-6 md:grid-cols-[220px_1fr]">
-        <div className="rounded-xl border border-line bg-surface p-4">
-          <p className="mb-1 text-label font-bold uppercase tracking-[0.1em] text-muted">Sessions</p>
-          <p className="mb-3 text-label text-muted">
-            Retires {new Date(programme.retirement_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-          </p>
-          <SessionList items={items} activeId={activeId} onSelect={setSelectedId} />
+      <section data-testid="offboarding-profile-header" className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+        <div className="flex flex-wrap items-center gap-4 p-4 sm:p-5">
+          <span className="tabular grid size-12 shrink-0 place-items-center rounded-full bg-accent-soft text-body font-bold text-accent">{emailInitials(programme.personnel_email)}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-label font-semibold uppercase tracking-[0.1em] text-accent">Expert handover</p>
+            <h1 className="truncate text-subtitle font-semibold text-ink">{programme.personnel_email}</h1>
+            <p className="mt-0.5 text-label text-muted">Retires {new Date(programme.retirement_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</p>
+          </div>
+          <div className="min-w-40">
+            <p className="tabular text-caption font-semibold text-ink">{completedSessions} of {items.length} sessions</p>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${programmePct}%` }} /></div>
+            <p className="tabular mt-1 text-right text-label text-muted">{programmePct}% captured</p>
+          </div>
         </div>
+      </section>
 
-        <div>
+      <div className="mt-5 grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)] lg:items-start">
+        <aside data-testid="offboarding-session-navigation" className="rounded-xl border border-line bg-surface p-3 shadow-sm lg:sticky lg:top-20">
+          <p className="mb-2 px-2 text-label font-bold uppercase tracking-[0.1em] text-muted">Knowledge sessions</p>
+          <SessionList items={items} activeId={activeId} onSelect={setSelectedId} />
+        </aside>
+
+        <div className="min-w-0">
           {!active ? (
             <p className="text-sm text-muted">No sessions in this programme yet.</p>
           ) : active.status === "questions_ready" && activeQuestions.length > 0 ? (
@@ -279,4 +305,9 @@ export default function OffboardingSessionPage() {
       </div>
     </div>
   );
+}
+
+function emailInitials(email: string) {
+  const parts = email.split("@")[0].split(/[^a-z0-9]+/i).filter(Boolean);
+  return (parts.length > 1 ? parts.map((part) => part[0]).join("") : parts[0]?.slice(0, 2) || "?").slice(0, 2).toUpperCase();
 }

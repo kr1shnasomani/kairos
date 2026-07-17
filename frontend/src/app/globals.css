@@ -113,8 +113,21 @@
 @keyframes panel-in {
   from { opacity: 0; transform: translateY(6px) scale(0.98); }
 }
-@keyframes drawer-in {
-  from { transform: translateX(-100%); }
+/* Route-level page entrance — replayed by (app)/template.tsx remounting per navigation. */
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+/* Mobile "More" bottom sheet entrance. */
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+}
+/* Staggered list-item entrance — pair with lib/motion staggerDelay(). */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+/* Meter/confidence bar fill-in — set transform-origin: left on the element. */
+@keyframes bar-grow {
+  from { transform: scaleX(0); }
 }
 
 * {
@@ -217,4 +230,95 @@ h1, h2, h3, .font-display {
   --caution: #ffb020;
   --verified: #48d880;
   --info: #60a0ff;
+}
+
+/* ── Sidebar palette — permanently dark in every theme ─────────────────────
+   The rail is the app's frame (template signature). .sidebar-scope remaps the
+   generic tokens locally, so every utility inside (text-muted, bg-surface-2,
+   border-line, bg-accent-soft…) recolors with zero markup changes. */
+:root {
+  --sidebar: #1c1916;        /* warm near-black rail */
+  --sidebar-hover: #282320;
+  --sidebar-line: #2e2822;
+  --sidebar-fg: #ede9e2;
+  --sidebar-muted: #a09789;
+  --sidebar-accent: #f15a2b; /* dark-legible Kairos Orange */
+  --sidebar-active: #3a241a; /* accent wash on dark */
+}
+:root[data-theme="dark"] {
+  --sidebar: #1a1613;        /* one step off the canvas so the rail still reads */
+}
+[data-contrast="high"] {
+  --sidebar: #0c0a08;
+  --sidebar-hover: #161210;
+  --sidebar-line: #504840;
+  --sidebar-fg: #ffffff;
+  --sidebar-muted: #c8c0b0;
+  --sidebar-accent: #ff6030;
+  --sidebar-active: #3c1a0a;
+}
+.sidebar-scope {
+  --surface: var(--sidebar);
+  --surface-2: var(--sidebar-hover);
+  --line: var(--sidebar-line);
+  --ink: var(--sidebar-fg);
+  --muted: var(--sidebar-muted);
+  --accent: var(--sidebar-accent);
+  --accent-soft: var(--sidebar-active);
+  background: var(--sidebar);
+  color: var(--sidebar-fg);
+}
+
+/* Fluid sibling cards: fill each row, but stack when two readable tiles no longer fit. */
+.fluid-tile-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  align-items: stretch;
+  gap: 1.5rem;
+}
+.fluid-tile-pair > * {
+  min-width: 0;
+  height: 100%;
+}
+
+/* Landing motion mirrors the template's restrained entrance rhythm. */
+@keyframes landing-reveal {
+  from { opacity: 0; transform: translateY(0.75rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes landing-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-0.375rem); }
+}
+@keyframes landing-progress {
+  from { transform: scaleX(0); transform-origin: left; }
+  to { transform: scaleX(1); transform-origin: left; }
+}
+@keyframes landing-glow {
+  0%, 100% { opacity: 0.32; transform: scale(1); }
+  50% { opacity: 0.52; transform: scale(1.06); }
+}
+.landing-reveal > *, .landing-reveal-1, .landing-reveal-2, .landing-reveal-3, .landing-reveal-4 {
+  animation: landing-reveal 0.5s ease-out both;
+}
+.landing-reveal-1 { animation-delay: 0.04s; }
+.landing-reveal-2 { animation-delay: 0.1s; }
+.landing-reveal-3 { animation-delay: 0.16s; }
+.landing-reveal-4 { animation-delay: 0.22s; }
+.landing-float { animation: landing-float 6s ease-in-out infinite; }
+.landing-progress { animation: landing-progress 0.8s 0.35s ease-out both; }
+.landing-glow { animation: landing-glow 8s ease-in-out infinite; }
+.landing-card { animation: landing-reveal 0.45s ease-out both; }
+.landing-card:nth-child(2) { animation-delay: 0.08s; }
+.landing-card:nth-child(3) { animation-delay: 0.16s; }
+
+@keyframes app-route-enter {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.app-route { animation: app-route-enter 0.2s ease-out both; }
+
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
 }

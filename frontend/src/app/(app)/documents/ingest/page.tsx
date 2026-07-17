@@ -88,7 +88,7 @@ export default function IngestPage() {
     : [];
 
   return (
-    <div className="mx-auto max-w-2xl px-5 py-8 sm:px-8 sm:py-10">
+    <div data-testid="ingest-workspace" className="mx-auto max-w-[1200px]">
       <Link href="/documents" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -106,65 +106,82 @@ export default function IngestPage() {
       )}
 
       {canIngest && !result && (
-        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            className="flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-line bg-surface py-10 text-center transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))]"
-          >
-            <svg className="size-7 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
-            </svg>
-            <span className="text-body font-semibold text-ink">{file ? file.name : "Choose a file or drag it here"}</span>
-            <span className="text-label text-muted">{file ? `${(file.size / 1024).toFixed(0)} KB` : "PDF, image, or scanned form"}</span>
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            className="hidden"
-            aria-label="Document file"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          />
+        <form data-testid="ingest-intake" onSubmit={handleSubmit} className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(260px,0.65fr)] lg:items-start">
+          <div className="rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+            <div className="mb-4">
+              <p className="text-label font-semibold uppercase tracking-[0.1em] text-accent">Source file</p>
+              <h2 className="mt-1 text-subtitle font-semibold text-ink">Add evidence to the vault</h2>
+            </div>
+            <button
+              data-testid="ingest-file-drop"
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="flex min-h-40 w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-surface-2 px-5 py-8 text-center transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              <span className="grid size-11 place-items-center rounded-xl bg-surface text-muted shadow-sm" aria-hidden="true">
+                <svg className="size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+                </svg>
+              </span>
+              <span className="text-body font-semibold text-ink">{file ? file.name : "Choose a source file"}</span>
+              <span className="text-label text-muted">{file ? `${(file.size / 1024).toFixed(0)} KB selected` : "PDF, image, scanned form, or P&ID"}</span>
+            </button>
+            <input ref={fileRef} type="file" className="hidden" aria-label="Document file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-caption">
-              <span className="font-semibold text-ink">Document type</span>
-              <select value={docType} onChange={(e) => setDocType(e.target.value)}
-                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-body">
-                {DOC_TYPES.map((t) => <option key={t} value={t}>{triggerLabel(t)}</option>)}
-              </select>
-            </label>
-            <label className="block text-caption">
-              <span className="font-semibold text-ink">Authority level</span>
-              <select value={authority} onChange={(e) => setAuthority(e.target.value)}
-                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-body">
-                {[1, 2, 3, 4, 5].map((l) => <option key={l} value={l}>L{l}</option>)}
-              </select>
-            </label>
-            <label className="block text-caption">
-              <span className="font-semibold text-ink">Asset link <span className="font-normal text-muted">(optional)</span></span>
-              <input value={assetId} onChange={(e) => setAssetId(e.target.value)} placeholder="P-101"
-                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-body" />
-            </label>
-            <label className="block text-caption">
-              <span className="font-semibold text-ink">Source system</span>
-              <input value={sourceSystem} onChange={(e) => setSourceSystem(e.target.value)}
-                className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-body" />
-            </label>
+            <div data-testid="ingest-metadata" className="mt-5 border-t border-line pt-5">
+              <p className="mb-3 text-label font-semibold uppercase tracking-[0.1em] text-muted">Evidence metadata</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-caption">
+                  <span className="font-semibold text-ink">Document type</span>
+                  <select value={docType} onChange={(e) => setDocType(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-line bg-surface px-2.5 text-body sm:min-h-9">
+                    {DOC_TYPES.map((t) => <option key={t} value={t}>{triggerLabel(t)}</option>)}
+                  </select>
+                </label>
+                <label className="block text-caption">
+                  <span className="font-semibold text-ink">Authority level</span>
+                  <select value={authority} onChange={(e) => setAuthority(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-line bg-surface px-2.5 text-body sm:min-h-9">
+                    {[1, 2, 3, 4, 5].map((l) => <option key={l} value={l}>L{l}</option>)}
+                  </select>
+                </label>
+                <label className="block text-caption">
+                  <span className="font-semibold text-ink">Asset link <span className="font-normal text-muted">(optional)</span></span>
+                  <input value={assetId} onChange={(e) => setAssetId(e.target.value)} placeholder="P-101" className="mt-1 min-h-11 w-full rounded-lg border border-line bg-surface px-2.5 text-body sm:min-h-9" />
+                </label>
+                <label className="block text-caption">
+                  <span className="font-semibold text-ink">Source system</span>
+                  <input value={sourceSystem} onChange={(e) => setSourceSystem(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-line bg-surface px-2.5 text-body sm:min-h-9" />
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+              <Button type="submit" variant="primary" disabled={!file || busy}>{busy ? "Uploading…" : "Ingest document"}</Button>
+              {error && <span className="text-body text-danger">{error}</span>}
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <Button type="submit" variant="primary" disabled={!file || busy}>
-              {busy ? "Uploading…" : "Ingest document"}
-            </Button>
-            {error && <span className="text-body text-danger">{error}</span>}
-          </div>
+          <aside data-testid="ingest-guide" className="rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+            <p className="text-label font-semibold uppercase tracking-[0.1em] text-accent">What happens next</p>
+            <ol className="mt-3 divide-y divide-line">
+              {[
+                ["Vault storage", "Hash, deduplicate, and retain the source byte-for-byte."],
+                ["Extraction", "Read text and identify equipment, events, and technical entities."],
+                ["Knowledge linking", "Connect verified evidence to the graph and search indexes."],
+              ].map(([title, detail], index) => (
+                <li key={title} className="flex gap-3 py-3 first:pt-1 last:pb-0">
+                  <span className="tabular grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-label font-semibold text-ink">{index + 1}</span>
+                  <span><span className="block text-caption font-semibold text-ink">{title}</span><span className="mt-0.5 block text-label text-muted">{detail}</span></span>
+                </li>
+              ))}
+            </ol>
+          </aside>
         </form>
       )}
 
       {result && (
-        <section className="mt-5 space-y-4">
-          <div className="rounded-xl border border-line bg-surface p-5">
+        <section className="mt-6">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)] lg:items-start">
+          <div className="rounded-xl border border-line bg-surface p-5 shadow-sm">
             <div className="flex flex-wrap items-center gap-3">
               {result.status === "duplicate"
                 ? <StatusBadge tone="caution">Already ingested</StatusBadge>
@@ -182,7 +199,7 @@ export default function IngestPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-line bg-surface p-5">
+          <div className="rounded-xl border border-line bg-surface p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Pipeline status</p>
               {status?.stage === "review_required" && <StatusBadge tone="caution">Review required</StatusBadge>}
@@ -199,8 +216,9 @@ export default function IngestPage() {
               </Link>
             )}
           </div>
+          </div>
 
-          <Button variant="ghost" onClick={() => { setResult(null); setStatus(null); setFile(null); }}>
+          <Button className="mt-4" variant="ghost" onClick={() => { setResult(null); setStatus(null); setFile(null); }}>
             Ingest another
           </Button>
         </section>

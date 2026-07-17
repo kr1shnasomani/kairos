@@ -1,21 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { VaultDocument, AssetSummary, OperationalEvent } from "@/lib/types";
 import { getDocuments, getAssets, getEvents } from "@/lib/api";
-import { AuthorityBadge, FilterTabs, KpiCard, StatusBadge, EmptyState, DemoChip, PageHeader } from "@/components/ui";
-import { triggerLabel, relativeTime } from "@/lib/utils";
+import { EmptyState, DemoChip, PageHeader } from "@/components/ui";
+import { triggerLabel } from "@/lib/utils";
+import { ClassSection, FAILURE_TYPES, type ClassGroup } from "./_components/class-section";
 
 const UNCLASSIFIED = "Unclassified";
-const FAILURE_TYPES = new Set(["work_order_created", "recurring_failure_detected", "alarm_acknowledged", "equipment_tag_out"]);
-
-interface ClassGroup {
-  equipment_class: string;
-  assets: AssetSummary[];
-  documents: VaultDocument[];
-  events: OperationalEvent[];
-}
 
 export default function ProjectsPage() {
   const [documents, setDocuments] = useState<VaultDocument[]>([]);
@@ -61,98 +53,62 @@ export default function ProjectsPage() {
 
   const classNames = groups.map((g) => g.equipment_class);
   const visible = active === "all" ? groups : groups.filter((g) => g.equipment_class === active);
+  const maintenanceSignals = events.filter((event) => FAILURE_TYPES.has(event.event_type)).length;
+  const revisionCount = documents.filter((document) => document.version_chain).length;
 
   return (
-    <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
-      <PageHeader eyebrow="Project &amp; procurement" title="Engineering registry" lede="Documents, revisions, and failure/maintenance history organised by equipment class — the record a procurement officer needs when evaluating a replacement or a vendor." />
+    <div data-testid="projects-workspace" className="mx-auto max-w-[1400px]">
+      <PageHeader eyebrow="Project &amp; procurement" title="Engineering portfolio" lede="Documents, revisions, and failure/maintenance history organised by equipment class — the record a procurement officer needs when evaluating a replacement or a vendor." />
 
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
-        <span className="tabular font-medium text-ink">{classNames.length} equipment classes · {documents.length} documents</span>
-        {isDemo && <DemoChip />}
+      <div data-testid="projects-portfolio-pulse" className="mt-6 grid overflow-hidden rounded-xl border border-line bg-surface shadow-sm sm:grid-cols-2 lg:grid-cols-[minmax(0,1.25fr)_repeat(3,minmax(130px,0.55fr))]">
+        <div className="relative bg-[linear-gradient(120deg,color-mix(in_srgb,var(--info)_7%,var(--surface)),var(--surface))] px-5 py-5 sm:col-span-2 lg:col-span-1">
+          <span aria-hidden="true" className="absolute bottom-3 left-2 top-3 w-[3px] rounded-full bg-info" />
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Portfolio coverage</p>
+            {isDemo && <DemoChip />}
+          </div>
+          <p className="tabular mt-1 text-title font-semibold text-ink">{classNames.length} equipment classes</p>
+          <p className="mt-1 text-label text-muted">{revisionCount} retained revisions across the procurement record</p>
+        </div>
+        <PortfolioMetric value={assets.length} label="assets" className="sm:border-r lg:border-l" />
+        <PortfolioMetric value={documents.length} label="documents" />
+        <PortfolioMetric value={maintenanceSignals} label="maintenance signals" tone={maintenanceSignals > 0 ? "caution" : undefined} className="sm:col-span-2 lg:col-span-1 lg:border-l" />
       </div>
 
-      {classNames.length > 0 && (
-        <div className="mt-5">
-          <FilterTabs
-            tabs={[{ key: "all", label: "All classes" }, ...classNames.map((c) => ({ key: c, label: triggerLabel(c) }))]}
-            active={active}
-            onChange={setActive}
-          />
-        </div>
-      )}
+      <div data-testid="projects-portfolio" className="mt-6 grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start">
+        {classNames.length > 0 && (
+          <aside data-testid="projects-class-navigation" className="rounded-xl border border-line bg-surface p-2 shadow-sm lg:sticky lg:top-20">
+            <p className="px-2 pb-2 pt-1 text-label font-semibold uppercase tracking-[0.1em] text-muted">Equipment classes</p>
+            <div className="flex flex-wrap gap-1 lg:flex-col" role="group" aria-label="Equipment classes">
+              <ClassButton label="All classes" count={groups.length} active={active === "all"} onClick={() => setActive("all")} />
+              {groups.map((group) => (
+                <ClassButton key={group.equipment_class} label={triggerLabel(group.equipment_class)} count={group.assets.length} active={active === group.equipment_class} onClick={() => setActive(group.equipment_class)} />
+              ))}
+            </div>
+          </aside>
+        )}
 
-      <div className="mt-5 space-y-6">
+        <div className="space-y-4">
         {visible.length === 0 && <EmptyState message="No registry data yet — ingest documents and assets to populate." action={{ label: "Ingest a document", href: "/documents/ingest" }} />}
         {visible.map((g) => <ClassSection key={g.equipment_class} group={g} />)}
+        </div>
       </div>
     </div>
   );
 }
-
-function ClassSection({ group }: { group: ClassGroup }) {
-  const failures = group.events.filter((e) => FAILURE_TYPES.has(e.event_type));
-  const byType = new Map<string, VaultDocument[]>();
-  for (const d of group.documents) {
-    const list = byType.get(d.document_type) ?? [];
-    list.push(d);
-    byType.set(d.document_type, list);
-  }
-
+function PortfolioMetric({ value, label, tone, className = "" }: { value: number; label: string; tone?: "caution"; className?: string }) {
   return (
-    <section className="rounded-xl border border-line bg-surface p-4">
-      <h2 className="text-subtitle font-semibold">{triggerLabel(group.equipment_class)}</h2>
+    <div className={`border-t border-line px-5 py-4 lg:border-t-0 ${className}`}>
+      <p className={`tabular text-title font-semibold ${tone === "caution" ? "text-caution" : "text-ink"}`}>{value}</p>
+      <p className="mt-1 text-label font-medium uppercase tracking-[0.08em] text-muted">{label}</p>
+    </div>
+  );
+}
 
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <KpiCard label="Assets" value={group.assets.length} />
-        <KpiCard label="Documents" value={group.documents.length} />
-        <KpiCard label="Failure / maint. events" value={failures.length} tone={failures.length > 0 ? "caution" : "neutral"} />
-      </div>
-
-      {/* Document registry grouped by type, with revision chains */}
-      <div className="mt-4 space-y-3">
-        {Array.from(byType.entries()).map(([type, docs]) => (
-          <div key={type}>
-            <p className="mb-1.5 text-label font-bold uppercase tracking-[0.1em] text-muted">{triggerLabel(type)}</p>
-            <ul className="space-y-1">
-              {docs.map((d) => (
-                <li key={d.document_id} className="flex flex-wrap items-center gap-2 text-caption">
-                  <Link href={`/documents/${d.document_id}`} className="tabular font-medium text-accent underline hover:no-underline">
-                    {d.document_id}
-                  </Link>
-                  <span className="min-w-0 flex-1 truncate text-ink">{d.file_name}</span>
-                  <span className="text-label text-muted">{d.source_system}</span>
-                  <AuthorityBadge level={d.authority_level} />
-                  {d.version_chain
-                    ? <StatusBadge tone="info" dot={false}>rev</StatusBadge>
-                    : null}
-                  {d.status === "superseded"
-                    ? <StatusBadge tone="caution" dot={false}>superseded</StatusBadge>
-                    : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-
-      {/* Procurement history — failure / maintenance record for the class */}
-      {failures.length > 0 && (
-        <div className="mt-4 border-t border-line pt-3">
-          <p className="mb-1.5 text-label font-bold uppercase tracking-[0.1em] text-muted">Procurement history</p>
-          <ul className="space-y-1">
-            {failures.slice(0, 8).map((e) => (
-              <li key={e.event_id} className="flex flex-wrap items-center gap-2 text-caption">
-                <span className="tabular text-accent">{e.asset_id}</span>
-                <span className="text-ink">{triggerLabel(e.event_type)}</span>
-                {typeof e.payload?.failure_code === "string" && (
-                  <span className="text-muted">{e.payload.failure_code as string}</span>
-                )}
-                <span className="tabular ml-auto text-label text-muted">{relativeTime(e.occurred_at)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </section>
+function ClassButton({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button type="button" aria-pressed={active} onClick={onClick} className={`flex min-h-11 items-center justify-between gap-3 rounded-lg px-3 text-left text-caption font-semibold transition-colors ${active ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}>
+      <span>{label}</span><span className="tabular text-label text-muted">{count}</span>
+    </button>
   );
 }
