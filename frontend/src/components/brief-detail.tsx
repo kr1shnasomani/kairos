@@ -1,3 +1,4 @@
+// Brief detail — full brief view with provenance, PTW countersignature, ack and feedback flows.
 "use client";
 
 import Link from "next/link";
@@ -5,7 +6,7 @@ import { useState } from "react";
 import type { Brief } from "@/lib/types";
 import { priorityMeta, relativeTime, triggerLabel } from "@/lib/utils";
 import { ackBrief, sendBriefFeedback } from "@/lib/api";
-import { AuthorityBadge, Button, EvidenceLineage, SourceChip, StatusBadge } from "./ui";
+import { AuthorityBadge, Button, EvidenceLineage, PageHeader, SourceChip, StatusBadge } from "./ui";
 
 type FeedbackRating = "accurate" | "missing_context" | "incorrect";
 type AckStep = "idle" | "step1_done" | "complete";
@@ -81,7 +82,7 @@ export function BriefDetail({ brief }: { brief: Brief }) {
   const isComplete = ackStep === "complete";
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
+    <div data-testid="brief-detail-workspace" className="mx-auto max-w-[1400px]">
       <Link href="/briefs" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -89,7 +90,8 @@ export function BriefDetail({ brief }: { brief: Brief }) {
         Briefs
       </Link>
 
-      <header className="mt-4">
+      {/* Badge row stays above the PageHeader; outer div avoids nested <header> elements. */}
+      <div className="mt-4">
         <div className="flex flex-wrap items-center gap-2">
           {isFrozen ? (
             <StatusBadge tone="info">Frozen</StatusBadge>
@@ -102,13 +104,13 @@ export function BriefDetail({ brief }: { brief: Brief }) {
           <span className="text-label text-muted">· {triggerLabel(brief.trigger_event_type)}</span>
           <span className="tabular ml-auto text-label text-muted">{relativeTime(brief.delivered_at)}</span>
         </div>
-        <h1 className="mt-2 text-display font-semibold leading-snug">{brief.headline}</h1>
+        <PageHeader compact className="mt-1" title={brief.headline} />
         {isPtw && (
           <div className="mt-2 flex flex-wrap gap-2">
             <StatusBadge tone="danger">Permit-to-Work — dual countersignature required</StatusBadge>
           </div>
         )}
-      </header>
+      </div>
 
       {/* Frozen state explanation */}
       {isFrozen && (
@@ -130,7 +132,9 @@ export function BriefDetail({ brief }: { brief: Brief }) {
         </div>
       )}
 
-      <p className="mt-5 text-sm leading-relaxed text-ink/90">{brief.body}</p>
+      <div data-testid="brief-detail-layout" className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <main data-testid="brief-content" className="min-w-0">
+      <p className="text-sm leading-relaxed text-ink/90">{brief.body}</p>
 
       {brief.warnings.length > 0 && (
         <div className="mt-5 rounded-xl border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_9%,var(--surface))] p-4">
@@ -164,8 +168,12 @@ export function BriefDetail({ brief }: { brief: Brief }) {
         </section>
       )}
 
+        </main>
+
+        <aside data-testid="brief-context" className="min-w-0 space-y-5">
+
       {/* Evidence */}
-      <section className="mt-6">
+      <section>
         <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Evidence</h2>
         <div className="mt-3 space-y-2.5">
           {brief.sources.map((s) => (
@@ -193,12 +201,12 @@ export function BriefDetail({ brief }: { brief: Brief }) {
 
       {/* Safety refusal — if all sources are quarantine + no verified evidence */}
       {/* Evidence lineage */}
-      <div className="mt-5">
+      <div>
         <EvidenceLineage sources={brief.sources} />
       </div>
 
       {/* PTW dual sign-off or standard ack */}
-      <section className="mt-7 rounded-xl border border-line bg-surface p-5" aria-label="Acknowledgment">
+      <section data-testid="brief-acknowledgment" className="rounded-xl border border-line bg-surface p-5 shadow-sm lg:sticky lg:top-20" aria-label="Acknowledgment">
         {isComplete ? (
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-body font-semibold text-verified">
@@ -223,7 +231,7 @@ export function BriefDetail({ brief }: { brief: Brief }) {
               value={shiftLeadSig}
               onChange={(e) => setShiftLeadSig(e.target.value)}
               placeholder="Shift Lead: type your name to countersign"
-              className="mt-3 h-9 w-full rounded-lg border border-line bg-surface-2 px-3 text-body outline-none focus-visible:border-accent"
+              className="mt-3 min-h-11 w-full rounded-lg border border-line bg-surface-2 px-3 text-body outline-none focus-visible:border-accent"
               aria-label="Shift Lead signature"
             />
             <div className="mt-3 flex items-center gap-2">
@@ -246,7 +254,7 @@ export function BriefDetail({ brief }: { brief: Brief }) {
               value={engineerSig}
               onChange={(e) => setEngineerSig(e.target.value)}
               placeholder={isPtw ? "Issuing engineer: type your name" : "Type your name to sign"}
-              className="mt-3 h-9 w-full max-w-xs rounded-lg border border-line bg-surface-2 px-3 text-body outline-none focus-visible:border-accent"
+              className="mt-3 min-h-11 w-full rounded-lg border border-line bg-surface-2 px-3 text-body outline-none focus-visible:border-accent"
               aria-label="Engineer signature"
             />
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -266,7 +274,7 @@ export function BriefDetail({ brief }: { brief: Brief }) {
                     key={r}
                     onClick={() => { if (!feedbackSent && !feedbackBusy) void rate(r); }}
                     disabled={feedbackSent || feedbackBusy}
-                    className={`rounded-md border px-2 py-1 text-label font-medium capitalize transition-colors disabled:cursor-default ${
+                    className={`min-h-11 rounded-md border px-2 py-1 text-label font-medium capitalize transition-colors disabled:cursor-default ${
                       feedback === r
                         ? "border-accent text-accent"
                         : "border-line text-muted hover:text-ink"
@@ -287,6 +295,8 @@ export function BriefDetail({ brief }: { brief: Brief }) {
           </div>
         )}
       </section>
+        </aside>
+      </div>
     </div>
   );
 }

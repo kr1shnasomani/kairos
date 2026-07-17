@@ -1,7 +1,8 @@
+// Asset detail — identity, stats, aliases, and knowledge graph for one canonical asset.
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAssetDetail } from "@/lib/api";
-import { AuthorityBadge, SourceChip, StatusBadge, DemoChip } from "@/components/ui";
+import { AuthorityBadge, SourceChip, StatusBadge, DemoChip, PageHeader } from "@/components/ui";
 // React Flow must not SSR — imported from the client-only lazy module.
 import { KnowledgeGraph } from "@/components/lazy";
 
@@ -19,7 +20,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
   ];
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
+    <div data-testid="asset-detail-workspace" className="mx-auto max-w-[1400px]">
       <Link href="/assets" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -27,73 +28,108 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
         Assets
       </Link>
 
-      <header className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h1 className="tabular text-display font-semibold text-accent">{a.asset_id}</h1>
-        <span className="text-subtitle">{a.name}</span>
-        <span className="inline-flex items-center gap-1.5 text-label font-semibold" style={{ color: a.criticalityColor }}>
-          <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-          {a.criticalityLabel}
-        </span>
-        {source === "demo" && <DemoChip />}
-      </header>
-      <p className="mt-1.5 text-body text-muted">
-        {a.equipment_class}{a.parent && <> · {a.parent}</>}
-      </p>
-
-      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {stats.map((s) => (
-          <div key={s.label} className="rounded-xl border border-line bg-surface p-3.5">
-            <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">{s.label}</p>
-            <p className="tabular mt-1.5 text-title font-semibold leading-none">{s.value}</p>
-          </div>
-        ))}
+      <div data-testid="asset-summary" className="mt-4 overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+        <PageHeader
+          compact
+          className="px-4 py-5 sm:px-5"
+          eyebrow={a.asset_id}
+          title={a.name}
+          lede={<>{a.equipment_class.replaceAll("_", " ")}{a.parent && <> · Parent {a.parent}</>}</>}
+          actions={
+            <>
+              <span className="inline-flex h-[22px] items-center gap-1.5 rounded-full bg-surface-2 px-2 text-label font-semibold" style={{ color: a.criticalityColor }}>
+                <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                {a.criticalityLabel}
+              </span>
+              {source === "demo" && <DemoChip />}
+            </>
+          }
+        />
+        <div className="divide-y divide-line border-t border-line sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          {stats.map((s) => (
+            <div key={s.label} className="px-4 py-3.5 sm:px-5">
+              <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">{s.label}</p>
+              <p className="tabular mt-1.5 text-title font-semibold leading-none text-ink">{s.value}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {a.aliases.length > 0 && (
-        <section className="mt-6">
-          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Tag aliases</h2>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            {a.aliases.map((al) => (
-              <span key={al} className="rounded-md border border-line bg-surface-2 px-2 py-1 text-caption text-muted">{al}</span>
-            ))}
+      <div data-testid="asset-detail-columns" className="fluid-tile-pair mt-6">
+        <section className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+          <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">Knowledge</h2>
+              <p className="mt-0.5 text-caption text-muted">Verified operational facts linked to this asset.</p>
+            </div>
+            <span className="tabular text-label font-semibold text-muted">{a.knowledge.length} facts</span>
           </div>
-        </section>
-      )}
-
-      <section className="mt-6">
-        <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Knowledge</h2>
-        <div className="mt-3 space-y-2.5">
+          <div className="divide-y divide-line">
           {a.knowledge.length === 0 && (
-            <p className="rounded-xl border border-line bg-surface px-4 py-6 text-center text-body text-muted">
+            <p className="px-4 py-10 text-center text-body text-muted sm:px-5">
               No knowledge edges recorded for this asset yet.
             </p>
           )}
           {a.knowledge.map((k, i) => (
-            <article key={`${k.source_doc}-${i}`} className="rounded-xl border border-line bg-surface p-4">
-              <p className="text-body leading-relaxed text-ink">{k.claim}</p>
-              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <article key={`${k.source_doc}-${i}`} className="px-4 py-4 transition-colors hover:bg-surface-2 sm:px-5">
+              <p className="max-w-3xl text-body leading-relaxed text-ink">{k.claim}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <AuthorityBadge level={k.authority_level} />
                 <StatusBadge tone={VERIF_TONE[k.verification]}>{k.verification}</StatusBadge>
                 <SourceChip quarantine={k.verification !== "verified"}>{k.source_doc}</SourceChip>
               </div>
             </article>
           ))}
-        </div>
-      </section>
+          </div>
+        </section>
 
-      <section className="mt-8">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
-            Knowledge graph
-          </h2>
+        <aside className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+          <div className="border-b border-line px-4 py-4 sm:px-5">
+            <h2 className="text-sm font-semibold text-ink">Asset identity</h2>
+            <p className="mt-0.5 text-caption text-muted">Canonical master-data record.</p>
+          </div>
+          <dl className="divide-y divide-line px-4 sm:px-5">
+            <div className="py-3.5">
+              <dt className="text-label text-muted">Asset ID</dt>
+              <dd className="tabular mt-1 text-caption font-semibold text-accent">{a.asset_id}</dd>
+            </div>
+            <div className="py-3.5">
+              <dt className="text-label text-muted">Equipment class</dt>
+              <dd className="mt-1 text-caption font-medium capitalize text-ink">{a.equipment_class.replaceAll("_", " ")}</dd>
+            </div>
+            <div className="py-3.5">
+              <dt className="text-label text-muted">Parent asset</dt>
+              <dd className="tabular mt-1 text-caption font-medium text-ink">{a.parent ?? "—"}</dd>
+            </div>
+            <div className="py-3.5">
+              <dt className="text-label text-muted">Tag aliases</dt>
+              <dd className="mt-2 flex flex-wrap gap-2">
+                {a.aliases.length === 0 && <span className="text-caption text-muted">No aliases recorded</span>}
+                {a.aliases.map((al) => (
+                  <span key={al} className="tabular rounded-md border border-line bg-surface-2 px-2 py-1 text-caption text-muted">{al}</span>
+                ))}
+              </dd>
+            </div>
+          </dl>
+        </aside>
+      </div>
+
+      <section className="mt-6 overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Knowledge graph</h2>
+            <p className="mt-0.5 text-caption text-muted">Relationships connected to this asset.</p>
+          </div>
           <Link
             href={`/graph?asset=${a.asset_id}`}
-            className="text-caption text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+            className="shrink-0 text-caption font-semibold text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent"
           >
             Open full graph →
           </Link>
         </div>
-        <KnowledgeGraph assetId={a.asset_id} height={340} />
+        <div className="p-3 sm:p-4">
+          <KnowledgeGraph assetId={a.asset_id} height={340} />
+        </div>
       </section>
     </div>
   );

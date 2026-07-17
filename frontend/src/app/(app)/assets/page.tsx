@@ -1,56 +1,53 @@
+// Assets list — the canonical asset registry every piece of knowledge attaches to.
 import Link from "next/link";
 import { getAssets } from "@/lib/api";
-import { DemoChip, EmptyState } from "@/components/ui";
-import { criticalityMeta } from "@/lib/utils";
+import { DemoChip, EmptyState, PageHeader } from "@/components/ui";
+import { StatPills, type StatPillDef } from "@/components/stat-pills";
+import { AssetRegistry } from "./asset-registry";
 
 export const metadata = { title: "Assets — Kairos" };
 
 export default async function AssetsPage() {
   const { data, source } = await getAssets();
+  const items = data.items ?? [];
+
+  // Spec §3: pills by equipment class — total plus the top classes by count.
+  const byClass = new Map<string, number>();
+  for (const a of items) byClass.set(a.equipment_class, (byClass.get(a.equipment_class) ?? 0) + 1);
+  const classPills: StatPillDef[] = [...byClass.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([label, value]) => ({ key: label, label, value }));
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Asset-centric truth</p>
-          <h1 className="mt-1 text-display font-semibold leading-tight">Assets</h1>
-          <p className="mt-1.5 text-body text-muted">Every piece of knowledge orbits a canonical asset.</p>
-        </div>
-        <Link
-          href="/assets/bootstrap"
-          className="inline-flex h-9 items-center rounded-lg border border-line px-3.5 text-body font-semibold text-ink transition-colors hover:bg-surface-2"
-        >
-          Identity confirmation
-        </Link>
-      </header>
+    <div data-testid="assets-workspace" className="mx-auto max-w-[1400px]">
+      <PageHeader
+        eyebrow="Asset-centric truth"
+        title="Assets"
+        lede="Every piece of knowledge orbits a canonical asset."
+        actions={
+          <>
+            {source === "demo" && <DemoChip detail="backend offline" />}
+            <Link
+              href="/assets/bootstrap"
+              className="inline-flex h-9 items-center rounded-lg border border-line px-3.5 text-body font-semibold text-ink transition-colors hover:bg-surface-2"
+            >
+              Identity confirmation
+            </Link>
+          </>
+        }
+      />
 
-      <div className="mt-3 flex items-center gap-3 text-caption text-muted">
-        <span className="tabular font-medium text-ink">{data.total} registered</span>
-        {source === "demo" && <DemoChip detail="backend offline" />}
-      </div>
+      <section data-testid="assets-summary" className="mt-5">
+        <StatPills pills={[{ key: "total", label: "Registered", value: data.total ?? items.length }, ...classPills]} />
+      </section>
 
-      {data.items.length === 0 ? (
+      {items.length === 0 ? (
         <div className="mt-4">
-          <EmptyState message="No assets registered yet." action={{ label: "Bootstrap assets", href: "/assets/bootstrap" }} />
+          <EmptyState message="No assets bootstrapped" action={{ label: "Bootstrap assets", href: "/assets/bootstrap" }} />
         </div>
       ) : (
-        <div className="mt-4 overflow-hidden rounded-xl border border-line">
-          {data.items.map((a, i) => {
-            const c = criticalityMeta(a.criticality);
-            return (
-              <Link key={a.asset_id} href={`/assets/${a.asset_id}`}
-                className={`flex flex-wrap items-center gap-x-3 gap-y-1 bg-surface px-4 py-3.5 transition-colors hover:bg-surface-2 ${i > 0 ? "border-t border-line" : ""}`}>
-                <span className="inline-flex shrink-0 items-center gap-2">
-                  <span className="size-1.5 rounded-full" style={{ background: c.color }} aria-hidden="true" />
-                  <span className="tabular text-body font-semibold text-accent">{a.asset_id}</span>
-                </span>
-                <span className="min-w-0 flex-1 truncate text-body">{a.name}</span>
-                <span className="shrink-0 text-caption text-muted">{a.equipment_class}</span>
-                <span className="tabular ml-auto shrink-0 text-label" style={{ color: c.color }}>{c.label}</span>
-              </Link>
-            );
-          })}
-        </div>
+        <AssetRegistry assets={items} />
       )}
     </div>
   );

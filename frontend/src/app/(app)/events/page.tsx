@@ -1,148 +1,199 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { OperationalEvent, EventPriority } from "@/lib/types";
-import {
-  getEvents, postTagOut, postInspectionComplete, postAlarm, postShiftHandover,
-} from "@/lib/api";
-import { useRole, RESOLVE_ROLES } from "@/components/use-role";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
+import type { EventPriority, OperationalEvent } from "@/lib/types";
+import { getEvents } from "@/lib/api";
+import { useFetch } from "@/lib/use-fetch";
 import { getMe } from "@/lib/auth";
-import { Button, FilterTabs, StatusBadge, EmptyState, DemoChip, PageHeader } from "@/components/ui";
+import { useRole, RESOLVE_ROLES } from "@/components/use-role";
+import { Button, DataTable, DemoChip, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import { AXIS, ChartContainer, GRID, TONE_VAR, TOOLTIP } from "@/components/charts";
+import { useReducedMotion } from "@/lib/motion";
 import { relativeTime, triggerLabel } from "@/lib/utils";
+import { EmitPanel } from "./_components/emit-panel";
 
-const PRIORITY_TONE: Record<EventPriority, "danger" | "caution" | "info" | "neutral"> = {
-  critical: "danger", high: "caution", normal: "info", low: "neutral",
-};
+/** OperationalEvent re-mapped so it satisfies DataTable's Record constraint. */
+type EventRow = Pick<OperationalEvent, keyof OperationalEvent>;
 
-const EMIT_TYPES = [
-  { key: "tag-out", label: "Tag-out" },
-  { key: "inspection-complete", label: "Inspection" },
-  { key: "alarm", label: "Alarm" },
-  { key: "shift-handover", label: "Shift handover" },
-] as const;
+const PRIORITIES: EventPriority[] = ["critical", "high", "normal", "low"];
+const PRIORITY_TONE = { critical: "danger", high: "caution", normal: "info", low: "neutral" } as const;
+const PRIORITY_RANK = { critical: 0, high: 1, normal: 2, low: 3 } as const;
+// Spec §7 tones: danger / caution / info / muted (TONE_VAR.neutral = var(--muted)).
+const CHART_TONE = { critical: TONE_VAR.danger, high: TONE_VAR.caution, normal: TONE_VAR.info, low: TONE_VAR.neutral } as const;
+
+// ponytail: first known payload string wins; extend the key list if new event
+// types grow their own summary field.
+const SUMMARY_KEYS = ["alarm_description", "findings", "tag_out_reason", "description", "summary"] as const;
+function describeEvent(e: EventRow): string {
+  for (const key of SUMMARY_KEYS) {
+    const v = e.payload?.[key];
+    if (typeof v === "string" && v) return v;
+  }
+  return triggerLabel(e.event_type);
+}
+
+const COLUMNS: TableColumn<EventRow>[] = [
+  {
+    key: "occurred_at", label: "Occurred", sortValue: (r) => Date.parse(r.occurred_at),
+    render: (r) => <span className="tabular whitespace-nowrap text-caption text-muted" title={r.occurred_at}>{relativeTime(r.occurred_at)}</span>,
+  },
+  {
+    key: "priority", label: "Priority", sortValue: (r) => PRIORITY_RANK[r.priority],
+    render: (r) => <StatusBadge tone={PRIORITY_TONE[r.priority]}>{r.priority}</StatusBadge>,
+  },
+  {
+    key: "event_type", label: "Type", sortValue: (r) => triggerLabel(r.event_type),
+    render: (r) => <span className="whitespace-nowrap font-semibold text-ink">{triggerLabel(r.event_type)}</span>,
+  },
+  {
+    key: "asset_id", label: "Asset",
+    render: (r) => <span className="tabular text-caption font-medium text-accent">{r.asset_id ?? "—"}</span>,
+  },
+  {
+    key: "description", label: "Description", className: "w-full max-w-[320px]",
+    render: (r) => <span className="block truncate text-muted" title={describeEvent(r)}>{describeEvent(r)}</span>,
+  },
+  {
+    key: "acknowledged", label: "Status",
+    render: (r) => <StatusBadge tone={r.acknowledged ? "verified" : "neutral"}>{r.acknowledged ? "acknowledged" : "pending"}</StatusBadge>,
+  },
+];
 
 export default function EventsPage() {
+  const router = useRouter();
   const role = useRole();
-  const [events, setEvents] = useState<OperationalEvent[]>([]);
-  const [isDemo, setIsDemo] = useState(false);
-  const [filter, setFilter] = useState("all");
-  const [siteId, setSiteId] = useState("SITE_001");
   const canEmit = RESOLVE_ROLES.includes(role);
+  const reduced = useReducedMotion();
 
-  useEffect(() => { getMe().then((u) => { if (u) setSiteId(u.site_id); }); }, []);
+  const [reload, setReload] = useState(0);
+  // Spec §5: params unchanged — same { limit: 50 } call shape as before.
+  const state = useFetch(() => getEvents({ limit: 50 }), [reload]);
+  const loading = state.status === "loading";
+  const hasData = state.status === "live" || state.status === "demo";
+  const events = useMemo<OperationalEvent[]>(() => (hasData ? state.data.items ?? [] : []), [state, hasData]);
 
-  const load = useCallback(() => getEvents({ limit: 50 }).then(({ data, source }) => {
-    setEvents(data.items);
-    setIsDemo(source === "demo");
-  }), []);
-  useEffect(() => { load(); }, [load]);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [siteId, setSiteId] = useState("SITE_001");
+  const [userId, setUserId] = useState("dev-user");
+  const [showEmitter, setShowEmitter] = useState(false);
+  useEffect(() => { getMe().then((u) => { if (u) { setSiteId(u.site_id); setUserId(u.user_id); } }); }, []);
 
   const types = useMemo(() => Array.from(new Set(events.map((e) => e.event_type))), [events]);
-  const visible = filter === "all" ? events : events.filter((e) => e.event_type === filter);
+  const priorityCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const e of events) counts[e.priority] = (counts[e.priority] ?? 0) + 1;
+    return counts;
+  }, [events]);
+
+  // Filter (type + priority tabs, free-text search) then default newest-first.
+  const rows = useMemo<EventRow[]>(() => {
+    const query = search.trim().toLowerCase();
+    return events
+      .filter((e) => {
+        if (typeFilter !== "all" && e.event_type !== typeFilter) return false;
+        if (priorityFilter !== "all" && e.priority !== priorityFilter) return false;
+        if (!query) return true;
+        return [e.event_id, e.asset_id ?? "", triggerLabel(e.event_type)].some((v) => v.toLowerCase().includes(query));
+      })
+      .sort((a, b) => Date.parse(b.occurred_at) - Date.parse(a.occurred_at));
+  }, [events, typeFilter, priorityFilter, search]);
+
+  // Events/day × priority over the received window — follows the active filters.
+  const trend = useMemo(() => {
+    const byDay = new Map<string, { critical: number; high: number; normal: number; low: number }>();
+    for (const e of rows) {
+      const day = e.occurred_at.slice(0, 10);
+      const bucket = byDay.get(day) ?? { critical: 0, high: 0, normal: 0, low: 0 };
+      bucket[e.priority] += 1;
+      byDay.set(day, bucket);
+    }
+    return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, counts]) => ({ day, ...counts }));
+  }, [rows]);
+
+  const hasFilters = search !== "" || typeFilter !== "all" || priorityFilter !== "all";
 
   return (
-    <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
-      <PageHeader eyebrow="Layer 8 · Event subscription" title="Operational events" lede="The canonical event sources that drive proactive briefs — work orders, PTWs, tag-outs, inspections, alarms, and shift handovers. Correlated events are linked into compound context." />
+    <div data-testid="events-workspace" className="mx-auto max-w-[1400px]">
+      <PageHeader
+        eyebrow="Layer 8 · Event subscription"
+        title="Operational events"
+        lede="Monitor the event sources that trigger proactive briefs and compound operational context."
+        actions={canEmit && <Button variant="primary" className="h-11 sm:h-9" onClick={() => setShowEmitter((open) => !open)}>{showEmitter ? "Close emitter" : "Emit event"}</Button>}
+      />
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span className="tabular font-medium text-ink">{events.length} event{events.length !== 1 ? "s" : ""}</span>
-        {isDemo && <DemoChip />}
+        {state.status === "demo" && <DemoChip />}
       </div>
 
-      {canEmit && <EmitPanel siteId={siteId} onEmitted={load} />}
+      {canEmit && showEmitter && <EmitPanel siteId={siteId} userId={userId} onEmitted={() => setReload((r) => r + 1)} />}
 
-      {types.length > 0 && (
-        <div className="mt-5">
-          <FilterTabs
-            tabs={[{ key: "all", label: "All" }, ...types.map((t) => ({ key: t, label: triggerLabel(t) }))]}
-            active={filter}
-            onChange={setFilter}
-          />
-        </div>
-      )}
+      <section data-testid="events-filter-toolbar" className="mt-5 flex flex-wrap items-center gap-3">
+        <FilterTabs
+          tabs={[{ key: "all", label: "All priorities" }, ...PRIORITIES.map((p) => ({ key: p, label: p[0].toUpperCase() + p.slice(1), count: priorityCounts[p] }))]}
+          active={priorityFilter}
+          onChange={setPriorityFilter}
+        />
+        <FilterTabs
+          tabs={[{ key: "all", label: "All types" }, ...types.map((t) => ({ key: t, label: triggerLabel(t) }))]}
+          active={typeFilter}
+          onChange={setTypeFilter}
+        />
+        <label className="flex h-9 min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-line bg-surface px-3 focus-within:border-accent sm:max-w-[280px]">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" className="shrink-0 text-muted">
+            <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+          </svg>
+          <input type="search" aria-label="Search events" placeholder="Search event, asset, or ID" value={search} onChange={(e) => setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-body outline-none placeholder:text-muted" />
+        </label>
+      </section>
 
-      <div className="mt-4 overflow-hidden rounded-xl border border-line">
-        {visible.length === 0 && (
-          <div className="p-2">
-            <EmptyState message={canEmit ? "No events yet — emit one above to see the flow end-to-end." : "No operational events recorded."} />
+      <ChartContainer
+        className="mt-4"
+        title="Event volume"
+        sub="Events per day by priority · last 50 events"
+        height={160}
+        loading={loading}
+        empty={trend.length === 0 && "No events in window"}
+        error={state.status === "error"}
+        onRetry={state.status === "error" ? state.retry : undefined}
+      >
+        <LineChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+          <CartesianGrid {...GRID} />
+          <XAxis dataKey="day" {...AXIS} tickFormatter={(d) => String(d).slice(5)} minTickGap={24} />
+          <YAxis {...AXIS} width={32} allowDecimals={false} />
+          <Tooltip {...TOOLTIP} />
+          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--muted)" }} />
+          {PRIORITIES.map((p) => (
+            <Line key={p} type="monotone" dataKey={p} stroke={CHART_TONE[p]} strokeWidth={2} dot={false} isAnimationActive={!reduced} />
+          ))}
+        </LineChart>
+      </ChartContainer>
+
+      <section data-testid="events-table" className="mt-4">
+        <p className="tabular mb-2 text-caption font-medium text-muted">{rows.length} of {events.length} events</p>
+        {state.status === "error" ? (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-line bg-surface px-4 py-10 text-center">
+            <p className="text-body text-muted">Could not load operational events.</p>
+            <Button variant="primary" onClick={state.retry}>Retry</Button>
           </div>
+        ) : (
+          <DataTable<EventRow>
+            key={`${typeFilter}:${priorityFilter}:${search}`}
+            columns={COLUMNS}
+            rows={rows}
+            keyFn={(r) => r.event_id}
+            pageSize={25}
+            loading={loading}
+            onRowClick={(r) => router.push(`/events/${r.event_id}`)}
+            emptyState={<EmptyState message={hasFilters ? "No events match these filters." : canEmit ? "No events yet — emit one to see the flow end-to-end." : "No operational events recorded."} />}
+          />
         )}
-        {visible.map((e, i) => (
-          <Link key={e.event_id} href={`/events/${e.event_id}`}
-            className={`flex flex-wrap items-center gap-x-3 gap-y-1 bg-surface px-4 py-3.5 transition-colors hover:bg-surface-2 ${i > 0 ? "border-t border-line" : ""}`}>
-            <StatusBadge tone={PRIORITY_TONE[e.priority]}>{e.priority}</StatusBadge>
-            <span className="text-body font-medium">{triggerLabel(e.event_type)}</span>
-            {e.event_subtype === "recurring" && <StatusBadge tone="caution" dot={false}>recurring</StatusBadge>}
-            {e.asset_id && <span className="tabular text-caption text-accent">{e.asset_id}</span>}
-            {(e.correlated_event_ids?.length ?? 0) > 0 && (
-              <span className="text-label text-muted">+{e.correlated_event_ids!.length} correlated</span>
-            )}
-            <span className="tabular ml-auto text-label text-muted">{relativeTime(e.occurred_at)}</span>
-            {e.acknowledged && <span className="text-label text-verified">acked</span>}
-          </Link>
-        ))}
-      </div>
+        {hasData && <p className="tabular mt-2 text-label text-muted">{events.length} of {state.data.total} loaded</p>}
+      </section>
     </div>
-  );
-}
-
-function EmitPanel({ siteId, onEmitted }: { siteId: string; onEmitted: () => void }) {
-  const [kind, setKind] = useState<(typeof EMIT_TYPES)[number]["key"]>("tag-out");
-  const [assetId, setAssetId] = useState("P-101");
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  async function emit() {
-    setBusy(true);
-    setMsg(null);
-    try {
-      let res: { status: string; event_id: string };
-      if (kind === "tag-out") res = await postTagOut({ source_system: "manual", site_id: siteId, asset_id: assetId, tag_out_reason: note || "Scheduled isolation", performed_by: "dev-user" });
-      else if (kind === "inspection-complete") res = await postInspectionComplete({ source_system: "manual", site_id: siteId, asset_id: assetId, inspection_type: "visual", result: "failed", findings: note || "Visual finding", performed_by: "dev-user" });
-      else if (kind === "alarm") res = await postAlarm({ source_system: "manual", site_id: siteId, asset_id: assetId, alarm_id: `ALM-${crypto.randomUUID().slice(0, 8)}`, alarm_tag: "PAH-101", alarm_description: note || "High pressure", severity: "high", acknowledged_by: "dev-user" });
-      else res = await postShiftHandover({ source_system: "manual", site_id: siteId, outgoing_shift_lead_id: "shift-A", incoming_shift_lead_id: "shift-B", handover_time: new Date().toISOString() });
-      setMsg(res.status === "deduplicated"
-        ? "Duplicate suppressed — an identical event arrived within the 10-minute window."
-        : "Event emitted — brief assembly triggered.");
-      setNote("");
-      onEmitted();
-    } catch (err) {
-      setMsg(err instanceof Error ? `Failed — ${err.message}` : "Failed — backend unreachable.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const needsAsset = kind !== "shift-handover";
-
-  return (
-    <section className="mt-5 rounded-xl border border-line bg-surface p-4">
-      <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Emit event (demo)</p>
-      <div className="mt-3 flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-caption">
-          <span className="font-semibold text-ink">Type</span>
-          <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}
-            className="h-9 rounded-lg border border-line bg-surface px-2.5 text-body">
-            {EMIT_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-          </select>
-        </label>
-        {needsAsset && (
-          <label className="flex flex-col gap-1 text-caption">
-            <span className="font-semibold text-ink">Asset</span>
-            <input value={assetId} onChange={(e) => setAssetId(e.target.value)}
-              className="h-9 w-28 rounded-lg border border-line bg-surface px-2.5 text-body" />
-          </label>
-        )}
-        <label className="flex min-w-40 flex-1 flex-col gap-1 text-caption">
-          <span className="font-semibold text-ink">Note</span>
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional"
-            className="h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-body" />
-        </label>
-        <Button variant="primary" onClick={emit} disabled={busy}>{busy ? "Emitting…" : "Emit"}</Button>
-      </div>
-      {msg && <p className="mt-2 text-caption text-muted">{msg}</p>}
-    </section>
   );
 }

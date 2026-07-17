@@ -1,222 +1,27 @@
 "use client";
 
-import { memo, useCallback, useEffect, useState } from "react";
+// Interactive P&ID topology canvas for a vault document (React Flow).
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   ReactFlow,
   Background,
   Controls,
-  Handle,
-  Position,
   useNodesState,
   useEdgesState,
   type Node,
   type Edge,
-  type NodeProps,
   type NodeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { getDocumentTopology } from "@/lib/api";
 import type { TopologyGraph, TopologyNode } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import { useCanvasTokens, arrowMarker, type CanvasTokens } from "@/lib/graph-theme";
-import { EmptyState } from "@/components/ui";
-
-// ── Colors ────────────────────────────────────────────────────────────────────
-
-// Canvas: resolved Paper design tokens (lib/graph-theme.tsx) — React Flow cannot
-// resolve CSS custom properties at paint time, so these are concrete color
-// strings re-resolved on theme toggle, not hardcoded hex.
-const NODE_TOKENS: Record<string, keyof CanvasTokens> = {
-  Pump: "--info", Vessel: "--accent", Equipment: "--accent",
-  Valve: "--verified", Instrument: "--caution", Separator: "--accent",
-};
-function nodeColor(type: string, status: TopologyNode["verification_status"], tokens: CanvasTokens): string {
-  if (status === "disputed") return tokens["--danger"];
-  if (status === "unverified") return tokens["--caution"];
-  return tokens[NODE_TOKENS[type] ?? "--muted"];
-}
-
-// DOM vars: outside canvas, must use CSS variables
-const NODE_VARS: Record<string, string> = {
-  Pump: "var(--info)", Vessel: "var(--accent)", Equipment: "var(--accent)",
-  Valve: "var(--verified)", Instrument: "var(--caution)", Separator: "var(--accent)",
-};
-function nodeVar(type: string, status: TopologyNode["verification_status"]): string {
-  if (status === "disputed") return "var(--danger)";
-  if (status === "unverified") return "var(--caution)";
-  return NODE_VARS[type] ?? "var(--muted)";
-}
-
-// ── Custom node ───────────────────────────────────────────────────────────────
-
-const TopoNode = memo(function TopoNode({ data, selected }: NodeProps) {
-  const n = data as unknown as TopologyNode;
-  const tokens = useCanvasTokens();
-  const color = nodeColor(n.node_type, n.verification_status, tokens);
-  const dashed = n.verification_status === "unverified";
-  return (
-    <>
-      <Handle type="target" position={Position.Top} style={{ opacity: 0, pointerEvents: "none" }} />
-      <div
-        style={{ borderColor: color, borderStyle: dashed ? "dashed" : "solid" }}
-        className={cn(
-          "min-w-[90px] max-w-[150px] rounded-xl border-2 px-3 py-2 text-center shadow-sm",
-          n.verification_status === "unverified" && "bg-[color-mix(in_srgb,var(--caution)_8%,var(--surface))]",
-          n.verification_status === "disputed"   && "bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface))]",
-          n.verification_status === "verified"   && "bg-surface",
-          selected && "ring-2 ring-offset-1"
-        )}
-      >
-        <p className="text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color }}>
-          {n.node_type}
-        </p>
-        <p className="mt-0.5 truncate text-label font-semibold leading-snug text-ink">
-          {n.label}
-        </p>
-        {n.verification_status !== "verified" && (
-          <p className="mt-0.5 text-[9px] capitalize" style={{ color }}>
-            {n.verification_status}
-          </p>
-        )}
-      </div>
-      <Handle type="source" position={Position.Bottom} style={{ opacity: 0, pointerEvents: "none" }} />
-    </>
-  );
-});
-
-const nodeTypes = { topo: TopoNode };
-
-// ── Fixture ───────────────────────────────────────────────────────────────────
-
-const FIXTURE: TopologyGraph = {
-  document_id: "TOPO-PL3-S2",
-  generated_at: new Date().toISOString(),
-  nodes: [
-    { node_id: "P-101",   node_type: "Pump",       label: "P-101",   verification_status: "verified",   properties: { duty: "Crude transfer", design_pressure: "15 bar" } },
-    { node_id: "V-247",   node_type: "Valve",      label: "V-247",   verification_status: "verified",   properties: { type: "Gate valve", size: "DN200" } },
-    { node_id: "V-248",   node_type: "Valve",      label: "V-248",   verification_status: "unverified", properties: { type: "Check valve", size: "DN200" } },
-    { node_id: "FT-1001", node_type: "Instrument", label: "FT-1001", verification_status: "verified",   properties: { measurement: "Flow", range: "0–500 m³/h" } },
-    { node_id: "PS-1001", node_type: "Instrument", label: "PS-1001", verification_status: "disputed",   properties: { measurement: "Pressure", range: "0–20 bar" } },
-    { node_id: "EQ-101",  node_type: "Vessel",     label: "EQ-101",  verification_status: "verified",   properties: { type: "Separator", volume: "12 m³" } },
-  ],
-  edges: [
-    { edge_id: "e1", source_id: "V-247",   target_id: "P-101",  edge_type: "flow_connection",    label: "Suction" },
-    { edge_id: "e2", source_id: "P-101",   target_id: "V-248",  edge_type: "flow_connection",    label: "Discharge" },
-    { edge_id: "e3", source_id: "V-248",   target_id: "EQ-101", edge_type: "flow_connection",    label: "→ Separator" },
-    { edge_id: "e4", source_id: "FT-1001", target_id: "P-101",  edge_type: "instrumentation_loop", label: "Flow" },
-    { edge_id: "e5", source_id: "PS-1001", target_id: "P-101",  edge_type: "instrumentation_loop", label: "Pressure" },
-  ],
-};
-
-// ── Layout ────────────────────────────────────────────────────────────────────
-
-const CENTER_TYPES = new Set(["Pump", "Vessel", "Separator", "Equipment"]);
-const EDGE_TYPE_TOKENS: Record<string, keyof CanvasTokens> = {
-  flow_connection: "--accent",
-  instrumentation_loop: "--caution",
-};
-
-function buildLayout(topo: TopologyGraph, tokens: CanvasTokens): { nodes: Node[]; edges: Edge[] } {
-  const center = topo.nodes.find((n) => CENTER_TYPES.has(n.node_type)) ?? topo.nodes[0];
-  const others = topo.nodes.filter((n) => n.node_id !== center.node_id);
-
-  const rfNodes: Node[] = [
-    { id: center.node_id, type: "topo", position: { x: 0, y: 0 }, data: center as unknown as Record<string, unknown>, draggable: true },
-    ...others.map((n, i) => {
-      const angle = (i / (others.length || 1)) * 2 * Math.PI - Math.PI / 2;
-      const r = 280;
-      return {
-        id: n.node_id,
-        type: "topo",
-        position: { x: Math.cos(angle) * r, y: Math.sin(angle) * r },
-        data: n as unknown as Record<string, unknown>,
-        draggable: true,
-      };
-    }),
-  ];
-
-  const rfEdges: Edge[] = topo.edges.map((e) => {
-    const color = tokens[EDGE_TYPE_TOKENS[e.edge_type] ?? "--muted"];
-    const isLoop = e.edge_type === "instrumentation_loop";
-    return {
-      id: e.edge_id,
-      source: e.source_id,
-      target: e.target_id,
-      label: e.label,
-      style: { stroke: color, strokeWidth: isLoop ? 1.2 : 1.8, strokeDasharray: isLoop ? "4,3" : undefined },
-      markerEnd: arrowMarker(color, 12),
-    };
-  });
-
-  return { nodes: rfNodes, edges: rfEdges };
-}
-
-// ── Side panel ────────────────────────────────────────────────────────────────
-
-function NodeDetail({ node, onClose }: { node: TopologyNode; onClose: () => void }) {
-  const color = nodeVar(node.node_type, node.verification_status);
-  return (
-    <div className="absolute right-3 top-3 z-10 w-64 rounded-xl border border-line bg-surface shadow-lg">
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <p className="truncate text-body font-semibold text-ink">{node.label}</p>
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          className="nodrag grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-ink"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-            <path d="M18 6 6 18M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-      <div className="p-4 space-y-2 text-label">
-        <div className="flex gap-2">
-          <span className="w-24 shrink-0 font-medium text-muted">Type</span>
-          <span style={{ color }} className="font-semibold">{node.node_type}</span>
-        </div>
-        <div className="flex gap-2">
-          <span className="w-24 shrink-0 font-medium text-muted">Verification</span>
-          <span style={{ color }} className="capitalize">{node.verification_status}</span>
-        </div>
-        {Object.entries(node.properties ?? {}).slice(0, 5).map(([k, v]) => (
-          <div key={k} className="flex gap-2">
-            <span className="w-24 shrink-0 truncate font-medium text-muted capitalize">{k.replace(/_/g, " ")}</span>
-            <span className="min-w-0 truncate text-ink">{String(v ?? "—")}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Legend ────────────────────────────────────────────────────────────────────
-
-const TOPO_LEGEND = [
-  { cssVar: "var(--verified)", label: "Verified" },
-  { cssVar: "var(--caution)", dashed: true, label: "Unverified" },
-  { cssVar: "var(--danger)", label: "Disputed" },
-  { cssVar: "var(--info)", label: "Flow connection" },
-  { cssVar: "var(--caution)", dashed: true, label: "Instrumentation loop" },
-] satisfies { cssVar: string; dashed?: boolean; label: string }[];
-
-function TopoLegend() {
-  return (
-    <div className="flex flex-wrap gap-x-5 gap-y-2 text-label text-muted">
-      {TOPO_LEGEND.map(({ cssVar, dashed, label }) => (
-        <div key={label} className="flex items-center gap-1.5">
-          {dashed
-            ? <span className="inline-block h-2 w-6 border-t-2 border-dashed" style={{ borderColor: cssVar }} />
-            : <span className="inline-block h-2 w-6 rounded-full" style={{ backgroundColor: cssVar }} />}
-          {label}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
+import { useCanvasTokens } from "@/lib/graph-theme";
+import { EmptyState, PageHeader } from "@/components/ui";
+import { nodeTypes, nodeVar } from "./_components/topo-node";
+import { NodeDetail, TopoLegend } from "./_components/topo-panels";
+import { FIXTURE, buildLayout } from "./_components/topo-data";
 
 export default function TopologyPage() {
   return <TopologyPageInner />;
@@ -242,7 +47,8 @@ function TopologyPageInner() {
   }, [id]);
 
   // Node/edge colors are baked-in token strings, so rebuild whenever the
-  // topology data or the resolved theme tokens change.
+  // topology data or the resolved theme tokens change. (Not merged with the
+  // fetch effect: a theme toggle must rebuild the layout without refetching.)
   useEffect(() => {
     if (!topo) return;
     const { nodes: n, edges: e } = buildLayout(topo, tokens);
@@ -257,7 +63,7 @@ function TopologyPageInner() {
   const onPaneClick = useCallback(() => setSelectedNode(null), []);
 
   return (
-    <div className="mx-auto max-w-5xl px-5 py-8 sm:px-8 sm:py-10">
+    <div data-testid="topology-workspace" className="mx-auto max-w-[1400px]">
       <div className="flex items-center justify-between">
         <Link
           href={`/documents/${id}`}
@@ -276,58 +82,64 @@ function TopologyPageInner() {
         )}
       </div>
 
-      <header className="mt-4 mb-5">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
-          Layer 3 · P&ID topology
-        </p>
-        <h1 className="mt-1 text-display font-semibold leading-tight text-balance">
-          {id}
-        </h1>
-        <p className="mt-1 text-body text-muted text-pretty">
-          Equipment, valves, instruments, and flow connections extracted from the P&ID drawing.
-          Unverified elements are highlighted — confirm via the quarantine queue.
-        </p>
-      </header>
+      <PageHeader
+        compact
+        className="mt-4 mb-5"
+        eyebrow="Layer 3 · P&ID topology"
+        title={id}
+        lede="Equipment, valves, instruments, and flow connections extracted from the P&ID drawing. Unverified elements are highlighted — confirm via the quarantine queue."
+      />
 
-      {loading ? (
-        <div className="flex h-[520px] items-center justify-center rounded-xl border border-line bg-surface">
-          <span className="inline-flex gap-1.5">
-            {[0, 1, 2].map((i) => (
-              <span key={i} className="size-2 animate-bounce rounded-full bg-muted" style={{ animationDelay: `${i * 0.15}s` }} />
-            ))}
-          </span>
-        </div>
-      ) : topo && topo.nodes.length === 0 ? (
-        <EmptyState message="No topology extracted from this document yet." />
-      ) : (
-        <div className="relative overflow-hidden rounded-xl border border-line" style={{ height: 520 }}>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onNodeClick={onNodeClick}
-            onPaneClick={onPaneClick}
-            fitView
-            fitViewOptions={{ padding: 0.35 }}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background gap={24} size={1} color={tokens["--line"]} />
-            <Controls showInteractive={false} />
-          </ReactFlow>
-          {selectedNode && (
-            <NodeDetail node={selectedNode} onClose={() => setSelectedNode(null)} />
+      <div data-testid="topology-layout" className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div data-testid="topology-canvas" className="relative min-h-[420px] h-[min(62dvh,680px)] overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+          {loading ? (
+            <div className="flex h-full items-center justify-center">
+              <span className="inline-flex gap-1.5">
+                {[0, 1, 2].map((i) => (
+                  <span key={i} className="size-2 animate-bounce rounded-full bg-muted" style={{ animationDelay: `${i * 0.15}s` }} />
+                ))}
+              </span>
+            </div>
+          ) : topo && topo.nodes.length === 0 ? (
+            <div className="flex h-full items-center justify-center p-4"><EmptyState message="No topology extracted from this document yet." /></div>
+          ) : (
+            <>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onNodeClick={onNodeClick}
+                onPaneClick={onPaneClick}
+                fitView
+                fitViewOptions={{ padding: 0.35 }}
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background gap={24} size={1} color={tokens["--line"]} />
+                <Controls showInteractive={false} />
+              </ReactFlow>
+              {selectedNode && (
+                <NodeDetail node={selectedNode} onClose={() => setSelectedNode(null)} />
+              )}
+            </>
           )}
         </div>
-      )}
 
-      <div className="mt-3">
-        <TopoLegend />
+        <aside data-testid="topology-context" className="rounded-xl border border-line bg-surface p-4 shadow-sm lg:sticky lg:top-20">
+          <h2 className="text-label font-bold uppercase tracking-[0.1em] text-muted">Verification key</h2>
+          <div className="mt-3"><TopoLegend /></div>
+          {topo && (
+            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4 text-caption">
+              <div><p className="text-muted">Elements</p><p className="tabular mt-1 text-title font-semibold">{topo.nodes.length}</p></div>
+              <div><p className="text-muted">Connections</p><p className="tabular mt-1 text-title font-semibold">{topo.edges.length}</p></div>
+            </div>
+          )}
+        </aside>
       </div>
 
       {topo && (
-        <section className="mt-6">
+        <section data-testid="topology-register" className="mt-6">
           <h2 className="mb-3 text-label font-bold uppercase tracking-[0.1em] text-muted">
             Elements ({topo.nodes.length})
           </h2>

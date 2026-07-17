@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { submitVoiceNote } from "@/lib/api";
+import { PageHeader } from "@/components/ui";
 
 type Stage = "record" | "submitting" | "done" | "error";
 
@@ -28,16 +29,17 @@ export default function VoiceCapturePage() {
   }
 
   return (
-    <div className="mx-auto max-w-md px-5 pb-8 pt-6">
-      <header className="mb-6">
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Field capture</p>
-        <h1 className="mt-0.5 text-title font-semibold">Voice note</h1>
-        <p className="mt-1.5 text-body text-muted">
-          Record a field observation. Transcribed by Whisper and routed to the knowledge quarantine
-          for engineering review.
-        </p>
-      </header>
+    <div data-testid="field-voice-workspace" className="mx-auto max-w-[1100px]">
+      <PageHeader
+        compact
+        className="mb-6"
+        eyebrow="Field capture"
+        title="Voice note"
+        lede="Record a field observation. Transcribed by Whisper and routed to the knowledge quarantine for engineering review."
+      />
 
+      <div data-testid="field-voice-layout" className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <main data-testid="field-voice-capture" className="min-w-0 rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-6">
       {stage === "record" && (
         <div className="flex flex-col gap-5">
           <div>
@@ -49,7 +51,7 @@ export default function VoiceCapturePage() {
               value={tag}
               onChange={(e) => setTag(e.target.value)}
               placeholder="e.g. P-101 or WO-2024-118"
-              className="mt-1.5 h-11 w-full rounded-xl border border-line bg-surface px-3.5 text-subtitle text-ink placeholder:text-muted focus-visible:outline-2 focus-visible:outline-accent"
+              className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface-2 px-3.5 text-subtitle text-ink placeholder:text-muted focus-visible:outline-2 focus-visible:outline-accent"
             />
           </div>
 
@@ -109,7 +111,7 @@ export default function VoiceCapturePage() {
           </p>
           <button
             onClick={() => { setStage("record"); setBlob(null); setTag(""); }}
-            className="mt-4 rounded-lg border border-line px-4 py-2 text-body font-medium text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
+            className="mt-4 min-h-11 rounded-lg border border-line px-4 py-2 text-body font-medium text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
           >
             Record another
           </button>
@@ -122,13 +124,24 @@ export default function VoiceCapturePage() {
           <p className="mt-1 text-caption text-muted">Check your connection and try again.</p>
           <button
             onClick={() => setStage("record")}
-            className="mt-3 rounded-lg border border-line px-4 py-2 text-body font-medium text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
+            className="mt-3 min-h-11 rounded-lg border border-line px-4 py-2 text-body font-medium text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
           >
             Try again
           </button>
         </div>
       )}
+        </main>
 
+        <aside data-testid="field-voice-context" className="rounded-xl border border-line bg-surface p-4 shadow-sm lg:sticky lg:top-20">
+          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Engineering review</p>
+          <h2 className="mt-1 text-title font-semibold">From field note to governed fact</h2>
+          <ol className="mt-4 space-y-3 text-caption text-muted">
+            <li><span className="font-semibold text-ink">1. Capture</span><br />Record one clear observation and tag its asset or work order.</li>
+            <li><span className="font-semibold text-ink">2. Transcribe</span><br />The recording is processed into reviewable text.</li>
+            <li><span className="font-semibold text-ink">3. Quarantine</span><br />Engineering verifies it before it enters governed knowledge.</li>
+          </ol>
+        </aside>
+      </div>
     </div>
   );
 }

@@ -1,74 +1,146 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { getConflicts, getQuarantine } from "@/lib/api";
+import { DemoChip, KpiCard, PageHeader, StatusBadge } from "@/components/ui";
 
-export const metadata = { title: "Governance — Kairos" };
+type SurfaceKey = "conflicts" | "quarantine" | "moc" | "sla" | "circuit-breaker" | "model-gate";
 
-const SURFACES = [
+const SURFACES: Array<{ key: SurfaceKey; href: string; group: string; title: string; desc: string }> = [
   {
+    key: "conflicts",
     href: "/governance/conflicts",
+    group: "Adjudication",
     title: "Conflicts",
-    live: true,
-    desc: "Dual-track adjudication of contradictory facts. Administrative conflicts resolve in-app; engineering conflicts require Management of Change.",
+    desc: "Resolve administrative contradictions or route engineering-track decisions through Management of Change.",
   },
   {
+    key: "quarantine",
     href: "/governance/quarantine",
+    group: "Adjudication",
     title: "Quarantine",
-    live: true,
-    desc: "Unverified field inputs awaiting human review. Promote to the canonical graph or dispute — a one-way gate, never auto-promoted.",
+    desc: "Review unverified field inputs before they can enter the canonical knowledge graph.",
   },
   {
+    key: "moc",
     href: "/governance/moc",
+    group: "Adjudication",
     title: "Management of Change",
-    live: true,
-    desc: "Auto-drafted EWR items for engineering-track conflicts. Engineer sign-off closes the old edge and clears downstream warning banners.",
+    desc: "Review engineering-track changes, blast radius, and the human sign-off that closes old facts.",
   },
   {
+    key: "sla",
     href: "/governance/sla",
+    group: "Oversight",
     title: "SLA report",
-    live: true,
-    desc: "Governance SLA state across conflicts and quarantine. Overdue items with countdown timers, escalation flags, and on-time metrics.",
+    desc: "Track overdue governance decisions, countdowns, and escalation state across active queues.",
   },
   {
+    key: "circuit-breaker",
     href: "/governance/circuit-breaker",
+    group: "Safeguards",
     title: "Circuit breaker",
-    live: true,
-    desc: "SPC governor state by asset class. Z-score anomaly gates halt ingestion until admin review or human-verified resolution.",
+    desc: "Inspect anomaly gates that halt ingestion until an administrator reviews the affected asset class.",
   },
   {
+    key: "model-gate",
     href: "/governance/model-gate",
+    group: "Safeguards",
     title: "Model gate",
-    live: true,
-    desc: "Precision / recall gate against the validation corpus. Failed runs block model promotion. Trigger manual runs or inspect history.",
+    desc: "Review validation precision and recall before a model is allowed to move into production.",
   },
 ];
 
-export default function GovernancePage() {
-  return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-      <header>
-        <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Dual-track governance</p>
-        <h1 className="mt-1 text-display font-semibold leading-tight">Governance</h1>
-        <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-          The adjudication plane: where contradictions surface, unverified inputs are gated, and human
-          authority decides what becomes canonical truth.
-        </p>
-      </header>
+interface Overview {
+  openConflicts: number;
+  engineeringConflicts: number;
+  pendingMoc: number;
+  pendingQuarantine: number;
+  overdue: number;
+}
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        {SURFACES.map((s) => (
-          <Link key={s.href} href={s.href}
-            className="group rounded-xl border border-line bg-surface p-5 transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))]">
-            <div className="flex items-center gap-2">
-              <h2 className="text-subtitle font-semibold">{s.title}</h2>
-              <span className="inline-flex items-center gap-1 text-micro font-semibold text-verified">
-                <span className="size-1.5 rounded-full bg-verified" aria-hidden="true" />Live
-              </span>
-              <svg className="ml-auto size-4 text-muted transition-transform group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                <path d="M9 6l6 6-6 6" />
-              </svg>
-            </div>
-            <p className="mt-2 text-body leading-relaxed text-muted">{s.desc}</p>
-          </Link>
-        ))}
+export default function GovernancePage() {
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [isDemo, setIsDemo] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([getConflicts(), getQuarantine()]).then(([conflicts, quarantine]) => {
+      if (!alive) return;
+      const openConflicts = conflicts.data.items.filter((item) => item.status !== "resolved");
+      const pendingQuarantine = quarantine.data.items.filter((item) => item.review_status === "pending");
+      setOverview({
+        openConflicts: openConflicts.length,
+        engineeringConflicts: openConflicts.filter((item) => item.track === "engineering").length,
+        pendingMoc: openConflicts.filter((item) => item.status === "pending_moc").length,
+        pendingQuarantine: pendingQuarantine.length,
+        overdue: openConflicts.filter((item) => item.is_overdue).length + pendingQuarantine.filter((item) => item.is_overdue).length,
+      });
+      setIsDemo(conflicts.source === "demo" || quarantine.source === "demo");
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const value = (key: keyof Overview) => overview?.[key] ?? "—";
+  const statusFor = (key: SurfaceKey): { label: string; tone: "danger" | "caution" | "neutral" } => {
+    if (key === "conflicts") return { label: `${value("openConflicts")} open`, tone: overview?.openConflicts ? "danger" : "neutral" };
+    if (key === "quarantine") return { label: `${value("pendingQuarantine")} pending`, tone: overview?.pendingQuarantine ? "caution" : "neutral" };
+    if (key === "moc") return { label: `${value("pendingMoc")} pending`, tone: overview?.pendingMoc ? "caution" : "neutral" };
+    if (key === "sla") return { label: `${value("overdue")} overdue`, tone: overview?.overdue ? "danger" : "neutral" };
+    return { label: key === "circuit-breaker" ? "Monitor" : "Validation", tone: "neutral" };
+  };
+
+  return (
+    <div data-testid="governance-workspace" className="mx-auto max-w-[1400px]">
+      <PageHeader
+        eyebrow="Layer 7 · Dual-track governance"
+        title="Governance"
+        lede="Where contradictions surface, unverified inputs are gated, and human authority decides what becomes canonical truth."
+      />
+
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
+        <span>Adjudication · oversight · safeguards</span>
+        {isDemo && <DemoChip />}
+      </div>
+
+      <div data-testid="governance-summary" className="mt-6 rounded-xl border border-line bg-surface p-3 shadow-sm">
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <KpiCard label="Open conflicts" value={value("openConflicts")} sub="Awaiting decision" tone={overview?.openConflicts ? "danger" : "neutral"} />
+          <KpiCard label="Engineering track" value={value("engineeringConflicts")} sub="Human sign-off" tone={overview?.engineeringConflicts ? "caution" : "neutral"} />
+          <KpiCard label="Pending quarantine" value={value("pendingQuarantine")} sub="Unverified inputs" tone={overview?.pendingQuarantine ? "caution" : "neutral"} />
+          <KpiCard label="Overdue" value={value("overdue")} sub="Across active queues" tone={overview?.overdue ? "danger" : "neutral"} />
+        </div>
+      </div>
+
+      <div className="mt-6 flex items-end justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-ink">Governance controls</h2>
+          <p className="text-caption text-muted">Open a queue to review evidence, make a decision, or inspect a safeguard.</p>
+        </div>
+        <span className="tabular shrink-0 text-caption text-muted">6 controls</span>
+      </div>
+
+      <div data-testid="governance-surfaces" className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {SURFACES.map((surface) => {
+          const status = statusFor(surface.key);
+          return (
+            <Link
+              key={surface.key}
+              href={surface.href}
+              data-testid={`governance-surface-${surface.key}`}
+              className="group flex min-h-44 flex-col rounded-xl border border-line bg-surface p-5 shadow-sm transition duration-150 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--accent)_35%,var(--line))] hover:shadow-md"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-label font-semibold uppercase tracking-[0.1em] text-muted">{surface.group}</span>
+                <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+              </div>
+              <h3 className="mt-4 text-subtitle font-semibold text-ink">{surface.title}</h3>
+              <p className="mt-1.5 text-body leading-relaxed text-muted">{surface.desc}</p>
+              <span className="mt-auto pt-4 text-caption font-semibold text-accent">Open control <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span></span>
+            </Link>
+          );
+        })}
       </div>
     </div>
   );

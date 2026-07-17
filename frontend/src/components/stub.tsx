@@ -11,7 +11,7 @@ export function Stub({
   endpoints?: string[];
 }) {
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
+    <div className="mx-auto max-w-3xl">
       <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">{eyebrow}</p>
       <h1 className="mt-1 text-display font-semibold leading-tight">{title}</h1>
       <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">{description}</p>

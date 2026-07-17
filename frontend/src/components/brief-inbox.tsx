@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Brief, BriefPriority, BriefsResponse } from "@/lib/types";
-import { priorityMeta, relativeTime } from "@/lib/utils";
+import { cn, priorityMeta, relativeTime } from "@/lib/utils";
 import { BriefCard } from "./brief-card";
 import { EmptyState, FilterTabs } from "./ui";
 
@@ -17,16 +17,7 @@ function GovernorBanner({ response }: { response: BriefsResponse }) {
   const suppressed = gov.state === "suppressed";
 
   if (!suppressed && response.suppressed_count === 0) {
-    // Show a compact pill when everything is normal
-    return (
-      <div className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-caption">
-        <span className="font-semibold text-muted">Push governor</span>
-        <div className="h-1 w-24 overflow-hidden rounded-full bg-line">
-          <div className="h-full rounded-full bg-verified" style={{ width: `${pct}%` }} />
-        </div>
-        <span className="tabular text-muted">{gov.push_count_last_hour}/{gov.ceiling}/hr</span>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -57,6 +48,7 @@ function GovernorBanner({ response }: { response: BriefsResponse }) {
 export function BriefInbox({ response }: { response: BriefsResponse }) {
   const { briefs } = response;
   const [filter, setFilter] = useState<FilterKey>("all");
+  const criticalCount = briefs.filter((brief) => brief.priority === "critical").length;
 
   const filterTabs = [
     { key: "all" as FilterKey, label: "All", count: briefs.length },
@@ -82,15 +74,43 @@ export function BriefInbox({ response }: { response: BriefsResponse }) {
 
   return (
     <div className="space-y-4">
+      <div data-testid="brief-toolbar" className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 md:flex-row md:items-center md:justify-between">
+        <FilterTabs
+          tabs={filterTabs}
+          active={filter}
+          onChange={(k) => setFilter(k as FilterKey)}
+        />
+        <div className="flex flex-wrap items-center gap-2 text-caption">
+          <span className={cn(
+            "inline-flex min-h-8 items-center gap-1.5 rounded-full px-3 font-medium",
+            response.total_pending > 0
+              ? "bg-[color-mix(in_srgb,var(--caution)_10%,transparent)] text-caution"
+              : "bg-[color-mix(in_srgb,var(--verified)_9%,transparent)] text-verified",
+          )}>
+            <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+            <span className="tabular">{response.total_pending} pending</span>
+          </span>
+          {criticalCount > 0 && (
+            <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-3 font-medium text-danger">
+              <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+              <span className="tabular">{criticalCount} critical</span>
+            </span>
+          )}
+          <span className={cn(
+            "inline-flex min-h-8 items-center gap-1.5 rounded-full px-3 font-medium",
+            response.governor_state.state === "suppressed" || response.suppressed_count > 0
+              ? "bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-danger"
+              : "bg-[color-mix(in_srgb,var(--verified)_9%,transparent)] text-verified",
+          )}>
+            <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+            <span className="tabular">{response.governor_state.push_count_last_hour}/{response.governor_state.ceiling} governor</span>
+          </span>
+        </div>
+      </div>
+
       <GovernorBanner response={response} />
 
-      <FilterTabs
-        tabs={filterTabs}
-        active={filter}
-        onChange={(k) => setFilter(k as FilterKey)}
-      />
-
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         {groups.length === 0 && (
           <EmptyState message="No briefs in this view." />
         )}

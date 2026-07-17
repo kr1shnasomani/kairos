@@ -1,16 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ThemeToggle } from "./theme-toggle";
+import { BrandLink } from "./brand-link";
+import { AppHeader } from "./app-header";
+import { MobileAppHeader } from "./mobile-app-header";
 import { CommandPalette, ShortcutsHelp, type PaletteItem } from "./command-palette";
 import { getMe, logout } from "@/lib/auth";
 import { getToken, getGovernorState, getPlantState, isStrictAuth } from "@/lib/api";
-import { flushQueue, getQueueLength } from "@/lib/idb";
+import { flushQueue } from "@/lib/idb";
+import { getUserInitials } from "@/lib/user-initials";
 import type { Role, User, GovernorEventState, PlantState } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { PhaseBadge } from "./ui";
+import { ThemeToggle } from "./theme-toggle";
 import { PageSkeleton } from "./skeleton";
 
 // Staff surfaces (Assure group + RCA) are hidden from field workers. Dev-bypass (no session)
@@ -20,27 +24,29 @@ const STAFF: Role[] = ["engineer", "reliability", "admin"];
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
   | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph" | "audit"
-  | "events" | "offboarding" | "projects" | "voice";
+  | "events" | "offboarding" | "projects" | "voice" | "chevron" | "settings";
 
 function Icon({ name, className = "size-[18px]" }: { name: IconName; className?: string }) {
   const paths: Record<IconName, React.ReactNode> = {
     briefs: <path d="M4 6h16M4 12h16M4 18h10" />,
     copilot: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
     assets: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></>,
-    rca: <path d="M3 12h4l3 8 4-16 3 8h4" />,
-    compliance: <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" />,
-    management: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
-    governance: <><path d="M12 3v18M5 7l7-2 7 2" /><path d="M5 7l-2 6a3 3 0 0 0 6 0L7 7M19 7l-2 6a3 3 0 0 0 6 0l-2-6" /></>,
+    rca: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
+    compliance: <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />,
+    management: <><path d="M3 3v16a2 2 0 0 0 2 2h16" /><path d="M18 17V9M13 17V5M8 17v-3" /></>,
+    governance: <><path d="M12 3v18M7 21h10" /><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" /><path d="m5 7-3 8c.87.65 1.92 1 3 1s2.13-.35 3-1L5 7zM19 7l-3 8c.87.65 1.92 1 3 1s2.13-.35 3-1l-3-8z" /></>,
     documents: <><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /></>,
     search: <><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></>,
     menu: <path d="M4 6h16M4 12h16M4 18h16" />,
     close: <path d="M6 6l12 12M18 6L6 18" />,
-    graph: <><circle cx="5" cy="12" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="19" cy="19" r="2" /><path d="M7 11.5l10-5M7 12.5l10 5" /></>,
-    audit: <><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /><path d="M10 13h4M10 17h4M8 9h.01" /></>,
+    graph: <><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.59 13.51 6.83 3.98M15.41 6.51l-6.82 3.98" /></>,
+    audit: <><rect x="8" y="2" width="8" height="4" rx="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01" /></>,
     events: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
-    offboarding: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M17 11l4-4M21 11l-4-4" /></>,
+    offboarding: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="m17 8 5 5m0-5-5 5" /></>,
     projects: <><path d="M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 12l9 4 9-4M3 17l9 4 9-4" /></>,
     voice: <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><path d="M12 19v4M8 23h8" /></>,
+    chevron: <path d="M9 6l6 6-6 6" />,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /></>,
   };
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -51,16 +57,26 @@ function Icon({ name, className = "size-[18px]" }: { name: IconName; className?:
 
 type NavItem = { href: string; label: string; icon: IconName; roles?: Role[] };
 
+// group: "" renders ungrouped at the top (no header, no collapse).
 const NAV: { group: string; items: NavItem[] }[] = [
+  {
+    group: "",
+    items: [{ href: "/management", label: "Overview", icon: "management", roles: STAFF }],
+  },
   {
     group: "Operate",
     items: [
       { href: "/briefs", label: "Briefs", icon: "briefs" },
       { href: "/copilot", label: "Copilot", icon: "copilot" },
       { href: "/assets", label: "Assets", icon: "assets" },
+      { href: "/events", label: "Events", icon: "events", roles: STAFF },
+    ],
+  },
+  {
+    group: "Analyze",
+    items: [
       { href: "/rca", label: "RCA", icon: "rca", roles: STAFF },
       { href: "/graph", label: "Graph", icon: "graph", roles: STAFF },
-      { href: "/events", label: "Events", icon: "events", roles: STAFF },
     ],
   },
   {
@@ -69,28 +85,17 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { href: "/compliance", label: "Compliance", icon: "compliance", roles: STAFF },
       { href: "/governance", label: "Governance", icon: "governance", roles: STAFF },
       { href: "/audit", label: "Audit trail", icon: "audit", roles: STAFF },
+    ],
+  },
+  {
+    group: "Knowledge",
+    items: [
       { href: "/documents", label: "Documents", icon: "documents", roles: STAFF },
       { href: "/projects", label: "Projects", icon: "projects", roles: STAFF },
       { href: "/offboarding", label: "Off-boarding", icon: "offboarding", roles: STAFF },
-      { href: "/management", label: "Overview", icon: "management", roles: STAFF },
     ],
   },
 ];
-
-function KairosMark({ size = 30 }: { size?: number }) {
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src="/logo.png"
-      alt=""
-      width={size}
-      height={size}
-      className="rounded-lg object-cover"
-      style={{ width: size, height: size }}
-      aria-hidden="true"
-    />
-  );
-}
 
 function GovernorPill({ userId }: { userId: string }) {
   const [gov, setGov] = useState<GovernorEventState | null>(null);
@@ -117,51 +122,24 @@ function GovernorPill({ userId }: { userId: string }) {
   );
 }
 
-function SidebarContent({ onNavigate, role, user, onSignOut, queueCount, onOpenPalette }: { onNavigate?: () => void; role: Role; user: User | null; onSignOut: () => void; queueCount: number; onOpenPalette?: () => void }) {
+function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; role: Role; user: User | null }) {
   const pathname = usePathname();
+  const homeHref = role === "field_worker" ? "/briefs" : "/management";
+  // Collapse is per-group, default open, session-local (persistence = hydration churn for nothing).
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const sections = NAV
     .map((s) => ({ ...s, items: s.items.filter((it) => !it.roles || it.roles.includes(role)) }))
     .filter((s) => s.items.length > 0);
 
-  const email = user?.email ?? null;
-  const name = email ? email.split("@")[0] : "Dev user";
-  const initials = (email ? email.slice(0, 2) : "DV").toUpperCase();
-  const roleLine = user ? `${user.role[0].toUpperCase()}${user.role.slice(1)} · ${user.site_id}` : "Engineer · dev";
-
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-2 px-4 py-4">
-        <div className="flex items-center gap-2.5">
-          <KairosMark />
-          <span className="text-subtitle font-semibold tracking-tight">Kairos</span>
-        </div>
-        <PhaseBadge />
-      </div>
-
-      {onOpenPalette && (
-        <div className="px-3 pb-2">
-          <button
-            type="button"
-            onClick={onOpenPalette}
-            className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-caption text-muted transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-ink"
-          >
-            <Icon name="search" />
-            Search…
-            {/* Platform-aware; suppressHydrationWarning because the server can't know the OS */}
-            <kbd suppressHydrationWarning className="ml-auto rounded border border-line bg-surface px-1.5 py-0.5 text-micro">
-              {typeof navigator !== "undefined" && /Mac|iPhone/.test(navigator.platform) ? "⌘K" : "Ctrl K"}
-            </kbd>
-          </button>
-        </div>
-      )}
+      <div className="px-5 py-6"><BrandLink href={homeHref} /></div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-2">
-        {sections.map((section) => (
-          <div key={section.group}>
-            <p className="px-2 pb-1.5 text-micro font-bold uppercase tracking-[0.1em] text-muted">
-              {section.group}
-            </p>
-            <ul className="space-y-0.5">
+        {sections.map((section) => {
+          const isOpen = !collapsed[section.group];
+          const list = (
+            <ul id={`nav-${section.group || "top"}`} className="space-y-0.5">
               {section.items.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(item.href + "/");
                 return (
@@ -183,67 +161,66 @@ function SidebarContent({ onNavigate, role, user, onSignOut, queueCount, onOpenP
                 );
               })}
             </ul>
-          </div>
-        ))}
+          );
+          if (!section.group) return <div key="top">{list}</div>;
+          return (
+            <div key={section.group}>
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                aria-controls={`nav-${section.group}`}
+                onClick={() => setCollapsed((c) => ({ ...c, [section.group]: !c[section.group] }))}
+                className="flex w-full items-center gap-1 rounded px-2 pb-1.5 text-micro font-bold uppercase tracking-[0.1em] text-muted transition-colors hover:text-ink"
+              >
+                <Icon
+                  name="chevron"
+                  className={cn("size-3 transition-transform duration-150 ease-out", isOpen && "rotate-90")}
+                />
+                {section.group}
+              </button>
+              {isOpen && list}
+            </div>
+          );
+        })}
       </nav>
 
       {user && <GovernorPill userId={user.user_id} />}
 
-      <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-3">
-        <Link
-          href="/settings"
-          onClick={onNavigate}
-          title="Preferences"
-          className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 transition-colors hover:bg-surface-2"
-        >
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-label font-bold text-on-accent">
-            {initials}
-          </span>
-          <div className="min-w-0 leading-tight">
-            <p className="truncate text-xs font-semibold">{name}</p>
-            <p className="truncate text-label text-muted">{roleLine}</p>
-          </div>
-        </Link>
-        <div className="flex items-center gap-1">
-          {queueCount > 0 && (
-            <span
-              title={`${queueCount} write${queueCount !== 1 ? "s" : ""} queued offline`}
-              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--caution)_18%,transparent)] px-1 text-micro font-bold text-caution"
-              aria-label={`${queueCount} pending sync`}
-            >
-              {queueCount}
-            </span>
-          )}
-          <ThemeToggle />
-          <button
-            onClick={onSignOut}
-            aria-label="Sign out"
-            title="Sign out"
-            className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-            </svg>
-          </button>
+      <div className="mx-3 mb-4 mt-2 border-t border-line pt-3">
+        <Link href="/settings" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink"><Icon name="settings" className="size-[18px]" />Settings</Link>
+        <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-label text-muted" aria-label="Help coming soon">
+          <Image src="/logo.png" alt="" width={20} height={20} className="size-5 rounded object-cover" />
+          <span>Help</span>
+          <span className="ml-auto text-micro">Soon</span>
         </div>
       </div>
+
     </div>
   );
 }
 
-/** Bottom tab bar for field workers — thumb-reachable, ≥44px targets. */
-function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut: () => void }) {
-  const tabs = [
-    { href: "/briefs", label: "Briefs", icon: "briefs" as IconName },
-    { href: "/copilot", label: "Copilot", icon: "copilot" as IconName },
-    { href: "/assets", label: "Assets", icon: "assets" as IconName },
-    { href: "/field/voice", label: "Voice", icon: "voice" as IconName },
-  ] as const;
+/** Bottom tab bar for all roles on mobile — thumb-reachable, ≥44px targets.
+    Field workers keep Voice + Me (sign-out); staff get Overview + More (nav sheet). */
+function BottomTabs({ pathname, isField, onSignOut, onMore, moreRef }: {
+  pathname: string;
+  isField: boolean;
+  onSignOut: () => void;
+  onMore: () => void;
+  moreRef: React.RefObject<HTMLButtonElement | null>;
+}) {
+  const tabs: { href: string; label: string; icon: IconName }[] = [
+    { href: "/briefs", label: "Briefs", icon: "briefs" },
+    { href: "/copilot", label: "Copilot", icon: "copilot" },
+    { href: "/assets", label: "Assets", icon: "assets" },
+    isField
+      ? { href: "/field/voice", label: "Voice", icon: "voice" }
+      : { href: "/management", label: "Overview", icon: "management" },
+  ];
 
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] print:hidden"
-      aria-label="Field navigation"
+      aria-label="Primary navigation"
     >
       {tabs.map((tab) => {
         const active = pathname === tab.href || pathname.startsWith(tab.href + "/");
@@ -262,32 +239,61 @@ function FieldBottomTabs({ pathname, onSignOut }: { pathname: string; onSignOut:
           </Link>
         );
       })}
-      {/* Me tab */}
-      <button
-        onClick={onSignOut}
-        className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-micro font-semibold text-muted transition-colors hover:text-ink"
-        aria-label="Sign out"
-      >
-        <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-        </svg>
-        Me
-      </button>
+      {isField ? (
+        /* Me tab — sign out */
+        <button
+          onClick={onSignOut}
+          className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-micro font-semibold text-muted transition-colors hover:text-ink"
+          aria-label="Sign out"
+        >
+          <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+          </svg>
+          Me
+        </button>
+      ) : (
+        /* More tab — opens the grouped nav sheet */
+        <button
+          ref={moreRef}
+          onClick={onMore}
+          className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-micro font-semibold text-muted transition-colors hover:text-ink"
+          aria-label="More navigation"
+          aria-haspopup="dialog"
+        >
+          <Icon name="menu" className="size-5" />
+          More
+        </button>
+      )}
     </nav>
   );
 }
 
+function AccountMenu({ open, onClose, name, role, onSignOut }: { open: boolean; onClose: () => void; name: string; role: string; onSignOut: () => void }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50" role="dialog" aria-label="User menu">
+      <button className="absolute inset-0" aria-label="Close user menu" onClick={onClose} />
+      <div className="sidebar-scope absolute right-4 top-16 w-64 rounded-xl border border-line p-2 shadow-xl animate-[overlay-in_150ms_ease-out]">
+        <div className="flex items-start justify-between gap-3 px-3 py-2"><div className="min-w-0"><p className="truncate text-sm font-semibold">{name}</p><p className="text-caption text-muted">{role.replace(/_/g, " ")}</p></div><ThemeToggle className="-mr-1 -mt-1 shrink-0" /></div>
+        <Link href="/settings" onClick={onClose} className="flex rounded-lg px-3 py-2 text-sm transition-colors hover:bg-surface-2">Settings</Link>
+        <button type="button" onClick={onSignOut} className="flex w-full rounded-lg px-3 py-2 text-left text-sm text-danger transition-colors hover:bg-surface-2">Sign out</button>
+      </div>
+    </div>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const [drawer, setDrawer] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [palette, setPalette] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const goSeqRef = useRef<number | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [authed, setAuthed] = useState<boolean | null>(null);
-  const [queueCount, setQueueCount] = useState(0);
   const [plantState, setPlantState] = useState<PlantState | null>(null);
-  const menuTriggerRef = useRef<HTMLButtonElement>(null);
-  const drawerRef = useRef<HTMLDivElement>(null);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -339,13 +345,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()));
       }
     }
-    // Queue length on load
-    getQueueLength().then(setQueueCount);
     // Flush write queue on reconnect
     async function onOnline() {
       await flushQueue();
-      const n = await getQueueLength();
-      setQueueCount(n);
     }
     window.addEventListener("online", onOnline);
     return () => {
@@ -365,14 +367,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => { alive = false; };
   }, [user]);
 
+  // Focus trap for the mobile "More" nav sheet; focus returns to its trigger on close.
   useEffect(() => {
-    if (!drawer) return;
-    const trigger = menuTriggerRef.current;
-    drawerRef.current?.focus();
+    if (!moreOpen) return;
+    const trigger = moreTriggerRef.current;
+    sheetRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setDrawer(false);
-      if (event.key === "Tab" && drawerRef.current) {
-        const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
+      if (event.key === "Escape") setMoreOpen(false);
+      if (event.key === "Tab" && sheetRef.current) {
+        const focusable = sheetRef.current.querySelectorAll<HTMLElement>(
           'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
         );
         const first = focusable[0];
@@ -393,7 +396,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.removeEventListener("keydown", onKeyDown);
       trigger?.focus();
     };
-  }, [drawer]);
+  }, [moreOpen]);
 
   const role: Role = user?.role ?? "engineer";
   const isField = role === "field_worker";
@@ -402,7 +405,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const nav = NAV.flatMap((g) =>
       g.items
         .filter((i) => !i.roles || i.roles.includes(role))
-        .map((i) => ({ group: g.group, label: i.label, href: i.href })),
+        .map((i) => ({ group: g.group || "Go to", label: i.label, href: i.href })),
     );
     return [
       ...nav,
@@ -461,12 +464,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (authed !== true) {
     return (
       <div className="flex min-h-dvh">
-        <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block" aria-hidden="true">
+        <aside className="sidebar-scope hidden w-[316px] shrink-0 border-r border-line md:block" aria-hidden="true">
           <div className="sticky top-0 h-dvh px-4 py-4">
-            <div className="flex items-center gap-2.5">
-              <KairosMark />
-              <span className="text-subtitle font-semibold tracking-tight">Kairos</span>
-            </div>
+            <BrandLink href="/management" />
           </div>
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">
@@ -490,53 +490,69 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <CommandPalette open={palette} onClose={() => setPalette(false)} items={paletteItems} />
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
 
-      {/* Desktop sidebar — all roles */}
-      <aside className="hidden w-[244px] shrink-0 border-r border-line bg-surface md:block print:hidden">
+      {/* Desktop sidebar — all roles; sidebar-scope remaps tokens to the dark rail palette */}
+      <aside className="sidebar-scope hidden w-[316px] shrink-0 border-r border-line md:block print:hidden">
         <div className="sticky top-0 h-dvh">
-          <SidebarContent role={role} user={user} onSignOut={signOut} queueCount={queueCount} onOpenPalette={() => setPalette(true)} />
+          <SidebarContent role={role} user={user} />
         </div>
       </aside>
 
-      {/* Mobile: field workers get a bottom tab bar, others get a hamburger drawer */}
-      {!isField && drawer && (
+      {mobileDrawerOpen && (
         <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
-          <button
-            className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-black/40"
-            aria-label="Close menu"
-            onClick={() => setDrawer(false)}
-          />
-          <div ref={drawerRef} tabIndex={-1} className="absolute inset-y-0 left-0 w-[244px] animate-[drawer-in_200ms_ease-out] border-r border-line bg-surface outline-none">
-            <SidebarContent onNavigate={() => setDrawer(false)} role={role} user={user} onSignOut={signOut} queueCount={queueCount} />
+          <button className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-black/40" aria-label="Close menu" onClick={() => setMobileDrawerOpen(false)} />
+          <div className="sidebar-scope absolute inset-y-0 left-0 w-[316px] max-w-[86vw] overflow-y-auto border-r border-line outline-none animate-[drawer-in_250ms_ease-out]">
+            <SidebarContent onNavigate={() => setMobileDrawerOpen(false)} role={role} user={user} />
           </div>
         </div>
       )}
 
-      {/* Field mobile: 56px tabs + safe-area; desktop field uses sidebar only */}
-      {/* inert while the drawer dialog is open so screen readers can't wander behind it */}
+      {/* Mobile "More" nav sheet — full grouped nav, same dark rail palette */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
+          <button
+            className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-black/40"
+            aria-label="Close menu"
+            onClick={() => setMoreOpen(false)}
+          />
+          <div
+            ref={sheetRef}
+            tabIndex={-1}
+            className="sidebar-scope absolute inset-x-0 bottom-0 max-h-[80dvh] overflow-y-auto rounded-t-2xl border-t border-line pb-[env(safe-area-inset-bottom)] outline-none animate-[sheet-in_250ms_ease-out]"
+          >
+            <SidebarContent
+              onNavigate={() => setMoreOpen(false)}
+              role={role}
+              user={user}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Mobile: 56px bottom tabs + safe-area for all roles; content padding clears them */}
+      {/* inert while the sheet dialog is open so screen readers can't wander behind it */}
       <div
-        inert={drawer || undefined}
-        className={cn(
-          "flex min-w-0 flex-1 flex-col",
-          isField && "pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0",
-        )}
+        inert={moreOpen || mobileDrawerOpen || undefined}
+        className="flex min-w-0 flex-1 flex-col pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0 print:pb-0"
       >
-        {/* Non-field mobile top bar */}
-        {!isField && (
-          <header className="flex items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden print:hidden">
-            <button
-              ref={menuTriggerRef}
-              className="grid size-9 place-items-center rounded-lg border border-line text-muted"
-              aria-label="Open menu"
-              onClick={() => setDrawer(true)}
-            >
-              <Icon name="menu" />
-            </button>
-            <div className="flex items-center gap-2">
-              <KairosMark size={26} />
-              <span className="text-sm font-semibold">Kairos</span>
-            </div>
-          </header>
-        )}
+        <AppHeader
+          name="Kairos user"
+          role={role}
+          onOpenSearch={() => setPalette(true)}
+          onOpenCapture={() => router.push("/field/voice")}
+          onCreate={() => router.push("/assets/bootstrap")}
+          onOpenBriefs={() => router.push("/briefs")}
+          onOpenUser={() => setAccountOpen((open) => !open)}
+          userInitial={getUserInitials("Kairos user")}
+        />
+        <MobileAppHeader
+          onOpenMenu={() => setMobileDrawerOpen(true)}
+          onOpenSearch={() => setPalette(true)}
+          onOpenCapture={() => router.push("/field/voice")}
+          onCreate={() => router.push("/assets/bootstrap")}
+          onOpenBriefs={() => router.push("/briefs")}
+          onOpenUser={() => setAccountOpen((open) => !open)}
+          userInitial={getUserInitials("Kairos user")}
+        />
 
         {/* Plant operating state banner */}
         {plantState && (
@@ -554,15 +570,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {" — only critical briefs are being delivered"}
           </div>
         )}
-        <main id="main" className="min-w-0 flex-1">{children}</main>
+        {/* Shell owns page padding; /copilot opts out (full-bleed sticky composer). */}
+        <main
+          id="main"
+          className={cn(
+            "min-w-0 flex-1",
+            pathname !== "/copilot" && "px-5 py-8 sm:px-8 sm:py-10 print:p-0",
+          )}
+        >
+          <div key={pathname} className="app-route">{children}</div>
+        </main>
       </div>
 
-      {/* Field bottom tab bar — mobile only */}
-      {isField && (
-        <div className="md:hidden">
-          <FieldBottomTabs pathname={pathname} onSignOut={signOut} />
-        </div>
-      )}
+      {/* Bottom tab bar — mobile only, all roles */}
+      <div className="md:hidden">
+        <BottomTabs
+          pathname={pathname}
+          isField={isField}
+          onSignOut={signOut}
+          onMore={() => setMoreOpen(true)}
+          moreRef={moreTriggerRef}
+        />
+      </div>
+      <AccountMenu open={accountOpen} onClose={() => setAccountOpen(false)} name="Kairos user" role={role} onSignOut={signOut} />
     </div>
   );
 }

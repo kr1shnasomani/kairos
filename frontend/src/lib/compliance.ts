@@ -1,4 +1,4 @@
-import type { ComplianceGap, ComplianceGapsResponse } from "./types";
+import type { AuditPack, AuditPackClause, ComplianceGap, ComplianceGapsResponse } from "./types";
 
 // Fixture compliance data — stands in for GET /compliance/gaps while offline.
 // Shape mirrors the live endpoint (backend/api/routers/compliance.py): each item is a detected
@@ -25,3 +25,37 @@ export const complianceFixture: ComplianceGapsResponse = {
   framework: null,
   last_scan: "demo",
 };
+
+export function auditPackFixtureFor(framework: string): AuditPack {
+  const frameworkId = framework.replace(/[- ]/g, "_");
+  const clauses: AuditPackClause[] = gaps
+    .filter((gap) => gap.framework === frameworkId)
+    .map((gap, index) => {
+      const verified = index % 2 === 0;
+      return {
+        clause_id: gap.clause_id,
+        requirement_text: gap.requirement_text,
+        applies_to: gap.equipment_class ?? null,
+        authority_level: gap.authority_level,
+        severity: gap.severity,
+        evidence: [{
+          document_id: `DOC-${gap.asset_id}-${gap.clause_id.replaceAll(".", "")}`,
+          document_type: verified ? "verified_procedure" : "inspection_record",
+          confidence: verified ? 0.94 : 0.64,
+          verification_status: verified ? "verified" : "pending_review",
+        }],
+        verified_evidence_count: verified ? 1 : 0,
+        clearance_blocked: !verified,
+      };
+    });
+
+  return {
+    framework,
+    clauses,
+    total_clauses: clauses.length,
+    total_evidence_docs: clauses.reduce((total, clause) => total + clause.evidence.length, 0),
+    human_review_required: clauses.filter((clause) => clause.clearance_blocked).map((clause) => clause.clause_id),
+    note: "Demo evidence derived from the compliance fixture.",
+    status: "demo",
+  };
+}

@@ -142,13 +142,13 @@ const VERIF_TONE: Record<string, "verified" | "caution" | "danger" | "neutral"> 
 
 function SidePanel({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="absolute right-3 top-3 z-10 w-64 rounded-xl border border-line bg-surface shadow-lg">
+    <div className="absolute inset-x-3 bottom-3 z-10 max-h-[55%] overflow-y-auto rounded-xl border border-line bg-surface shadow-lg sm:inset-x-auto sm:bottom-auto sm:right-3 sm:top-3 sm:w-72">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <p className="truncate text-body font-semibold text-ink">{title}</p>
         <button
           onClick={onClose}
           aria-label="Close panel"
-          className="nodrag grid size-7 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+          className="nodrag grid min-h-11 min-w-11 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
             <path d="M18 6 6 18M6 6l12 12" />

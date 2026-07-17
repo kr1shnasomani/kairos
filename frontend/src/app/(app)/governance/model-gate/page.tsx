@@ -1,88 +1,96 @@
 "use client";
 
+// Model-gate dashboard — precision/recall gate on the validation corpus; a
+// failed run blocks model promotion. KPI strip (latest run) → pass-mix donut +
+// quality trend → paginated run history table. One useFetch drives every zone.
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import type { ModelGateHistory, ModelGateResult, ValidationCorpusStats } from "@/lib/types";
-import { getModelGateHistory, getValidationCorpusStats, runModelGate } from "@/lib/api";
-import { StatusBadge, DemoChip } from "@/components/ui";
-import { relativeTime } from "@/lib/utils";
+import { useMemo, useState } from "react";
+import type { TooltipContentProps } from "recharts";
+import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from "recharts";
+import { AXIS, ChartContainer, GRID, downsample } from "@/components/charts";
+import { ChartTooltip } from "@/components/charts/chart-tooltip";
+import { DataTable, DemoChip, EmptyState, MetricCard, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import type { Fetched } from "@/lib/api";
+import { getModelGateHistory, runModelGate } from "@/lib/api";
+import { fmtNum, fmtPct, fmtRelTime } from "@/lib/format";
+import { useReducedMotion } from "@/lib/motion";
+import type { ModelGateResult } from "@/lib/types";
+import { useFetch } from "@/lib/use-fetch";
 
-// ── Fixtures ──────────────────────────────────────────────────────────────────
+const F1_THRESHOLD = 0.8;
 
-const FIXTURE_HISTORY: ModelGateHistory = {
-  history: [
-    { run_id: "mg-005", task_id: null, precision: 0.91, recall: 0.88, f1: 0.895, passed: true,  corpus_size: 142, run_at: new Date(Date.now() - 3600000).toISOString() },
-    { run_id: "mg-004", task_id: null, precision: 0.87, recall: 0.84, f1: 0.855, passed: true,  corpus_size: 140, run_at: new Date(Date.now() - 86400000).toISOString() },
-    { run_id: "mg-003", task_id: null, precision: 0.72, recall: 0.69, f1: 0.705, passed: false, corpus_size: 138, run_at: new Date(Date.now() - 172800000).toISOString() },
-    { run_id: "mg-002", task_id: null, precision: 0.84, recall: 0.81, f1: 0.825, passed: true,  corpus_size: 135, run_at: new Date(Date.now() - 259200000).toISOString() },
-    { run_id: "mg-001", task_id: null, precision: 0.79, recall: 0.76, f1: 0.775, passed: true,  corpus_size: 130, run_at: new Date(Date.now() - 432000000).toISOString() },
-  ],
-};
+// ── Demo fixture (backend offline) ────────────────────────────────────────────
+const FIXTURE_HISTORY: ModelGateResult[] = [
+  { run_id: "mg-005", task_id: null, precision: 0.91, recall: 0.88, f1: 0.895, passed: true,  corpus_size: 142, run_at: new Date(Date.now() - 3600000).toISOString() },
+  { run_id: "mg-004", task_id: null, precision: 0.87, recall: 0.84, f1: 0.855, passed: true,  corpus_size: 140, run_at: new Date(Date.now() - 86400000).toISOString() },
+  { run_id: "mg-003", task_id: null, precision: 0.72, recall: 0.69, f1: 0.705, passed: false, corpus_size: 138, run_at: new Date(Date.now() - 172800000).toISOString() },
+  { run_id: "mg-002", task_id: null, precision: 0.84, recall: 0.81, f1: 0.825, passed: true,  corpus_size: 135, run_at: new Date(Date.now() - 259200000).toISOString() },
+  { run_id: "mg-001", task_id: null, precision: 0.79, recall: 0.76, f1: 0.775, passed: true,  corpus_size: 130, run_at: new Date(Date.now() - 432000000).toISOString() },
+];
 
-const FIXTURE_CORPUS: ValidationCorpusStats = {
-  total_corpus_size: 142,
-  by_entity_type: { fact: 68, procedure: 31, asset_spec: 24, regulation_clause: 19 },
-  last_updated_at: new Date(Date.now() - 3600000).toISOString(),
-};
-
-const F1_THRESHOLD = 0.80;
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function MetricBar({ value, label }: { value: number; label: string }) {
-  const pct = Math.round(value * 100);
-  const color = pct >= 85 ? "var(--verified)" : pct >= 75 ? "var(--caution)" : "var(--danger)";
-  return (
-    <div className="flex items-center gap-2">
-      <span className="tabular w-20 shrink-0 text-label text-muted">{label}</span>
-      <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
-        <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
-      <span className="tabular w-10 text-right text-label font-semibold" style={{ color }}>{pct}%</span>
-    </div>
-  );
+/** History rows; live-but-empty stays empty (EmptyState), offline falls back to the fixture. */
+async function fetchHistory(): Promise<Fetched<ModelGateResult[]>> {
+  const res = await getModelGateHistory();
+  const rows = res.data?.history ?? [];
+  if (res.source === "live") return { data: rows, source: "live" };
+  return { data: rows.length > 0 ? rows : FIXTURE_HISTORY, source: "demo" };
 }
 
-function GateRow({ r }: { r: ModelGateResult }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-3 bg-surface">
-      <span className="tabular text-caption text-muted w-28 shrink-0">{relativeTime(r.run_at)}</span>
-      <StatusBadge tone={r.passed ? "verified" : "danger"}>{r.passed ? "passed" : "failed"}</StatusBadge>
-      <div className="flex gap-3 text-caption">
-        <span>P <span className="tabular font-semibold">{(r.precision * 100).toFixed(0)}%</span></span>
-        <span>R <span className="tabular font-semibold">{(r.recall * 100).toFixed(0)}%</span></span>
-        <span>F1 <span className="tabular font-semibold" style={{ color: r.f1 >= F1_THRESHOLD ? "var(--verified)" : "var(--danger)" }}>{(r.f1 * 100).toFixed(0)}%</span></span>
-      </div>
-      <span className="tabular ml-auto text-label text-muted">{r.corpus_size} items</span>
-    </div>
-  );
+/** ModelGateResult re-mapped so it satisfies DataTable's Record constraint. */
+type GateRow = Pick<ModelGateResult, keyof ModelGateResult>;
+
+/** Ratio → 0–100 chart value; bad input → null (recharts draws a gap, never NaN). */
+const pct100 = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? v * 100 : null);
+
+const TREND_SERIES = [
+  { key: "Precision", color: "var(--accent)" },
+  { key: "Recall", color: "var(--info)" },
+  { key: "F1", color: "var(--muted)" },
+] as const;
+
+/** Trend tooltip — all three series plus that run's corpus size in the label. */
+function TrendTip(props: Partial<TooltipContentProps<number | string, string>>) {
+  const row = props.payload?.[0]?.payload as { day?: string; corpus_size?: number } | undefined;
+  const label = row?.day ? `${row.day} · corpus ${fmtNum(row.corpus_size)}` : props.label;
+  return <ChartTooltip {...props} label={label} valueFormat={(v) => `${fmtNum(v, 1)}%`} />;
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+const COLUMNS: TableColumn<GateRow>[] = [
+  { key: "run_at", label: "Run", sortValue: (r) => Date.parse(r.run_at) || 0, render: (r) => <span className="tabular text-muted">{fmtRelTime(r.run_at)}</span> },
+  { key: "precision", label: "Precision", className: "text-right", sortValue: (r) => r.precision ?? -1, render: (r) => <span className="tabular">{fmtPct(r.precision)}</span> },
+  { key: "recall", label: "Recall", className: "text-right", sortValue: (r) => r.recall ?? -1, render: (r) => <span className="tabular">{fmtPct(r.recall)}</span> },
+  { key: "f1", label: "F1", className: "text-right", sortValue: (r) => r.f1 ?? -1, render: (r) => (
+    <span className="tabular font-semibold" style={{ color: r.f1 >= F1_THRESHOLD ? "var(--verified)" : "var(--danger)" }}>{fmtPct(r.f1)}</span>
+  ) },
+  { key: "corpus_size", label: "Corpus", className: "text-right", sortValue: (r) => r.corpus_size ?? -1, render: (r) => <span className="tabular text-muted">{fmtNum(r.corpus_size)}</span> },
+  { key: "passed", label: "Gate", render: (r) => <StatusBadge tone={r.passed ? "verified" : "danger"}>{r.passed ? "passed" : "failed"}</StatusBadge> },
+];
 
 export default function ModelGatePage() {
-  const [history, setHistory] = useState<ModelGateResult[]>([]);
-  const [corpus, setCorpus] = useState<ValidationCorpusStats | null>(null);
-  const [isDemo, setIsDemo] = useState(false);
+  const state = useFetch(fetchHistory);
+  const loading = state.status === "loading";
+  const history = state.status === "live" || state.status === "demo" ? state.data : null;
+  const reduced = useReducedMotion();
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    Promise.all([getModelGateHistory(), getValidationCorpusStats()]).then(([histRes, corpRes]) => {
-      if (!alive) return;
-      const liveHistory = histRes.data?.history ?? [];
-      setHistory(liveHistory.length > 0 ? liveHistory : FIXTURE_HISTORY.history);
-      setCorpus(corpRes.data ?? FIXTURE_CORPUS);
-      setIsDemo(histRes.source === "demo" || liveHistory.length === 0);
-    }).catch(() => {
-      if (!alive) return;
-      setHistory(FIXTURE_HISTORY.history);
-      setCorpus(FIXTURE_CORPUS);
-      setIsDemo(true);
-    });
-    return () => { alive = false; };
-  }, []);
+  // Newest-first — the table's default order (run_at desc); [0] is the latest run.
+  const rows = useMemo(
+    () => (history ? [...history].sort((a, b) => (Date.parse(b.run_at) || 0) - (Date.parse(a.run_at) || 0)) : []),
+    [history],
+  );
+  const latest = rows[0] ?? null;
+  const passedCount = rows.filter((r) => r.passed).length;
+  const passRate = rows.length > 0 ? passedCount / rows.length : null;
+
+  // Oldest-first for the trend axis; capped at 500 points.
+  const trend = useMemo(
+    () => downsample([...rows].reverse().map((r) => ({
+      day: new Date(r.run_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      Precision: pct100(r.precision), Recall: pct100(r.recall), F1: pct100(r.f1), corpus_size: r.corpus_size,
+    }))),
+    [rows],
+  );
 
   async function handleRun() {
     setRunning(true);
@@ -97,13 +105,8 @@ export default function ModelGatePage() {
     }
   }
 
-  const latest = history[0] ?? null;
-  const passRate = history.length
-    ? Math.round((history.filter((r) => r.passed).length / history.length) * 100)
-    : null;
-
   return (
-    <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
+    <div data-testid="model-gate-workspace" className="mx-auto max-w-[1400px]">
       <Link href="/governance" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -111,95 +114,79 @@ export default function ModelGatePage() {
         Governance
       </Link>
 
-      <header className="mt-4 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Layer 12 · Model gate</p>
-          <h1 className="mt-1 text-display font-semibold leading-tight">Model gate</h1>
-          <p className="mt-1 text-body text-muted text-pretty">
-            Precision / recall gate on the validation corpus. A failed run blocks model promotion. Runs are
-            triggered manually or by the nightly Temporal workflow.
-          </p>
-        </div>
-        <button
-          onClick={handleRun}
-          disabled={running}
-          className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-body font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
-          {running ? "Triggering…" : "Run gate now"}
-        </button>
-      </header>
+      <PageHeader
+        className="mt-4"
+        eyebrow="Layer 12 · Model gate"
+        title="Model gate"
+        lede="Precision / recall gate on the validation corpus. A failed run blocks model promotion. Runs are triggered manually or by the nightly Temporal workflow."
+        actions={
+          <>
+            {state.status === "demo" && <DemoChip />}
+            <button
+              onClick={handleRun}
+              disabled={running}
+              className="inline-flex min-h-11 items-center rounded-lg bg-accent px-3.5 text-body font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {running ? "Triggering…" : "Run gate now"}
+            </button>
+          </>
+        }
+      />
 
       {runError && <p className="mt-2 text-caption text-danger">{runError}</p>}
 
-      {isDemo && <DemoChip />}
-
-      {/* KPI row */}
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-line bg-surface p-3.5">
-          <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Latest F1</p>
-          <p className="tabular mt-1.5 text-display font-semibold leading-none" style={{ color: latest ? (latest.f1 >= F1_THRESHOLD ? "var(--verified)" : "var(--danger)") : "var(--muted)" }}>
-            {latest ? `${(latest.f1 * 100).toFixed(0)}%` : "—"}
-          </p>
-        </div>
-        <div className="rounded-xl border border-line bg-surface p-3.5">
-          <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Pass rate</p>
-          <p className="tabular mt-1.5 text-display font-semibold leading-none text-ink">{passRate !== null ? `${passRate}%` : "—"}</p>
-        </div>
-        <div className="rounded-xl border border-line bg-surface p-3.5">
-          <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Corpus size</p>
-          <p className="tabular mt-1.5 text-display font-semibold leading-none text-ink">{corpus?.total_corpus_size ?? "—"}</p>
-        </div>
-        <div className="rounded-xl border border-line bg-surface p-3.5">
-          <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Threshold</p>
-          <p className="tabular mt-1.5 text-display font-semibold leading-none text-muted">{Math.round(F1_THRESHOLD * 100)}%</p>
-        </div>
-      </div>
-
-      {/* Latest run metrics */}
-      {latest && (
-        <section className="mt-5 rounded-xl border border-line bg-surface p-4">
-          <p className="text-label font-bold uppercase tracking-[0.1em] text-muted">Latest run · {relativeTime(latest.run_at)}</p>
-          <div className="mt-3 space-y-2.5">
-            <MetricBar value={latest.precision} label="Precision" />
-            <MetricBar value={latest.recall} label="Recall" />
-            <MetricBar value={latest.f1} label="F1" />
-          </div>
+      {state.status === "error" ? (
+        <section data-testid="model-gate-error" className="mt-6 rounded-xl border border-line bg-surface p-8 text-center">
+          <p className="text-body font-medium text-ink">Couldn&apos;t load gate history.</p>
+          <p className="mt-1 text-caption text-muted">{state.error.message}</p>
+          <button type="button" onClick={state.retry} className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-line bg-surface-2 px-4 text-caption font-medium text-ink transition-colors hover:bg-canvas">
+            Retry
+          </button>
         </section>
-      )}
-
-      {/* Run history */}
-      {history.length > 0 && (
-        <section className="mt-5">
-          <h2 className="mb-2 text-label font-bold uppercase tracking-[0.1em] text-muted">Run history</h2>
-          <div className="overflow-hidden rounded-xl border border-line divide-y divide-line">
-            {history.map((r) => <GateRow key={r.run_id} r={r} />)}
+      ) : (
+        <>
+          {/* KPI strip — latest run quality + pass rate across history */}
+          <div data-testid="model-gate-summary" className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="Precision" value={fmtPct(latest?.precision)} sub="latest run" tone="accent" loading={loading} />
+            <MetricCard label="Recall" value={fmtPct(latest?.recall)} sub="latest run" tone="info" loading={loading} />
+            <MetricCard label="F1" value={fmtPct(latest?.f1)} sub={`gate threshold ${fmtPct(F1_THRESHOLD)}`} tone="neutral" loading={loading} />
+            <MetricCard label="Pass rate" value={fmtPct(passRate)} sub={`${passedCount} of ${rows.length} runs`} tone={passRate === null ? "neutral" : passRate >= F1_THRESHOLD ? "verified" : "danger"} loading={loading} />
           </div>
-        </section>
-      )}
 
-      {/* Validation corpus */}
-      {corpus && (
-        <section className="mt-5">
-          <h2 className="mb-2 text-label font-bold uppercase tracking-[0.1em] text-muted">
-            Validation corpus · {corpus.total_corpus_size} items
-            {corpus.last_updated_at && ` · updated ${relativeTime(corpus.last_updated_at)}`}
-          </h2>
-          <div className="rounded-xl border border-line bg-surface p-4">
-            <p className="mb-2.5 text-label font-semibold text-muted">By entity type</p>
-            {Object.keys(corpus.by_entity_type ?? {}).length === 0 ? (
-              <p className="text-caption text-muted">No validation corpus entries yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {Object.entries(corpus.by_entity_type).map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between text-caption">
-                    <span className="capitalize text-ink">{k.replace(/_/g, " ")}</span>
-                    <span className="tabular font-semibold text-muted">{v}</span>
-                  </div>
+          {/* Pass mix + quality trend — asymmetric 2fr/3fr split */}
+          <div data-testid="model-gate-layout" className="mt-5 grid items-start gap-6 lg:grid-cols-[2fr_3fr]">
+            <ChartContainer title="Pass mix" sub="All recorded runs" height={240} collapsible loading={loading} empty={rows.length === 0 ? "No gate runs yet." : undefined}>
+              <PieChart>
+                <Pie data={[{ name: "Passed", value: passedCount }, { name: "Failed", value: rows.length - passedCount }]} dataKey="value" nameKey="name" cy="45%" innerRadius={60} outerRadius={90} paddingAngle={2} stroke="none" isAnimationActive={!reduced}>
+                  <Cell fill="var(--verified)" />
+                  <Cell fill="var(--danger)" />
+                </Pie>
+                <text x="50%" y="45%" dy={-4} textAnchor="middle" dominantBaseline="middle" className="tabular" style={{ fill: "var(--ink)", fontSize: 22, fontWeight: 600 }}>{rows.length}</text>
+                <text x="50%" y="45%" dy={16} textAnchor="middle" dominantBaseline="middle" style={{ fill: "var(--muted)", fontSize: 11 }}>runs</text>
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--muted)" }} />
+                <Tooltip content={<ChartTooltip />} />
+              </PieChart>
+            </ChartContainer>
+            <ChartContainer title="Quality trend" sub="Precision / recall / F1 per run" height={240} collapsible loading={loading} empty={rows.length === 0 ? "No gate runs yet." : undefined}>
+              <LineChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid {...GRID} />
+                <XAxis dataKey="day" {...AXIS} minTickGap={24} />
+                <YAxis {...AXIS} width={44} domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} />
+                <Tooltip content={<TrendTip />} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--muted)" }} />
+                {TREND_SERIES.map((s) => (
+                  <Line key={s.key} type="monotone" dataKey={s.key} stroke={s.color} strokeWidth={2} dot={trend.length < 3} isAnimationActive={!reduced} />
                 ))}
-              </div>
-            )}
+              </LineChart>
+            </ChartContainer>
           </div>
-        </section>
+
+          {/* Full run history */}
+          <section data-testid="model-gate-history" className="mt-5">
+            <h2 className="mb-3 text-label font-bold uppercase tracking-[0.1em] text-muted">Run history</h2>
+            <DataTable<GateRow> columns={COLUMNS} rows={rows} keyFn={(r) => r.run_id} pageSize={25} loading={loading} emptyState={<EmptyState message="No gate runs yet." />} />
+          </section>
+        </>
       )}
     </div>
   );
