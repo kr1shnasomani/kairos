@@ -30,21 +30,29 @@ All services run as Docker containers. Start with `make dev` (or `docker compose
 | `kairos-temporal-activity-worker` | Python 3.12 (local build) | — | Temporal activity worker (document pipeline) |
 | `kairos-elicitation-worker` | Python 3.12 (local build) | — | Temporal worker (elicitation workflows) |
 | `kairos-backend-go` | Go 1.22 | `8090` | OT historian + EAM connector |
-| `kairos-neo4j` | neo4j:5.20-community | `7474`, `7687` | Temporal knowledge graph |
-| `kairos-qdrant` | qdrant:v1.9.4 | `6333`, `6334` | Vector store (1024-dim embeddings) |
-| `kairos-elasticsearch` | elasticsearch:8.13.4 | `9200` | Full-text search |
+| `kairos-neo4j` | neo4j:5.20-community | `7474`, `7687` | Temporal knowledge graph — **CLOUD (Neo4j Aura) by default**; local container is profile-gated (`--profile local-stores`) |
+| `kairos-qdrant` | qdrant:v1.9.4 | `6333`, `6334` | Vector store — **CLOUD (Qdrant Cloud) by default**; local container is profile-gated |
+| `kairos-elasticsearch` | elasticsearch:8.13.4 | `9200` | Full-text search (local container) |
 | `kairos-redis` | redis:7.2-alpine | `6379` | Cache + event streams + Celery broker |
 | `kairos-temporal` | temporalio/auto-setup:1.24.2 | `7233` | Durable workflow engine |
 | `kairos-temporal_ui` | temporalio/ui:2.26.2 | `8088` | Temporal dashboard |
 | `kairos-temporal_postgres` | postgres:14-alpine | — | Temporal internal DB |
-| `kairos-otel-collector` | otelcol-contrib:0.102.0 | `4317`, `4318`, `8889` | OTEL collector |
-| `kairos-tempo` | grafana/tempo:2.4.1 | `3200` | Distributed trace backend |
-| `kairos-grafana` | grafana:11.0.0 | `3001` | Dashboards |
 | `kairos-opa` | openpolicyagent/opa:0.65.0 | `8181` | Policy enforcement |
 
+> **Observability is CLOUD (Grafana Cloud).** The former local `kairos-otel-collector`, `kairos-tempo`,
+> and `kairos-grafana` containers were **removed** — the backend exports traces/metrics directly to the
+> Grafana Cloud OTLP gateway (`OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_EXPORTER_OTLP_HEADERS` in `.env`).
+> Setup lives in `api/middleware/telemetry.py` (HTTP OTLP exporter, URL-decodes the auth header, appends
+> `/v1/traces` · `/v1/metrics`). No-op if the endpoint is unset.
+
+> **Cloud stores:** **Neo4j (Aura)**, **Qdrant Cloud**, and **Supabase** (Postgres + Storage + Auth +
+> Vault) are cloud services, not containers — credentials live in `.env` only. The `kairos-neo4j` and
+> `kairos-qdrant` containers above **do not start by default**; `docker compose --profile local-stores up`
+> brings them back for offline dev / running the test suite without touching cloud data. Point
+> `NEO4J_URI` / `QDRANT_URL` at them to use them.
+>
 > **Run modes & networks:** the stack is split into a production-safe base
 > (`docker-compose.yml`) + an auto-loaded dev override (`docker-compose.override.yml`).
-> Secrets/signing use **cloud Supabase Vault** — there is no local Vault container.
 > Full build/run/AWS details: [`DOCKER.md`](./DOCKER.md).
 
 ---
@@ -57,10 +65,9 @@ All services run as Docker containers. Start with `make dev` (or `docker compose
 | FastAPI docs | http://localhost:8000/docs |
 | FastAPI health | http://localhost:8000/health/detailed |
 | Temporal UI | http://localhost:8088 |
-| Neo4j Browser | http://localhost:7474 |
-| Qdrant Dashboard | http://localhost:6333/dashboard |
-| Grafana | http://localhost:3001 |
-| Tempo | http://localhost:3200/ready |
+| Neo4j Browser | Aura console (cloud) — or http://localhost:7474 with `--profile local-stores` |
+| Qdrant Dashboard | Qdrant Cloud console — or http://localhost:6333/dashboard with `--profile local-stores` |
+| Grafana / Tempo | Grafana Cloud (hosted — traces + dashboards) |
 | OPA | http://localhost:8181/health |
 | Go Connector | http://localhost:8090/health |
 
@@ -121,12 +128,13 @@ Created on startup by `SearchEngineService.ensure_indices()`.
 
 ```
 FastAPI API
-  → (OTLP gRPC 4317)
-  → kairos-otel-collector
-    → traces → kairos-tempo (port 3200)
-    → metrics → Prometheus endpoint (:8889)
-              → kairos-grafana
+  → OTLP/HTTP (api/middleware/telemetry.py)
+  → Grafana Cloud OTLP gateway  (OTEL_EXPORTER_OTLP_ENDPOINT + Authorization header, both in .env)
+    → traces + metrics, viewed in the hosted Grafana Cloud UI
 ```
+
+Endpoints are derived as `<endpoint>/v1/traces` and `<endpoint>/v1/metrics`; the auth header is
+URL-decoded (`%20` → space) before use. The whole block no-ops if `OTEL_EXPORTER_OTLP_ENDPOINT` is unset.
 
 **FastAPI auto-instrumentation:** `FastAPIInstrumentor`, `RedisInstrumentor`, `HTTPXClientInstrumentor`.
 
@@ -145,26 +153,28 @@ All exported at `http://localhost:8889/metrics`.
 
 ## 7. Grafana Dashboards
 
-**URL:** `http://localhost:3001` | **Credentials:** `admin / kairos_dev_password`
+**Hosted on Grafana Cloud.** Traces + metrics are exported via OTLP (see §6); view them in your
+Grafana Cloud instance. (Pre-cloud, dashboards ran in a local `kairos-grafana` container at `:3001`.)
 
 | Dashboard | UID | Panels |
 |-----------|-----|--------|
 | KAIROS — Ingestion Pipeline | `kairos-ingestion` | 6 panels: docs/hr, p50/p95 duration, ingest rate, type breakdown, request rate, error rate |
 | KAIROS — Operational Intelligence | `kairos-operational` | 9 panels: briefs/hr, governor suppression, open conflicts, suppression rate, briefs over time, briefs by priority, conflicts by track, governor per-user, traces explorer |
 
-Dashboard JSON + datasource provisioning: `infra/grafana/provisioning/`.
+The two dashboard JSONs (`infra/grafana/provisioning/dashboards/*.json`) are portable — **import them
+into Grafana Cloud** to recreate these dashboards there.
 
 ---
 
 ## 8. Infra Config Files
 
-| Path | Purpose |
-|------|---------|
-| `infra/grafana/provisioning/` | Grafana datasources + dashboard JSON |
-| `infra/otel/otel-config.yaml` | OTEL collector pipeline config |
-| `infra/policies/kairos.rego` | OPA RBAC rules |
-| `infra/tempo/tempo.yaml` | Grafana Tempo config |
-| `infra/temporal/dynamicconfig.yaml` | Temporal server dynamic config |
+| Path | Purpose | Status |
+|------|---------|--------|
+| `infra/policies/kairos.rego` | OPA RBAC rules | **Active** (mounted by `kairos-opa`) |
+| `infra/temporal/dynamicconfig.yaml` | Temporal server dynamic config | **Active** (mounted by `kairos-temporal`) |
+| `infra/caddy/Caddyfile` | HTTPS reverse proxy (prod) | **Active** under `--profile prod` |
+| `infra/grafana/provisioning/dashboards/*.json` | Grafana dashboard definitions | **Legacy** — not mounted (obs is Grafana Cloud); **keep** — importable into Grafana Cloud |
+| `infra/grafana/provisioning/datasources/`, `infra/otel/otel-config.yaml`, `infra/tempo/tempo.yaml` | Local Grafana/OTEL-collector/Tempo configs | **Dead** — their containers were removed; no runtime use |
 | `docker-compose.yml` | All service definitions, volumes, networks |
 | `backend/.dockerignore` | Strips `__pycache__`, `.pyc`, `.pytest_cache`, `connectors/` from backend build context. Keeps `tests/` + `scripts/` (run inside container). |
 | `backend/connectors/.dockerignore` | Strips Go test artifacts and vendor dir from the Go build context. |

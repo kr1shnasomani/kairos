@@ -88,7 +88,6 @@ services:
     environment:
       <<: *backend-env
       PYTHONPATH: /app
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://kairos-otel-collector:4317
       OT_CONNECTOR_URL: http://kairos-backend-go:8090
     env_file: [.env]
     volumes:
@@ -415,65 +414,7 @@ services:
         limits:
           memory: 256m
 
-  # ===========================================================================
-  # Observability — OTEL Collector → Tempo (traces) + Prometheus endpoint
-  # ===========================================================================
-  kairos-otel-collector:
-    <<: *svc
-    image: otel/opentelemetry-collector-contrib:0.102.0
-    container_name: kairos-otel-collector
-    volumes:
-      - ./infra/otel/otel-config.yaml:/etc/otelcol-contrib/config.yaml:ro
-    depends_on:
-      - kairos-tempo
-    networks: [internal]
-    deploy:
-      resources:
-        limits:
-          memory: 512m
 
-  kairos-tempo:
-    <<: *svc
-    image: grafana/tempo:2.4.1
-    container_name: kairos-tempo
-    command: ["-config.file=/etc/tempo.yaml"]
-    volumes:
-      - ./infra/tempo/tempo.yaml:/etc/tempo.yaml:ro
-      - kairos-tempo_data:/var/tempo
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3200/ready"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    networks: [internal]
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-
-  kairos-grafana:
-    <<: *svc
-    image: grafana/grafana:11.0.0
-    container_name: kairos-grafana
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-kairos_dev_password}"
-      GF_USERS_ALLOW_SIGN_UP: "false"
-    volumes:
-      - kairos-grafana_data:/var/lib/grafana
-      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
-    depends_on:
-      - kairos-tempo
-      - kairos-otel-collector
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-    networks: [internal]
-    deploy:
-      resources:
-        limits:
-          memory: 512m
 
   # ===========================================================================
   # HTTPS reverse proxy — prod/AWS only (auto-TLS via Let's Encrypt).
@@ -523,7 +464,5 @@ volumes:
   kairos-elasticsearch_data:
   kairos-redis_data:
   kairos-temporal_postgres_data:
-  kairos-tempo_data:
-  kairos-grafana_data:
   kairos-caddy_data:      # Let's Encrypt certs — persist so restarts don't re-provision (rate limits)
   kairos-caddy_config:

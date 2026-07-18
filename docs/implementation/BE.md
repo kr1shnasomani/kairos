@@ -263,7 +263,7 @@ The task breakdown that follows records the objective, endpoints, and verificati
   1. **Ingestion Pipeline** — documents ingested/hour, OCR confidence distribution, NER entity count, pipeline stage breakdown
   2. **Operational Intelligence** — briefs delivered/hour, governor suppression rate, open conflicts by track, compliance gap count by severity
 
-**Test:** Run `make dev`, ingest 3 documents, deliver 2 briefs, open Grafana at `localhost:3001`, verify both dashboards have live data.
+**Test:** Run `make dev`, ingest 3 documents, deliver 2 briefs, verify traces + metrics appear in Grafana Cloud.
 
 ---
 

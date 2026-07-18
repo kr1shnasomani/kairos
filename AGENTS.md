@@ -76,11 +76,15 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 
 ## Stack
 
-**Backend:** FastAPI (Python 3.12) · Neo4j 5.20 · Qdrant · ES 8.13 · Redis 7.2 · Temporal · Celery · Go (Gin) · OPA · OTEL → Grafana · Supabase (Postgres + Storage + Auth + Vault)  
+**Backend:** FastAPI (Python 3.12) · **Neo4j Aura (cloud)** · **Qdrant Cloud** · ES 8.13 · Redis 7.2 · Temporal · Celery · Go (Gin) · OPA · **OTEL → Grafana Cloud** · Supabase (Postgres + Storage + Auth + Vault)  
 **Frontend:** Next.js 16 · React 19 · Tailwind CSS **v4** (not v3) · TypeScript strict · `node:20-alpine`  
 **Models (cloud only — no local packages):** LLM → NIM `meta/llama-3.1-70b-instruct` | NER → NIM `mistralai/ministral-14b-instruct-2512` | OCR → NIM `nvidia/nemotron-ocr-v2` | Embed → Jina `jina-embeddings-v3` | STT → Groq `whisper-large-v3` — all names in `.env`
 
-**Ports:** API `8000` · Frontend `3000` · Neo4j `7474/7687` · Qdrant `6333` · ES `9200` · Redis `6379` · Temporal `7233/8088` · Grafana `3001`
+> **Cloud stores:** Neo4j (Aura), Qdrant (Cloud), Supabase, and Grafana (Cloud observability) are cloud
+> services — creds in `.env` only. Local Neo4j/Qdrant containers are profile-gated (`--profile local-stores`);
+> the Grafana/Tempo/OTEL-collector containers were removed. ES · Redis · Temporal · OPA · Go stay local.
+
+**Ports (local containers):** API `8000` · Frontend `3000` · ES `9200` · Redis `6379` · Temporal `7233/8088` · OPA `8181` · Go `8090` · (Neo4j `7474/7687` + Qdrant `6333` only under `--profile local-stores`)
 
 ---
 
@@ -185,5 +189,5 @@ Gotcha rebuilds: `docker compose up -d --no-deps --build kairos-frontend` (new n
 - **Supabase MCP** (`mcp__claude_ai_Supabase__*`) — SQL, migrations, table inspection. Prefer over `docker exec`.
 
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
-**Tests:** ~166 passed · 3 skipped · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER span-overlap matcher) · self-cleans on teardown · CI: `frontend.yml` (tsc·eslint·build·audit) **green**; `tests.yml` needs 7 secrets (deferred) · Package: `ghcr.io/kr1shnasomani/kairos`  
+**Tests:** ~175 passed · 3 skipped · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER span-overlap matcher) · self-cleans on teardown · CI: `frontend.yml` (tsc·eslint·build·audit) **green**; `tests.yml` needs 7 secrets (deferred) · Package: `ghcr.io/kr1shnasomani/kairos`  
 **Release:** `git tag v{version} && git push origin v{version}` · 7 secrets needed in `tests.yml` (deferred)

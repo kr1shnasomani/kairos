@@ -91,12 +91,13 @@ kairos/                          # repo root
 │   └── neo4j/init_schema.cypher # Neo4j constraints + indices
 ├── fixtures/                    # Shared mock data (mounted into Python containers)
 │   └── pid_topology_mock.json
-├── infra/                       # Infrastructure configs (one dir per service)
-│   ├── grafana/provisioning/    # Grafana datasources + dashboards
-│   ├── otel/otel-config.yaml    # OTEL collector config
-│   ├── policies/kairos.rego     # OPA RBAC rules
-│   ├── tempo/tempo.yaml         # Grafana Tempo config
-│   └── temporal/dynamicconfig.yaml
+├── infra/                       # Infrastructure configs
+│   ├── policies/kairos.rego     # OPA RBAC rules (active — mounted by kairos-opa)
+│   ├── temporal/dynamicconfig.yaml  # Temporal server config (active)
+│   ├── caddy/Caddyfile          # HTTPS reverse proxy (active under --profile prod)
+│   ├── grafana/provisioning/    # LEGACY — obs is Grafana Cloud now; dashboard JSONs kept (importable)
+│   ├── otel/otel-config.yaml    # DEAD — otel-collector container removed
+│   └── tempo/tempo.yaml         # DEAD — tempo container removed
 ├── frontend/                    # Next.js UI (separate Docker build context)
 └── tests/                       # Pytest test suite (mounted into backend-api)
 ```

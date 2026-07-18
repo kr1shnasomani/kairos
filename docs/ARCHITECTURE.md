@@ -450,8 +450,8 @@ Cross-site pattern detection requires knowledge to flow from local data planes t
 |-------|------|-------|
 | Document vault | **Supabase Storage** | S3-compatible, free tier, stores all original files immutably |
 | Relational DB | **Supabase PostgreSQL** | Auth, workflows, review queues, audit logs — all in one |
-| Knowledge graph | **Neo4j 5.20 Community** | Docker (`kairos-neo4j`), property graph with Cypher query support |
-| Vector search | **Qdrant** | Docker (`kairos-qdrant`), payload filtering handles keyword needs alongside semantic search |
+| Knowledge graph | **Neo4j 5.20** | Cloud (Neo4j Aura); property graph with Cypher. Local `kairos-neo4j` profile-gated for dev/test |
+| Vector search | **Qdrant** | Cloud (Qdrant Cloud); payload filtering handles keyword needs alongside semantic search. Local `kairos-qdrant` profile-gated |
 | Exact search | **Elasticsearch** (Docker) | Tag numbers, clause references, document ID lookup |
 | Cache | **Redis** (Docker) | Hot asset views, brief delivery, event streaming via Redis Streams |
 

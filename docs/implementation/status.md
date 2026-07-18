@@ -1,8 +1,9 @@
 # KAIROS — Implementation Status
 
 > **Single source of truth for what is built.** Verified against the codebase
-> 2026-07-12. Other docs describe *how* each part works; this file is the only
-> place that tracks *completion status*.
+> 2026-07-18. Other docs describe *how* each part works; this file is the only
+> place that tracks *completion status* — including the **[Pending](#pending--deployment-ops--polish-as-of-2026-07-18)**
+> deployment/ops/polish list.
 >
 > Legend: ✅ **Live** (real, end-to-end) · 🟨 **Live on mock input** (real logic,
 > fed by mock data **by design** — see below) · 🟦 **Mocked by design** (final).
@@ -11,7 +12,9 @@
 
 ## Headline
 
-**All 13 architecture layers are implemented. Nothing is pending.**
+**All 13 architecture layers are implemented — the *product* is complete.** What remains is
+**deployment, ops, and optional polish** (public hosting, manual E2E, security hardening) —
+tracked in [Pending](#pending--deployment-ops--polish-as-of-2026-07-18) below.
 
 KAIROS has **no connection to a live industrial plant** (no OSIsoft PI historian,
 no SAP/Maximo EAM, single-site). Those integration points therefore run on
@@ -73,9 +76,42 @@ None of these block the platform; it is fully functional without them.
 
 ---
 
-## Verification snapshot (2026-07-12)
+## Pending — deployment, ops & polish (as of 2026-07-18)
 
-- Backend test suite: **160/161 pass** (1 transient NIM-POST timeout in-sandbox; passes when run alone).
-- P&ID Path B: live-validated on `dataset/02_Document_Corpus/pid_line3_isolation_boundary.png` (real title + tags extracted).
-- All 17 containers healthy; backend image 986 MB.
+> **The product (all 13 layers) is complete.** These are **operational / hosting / polish** tasks that
+> remain to get a public demo live and hardened — not product-completeness gaps. Tracked here so nothing
+> is lost.
+
+### Deployment (critical path — nothing is publicly live yet)
+- [ ] **Deploy the backend** to an EC2 box: `docker compose -f docker-compose.yml --profile prod up` with **Caddy** for HTTPS. *(The Vercel-hosted frontend is non-functional until this exists.)*
+- [ ] **Set prod env** on the box: `APP_ENV=production` (activates the fail-closed secret guardrail) + real `INTERNAL_API_KEY`, `NEO4J_PASSWORD`, `APP_SECRET_KEY` in `.env`.
+- [ ] **Wire the frontend → backend:** set `NEXT_PUBLIC_API_URL` (Vercel or the box) + add that origin to backend `CORS_ORIGINS`. *(Alternative: serve the frontend from the same EC2 box via Caddy — same-origin, no CORS.)*
+- [ ] **Neo4j Aura keep-alive:** cron-job.org (daily) → `/health/detailed`, so Aura doesn't pause after 3 days idle.
+- [ ] **AWS billing alarm (~$30)** so the $120 credit isn't overrun.
+
+### Security
+- [ ] **Triage Dependabot alerts** — GitHub flagged 79 (10 critical) on last push; review the criticals.
+- [ ] **Add CodeQL** workflow once the repo is public.
+
+### Testing
+- [ ] **Manual end-to-end walkthrough** — click every page as `admin`, then as `field_worker` to confirm the role gate redirects. (Guide: FRONTEND.md navigation + this file.)
+- [ ] **Test-suite hygiene:** run the write-heavy suite ONLY against `--profile local-stores` or in CI — never against cloud (the teardown purge is unreliable on cloud Supabase and pollutes the golden data). Optionally add the 7 secrets `tests.yml` needs.
+
+### Frontend polish (optional)
+- [ ] **Friendly copilot shell** — warm greeting + "what can you do?" handling + suggestion chips (keeps the governed-RAG core; only improves the conversational wrapper).
+- [ ] **Verify the safety-critical RefusalCard** live in the UI.
+
+### Housekeeping (optional)
+- [ ] **Import the 2 Grafana dashboard JSONs** (`infra/grafana/provisioning/dashboards/*.json`) into Grafana Cloud so hosted dashboards match what was built.
+- [ ] **Decide on the 4 dead infra configs** (`infra/otel`, `infra/tempo`, grafana datasources/provisioning) — delete for a clean tree or keep as a record (labeled in INFRA.md §8 either way).
+- [ ] **CI gating** (fail a PR on retrieval/provenance/layer regression) — deferred; only the deterministic metrics are safe to gate.
+
+---
+
+## Verification snapshot (2026-07-18)
+
+- Backend test suite: **~175 passed · 3 skipped** (1 transient flake; passes in isolation). Frontend: **124 passed**.
+- Benchmark (cloud stores): retrieval **25/25**, answer **23/25**, provenance **25/25**, entity-F1 **~0.96**.
+- P&ID Path B: live-validated on `dataset/02_Document_Corpus/pid_line3_isolation_boundary.png`.
+- **Cloud stores:** Neo4j Aura + Qdrant Cloud + Supabase + Grafana Cloud (observability). Default local stack ≈ 13 containers (neo4j/qdrant/grafana/tempo/otel offloaded); ~2–3 GB idle RAM.
 - Auth verified-token cache: ~577 ms/request saved (revocation preserved, ≤ TTL staleness).

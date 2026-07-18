@@ -130,10 +130,10 @@ KAIROS is a 13-layer platform spanning perception, knowledge modelling, retrieva
 | Layer | Technology |
 |---|---|
 | **Backend** | FastAPI (Python 3.12), Temporal (durable workflows), Celery (task queues), Go (Gin) OT connectors |
-| **Datastores** | Neo4j (graph), Qdrant (vector), Elasticsearch (exact), Redis (streams/cache), Supabase (Postgres · Auth · Storage) |
+| **Datastores** | Neo4j Aura (graph, cloud), Qdrant Cloud (vector), Elasticsearch (exact), Redis (streams/cache), Supabase (Postgres · Auth · Storage · Vault) |
 | **AI models** | NVIDIA NIM (LLM · NER · OCR), Groq Whisper (STT), Jina (embeddings). These are cloud-only, no local model weights |
 | **Frontend** | Next.js 16, React 19, Tailwind CSS v4, TypeScript (strict) |
-| **Platform** | Docker Compose, OPA (authz), Vault (secrets), OpenTelemetry → Grafana / Prometheus / Tempo |
+| **Platform** | Docker Compose, OPA (authz), Supabase Vault (secrets), OpenTelemetry → Grafana Cloud (traces + metrics) |
 
 ## Quick Start
 
@@ -169,11 +169,14 @@ To reset to a clean, deterministic state at any time: `make nuke && make dev && 
 |---|---|---|
 | **Frontend** | [localhost:3000](http://localhost:3000) | see demo users below |
 | **API docs (FastAPI)** | [localhost:8000/docs](http://localhost:8000/docs) | — |
-| **Neo4j Browser** | [localhost:7474](http://localhost:7474) | `neo4j` / `kairos_dev_password` |
-| **Qdrant Dashboard** | [localhost:6333/dashboard](http://localhost:6333/dashboard) | — |
 | **Temporal UI** | [localhost:8088](http://localhost:8088) | — |
-| **Grafana** | [localhost:3001](http://localhost:3001) | `admin` / `kairos_dev_password` |
-| **Vault UI** | [localhost:8200](http://localhost:8200) | Token: `kairos-dev-root-token` |
+| **Neo4j** | Neo4j Aura console (cloud) | — |
+| **Qdrant** | Qdrant Cloud console | — |
+| **Grafana** | Grafana Cloud (hosted dashboards) | — |
+
+> Neo4j, Qdrant, and Grafana are **cloud** services (credentials in `.env`). The local Neo4j/Qdrant
+> containers only run with `docker compose --profile local-stores up` (`:7474` / `:6333`). Secrets use
+> Supabase Vault — there is no local Vault container.
 
 **Demo users** (seeded by `make seed`, pre-fillable on the login screen):
 
@@ -196,7 +199,7 @@ kairos/
 ├── db/                 # Neo4j Cypher schema · consolidated Supabase schema · maintenance SQL
 ├── docs/               # Product & technical documentation (this folder)
 ├── fixtures/           # Shared mock data (P&ID topology, EAM assets)
-├── infra/              # Grafana · OPA · OTEL · Tempo · Temporal configs
+├── infra/              # Caddy (HTTPS) · OPA policies · Temporal config (observability now Grafana Cloud)
 ├── tests/              # Integration test suite (self-cleaning)
 ├── docker-compose.yml  # Full local infrastructure
 ├── Makefile            # Project lifecycle commands

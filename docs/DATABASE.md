@@ -2,13 +2,17 @@
 
 Four persistence systems, each with a distinct responsibility. No system is interchangeable with another.
 
-| System | Role | Port |
+| System | Role | Hosting |
 |--------|------|------|
-| **Neo4j 5.20** | Temporal Reality Graph — the knowledge authority | `7474` (HTTP) · `7687` (Bolt) |
-| **Supabase (PostgreSQL 15)** | Relational backbone — events, briefs, governance, auth | managed |
-| **Qdrant v1.9.4** | Vector store — semantic search over extracted knowledge | `6333` (REST) · `6334` (gRPC) |
-| **Elasticsearch 8.13** | Full-text exact search — keyword, tag, document retrieval | `9200` |
-| **Redis 7.2** | Event streams · EEMUA governor · Celery broker · dedup cache | `6379` |
+| **Neo4j 5.20** | Temporal Reality Graph — the knowledge authority | **Cloud (Neo4j Aura)** · local `7474`/`7687` only with `--profile local-stores` |
+| **Supabase (PostgreSQL 15)** | Relational backbone — events, briefs, governance, auth | **Cloud (managed)** |
+| **Qdrant v1.9.4** | Vector store — semantic search over extracted knowledge | **Cloud (Qdrant Cloud)** · local `6333`/`6334` only with `--profile local-stores` |
+| **Elasticsearch 8.13** | Full-text exact search — keyword, tag, document retrieval | Local container · `9200` |
+| **Redis 7.2** | Event streams · EEMUA governor · Celery broker · dedup cache | Local container · `6379` |
+
+> **Aura note:** the Neo4j database is named after the instance (e.g. `2016aa75`), **not** `neo4j` — always
+> open sessions with `database=settings.NEO4J_DATABASE`. Cloud Qdrant **requires payload indexes** on any
+> filter field (`asset_id`, `document_id`, `is_quarantine`) — `init_qdrant.py` creates them.
 
 ---
 

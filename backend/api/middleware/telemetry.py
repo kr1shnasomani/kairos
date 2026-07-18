@@ -6,8 +6,8 @@ Sets up tracing and metrics for FastAPI, Redis, and HTTPX.
 import structlog
 from fastapi import FastAPI
 from opentelemetry import metrics, trace
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
@@ -20,10 +20,33 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 log = structlog.get_logger(__name__)
 
 
+def _parse_otlp_headers(raw: str) -> dict[str, str]:
+    """Parse OTEL_EXPORTER_OTLP_HEADERS string into a dict.
+    Accepts both `Key=Value,Key2=Value2` and `Key=Value` (single) formats,
+    and URL-decodes percent-encoded values (e.g. %20 → space)."""
+    import urllib.parse
+    headers: dict[str, str] = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if "=" in pair:
+            k, _, v = pair.partition("=")
+            headers[k.strip()] = urllib.parse.unquote(v.strip())
+    return headers
+
+
 def setup_telemetry(app: FastAPI) -> None:
     """Configure OpenTelemetry tracing and metrics. No-op if OTEL endpoint is unreachable."""
     try:
+        import os
         from api.config import settings
+
+        endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT
+        raw_headers = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
+        headers = _parse_otlp_headers(raw_headers) if raw_headers else {}
+
+        # Grafana Cloud OTLP gateway uses sub-paths for each signal
+        traces_endpoint = endpoint.rstrip("/") + "/v1/traces"
+        metrics_endpoint = endpoint.rstrip("/") + "/v1/metrics"
 
         resource = Resource.create({
             "service.name": settings.OTEL_SERVICE_NAME,
@@ -35,8 +58,8 @@ def setup_telemetry(app: FastAPI) -> None:
         tracer_provider = TracerProvider(resource=resource)
         tracer_provider.add_span_processor(
             BatchSpanProcessor(OTLPSpanExporter(
-                endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
-                insecure=True,
+                endpoint=traces_endpoint,
+                headers=headers,
             ))
         )
         trace.set_tracer_provider(tracer_provider)
@@ -44,8 +67,8 @@ def setup_telemetry(app: FastAPI) -> None:
         # --- Metrics ---
         metric_reader = PeriodicExportingMetricReader(
             OTLPMetricExporter(
-                endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
-                insecure=True,
+                endpoint=metrics_endpoint,
+                headers=headers,
             ),
             export_interval_millis=15_000,
         )
@@ -57,6 +80,6 @@ def setup_telemetry(app: FastAPI) -> None:
         RedisInstrumentor().instrument(tracer_provider=tracer_provider)
         HTTPXClientInstrumentor().instrument(tracer_provider=tracer_provider)
 
-        log.info("telemetry.setup", endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT)
+        log.info("telemetry.setup", endpoint=endpoint, headers_keys=list(headers.keys()))
     except Exception as e:
         log.warning("telemetry.setup_failed", error=str(e), reason="OTEL collector may not be running")

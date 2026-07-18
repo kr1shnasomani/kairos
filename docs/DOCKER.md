@@ -14,10 +14,14 @@ managed cloud services**:
 
 | Runs as a container (local / on the AWS box) | Managed cloud service (NOT a container) |
 |---|---|
-| Frontend, API, Celery + Temporal workers, Go connector | **Supabase** — Postgres DB |
-| Neo4j, Qdrant, Elasticsearch, Redis | **Supabase** — Storage (the evidence vault, bucket `kairos-vault`) |
-| Temporal (+ its own Postgres), Temporal UI | **Supabase** — Auth (JWT) |
-| OPA, OTEL Collector, Tempo, Grafana | **Supabase** — Vault (secrets) |
+| Frontend, API, Celery + Temporal workers, Go connector | **Supabase** — Postgres DB · Storage (vault, bucket `kairos-vault`) · Auth (JWT) · Vault (secrets) |
+| Elasticsearch, Redis, Temporal (+ its own Postgres), Temporal UI, OPA | **Neo4j Aura** — knowledge graph |
+| — | **Qdrant Cloud** — vector store · **Grafana Cloud** — observability (traces/metrics via OTLP) |
+
+> **Neo4j + Qdrant moved to cloud.** Their local containers (`kairos-neo4j`, `kairos-qdrant`) are
+> **profile-gated** — they do not start by default. Credentials live in `.env` only (never in this
+> committed file). For offline dev / tests without touching cloud data:
+> `docker compose --profile local-stores up` and point `NEO4J_URI` / `QDRANT_URL` at the local containers.
 | | NVIDIA NIM · Jina · Groq (inference APIs) |
 
 There is **no HashiCorp Vault container** and **no app Postgres container** —
@@ -58,17 +62,17 @@ merge — that single flag is the entire dev/prod switch.
 | `kairos-temporal-activity-worker` | `kairos-backend:local` (shared) | — | — | internal |
 | `kairos-elicitation-worker` | `kairos-backend:local` (shared) | — | — | internal |
 | `kairos-backend-go` | `kairos-connector:local` (multi-stage) | 8090 | — | internal |
-| `kairos-neo4j` | `neo4j:5.20-community` | 7474, 7687 | — | internal |
-| `kairos-qdrant` | `qdrant/qdrant:v1.9.4` | 6333, 6334 | — | internal |
+| `kairos-neo4j` | `neo4j:5.20-community` | 7474, 7687 | — | internal · **profile `local-stores` only** (cloud by default) |
+| `kairos-qdrant` | `qdrant/qdrant:v1.9.4` | 6333, 6334 | — | internal · **profile `local-stores` only** (cloud by default) |
 | `kairos-elasticsearch` | `elasticsearch:8.13.4` | 9200, 9300 | — | internal |
 | `kairos-redis` | `redis:7.2-alpine` | 6379 | — | internal |
 | `kairos-temporal` | `temporalio/auto-setup:1.24.2` | 7233 | — | internal |
 | `kairos-temporal-postgres` | `postgres:14-alpine` | — | — | internal |
 | `kairos-temporal-ui` | `temporalio/ui:2.26.2` | 8088 | — | internal |
 | `kairos-opa` | `openpolicyagent/opa:0.65.0` | 8181 | — | internal |
-| `kairos-otel-collector` | `otel/...contrib:0.102.0` | 4317, 4318, 8889 | — | internal |
-| `kairos-tempo` | `grafana/tempo:2.4.1` | 3200 | — | internal |
-| `kairos-grafana` | `grafana/grafana:11.0.0` | 3001 | — | internal |
+
+> Observability containers (`kairos-otel-collector`, `kairos-tempo`, `kairos-grafana`) were **removed** —
+> the backend exports OTLP directly to **Grafana Cloud** (see INFRA.md §6).
 
 **The four Python services share one image** (`kairos-backend:local`), built
 once and reused — they differ only by `command:`. In prod, **only the frontend
@@ -99,8 +103,6 @@ Redis, Elasticsearch, etc. directly — defence-in-depth for the AWS deployment.
 | `kairos-elasticsearch_data` | es `/usr/share/elasticsearch/data` | Full-text indices |
 | `kairos-redis_data` | redis `/data` | AOF (streams, cache, Celery) |
 | `kairos-temporal_postgres_data` | temporal-pg `/var/lib/postgresql/data` | Temporal history |
-| `kairos-tempo_data` | tempo `/var/tempo` | Traces |
-| `kairos-grafana_data` | grafana `/var/lib/grafana` | Dashboards/state |
 
 `make nuke` (`docker compose down -v`) destroys all of these. Config files
 (`infra/**`) are mounted read-only from the repo, not volumes.
@@ -138,21 +140,24 @@ service builds from the repo root).
 Every stateful service has a healthcheck, and dependents wait on
 `condition: service_healthy`:
 
-- **API** waits for Neo4j + Qdrant + Elasticsearch + Redis to be *healthy* (this
-  fixes the documented "API boots before ES and exits" race — no more manual
-  `docker restart kairos-backend-api`).
-- Workers wait for their datastores; Temporal workers also wait for Temporal.
-- Neo4j now has a `cypher-shell` healthcheck (it had none before).
+- **API** waits for Elasticsearch + Redis + OPA to be *healthy* (fixes the "API boots before ES and
+  exits" race). It no longer depends on Neo4j/Qdrant — those are cloud (reached over the network at
+  request time, not gated at boot).
+- Workers wait for Redis; Temporal workers also wait for Temporal.
+- The local Neo4j container (profile `local-stores`) has a `cypher-shell` healthcheck.
 
 ---
 
 ## 8. Resource limits
 
 Base sets memory ceilings (`deploy.resources.limits.memory`), honored by
-`docker compose up`. Approximate ceilings: ES 2g · Neo4j 2g · Qdrant 1g ·
-API/celery/temporal-worker 1.5g each · elicitation 1g · Redis 768m · frontend
-1g · Temporal/Temporal-PG 512m · Grafana/Tempo/OTEL 512m · OPA/Temporal-UI/Go
-256m. **Total headroom ≈ 16 GB** — size the AWS host accordingly (see §9).
+`docker compose up`. Approximate ceilings: ES 2g · API/celery/temporal-worker 1.5g each ·
+elicitation 1g · Redis 768m · frontend 2g · Temporal/Temporal-PG 512m · OPA/Temporal-UI/Go 256m.
+
+**Neo4j, Qdrant, and observability (Grafana/Tempo/OTEL) are all cloud now** — not in the default
+footprint. That removed ~4.5 GB of ceilings and ~2 GB of real idle RAM off the box. **Default ceiling
+≈ 12 GB** (limits are ceilings; real idle usage is ~2–3 GB). Adding `--profile local-stores` re-adds
+Neo4j 2g + Qdrant 1g. Size the AWS host for the default (see §9).
 
 ---
 

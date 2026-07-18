@@ -57,7 +57,7 @@ tests/                        ← project root (NOT inside backend/)
 pytest.ini                    ← project root
 ```
 
-Latest full run: **166 passed · 3 skipped · 1 known transient flake**
+Latest full run: **~175 passed · 3 skipped · 1 known transient flake**
 (`test_briefs.py::test_attribution_worker_queues_recheck` — a work-order POST occasionally 500s under
 concurrent load; passes deterministically in isolation).
 
