@@ -83,40 +83,40 @@ frontend/
 |-------|------|--------|
 | `/` | Redirect to `/briefs` | Live |
 | `/login` | Email + password login | Live (real auth) |
-| `/briefs` | Brief inbox | Live with fixture fallback |
-| `/briefs/[id]` | Brief detail + ack + feedback | Live with fixture fallback |
-| `/copilot` | Knowledge Q&A chat | Live with fixture fallback |
-| `/assets` | Asset list | Live with fixture fallback |
-| `/assets/[id]` | Asset detail + aliases + knowledge | Live with fixture fallback |
-| `/rca` | RCA pack generator | Live with fixture fallback |
-| `/compliance` | Compliance gaps + audit readiness | Live with fixture fallback |
+| `/briefs` | Brief inbox | Live |
+| `/briefs/[id]` | Brief detail + ack + feedback | Live |
+| `/copilot` | Knowledge Q&A chat | Live |
+| `/assets` | Asset list | Live |
+| `/assets/[id]` | Asset detail + aliases + knowledge | Live |
+| `/rca` | RCA pack generator | Live |
+| `/compliance` | Compliance gaps + audit readiness | Live |
 | `/governance` | Hub → all 6 governance surfaces | Live (hub page) |
-| `/governance/conflicts` | Conflict list + resolve | Live with fixture fallback |
-| `/governance/quarantine` | Quarantine list + promote/dispute/request-info | Live with fixture fallback (role-gated) |
-| `/governance/moc` | Management of Change queue | Live with fixture fallback |
-| `/governance/moc/[id]` | MoC detail + source comparison + engineer sign-off | Live with fixture fallback (admin-gated write) |
-| `/governance/sla` | SLA report — overdue conflicts + quarantine | Live with fixture fallback |
-| `/governance/circuit-breaker` | SPC circuit-breaker state by asset class | Live with fixture fallback |
-| `/governance/model-gate` | Model gate — P/R/F1 history + validation corpus | Live with fixture fallback |
-| `/compliance/audit-pack` | Audit-evidence pack by clause + human sign-off | Live with fixture fallback |
+| `/governance/conflicts` | Conflict list + resolve | Live |
+| `/governance/quarantine` | Quarantine list + promote/dispute/request-info | Live (role-gated) |
+| `/governance/moc` | Management of Change queue | Live |
+| `/governance/moc/[id]` | MoC detail + source comparison + engineer sign-off | Live (admin-gated write) |
+| `/governance/sla` | SLA report — overdue conflicts + quarantine | Live |
+| `/governance/circuit-breaker` | SPC circuit-breaker state by asset class | Live |
+| `/governance/model-gate` | Model gate — P/R/F1 history + validation corpus | Live |
+| `/compliance/audit-pack` | Audit-evidence pack by clause + human sign-off | Live |
 | `/compliance/nonconformance` | Non-conformances (conflicts + failed inspections + disputes) | Composed from existing endpoints |
-| `/documents` | Document registry | Live with fixture fallback |
-| `/documents/[id]` | Document detail + supersede chain | Live with fixture fallback |
-| `/documents/[id]/topology` | P&ID topology graph (React Flow) | Live with fixture fallback |
+| `/documents` | Document registry | Live |
+| `/documents/[id]` | Document detail + supersede chain | Live |
+| `/documents/[id]/topology` | P&ID topology graph (React Flow) | Live |
 | `/documents/ingest` | Upload → pipeline-status timeline | Live (role-gated engineer/admin) |
-| `/documents/compare` | Side-by-side version / metadata diff | Live with fixture fallback |
+| `/documents/compare` | Side-by-side version / metadata diff | Live |
 | `/assets/bootstrap` | MDM asset identity confirmation | Live (admin-gated) |
 | `/projects` | Engineering + procurement registry by equipment class | Composed from documents+assets+events |
-| `/graph` | Temporal knowledge graph (React Flow) | Live with fixture fallback |
-| `/audit` | Audit trail — entity/action log | Live with fixture fallback |
-| `/events` | Operational event surfaces + demo emit forms | Live with fixture fallback |
-| `/events/[id]` | Event detail + ack + correlation | Live with fixture fallback |
+| `/graph` | Temporal knowledge graph (React Flow) | Live |
+| `/audit` | Audit trail — entity/action log | Live |
+| `/events` | Operational event surfaces + demo emit forms | Live |
+| `/events/[id]` | Event detail + ack + correlation | Live |
 | `/offboarding` · `/offboarding/[sessionId]` | Retiring-expert knowledge-transfer sessions | Live (role-gated engineer/admin) |
-| `/management` | Plant overview — KPIs, alerts, system health | Live with fixture fallback |
+| `/management` | Plant overview — KPIs, alerts, system health | Live |
 | `/management/cross-site` | Cross-site pattern alerts | Demo fixture (Layer-13 API in roadmap) |
-| `/management/plant-state` | Plant operating-state control | Live with fixture fallback (admin-gated write) |
+| `/management/plant-state` | Plant operating-state control | Live (admin-gated write) |
 | `/field/deviation` | Physical deviation flag (freezes affected asset briefs) | Live (mobile field capture) |
-| `/field/elicitation/[workOrderId]` | Knowledge-capture micro-interview | Live with fixture fallback (mobile) |
+| `/field/elicitation/[workOrderId]` | Knowledge-capture micro-interview | Live (mobile) |
 | `/field/voice` | Ad-hoc voice note — tag an asset/WO, record → quarantine | Live (mobile field capture) |
 | `/field/voice/[workOrderId]` | Voice note tied to a specific work order | Live (mobile field capture) |
 
@@ -140,28 +140,29 @@ frontend/
 
 **Desktop sidebar** (244px, slide-over drawer on mobile) — shown for `admin` / `engineer` / `reliability`:
 
-- **Operate:** Briefs · Copilot · Assets · RCA · Graph · Events
+- **Operate:** Briefs · Copilot · Assets · RCA · Graph · Events · **Voice · Deviation (admin + field_worker only)**
 - **Assure:** Compliance · Governance · Audit trail · Documents · Projects · Off-boarding
 - **Manage:** Overview (management)
 - **Footer:** System information (all roles) · System health (**admin only**) · System settings
+
+> The field-capture items **Voice** (`/field/voice`) and **Deviation** (`/field/deviation`) are nav-gated to
+> `["field_worker", "admin"]` — so the **admin sidebar is a full superset** of every role's navigation.
+> Engineer/reliability don't see them (but the header "+" capture button routes anyone to `/field/voice`).
 
 Active route highlighted with `bg-accent-soft text-accent`. User chip at the bottom shows the live authenticated user's name, role, and site from `GET /auth/me`. Sign-out clears tokens and redirects to `/login`. The sidebar logo is `public/logo.png`, a 30px rounded square.
 
 - **`/system-information`** — static visual architecture explainer (pipeline, 13 layers, stack). Open to all.
 - **`/system-health`** — admin-only live dashboard: probes all 11 cheap API surfaces + 5 datastores every 30s, plus an opt-in "AI models" section (NIM/Gemini/Jina/Groq) that probes `GET /health/model?provider=…` once/minute **only when toggled on** (each probe spends provider quota; off by default, persisted in `localStorage`).
-- **Login** (`/login`) has a **"Try demo"** button that signs straight into the seeded admin account. Browser tab titles are `Kairos: <page>` (landing = `Kairos`).
+- **Login** (`/login`) has a **"Try demo"** button that signs straight into the seeded admin account.
 
-**Field bottom tabs** (`FieldBottomTabs` in `app-shell.tsx`) — shown **only for `field_worker`** at mobile width, replacing the sidebar with a fixed bottom bar:
+**Browser tab titles** — `Kairos: <page>` on every app route (landing/`/login` = `Kairos`). Resolved
+server-side by `generateMetadata` in `(app)/layout.tsx`, which reads an `x-pathname` request header set by
+**`src/proxy.ts`** (Next 16's renamed middleware — it must set the header on the *request*, not the
+response, or `headers()` can't read it, which is why refresh used to fall back to bare "Kairos").
 
-| Tab | Target |
-|---|---|
-| Briefs | `/briefs` |
-| Copilot | `/copilot` |
-| Assets | `/assets` |
-| Voice | `/field/voice` |
-| **Me** | **sign-out** (`onClick={onSignOut}`) — the field app has no profile screen; "Me" logs out |
-
-Role is read from `getMe()` (`FIELD_ROLES = ["field_worker"]`, `isField` gate). Verified against `field_worker@kairos.local`.
+> **Field bottom tabs** (`FieldBottomTabs`) are currently **commented out** in `app-shell.tsx` (mobile UX
+> being revisited) — `field_worker` currently uses the same desktop sidebar. The component + `FIELD_ROLES`
+> gating remain in code for when it's re-enabled.
 
 ---
 
@@ -177,7 +178,10 @@ POST /auth/login  →  { access_token, refresh_token, user_id }
 
 Tokens stored in `localStorage` under keys `kairos-token` and `kairos-refresh`. `getMe()` calls `GET /auth/me` with `Authorization: Bearer <token>`. `logout()` clears both keys.
 
-**Auth guard** in `AppShell`: no token → redirect to `/login`. `/login` redirects already-authenticated users to `/briefs`.
+**Auth guard** in `AppShell`: no token → redirect to `/login`. `/login` redirects already-authenticated
+users to `/briefs`. **Expired/invalid token** (e.g. Supabase JWT past its 1-hour TTL): even in dev
+(non-strict) the shell now **clears the session and redirects to `/login`** rather than silently falling
+back to the engineer dev-default — that used to read as a surprise role downgrade (`field_worker → engineer`).
 
 **Login page** (`/login`) pre-fills `engineer@kairos.local / KairosEngineer123!` for dev convenience:
 
@@ -217,7 +221,8 @@ export const API_BASE =
 |--------|---------|
 | `API_BASE` | SSR-aware base URL (see above) |
 | `getToken()` | Reads `kairos-token` from localStorage; returns null server-side |
-| `getJson<T>(path)` | Unauthenticated GET — 1500ms abort timeout for fast fixture fallback |
+| `getJson<T>(path, timeoutMs?)` | Unauthenticated GET — **4000ms** default abort (slow cold Neo4j/Supabase); a genuine failure surfaces as error+retry, never a fixture. `getComplianceGaps` passes 5000ms. |
+| `getArtifactUrl(documentId)` | `GET /documents/{id}/artifact-url` — short-lived Supabase **signed URL** to open a vault artifact in the browser (the stored `vault_url` is the auth-only endpoint a plain link can't open). |
 | `postJson<T>(path, body)` | Authenticated POST — attaches Bearer token if present |
 | `getBriefs()` | `GET /briefs/?unacknowledged_only=false&limit=20` |
 | `getBrief(id)` | `GET /briefs/{id}` |
@@ -272,7 +277,7 @@ components stay dumb:
 
 | Fetcher | Backend shape → UI shape |
 |---|---|
-| `getBlastRadius` | `{affected:[{edge,target}]}` → `{items:[{item_id,item_type,description,asset_id,flagged_for_review}]}` |
+| `getBlastRadius` | `{affected:[{edge,source,target}]}` → `{items:[{item_id,item_type,description,asset_id,flagged_for_review}]}`. The affected entity is the edge **source** (e.g. the asset), not the target (the document node); items are deduped by `edge_id` server-side. |
 | `getDocumentTopology` | `{topology:{equipment_nodes,isolation_valves,isolation_boundaries,instrumentation_loops}}` → flat `{nodes,edges}` (synthesises boundary→valve/bleed edges) |
 | `getOffboardingList` | `{items,total}` → `OffboardingProgramme[]` (unwraps `.items`) |
 
@@ -283,9 +288,23 @@ escalation report (`overdue_conflicts[]` · `overdue_quarantine_items[]` · `ove
 with boolean `halted`; `ValidationCorpusStats` is `{total_corpus_size,by_entity_type,last_updated_at}` (no
 `by_asset_class`).
 
-### Fixture fallback pattern
+### Live-only data policy (no fabricated data)
 
-Every fetcher follows `try { live } catch { fixture }`. If the backend is unreachable, returns too-empty results, or times out (1500ms), the page falls back to curated demo data tagged `source: "demo"`. A source chip (`DemoChip`) in the UI indicates when demo data is active. Guard array reads defensively — `x?.arr.length` still throws when `arr` is `undefined`.
+The app **never renders a fixture**. Read fetchers still return `{ data, source }` and a fixture is still
+computed on failure, but the UI discards the `source: "demo"` path — the user always sees **real data**, a
+**loading skeleton**, or an **error + retry**:
+
+- **`useFetch` maps `demo` → `error`** (client pages) → their error+retry state; loading → skeleton.
+- **Server pages `throw` on `demo`** → shared `(app)/error.tsx` + `(app)/loading.tsx`. `(app)/layout.tsx`
+  exports `dynamic = "force-dynamic"` so these render per request (a build-time prerender would otherwise
+  hit the throw with no backend).
+- **Custom-client pages** show an inline "unavailable — retry".
+- **`getComplianceGaps`** treats empty live results as valid (no fixture on empty) and uses a 5 s timeout.
+- **`/management/cross-site`** shows an honest "no data in single-site deployment" state (it has no backend).
+
+Default read timeout is **4 s** (`getJson`). Guard array reads defensively — `x?.arr.length` still throws
+when `arr` is `undefined` (use `?? []`). The `DemoChip` primitive and `lib/*.ts` fixture modules remain in
+the tree but are effectively dead (optional cleanup).
 
 ---
 
@@ -325,7 +344,9 @@ Key types:
 
 **File:** `src/components/use-role.ts`
 
-`useRole()` — reads role from live user profile via `getMe()`. `PROMOTE_ROLES` exports the list of roles that can promote quarantine items (`["admin", "engineer"]`).
+`useRole()` — reads role from live user profile via `getMe()`. `PROMOTE_ROLES = ["reliability", "admin"]`
+(matches OPA `can_promote_quarantine` — engineers resolve conflicts but do **not** promote quarantine).
+`ADMIN_ROLES = ["admin"]` gates Identity confirmation, plant-state write, model-gate Run, and System Health.
 
 **File:** `src/components/skeleton.tsx`
 
@@ -335,9 +356,11 @@ Key types:
 
 ## 9. Fixture Data
 
-All fixture modules mirror the exact API shapes. They serve two purposes:
-1. Offline/demo mode when the backend is unreachable or returns empty data
-2. Stand-in for management overview (not yet wired live)
+> **⚠️ Live-only (see §6).** These fixture modules are **no longer rendered** — the app shows real data, a
+> skeleton, or an error+retry. They remain in the tree as dead code (optional cleanup). Listed here for
+> reference only.
+
+All fixture modules mirror the exact API shapes.
 
 | Module | Stands in for |
 |--------|--------------|
@@ -349,30 +372,21 @@ All fixture modules mirror the exact API shapes. They serve two purposes:
 | `governance.ts` | `GET /governance/conflicts`, `GET /governance/quarantine` |
 | `rca.ts` | `POST /search/rca-pack` |
 
-Fixture assets: `P-101` (Feed Pump A), `EQ-101` (Reactor Feed Unit), `V-247` (Isolation Valve), `HX-301` (Heat Exchanger).
+Fixture assets (legacy; the golden dataset uses `EQ-101`, `HE-301`, `V-247`, `PG-18` — some fixtures were
+realigned to those canonical tags, `P-101` is a confirmed alias of `EQ-101`).
 
 ---
 
-## 10. Live vs Demo — Page-by-Page
+## 10. Data source — live-only
 
-| Page | Live API calls | Demo fallback |
-|------|---------------|----------------|
-| `/login` | `POST /auth/login` ✅ | — |
-| `/briefs` | `GET /briefs/` ✅ | `fixtureBriefs` (governor suppression / empty) |
-| `/briefs/[id]` | `GET /briefs/{id}` ✅ · `POST .../ack` ✅ · `POST .../feedback` ✅ | fixture match by id |
-| `/copilot` | `POST /search/synthesize` ✅ | `answerFor()` (empty live answer / backend down) |
-| `/assets` | `GET /assets/?limit=100` ✅ | `fixtureAssets` |
-| `/assets/[id]` | `GET /assets/{id}` ✅ · `/aliases` ✅ · `/knowledge` ✅ | fixture match by id |
-| `/rca` | `POST /search/rca-pack` ✅ | `rcaFor()` (backend 5xx / no timeline) |
-| `/compliance` | `GET /compliance/gaps` ✅ | `complianceFixture` (empty live gaps) |
-| `/governance` | — | hub page (static links) |
-| `/governance/conflicts` | `GET /governance/conflicts` ✅ · `POST .../resolve` ✅ | `conflictsFixture` |
-| `/governance/quarantine` | `GET /governance/quarantine` ✅ · `POST .../promote` ✅ · `POST .../dispute` ✅ | `quarantineFixture` |
-| `/documents` | `GET /documents/?limit=50` ✅ | `documentsFixture` |
-| `/documents/[id]` | `GET /documents/{id}` ✅ | `getDocumentFixture(id)` |
-| `/management` | — | fixture (aggregate wiring deferred) |
+Every data page is **live** (real backend data). There is no "demo fallback" column anymore: when a fetch
+fails, the page shows a **loading skeleton** then an **error + retry**, never a fixture (see §6). The
+`/management` overview aggregates 6 live fetches; `/governance` hub + `/management/cross-site` are the only
+surfaces with no primary data fetch (hub = static links; cross-site = honest "no data in single-site").
 
-Write contracts (resolve/promote/dispute) are role-gated: `field_worker` sees read-only view; action buttons are hidden via `useRole()`.
+Write contracts (resolve/promote/dispute, ingest, sign-off) are role-gated: `field_worker` sees a read-only
+view; action buttons are hidden via `useRole()`. **Quarantine promote** is `reliability`/`admin` only
+(matches OPA); **model-gate Run** and **asset Identity confirmation** are `admin` only.
 
 ---
 
@@ -487,7 +501,7 @@ These are deliberate decisions, not open gaps — the UI handles each honestly t
 
 | Item | Decision |
 |------|----------|
-| `/management/cross-site` live data | Cross-site pattern aggregation is a **Layer-13 roadmap** feature and needs multi-site data (the demo is single-site). The page renders curated fixtures behind a **DemoChip** — honest, not broken. |
+| `/management/cross-site` live data | Cross-site pattern aggregation is a **Layer-13 roadmap** feature and needs multi-site data. This is a single-site deployment, so the page shows an honest **"No cross-site data in this deployment"** empty state — no fabricated alerts. |
 | SSR bearer token | Server components use the backend **dev-bypass** on purpose (fast, demo-friendly). Wire `getToken()` through SSR only if a strict-auth deployment needs it. |
 | Offline app-shell | **Prod-only by design** — the service worker is disabled in dev (it fought HMR). The IndexedDB write-queue (`idb.ts`) works in dev. |
 

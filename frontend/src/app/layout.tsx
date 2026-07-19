@@ -21,10 +21,7 @@ const notoDevanagari = Noto_Sans_Devanagari({
 });
 
 export const metadata: Metadata = {
-  title: {
-    template: "Kairos: %s",
-    default: "Kairos",
-  },
+  title: "Kairos",
   description:
     "The right knowledge to the right person at the moment of action. Governed industrial operational intelligence.",
   icons: { icon: "/logo.png", apple: "/logo.png" },

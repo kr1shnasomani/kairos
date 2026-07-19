@@ -1,6 +1,5 @@
 """Assets — Tasks 1-3: MDM backbone, asset CRUD, aliases, hierarchy, knowledge graph."""
 
-import pytest
 from tests.conftest import uid
 
 

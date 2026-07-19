@@ -8,13 +8,16 @@ import { getKnowledgeGraph } from "@/lib/api";
 import { cn, nowMs } from "@/lib/utils";
 import { GraphLegend, validityEvents } from "./_components/legend";
 
-const EXAMPLE_ASSETS = ["P-101", "EQ-101", "V-247"];
+// EQ-101 first — it's a canonical asset with live knowledge edges. P-101 is a
+// tag alias that the /assets/{id}/knowledge endpoint does not resolve (404), so
+// it only renders the demo graph; kept as a pick, not the default.
+const EXAMPLE_ASSETS = ["EQ-101", "V-247", "P-101"];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function GraphPage() {
-  const [assetId, setAssetId] = useState("P-101");
-  const [inputValue, setInputValue] = useState("P-101");
+  const [assetId, setAssetId] = useState("EQ-101");
+  const [inputValue, setInputValue] = useState("EQ-101");
   const [asOf, setAsOf] = useState("");
   const [graphData, setGraphData] = useState<KnowledgeGraphData | null>(null);
   const [graphSource, setGraphSource] = useState<"live" | "demo" | null>(null);
@@ -159,16 +162,21 @@ export default function GraphPage() {
           <p className="mt-2 text-label text-muted">Select a node or relationship to inspect its properties and evidence.</p>
         </div>
 
-        <aside data-testid="graph-context" className="space-y-4 lg:sticky lg:top-20 lg:self-start">
-          <section className="rounded-xl border border-line bg-surface p-4 shadow-sm">
+        {/* Height-matched to the 560px graph canvas; validity list scrolls internally
+            so the panel never grows taller than the graph. */}
+        <aside data-testid="graph-context" className="flex flex-col gap-4 lg:sticky lg:top-20 lg:h-[560px] lg:self-start">
+          <section className="shrink-0 rounded-xl border border-line bg-surface p-4 shadow-sm">
             <p className="text-micro font-bold uppercase tracking-[0.1em] text-muted">Authority &amp; verification</p>
             <div className="mt-3"><GraphLegend /></div>
           </section>
-          <section className="rounded-xl border border-line bg-surface p-4 shadow-sm">
-            <p className="text-micro font-bold uppercase tracking-[0.1em] text-muted">Validity windows</p>
-            <div className="mt-3">
+          <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-line bg-surface p-4 shadow-sm">
+            <div className="flex shrink-0 items-center justify-between">
+              <p className="text-micro font-bold uppercase tracking-[0.1em] text-muted">Validity windows</p>
+              {graphData?.edges.length ? <span className="tabular text-label text-muted">{graphData.edges.length}</span> : null}
+            </div>
+            <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
               {graphData?.edges.length
-                ? <Timeline events={validityEvents(graphData.edges)} />
+                ? <Timeline events={validityEvents(graphData.edges, (id) => graphData.nodes.find((n) => n.id === id)?.label)} />
                 : <p className="text-label text-muted">Relationship windows appear when graph data is available.</p>}
             </div>
           </section>

@@ -1,14 +1,14 @@
 // Vault document list: every ingested source, active or superseded.
 import Link from "next/link";
 import { getDocuments } from "@/lib/api";
-import { DemoChip, EmptyState, PageHeader } from "@/components/ui";
+import { EmptyState, PageHeader } from "@/components/ui";
 import { StatPills } from "@/components/stat-pills";
 import { DocumentsTable } from "./_components/documents-table";
 
-export const metadata = { title: "Documents — Kairos" };
-
 export default async function DocumentsPage() {
   const { data, source } = await getDocuments();
+  // Live-only: never render fixture documents.
+  if (source === "demo") throw new Error("Documents: live data unavailable");
   const items = data.items ?? [];
   const activeCount = items.filter((d) => d.status === "active").length;
 
@@ -20,7 +20,6 @@ export default async function DocumentsPage() {
         lede="Every source is stored byte-for-byte and never deleted. Superseding closes a validity window; it does not erase."
         actions={
           <>
-            {source === "demo" && <DemoChip detail="backend offline" />}
             <Link
               href="/documents/compare"
               className="inline-flex h-9 items-center rounded-lg border border-line px-3.5 text-body font-semibold text-ink transition-colors hover:bg-surface-2"

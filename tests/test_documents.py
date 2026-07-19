@@ -1,7 +1,6 @@
 """Documents — Tasks 4-8: vault ingest, OCR/NER pipeline, extraction status, supersede."""
 
 import asyncio
-import pytest
 from tests.conftest import uid
 
 _SAMPLE_TEXT = b"""

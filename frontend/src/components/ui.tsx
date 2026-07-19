@@ -33,11 +33,13 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex h-[22px] items-center gap-1.5 rounded-full px-2 text-label font-semibold",
+        // min-h (not fixed h) so a long label wraps *inside* the pill instead of
+        // spilling out of it; single-line badges are unchanged at 22px.
+        "inline-flex min-h-[22px] items-center gap-1.5 rounded-full px-2 py-0.5 text-label font-semibold leading-tight",
         TONE_STYLE[tone],
       )}
     >
-      {dot && <span className={cn("size-1.5 rounded-full bg-current", pulse && "animate-pulse")} aria-hidden="true" />}
+      {dot && <span className={cn("size-1.5 shrink-0 rounded-full bg-current", pulse && "animate-pulse")} aria-hidden="true" />}
       {children}
     </span>
   );
@@ -574,8 +576,8 @@ export function Timeline({ events }: { events: TimelineEvent[] }) {
   if (events.length === 0) return <EmptyState message="No events to show." />;
   return (
     <ol className="relative space-y-4 pl-6">
-      {/* spine */}
-      <div className="absolute inset-y-0 left-2 w-px bg-line" aria-hidden="true" />
+      {/* spine — centered on the dots (both at x=8px) */}
+      <div className="absolute inset-y-0 left-[7px] w-0.5 bg-line" aria-hidden="true" />
       {events.map((ev) => {
         const dotColor =
           ev.tone === "danger" ? "bg-danger" :
@@ -586,7 +588,7 @@ export function Timeline({ events }: { events: TimelineEvent[] }) {
         return (
           <li key={ev.id} className="relative">
             <span
-              className={cn("absolute -left-[22px] top-[5px] size-2 rounded-full ring-2 ring-surface", dotColor)}
+              className={cn("absolute -left-[20px] top-[5px] size-2 rounded-full ring-2 ring-surface", dotColor)}
               aria-hidden="true"
             />
             <div>

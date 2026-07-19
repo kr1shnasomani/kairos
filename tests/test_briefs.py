@@ -1,6 +1,5 @@
 """Briefs — Tasks 17-18: EEMUA 191 governor, brief delivery, ack, feedback."""
 
-import pytest
 from uuid import uuid4
 
 

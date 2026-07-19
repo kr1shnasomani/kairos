@@ -1,6 +1,5 @@
 """Health endpoint — verifies all services are reachable."""
 
-import pytest
 
 
 async def test_health_returns_200(anon_client):

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { VaultDocument, AssetSummary, OperationalEvent } from "@/lib/types";
 import { getDocuments, getAssets, getEvents } from "@/lib/api";
-import { EmptyState, DemoChip, PageHeader } from "@/components/ui";
+import { EmptyState, PageHeader } from "@/components/ui";
 import { triggerLabel } from "@/lib/utils";
 import { ClassSection, FAILURE_TYPES, type ClassGroup } from "./_components/class-section";
 
@@ -13,20 +13,26 @@ export default function ProjectsPage() {
   const [documents, setDocuments] = useState<VaultDocument[]>([]);
   const [assets, setAssets] = useState<AssetSummary[]>([]);
   const [events, setEvents] = useState<OperationalEvent[]>([]);
-  const [isDemo, setIsDemo] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [reload, setReload] = useState(0);
   const [active, setActive] = useState<string>("all");
 
   useEffect(() => {
     let alive = true;
     Promise.all([getDocuments(), getAssets(), getEvents({ limit: 100 })]).then(([d, a, e]) => {
       if (!alive) return;
+      // Live-only: any fixture fallback → show a retry, never fabricated portfolio data.
+      if (d.source === "demo" || a.source === "demo" || e.source === "demo") {
+        setFailed(true);
+        return;
+      }
+      setFailed(false);
       setDocuments(d.data.items);
       setAssets(a.data.items);
       setEvents(e.data.items);
-      setIsDemo(d.source === "demo" || a.source === "demo" || e.source === "demo");
-    });
+    }).catch(() => { if (alive) setFailed(true); });
     return () => { alive = false; };
-  }, []);
+  }, [reload]);
 
   // asset_id -> equipment_class, so documents and events can be bucketed by class.
   const classOf = useMemo(() => {
@@ -56,6 +62,20 @@ export default function ProjectsPage() {
   const maintenanceSignals = events.filter((event) => FAILURE_TYPES.has(event.event_type)).length;
   const revisionCount = documents.filter((document) => document.version_chain).length;
 
+  if (failed) {
+    return (
+      <div data-testid="projects-workspace" className="mx-auto max-w-[1400px]">
+        <div className="mt-6 rounded-xl border border-line bg-surface p-8 text-center">
+          <p className="text-body font-medium text-ink">Couldn&apos;t load the engineering portfolio.</p>
+          <p className="mt-1 text-caption text-muted">Live data is unavailable right now.</p>
+          <button type="button" onClick={() => setReload((r) => r + 1)} className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-line bg-surface-2 px-4 text-caption font-medium text-ink transition-colors hover:bg-canvas">
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div data-testid="projects-workspace" className="mx-auto max-w-[1400px]">
       <PageHeader eyebrow="Project &amp; procurement" title="Engineering portfolio" lede="Documents, revisions, and failure/maintenance history organised by equipment class: the record a procurement officer needs when evaluating a replacement or a vendor." />
@@ -65,7 +85,6 @@ export default function ProjectsPage() {
           <span aria-hidden="true" className="absolute bottom-3 left-2 top-3 w-[3px] rounded-full bg-info" />
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Portfolio coverage</p>
-            {isDemo && <DemoChip />}
           </div>
           <p className="tabular mt-1 text-title font-semibold text-ink">{classNames.length} equipment classes</p>
           <p className="mt-1 text-label text-muted">{revisionCount} retained revisions across the procurement record</p>

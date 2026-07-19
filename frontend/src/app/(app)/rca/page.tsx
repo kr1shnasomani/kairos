@@ -27,7 +27,7 @@ function docsToBriefSources(pack: RcaPack): BriefSource[] {
 }
 
 export default function RcaPage() {
-  const [asset, setAsset] = useState("P-101");
+  const [asset, setAsset] = useState("EQ-101");
   const [code, setCode] = useState("SEAL-FAIL");
   const [today] = useState(() => new Date(nowMs()).toISOString().slice(0, 10));
   const [incidentDate, setIncidentDate] = useState(today);

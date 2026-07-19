@@ -7,37 +7,7 @@ import { getElicitationQuestions, submitElicitationResponses } from "@/lib/api";
 import { enqueueWrite } from "@/lib/idb";
 import type { ElicitationQuestion, ElicitationSession } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Button, DemoChip, PageHeader } from "@/components/ui";
-
-const DEMO: ElicitationSession = {
-  session_id: "demo-session",
-  work_order_id: "WO-DEMO",
-  questions: [
-    {
-      question_id: "q1",
-      question_text: "What lubrication type was used at last service?",
-      context: "Previous 2 failures on this asset attributed to lubrication degradation.",
-      options: ["ISO VG 46", "ISO VG 68", "ISO VG 100", "Other / Unknown"],
-      question_type: "multiple_choice",
-    },
-    {
-      question_id: "q2",
-      question_text: "Was there abnormal noise or vibration before shutdown?",
-      context: "Bearing failure pattern detected in similar assets over last 90 days.",
-      options: ["Yes — noise", "Yes — vibration", "Both", "None observed"],
-      question_type: "multiple_choice",
-    },
-    {
-      question_id: "q3",
-      question_text: "Describe any other observations not in the work order.",
-      context: "Field observations often reveal failure precursors not captured in structured logs.",
-      options: null,
-      question_type: "free_text",
-    },
-  ],
-  status: "in_progress",
-  created_at: new Date().toISOString(),
-};
+import { Button, PageHeader } from "@/components/ui";
 
 function QuestionCard({
   question,
@@ -100,7 +70,8 @@ function QuestionCard({
 export default function ElicitationPage() {
   const { workOrderId } = useParams<{ workOrderId: string }>();
   const [session, setSession] = useState<ElicitationSession | null>(null);
-  const [source, setSource] = useState<"live" | "demo">("demo");
+  const [failed, setFailed] = useState(false);
+  const [reload, setReload] = useState(0);
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -108,11 +79,26 @@ export default function ElicitationPage() {
   const [queued, setQueued] = useState(false);
 
   useEffect(() => {
+    let alive = true;
     getElicitationQuestions(workOrderId).then((r) => {
-      setSession(r.data ?? DEMO);
-      setSource(r.data ? r.source : "demo");
-    });
-  }, [workOrderId]);
+      if (!alive) return;
+      // Live-only: no fixture questions. If none are ready, say so honestly.
+      if (!r.data || r.source === "demo") { setFailed(true); return; }
+      setFailed(false);
+      setSession(r.data);
+    }).catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [workOrderId, reload]);
+
+  if (failed) {
+    return (
+      <div className="mx-auto max-w-lg px-5 py-16 text-center">
+        <p className="text-subtitle font-semibold">No questions available</p>
+        <p className="mt-1.5 text-body text-muted">This work order has no elicitation questions ready yet.</p>
+        <button type="button" onClick={() => setReload((r) => r + 1)} className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-line bg-surface-2 px-4 text-caption font-medium text-ink transition-colors hover:bg-canvas">Retry</button>
+      </div>
+    );
+  }
 
   if (!session) {
     return (
@@ -187,11 +173,6 @@ export default function ElicitationPage() {
             ? "You're offline — responses saved locally and will sync automatically when connected."
             : "Your field observations entered the knowledge quarantine and will be reviewed by engineering authority."}
         </p>
-        {source === "demo" && (
-          <div className="mt-4 flex justify-center">
-            <DemoChip />
-          </div>
-        )}
       </div>
     );
   }
@@ -203,7 +184,6 @@ export default function ElicitationPage() {
         className="mb-6"
         eyebrow={`Work order ${workOrderId}`}
         title="Knowledge capture"
-        actions={source === "demo" && <DemoChip />}
       />
 
       {/* Progress */}

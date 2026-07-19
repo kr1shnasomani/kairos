@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getConflicts, getQuarantine } from "@/lib/api";
-import { DemoChip, KpiCard, PageHeader, StatusBadge } from "@/components/ui";
+import { KpiCard, PageHeader, StatusBadge } from "@/components/ui";
 
 type SurfaceKey = "conflicts" | "quarantine" | "moc" | "sla" | "circuit-breaker" | "model-gate";
 
@@ -62,28 +62,41 @@ interface Overview {
 
 export default function GovernancePage() {
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [isDemo, setIsDemo] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let alive = true;
     Promise.all([getConflicts(), getQuarantine()]).then(([conflicts, quarantine]) => {
       if (!alive) return;
+      // Live-only: if either source fell back to a fixture, don't show fabricated
+      // counts — leave them blank ("—") and offer a retry.
+      if (conflicts.source === "demo" || quarantine.source === "demo") {
+        setOverview(null);
+        setFailed(true);
+        return;
+      }
+      setFailed(false);
       const openConflicts = conflicts.data.items.filter((item) => item.status !== "resolved");
       const pendingQuarantine = quarantine.data.items.filter((item) => item.review_status === "pending");
       setOverview({
         openConflicts: openConflicts.length,
         engineeringConflicts: openConflicts.filter((item) => item.track === "engineering").length,
         pendingMoc: openConflicts.filter((item) => item.status === "pending_moc").length,
-        pendingQuarantine: pendingQuarantine.length,
+        // Use the query total, not items.length — the fetch is capped at limit=50,
+        // so a 59-item pending queue would otherwise under-report as 50.
+        pendingQuarantine: quarantine.data.total ?? pendingQuarantine.length,
         overdue: openConflicts.filter((item) => item.is_overdue).length + pendingQuarantine.filter((item) => item.is_overdue).length,
       });
-      setIsDemo(conflicts.source === "demo" || quarantine.source === "demo");
-    });
+    }).catch(() => { if (alive) setFailed(true); });
     return () => { alive = false; };
-  }, []);
+  }, [reload]);
 
+  // First load = no data yet and no error → show skeletons, not em-dashes.
+  const loading = overview === null && !failed;
   const value = (key: keyof Overview) => overview?.[key] ?? "—";
   const statusFor = (key: SurfaceKey): { label: string; tone: "danger" | "caution" | "neutral" } => {
+    if (loading) return { label: "···", tone: "neutral" };
     if (key === "conflicts") return { label: `${value("openConflicts")} open`, tone: overview?.openConflicts ? "danger" : "neutral" };
     if (key === "quarantine") return { label: `${value("pendingQuarantine")} pending`, tone: overview?.pendingQuarantine ? "caution" : "neutral" };
     if (key === "moc") return { label: `${value("pendingMoc")} pending`, tone: overview?.pendingMoc ? "caution" : "neutral" };
@@ -101,15 +114,19 @@ export default function GovernancePage() {
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span>Adjudication · oversight · safeguards</span>
-        {isDemo && <DemoChip />}
+        {failed && (
+          <button type="button" onClick={() => setReload((r) => r + 1)} className="font-medium text-accent hover:underline">
+            Live counts unavailable — retry
+          </button>
+        )}
       </div>
 
       <div data-testid="governance-summary" className="mt-6 rounded-xl border border-line bg-surface p-3 shadow-sm">
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-          <KpiCard label="Open conflicts" value={value("openConflicts")} sub="Awaiting decision" tone={overview?.openConflicts ? "danger" : "neutral"} />
-          <KpiCard label="Engineering track" value={value("engineeringConflicts")} sub="Human sign-off" tone={overview?.engineeringConflicts ? "caution" : "neutral"} />
-          <KpiCard label="Pending quarantine" value={value("pendingQuarantine")} sub="Unverified inputs" tone={overview?.pendingQuarantine ? "caution" : "neutral"} />
-          <KpiCard label="Overdue" value={value("overdue")} sub="Across active queues" tone={overview?.overdue ? "danger" : "neutral"} />
+          <KpiCard label="Open conflicts" value={value("openConflicts")} sub="Awaiting decision" tone={overview?.openConflicts ? "danger" : "neutral"} loading={loading} />
+          <KpiCard label="Engineering track" value={value("engineeringConflicts")} sub="Human sign-off" tone={overview?.engineeringConflicts ? "caution" : "neutral"} loading={loading} />
+          <KpiCard label="Pending quarantine" value={value("pendingQuarantine")} sub="Unverified inputs" tone={overview?.pendingQuarantine ? "caution" : "neutral"} loading={loading} />
+          <KpiCard label="Overdue" value={value("overdue")} sub="Across active queues" tone={overview?.overdue ? "danger" : "neutral"} loading={loading} />
         </div>
       </div>
 

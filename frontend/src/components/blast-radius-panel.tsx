@@ -4,6 +4,8 @@ import { memo, useEffect, useState } from "react";
 import {
   ReactFlow,
   Background,
+  Handle,
+  Position,
   useNodesState,
   useEdgesState,
   type Node,
@@ -35,8 +37,12 @@ const BlastNode = memo(function BlastNode({ data }: NodeProps) {
   return (
     <div
       style={{ borderColor: color }}
-      className={`min-w-[80px] max-w-[130px] rounded-xl border-2 px-2.5 py-1.5 text-center shadow-sm ${d.isCenter ? "bg-[color-mix(in_srgb,var(--accent)_8%,var(--surface))]" : "bg-surface"}`}
+      className={`relative min-w-[80px] max-w-[130px] rounded-xl border-2 px-2.5 py-1.5 text-center shadow-sm ${d.isCenter ? "bg-[color-mix(in_srgb,var(--accent)_8%,var(--surface))]" : "bg-surface"}`}
     >
+      {/* Invisible handles — required for React Flow to attach edges (error #008
+          without them); connection is disabled so no dots show. */}
+      <Handle type="target" position={Position.Top} isConnectable={false} style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Bottom} isConnectable={false} style={{ opacity: 0 }} />
       <p className="text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color }}>{d.itemType}</p>
       <p className="mt-0.5 truncate text-micro font-semibold leading-snug text-ink">{d.label}</p>
       {d.flagged && <p className="mt-0.5 text-label font-bold text-danger">FLAGGED</p>}
@@ -111,7 +117,6 @@ function BlastRadiusPanelInner({ documentId }: { documentId: string }) {
   const tokens = useCanvasTokens();
   const [report, setReport] = useState<BlastRadiusReport | null>(null);
   const [isDemo, setIsDemo] = useState(false);
-  const [open, setOpen] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
@@ -140,11 +145,7 @@ function BlastRadiusPanelInner({ documentId }: { documentId: string }) {
 
   return (
     <section className="mt-8">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between text-xs font-bold uppercase tracking-[0.1em] text-muted hover:text-ink"
-        aria-expanded={open}
-      >
+      <div className="flex w-full items-center text-xs font-bold uppercase tracking-[0.1em] text-muted">
         <span>
           Blast radius
           {report.affected_count > 0 && (
@@ -153,17 +154,9 @@ function BlastRadiusPanelInner({ documentId }: { documentId: string }) {
             </span>
           )}
         </span>
-        <svg
-          width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-          aria-hidden="true"
-          style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform 150ms" }}
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </button>
+      </div>
 
-      {open && (
-        <div className="mt-3 space-y-4">
+      <div className="mt-3 space-y-4">
           {isDemo && <DemoChip />}
 
           {report.items.length === 0 ? (
@@ -224,7 +217,6 @@ function BlastRadiusPanelInner({ documentId }: { documentId: string }) {
             </>
           )}
         </div>
-      )}
     </section>
   );
 }

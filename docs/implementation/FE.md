@@ -1,5 +1,12 @@
 # KAIROS — Frontend Implementation Plan
 
+> ⚠️ **Superseded on the data-source policy.** This build plan predates the **live-only** switch. Tasks
+> below that say "keep the live→fixture `{data, source}` pattern", "1500 ms abort", "show the demo chip", or
+> "fall back to fixture on empty" are **historical** — the app is now live-only (real data · skeleton ·
+> error+retry, never a fixture; 4 s default timeout). Also stale here: governance promotion is
+> `reliability`/`admin` (not `admin`/`engineer`). See `docs/FRONTEND.md §6` and `docs/FIXTURES.md §3` for
+> the current behavior. The rest of each task (routes, layouts, API calls) still holds.
+
 > The contract for the point-of-action interface layer (ARCHITECTURE.md Layer 12). This document is to the frontend what `docs/implementation/BE.md` is to the backend: a fully-scoped, task-by-task build plan traceable to the architecture. Every task names the files it touches, the API calls it makes, the architecture layer it serves, and a verification step. Nothing in the architecture's interface surface is left unscoped.
 
 ---

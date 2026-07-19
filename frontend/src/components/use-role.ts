@@ -16,8 +16,9 @@ export function useRole(): Role {
   return role;
 }
 
-/** Roles allowed to promote a quarantine item. */
-export const PROMOTE_ROLES: Role[] = ["reliability", "admin", "engineer"];
+/** Roles allowed to promote a quarantine item. Matches OPA (`can_promote_quarantine`):
+ *  reliability + admin only — engineers resolve conflicts but do not promote. */
+export const PROMOTE_ROLES: Role[] = ["reliability", "admin"];
 /** Roles allowed to resolve conflicts and deviation flags. */
 export const RESOLVE_ROLES: Role[] = ["engineer", "reliability", "admin"];
 /** Roles with admin-level access (model gate, plant state, MDM bootstrap). */

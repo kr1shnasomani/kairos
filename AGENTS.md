@@ -63,6 +63,7 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 | Backend services · workers · models · config | `docs/BACKEND.md` |
 | Infra: containers · ports · stores · observability · dev cmds | `docs/INFRA.md` |
 | **Implementation status (what's built)** | **`docs/implementation/status.md`** |
+| Architecture ⇄ implementation conformance (design vs reality drift) | `docs/implementation/conformance.md` |
 | Backend implementation plan | `docs/implementation/BE.md` |
 | Database schemas | `docs/DATABASE.md` |
 | Frontend routes & wiring | `docs/FRONTEND.md` |

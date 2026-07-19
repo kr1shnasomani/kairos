@@ -11,7 +11,7 @@ import { DemoChip, MetricCard, PageHeader } from "@/components/ui";
 import type { Fetched } from "@/lib/api";
 import { getComplianceDashboard, getConflicts, getEvents, getHealthDetailed, getQuarantine, getSlaReport } from "@/lib/api";
 import { useScrollReveal } from "@/lib/motion";
-import type { ComplianceDashboard, HealthDetailed, OperationalEvent, SlaReport } from "@/lib/types";
+import type { ComplianceDashboard, OperationalEvent, SlaReport } from "@/lib/types";
 import { useFetch } from "@/lib/use-fetch";
 import { nowMs } from "@/lib/utils";
 import { AttentionList } from "./_components/attention-list";
@@ -27,18 +27,19 @@ interface Overview {
   sla: SlaReport | null;
   compliance: ComplianceDashboard | null;
   events: OperationalEvent[];
-  health: HealthDetailed | null;
 }
 
-/** All six sources in parallel; demo when any single source fell back. */
+/** The five core situational-awareness sources in parallel; demo when any fell back.
+ *  System health is fetched separately (see ManagementPage) — it pings every cloud
+ *  store (~2.5s) and must never block the core data or blank the page when a cloud
+ *  ping spikes. */
 async function fetchOverview(): Promise<Fetched<Overview>> {
-  const [cr, qr, sr, dr, er, hr] = await Promise.all([
+  const [cr, qr, sr, dr, er] = await Promise.all([
     getConflicts(),
     getQuarantine(),
     getSlaReport(),
     getComplianceDashboard(),
-    getEvents({ limit: 250 }),
-    getHealthDetailed(),
+    getEvents({ limit: 200 }),
   ]);
   return {
     data: {
@@ -47,9 +48,8 @@ async function fetchOverview(): Promise<Fetched<Overview>> {
       sla: sr.data,
       compliance: dr.data,
       events: er.data?.items ?? [],
-      health: hr.data,
     },
-    source: [cr, qr, sr, dr, er, hr].some((r) => r.source === "demo") ? "demo" : "live",
+    source: [cr, qr, sr, dr, er].some((r) => r.source === "demo") ? "demo" : "live",
   };
 }
 
@@ -72,6 +72,12 @@ export default function ManagementPage() {
   const state = useFetch(fetchOverview);
   const loading = state.status === "loading";
   const data = state.status === "live" || state.status === "demo" ? state.data : null;
+
+  // Health is a secondary strip on its own fetch — a slow/failed cloud ping shows an
+  // inline "unavailable" state instead of blanking the whole overview.
+  const healthState = useFetch(getHealthDetailed);
+  const health = healthState.status === "live" || healthState.status === "demo" ? healthState.data : null;
+  const healthLoading = healthState.status === "loading";
 
   const trend = useMemo(() => (data ? dailyCounts(data.events, nowMs()) : null), [data]);
   // All-zero series draws a misleading flat line — show nothing instead.
@@ -156,12 +162,12 @@ export default function ManagementPage() {
 
           {/* Triage (wider) + signals feed — two independent column stacks so a
               short attention card never strands blank space beside the feed. */}
-          <div data-testid="overview-priority-layout" className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div data-testid="overview-priority-layout" className="mt-4 grid items-stretch gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
             <div ref={attentionRef} className={revealCls(attentionRevealed)}>
               <AttentionList sla={data?.sla ?? null} compliance={data?.compliance ?? null} loading={loading} />
-              <HealthStrip health={data?.health ?? null} loading={loading} />
+              <HealthStrip health={health} loading={healthLoading} />
             </div>
-            <div ref={signalsRef} className={revealCls(signalsRevealed)} style={{ transitionDelay: "100ms" }}>
+            <div ref={signalsRef} className={`${revealCls(signalsRevealed)} h-full`} style={{ transitionDelay: "100ms" }}>
               <SignalsFeed events={data?.events ?? []} spark={spark} loading={loading} />
             </div>
           </div>

@@ -69,36 +69,71 @@ class BriefEngine:
             for p in procedures[:3]
         ]
 
-        if graph_edges:
-            top = graph_edges[0]
-            edge = top.get("edge", {})
-            target = top.get("target", {})
+        failure_code = (event.failure_code or "").strip()
+        fc_known = bool(failure_code) and failure_code.upper() != "UNKNOWN"
+        doc_ids = _distinct_docs(graph_edges)
+        rel_summary = _summarize_relationships(graph_edges)
+
+        # Operator-facing headline: lead with the most actionable signal, not raw
+        # edge internals. Authority/verification are surfaced by the source badges.
+        if conflicts:
             headline = (
-                f"Asset {event.asset_id}: {edge.get('relationship_type', 'knowledge edge')} "
-                f"→ {target.get('tag_number') or target.get('concept_id') or 'linked node'} "
-                f"(authority {edge.get('authority_level', '?')})"
+                f"{event.asset_id}: {len(conflicts)} open knowledge conflict(s) — resolve before work"
+                + (f" (failure code {failure_code})" if fc_known else "")
+            )
+        elif quarantine_items:
+            headline = (
+                f"{event.asset_id}: {len(quarantine_items)} unverified field observation(s) on file — "
+                "review before work"
+            )
+        elif graph_edges:
+            headline = (
+                f"{event.asset_id}: {len(graph_edges)} knowledge record(s) on file"
+                + (f" across {len(doc_ids)} source document(s)" if doc_ids else "")
+                + (f" — work order failure code {failure_code}" if fc_known else "")
             )
         else:
-            headline = f"Asset {event.asset_id}: no prior knowledge edges found — first occurrence of failure code {event.failure_code}"
+            headline = (
+                f"{event.asset_id}: no prior knowledge on file"
+                + (f" — first occurrence of failure code {failure_code}" if fc_known else " for this work order")
+            )
 
-        body_lines = [f"Work order: {event.work_order_id} | Failure code: {event.failure_code}"]
+        lead = f"Work order {event.work_order_id} on {event.asset_id}"
+        if fc_known:
+            lead += f", failure code {failure_code}"
+        body_lines = [lead + "."]
         if graph_edges:
-            body_lines.append(f"\nKnowledge graph — {len(graph_edges)} active edge(s):")
-            for e in graph_edges[:5]:
-                edge = e.get("edge", {})
+            summary = f"\n{len(graph_edges)} knowledge record(s) on file"
+            if rel_summary:
+                summary += f" — {rel_summary}"
+            summary += ". Authority and verification status are shown per source below."
+            body_lines.append(summary)
+            if doc_ids:
                 body_lines.append(
-                    f"  • {edge.get('relationship_type', '?')} | confidence={edge.get('confidence', '?')} | "
-                    f"authority={edge.get('authority_level', '?')}"
+                    "Source documents: " + ", ".join(doc_ids[:5]) + (" …" if len(doc_ids) > 5 else "")
                 )
         if vector_hits:
-            body_lines.append(f"\nSimilar failure patterns (semantic, top {len(vector_hits[:3])}):")
+            body_lines.append(f"\nSimilar failure patterns from {len(vector_hits[:3])} related record(s):")
             for h in vector_hits[:3]:
                 p = h.get("payload", {})
-                body_lines.append(f"  • [{p.get('document_id', '?')}] score={h.get('score', 0):.2f}")
+                excerpt = (p.get("content") or "").strip()
+                if excerpt:
+                    excerpt = excerpt[:140] + ("…" if len(excerpt) > 140 else "")
+                    body_lines.append(f"  • {excerpt} [{p.get('document_id', '?')}]")
+                else:
+                    body_lines.append(f"  • {p.get('document_id', '?')}")
         if procedures:
-            body_lines.append(f"\nApplicable procedures in ES ({len(procedures)} found):")
+            body_lines.append(f"\nApplicable procedures ({len(procedures)} on file):")
             for p in procedures[:3]:
                 body_lines.append(f"  • {p.get('title') or p.get('document_id', '?')}")
+        if quarantine_items:
+            body_lines.append(
+                f"\n⚠ {len(quarantine_items)} unverified field observation(s) linked to this asset — "
+                "not yet reviewed by engineering."
+            )
+        if conflicts:
+            params = ", ".join(sorted({c.get("parameter", "?") for c in conflicts if isinstance(c, dict)}))
+            body_lines.append(f"\n⚠ Open knowledge conflict(s) on: {params}. Resolve via governance before acting.")
 
         # Enrich with correlated events from the same compound event window
         correlated = await self._get_correlated_events(str(event.event_id))
@@ -788,6 +823,43 @@ class BriefEngine:
 # -------------------------------------------------------------------------
 # Module-level helpers
 # -------------------------------------------------------------------------
+
+# Friendly labels for the relationship types that appear on KNOWLEDGE_EDGEs, so
+# brief bodies read as operator language instead of graph internals.
+_REL_FRIENDLY = {
+    "DOCUMENTED_BY": "document link",
+    "HAS_MAX_PRESSURE": "pressure limit",
+    "HAS_FAILURE_MODE": "failure mode",
+    "INSPECTION_RECORD": "inspection record",
+    "CONTAINS_TOPOLOGY_ELEMENT": "drawing element",
+    "GOVERNED_BY": "governing procedure",
+    "HAS_PARAMETER": "process parameter",
+}
+
+
+def _humanize_rel(rel: Optional[str]) -> str:
+    if not rel:
+        return "record"
+    return _REL_FRIENDLY.get(rel, rel.replace("_", " ").lower())
+
+
+def _distinct_docs(edges: List[Dict[str, Any]]) -> List[str]:
+    seen: List[str] = []
+    for e in edges:
+        doc = e.get("edge", {}).get("document_id")
+        if doc and doc not in seen:
+            seen.append(doc)
+    return seen
+
+
+def _summarize_relationships(edges: List[Dict[str, Any]]) -> str:
+    counts: Dict[str, int] = {}
+    for e in edges:
+        label = _humanize_rel(e.get("edge", {}).get("relationship_type"))
+        counts[label] = counts.get(label, 0) + 1
+    parts = [f"{n}× {label}" for label, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+    return ", ".join(parts[:4])
+
 
 def _sources_from_graph(edges: List[Dict[str, Any]]) -> List[SourceCitation]:
     sources = []

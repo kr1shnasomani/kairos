@@ -5,12 +5,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import type { MocItem, ConflictSource } from "@/lib/types";
-import { getMoc, approveMoc, type DataSource } from "@/lib/api";
+import { getMoc, approveMoc } from "@/lib/api";
 import { relativeTime } from "@/lib/utils";
-import { StatusBadge, DemoChip, PageHeader } from "@/components/ui";
+import { StatusBadge, PageHeader } from "@/components/ui";
 import { DetailSkeleton } from "@/components/skeleton";
 import { BlastRadiusPanel } from "@/components/lazy";
-import { mocFixture } from "./_components/fixtures";
 
 const STATUS_TONE: Record<string, "caution" | "verified" | "danger"> = {
   pending: "caution",
@@ -21,7 +20,8 @@ const STATUS_TONE: Record<string, "caution" | "verified" | "danger"> = {
 export default function MocDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [moc, setMoc] = useState<MocItem | null>(null);
-  const [source, setSource] = useState<DataSource>("demo");
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -30,11 +30,13 @@ export default function MocDetailPage() {
     let alive = true;
     getMoc(id).then(({ data, source }) => {
       if (!alive) return;
-      setMoc(data ?? mocFixture(id));
-      setSource(data ? source : "demo");
-    });
+      // Live-only: no fixture stand-in for a real MoC case.
+      if (!data || source === "demo") { setLoadFailed(true); return; }
+      setLoadFailed(false);
+      setMoc(data);
+    }).catch(() => { if (alive) setLoadFailed(true); });
     return () => { alive = false; };
-  }, [id]);
+  }, [id, reload]);
 
   async function handleApprove() {
     if (!moc) return;
@@ -48,6 +50,22 @@ export default function MocDetailPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="mx-auto max-w-[1400px]">
+        <Link href="/governance/moc" className="inline-flex items-center gap-1.5 text-body text-muted hover:text-ink">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+          MoC queue
+        </Link>
+        <div className="mt-6 rounded-xl border border-line bg-surface p-8 text-center">
+          <p className="text-body font-medium text-ink">Couldn&apos;t load this MoC case.</p>
+          <p className="mt-1 text-caption text-muted">Live data is unavailable.</p>
+          <button type="button" onClick={() => setReload((r) => r + 1)} className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-line bg-surface-2 px-4 text-caption font-medium text-ink transition-colors hover:bg-canvas">Retry</button>
+        </div>
+      </div>
+    );
   }
 
   if (!moc) {
@@ -71,7 +89,6 @@ export default function MocDetailPage() {
 
       <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <StatusBadge tone={STATUS_TONE[moc.status] ?? "neutral"}>{moc.status}</StatusBadge>
-        {source === "demo" && <DemoChip />}
       </div>
       <PageHeader
         compact

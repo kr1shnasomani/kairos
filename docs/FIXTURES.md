@@ -1,6 +1,16 @@
 # KAIROS — Fixtures Reference
 
-> **For AI coding agents:** Fixtures are static mock files used as fallbacks when live external systems (EAM, OT historian, P&ID topology API) are unavailable. Every fetcher follows the pattern `try { live } catch { fixture }`. This doc maps every fixture file to the endpoint it backs, its data contract, and when it fires.
+> **For AI coding agents:** This doc covers two very different kinds of fixture.
+>
+> **⚠️ The frontend is now LIVE-ONLY.** The web app never displays fabricated data. Every page shows
+> **real backend data**, a **loading skeleton** while fetching, or an **error + retry** if the backend is
+> unreachable — never a fixture. The frontend fixture modules (`lib/*.ts`) still exist in code but are no
+> longer rendered: `useFetch` treats a fixture fallback as an error, server pages `throw` on it, and the
+> few custom-client pages show an inline retry. See [§3](#3-frontend-live-only-policy).
+>
+> **Backend fixtures below are mock-by-design** — they stand in for external plant systems KAIROS does not
+> own (EAM golden record, OT historian, P&ID vision model) and are the intended MVP state, not a gap. This
+> doc maps each to the endpoint it backs, its data contract, and when it fires.
 
 ---
 
@@ -8,7 +18,7 @@
 
 1. [Fixture Fallback Pattern](#1-fixture-fallback-pattern)
 2. [Fixture Files](#2-fixture-files)
-3. [Frontend Fixture Fallback (Demo Chip)](#3-frontend-fixture-fallback-demo-chip)
+3. [Frontend Live-Only Policy](#3-frontend-live-only-policy)
 
 ---
 
@@ -25,7 +35,9 @@ if os.Getenv("EAM_ODS_ENDPOINT") == "" {
 
 **Backend (Python API):** Live service unreachable → fixture JSON returned inline.
 
-**Frontend:** Every fetcher wraps live API calls in `try { live } catch { fixture }` with a 1500 ms abort. When the fixture path is taken, the response includes `source: "demo"` and the UI renders a **Demo** chip.
+**Frontend:** LIVE-ONLY (see §3). Read fetchers still return `{ data, source }`, but a `source: "demo"`
+result is never shown to the user — it is treated as a failure and surfaces a loading skeleton or an
+error+retry. The default read timeout is **4 s** (`getJson`), compliance gaps **5 s**.
 
 ---
 
@@ -96,34 +108,23 @@ if os.Getenv("EAM_ODS_ENDPOINT") == "" {
 
 ---
 
-## 3. Frontend Fixture Fallback (Demo Chip)
+## 3. Frontend Live-Only Policy
 
-All frontend API fetchers in `frontend/src/lib/api.ts` follow this contract:
+**The web app never shows fabricated data.** A read fetcher in `api.ts` still returns `{ data, source }`,
+but the app no longer renders the `source: "demo"` path:
 
-```ts
-// Every fetcher returns { data, source }
-// source: "live" | "demo"
-try {
-  const res = await fetch(url, { signal: AbortSignal.timeout(1500) })
-  return { data: await res.json(), source: "live" }
-} catch {
-  return { data: FIXTURE_DATA, source: "demo" }
-}
-```
+- **Client pages (`useFetch`)** — `useFetch` maps a `demo` result to **error** → the page's error+retry state.
+- **Server pages** (assets, asset detail, briefs, documents, doc detail, off-boarding) — **`throw` on demo**
+  → the shared `(app)/error.tsx` boundary + `(app)/loading.tsx` skeleton. (`(app)/layout.tsx` is
+  `dynamic = "force-dynamic"` so these render per request, never prerendered at build.)
+- **Custom-client pages** (governance hub, MoC detail, plant-state, projects, off-boarding session, field
+  elicitation) — show an inline "unavailable — retry" instead of the fixture.
+- **`/management/cross-site`** has no backend (single-site MVP) — it shows an honest "No cross-site data in
+  this deployment" state, not fabricated alerts.
+- A few fetchers additionally treat **empty live data as a valid state** (e.g. `getComplianceGaps` no longer
+  substitutes a fixture on empty).
 
-When `source === "demo"`, the page renders a `<DemoChip />` component to make the fixture origin visible. **Never** suppress or hide the Demo chip — it is a safety signal that the data shown is not live.
-
-Frontend fixture data lives in dedicated modules under `frontend/src/lib/` (one per domain), with a few
-small inline fixtures alongside their fetcher in `api.ts`:
-
-| Module | Backs |
-|--------|-------|
-| `fixtures.ts` | `GET /briefs/` (`fixtureBriefs`) |
-| `assets.ts` | `GET /assets/`, `/assets/{id}`, `/assets/{id}/knowledge` |
-| `compliance.ts` | `GET /compliance/gaps`, `/compliance/dashboard` |
-| `copilot.ts` | `POST /search/synthesize` (`answerFor()`) |
-| `documents.ts` | `GET /documents/`, `/documents/{id}` |
-| `governance.ts` | `GET /governance/conflicts`, `/governance/quarantine` |
-| `rca.ts` | `POST /search/rca-pack` (`rcaFor()`) |
-
-See `docs/FRONTEND.md §9` for the full frontend fixture reference.
+So the net user experience everywhere is: **real data · loading skeleton · error+retry** — never a demo chip.
+The `<DemoChip>` primitive and the fixture modules (`lib/fixtures.ts`, `assets.ts`, `compliance.ts`,
+`copilot.ts`, `documents.ts`, `governance.ts`, `rca.ts`) remain in the tree but are effectively dead;
+removing them entirely is optional cleanup.

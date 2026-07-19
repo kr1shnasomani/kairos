@@ -6,7 +6,7 @@ import type { PlantOperatingState, PlantState } from "@/lib/types";
 import { getPlantState, setPlantState } from "@/lib/api";
 import { getMe } from "@/lib/auth";
 import { ADMIN_ROLES } from "@/components/use-role";
-import { Modal, StatusBadge, Button, DemoChip, PageHeader } from "@/components/ui";
+import { Modal, StatusBadge, Button, PageHeader } from "@/components/ui";
 import { fmtRelTime } from "@/lib/format";
 import { STATE_META, STATES, toneToken } from "./_components/state-meta";
 
@@ -14,7 +14,8 @@ export default function PlantStatePage() {
   const [current, setCurrent] = useState<PlantState | null>(null);
   const [siteId, setSiteId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [isDemo, setIsDemo] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<PlantOperatingState | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -29,12 +30,14 @@ export default function PlantStatePage() {
       setIsAdmin(ADMIN_ROLES.includes(u.role));
       getPlantState(u.site_id).then(({ data, source }) => {
         if (!alive) return;
+        // Live-only: a demo fallback means the fetch failed — don't fabricate a state.
+        if (source === "demo") { setCurrent(null); setFailed(true); return; }
+        setFailed(false);
         setCurrent(data);
-        setIsDemo(source === "demo" || !data);
       });
-    });
+    }).catch(() => { if (alive) setFailed(true); });
     return () => { alive = false; };
-  }, []);
+  }, [reload]);
 
   async function handleConfirm() {
     if (!selected || !siteId) return;
@@ -84,15 +87,16 @@ export default function PlantStatePage() {
               Set by {current.set_by} · {fmtRelTime(current.set_at)}
             </span>
           </div>
+        ) : failed ? (
+          <div className="mt-3 flex items-center gap-3">
+            <span className="text-body text-muted">Couldn&apos;t load the current state.</span>
+            <button type="button" onClick={() => setReload((r) => r + 1)} className="text-caption font-medium text-accent hover:underline">Retry</button>
+          </div>
         ) : (
           <div className="mt-3 flex items-center gap-2">
-            {isDemo
-              ? <span className="text-body text-muted">No live state — demo mode</span>
-              : <span className="inline-flex gap-1.5">{[0,1,2].map((i) => <span key={i} className="size-2 animate-bounce rounded-full bg-muted" style={{ animationDelay: `${i * 0.15}s` }} />)}</span>
-            }
+            <span className="inline-flex gap-1.5">{[0,1,2].map((i) => <span key={i} className="size-2 animate-bounce rounded-full bg-muted" style={{ animationDelay: `${i * 0.15}s` }} />)}</span>
           </div>
         )}
-        {isDemo && <DemoChip />}
       </section>
 
       {/* State selector — admin only */}

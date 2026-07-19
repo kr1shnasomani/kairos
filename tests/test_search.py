@@ -1,6 +1,5 @@
 """Search — Tasks 9-12: hybrid retrieval, asset-scoped search, synthesis, RCA pack."""
 
-import pytest
 from datetime import datetime, timezone
 
 

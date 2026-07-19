@@ -13,7 +13,7 @@ import type {
   OffboardingSessionItem,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Button, DemoChip, StatusBadge } from "@/components/ui";
+import { Button, StatusBadge } from "@/components/ui";
 import { VoiceRecorder } from "@/components/voice-recorder";
 
 // Session list panel — selects an item in-page (all items belong to one programme).
@@ -186,7 +186,7 @@ export default function OffboardingSessionPage() {
   const [programme, setProgramme] = useState<OffboardingProgramme | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [questionsByItem, setQuestionsByItem] = useState<Record<string, string[]>>({});
-  const [source, setSource] = useState<"live" | "demo">("demo");
+  const [failed, setFailed] = useState(false);
   const [selectedId, setSelectedId] = useState<string>("");
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -194,10 +194,12 @@ export default function OffboardingSessionPage() {
     let alive = true;
     getOffboarding(programmeId).then((r) => {
       if (!alive) return;
+      // Live-only: no fixture stand-in for a real programme.
+      if (!r.data || r.source === "demo") { setFailed(true); setLoaded(true); return; }
+      setFailed(false);
       setProgramme(r.data);
-      setSource(r.source);
       setLoaded(true);
-    });
+    }).catch(() => { if (alive) { setFailed(true); setLoaded(true); } });
     getOffboardingQuestions(programmeId).then((r) => { if (alive) setQuestionsByItem(r.data); });
     return () => { alive = false; };
   }, [programmeId, refreshKey]);
@@ -227,6 +229,16 @@ export default function OffboardingSessionPage() {
     );
   }
 
+  if (failed) {
+    return (
+      <div className="mx-auto max-w-lg px-5 py-16 text-center">
+        <p className="text-subtitle font-semibold">Couldn&apos;t load this programme</p>
+        <p className="mt-1.5 text-body text-muted">Live data is unavailable right now.</p>
+        <button type="button" onClick={() => { setFailed(false); setLoaded(false); setRefreshKey((k) => k + 1); }} className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-line bg-surface-2 px-4 text-caption font-medium text-ink transition-colors hover:bg-canvas">Retry</button>
+      </div>
+    );
+  }
+
   if (!programme) {
     return (
       <div className="mx-auto max-w-lg px-5 py-16 text-center">
@@ -247,7 +259,6 @@ export default function OffboardingSessionPage() {
         <Link href="/offboarding" className="hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">Offboarding</Link>
         <span aria-hidden="true">›</span>
         <span className="text-ink">{programme.personnel_email}</span>
-        {source === "demo" && <DemoChip />}
       </div>
 
       <section data-testid="offboarding-profile-header" className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">

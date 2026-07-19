@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { BarList } from "@/components/charts/bar-list";
 import { Donut } from "@/components/charts/donut";
 import { ChartSkeleton } from "@/components/skeleton";
-import { DataTable, DemoChip, EmptyState, FilterTabs, MetricCard, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import { DataTable, EmptyState, FilterTabs, MetricCard, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
 import { Card } from "@/components/ui-card";
 import { getComplianceDashboard, getComplianceGaps, type Fetched } from "@/lib/api";
 import { fmtRelTime } from "@/lib/format";
@@ -47,19 +47,20 @@ interface ComplianceData {
   dashboard: ComplianceDashboard | null;
 }
 
-/** Same two fetchers, same params, parallel — demo when either source fell back. */
+/** Live-only: gaps are required (getComplianceGaps throws on failure → the page
+ *  shows a retry, never a fixture). The dashboard is optional chart enrichment. */
 async function fetchCompliance(): Promise<Fetched<ComplianceData>> {
   const [gr, dr] = await Promise.all([getComplianceGaps(), getComplianceDashboard()]);
   return {
-    data: { gaps: gr.data?.items ?? [], dashboard: dr.data ?? null },
-    source: gr.source === "demo" || dr.source === "demo" ? "demo" : "live",
+    data: { gaps: gr.data?.items ?? [], dashboard: dr.source === "live" ? dr.data : null },
+    source: "live",
   };
 }
 
 export default function CompliancePage() {
   const state = useFetch(fetchCompliance);
   const loading = state.status === "loading";
-  const data = state.status === "live" || state.status === "demo" ? state.data : null;
+  const data = state.status === "live" ? state.data : null;
   const [severity, setSeverity] = useState("all");
 
   const counts = useMemo<Record<GapSeverity, number>>(() => {
@@ -102,7 +103,6 @@ export default function CompliancePage() {
         lede="High-recall gap detection: every asset + regulation without a verified procedure is flagged."
         actions={<>
           {lastScan && lastScan !== "realtime" && <span className="text-caption text-muted">Last scan {fmtRelTime(lastScan)}</span>}
-          {state.status === "demo" && <DemoChip />}
         </>}
       />
 

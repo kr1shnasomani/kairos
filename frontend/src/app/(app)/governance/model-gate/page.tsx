@@ -9,13 +9,14 @@ import type { TooltipContentProps } from "recharts";
 import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from "recharts";
 import { AXIS, ChartContainer, GRID, downsample } from "@/components/charts";
 import { ChartTooltip } from "@/components/charts/chart-tooltip";
-import { DataTable, DemoChip, EmptyState, MetricCard, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import { DataTable, EmptyState, MetricCard, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
 import type { Fetched } from "@/lib/api";
 import { getModelGateHistory, runModelGate } from "@/lib/api";
 import { fmtNum, fmtPct, fmtRelTime } from "@/lib/format";
 import { useReducedMotion } from "@/lib/motion";
 import type { ModelGateResult } from "@/lib/types";
 import { useFetch } from "@/lib/use-fetch";
+import { useRole, ADMIN_ROLES } from "@/components/use-role";
 
 const F1_THRESHOLD = 0.8;
 
@@ -71,6 +72,8 @@ export default function ModelGatePage() {
   const loading = state.status === "loading";
   const history = state.status === "live" || state.status === "demo" ? state.data : null;
   const reduced = useReducedMotion();
+  const role = useRole();
+  const isAdmin = ADMIN_ROLES.includes(role);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
 
@@ -98,8 +101,19 @@ export default function ModelGatePage() {
     try {
       await runModelGate();
       // ponytail: no polling — Temporal task; user refreshes to see new run
-    } catch {
-      setRunError("Could not trigger run — backend offline.");
+    } catch (e) {
+      // Distinguish a permission failure (admin-only endpoint) and other server
+      // errors from an actual offline backend — postJson encodes the status as
+      // "… → HTTP <code>"; a network/timeout failure has no HTTP code.
+      const msg = e instanceof Error ? e.message : "";
+      const code = msg.match(/HTTP (\d+)/)?.[1];
+      if (code === "403") {
+        setRunError("You don't have permission to run the gate — this action is admin-only.");
+      } else if (code) {
+        setRunError(`Couldn't trigger the run — the server returned ${code}. Try again.`);
+      } else {
+        setRunError("Couldn't reach the backend — check your connection and retry.");
+      }
     } finally {
       setRunning(false);
     }
@@ -120,8 +134,9 @@ export default function ModelGatePage() {
         title="Model gate"
         lede="Precision / recall gate on the validation corpus. A failed run blocks model promotion. Runs are triggered manually or by the nightly Temporal workflow."
         actions={
-          <>
-            {state.status === "demo" && <DemoChip />}
+          // Running the gate is admin-only on the backend (403 otherwise), so only
+          // admins see the trigger. Everyone else views history read-only.
+          isAdmin ? (
             <button
               onClick={handleRun}
               disabled={running}
@@ -129,7 +144,7 @@ export default function ModelGatePage() {
             >
               {running ? "Triggering…" : "Run gate now"}
             </button>
-          </>
+          ) : undefined
         }
       />
 

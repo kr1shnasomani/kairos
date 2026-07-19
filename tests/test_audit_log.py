@@ -1,7 +1,5 @@
 """Audit log — Task 25: immutable evidence lineage trail (Layer 7)."""
 
-import pytest
-from tests.conftest import uid
 
 
 async def test_audit_log_shape(admin_client):

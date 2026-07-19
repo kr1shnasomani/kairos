@@ -1,6 +1,5 @@
 """Events — Tasks 13-16, 33: work orders, PTW, shift handover, alarms, tag-out, deviations."""
 
-import pytest
 from datetime import datetime, timezone
 from tests.conftest import uid
 
@@ -69,7 +68,7 @@ async def test_work_order_recurring_detection(admin_client, shared_asset_id):
     payload1 = _work_order_payload(shared_asset_id)
     payload2 = {**_work_order_payload(shared_asset_id), "event_id": uid(), "work_order_id": f"WO-{uid()}"}
     # Send first, then wait a tick (dedup window is asset+event_type based, not failure_code)
-    r1 = await admin_client.post("/events/work-order", json=payload1)
+    await admin_client.post("/events/work-order", json=payload1)
     # Use a different asset to bypass dedup but same failure family
     asset2 = f"ASSET-{uid()}"
     r_asset = await admin_client.post("/assets/", json={

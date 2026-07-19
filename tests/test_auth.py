@@ -1,8 +1,6 @@
 """Auth — Task 19: JWT exchange, refresh, /me, role enforcement."""
 
-import httpx
-import pytest
-from tests.conftest import BASE_URL, ADMIN_EMAIL, ADMIN_PASSWORD
+from tests.conftest import ADMIN_EMAIL, ADMIN_PASSWORD
 
 
 async def test_login_admin(anon_client):

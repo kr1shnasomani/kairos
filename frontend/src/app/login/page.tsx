@@ -51,6 +51,7 @@ export default function LoginPage() {
 
   return (
     <main className="relative grid min-h-dvh place-items-center bg-page px-5 py-20">
+      <title>Kairos: Sign in</title>
       <Link href="/" aria-label="Back to landing page" className="absolute left-5 top-5 grid size-10 place-items-center rounded-lg border border-line bg-surface text-muted transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
         <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="m14 6-6 6 6 6" />

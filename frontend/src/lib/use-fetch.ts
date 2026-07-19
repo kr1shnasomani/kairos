@@ -25,7 +25,21 @@ export function useFetch<T>(fn: () => Promise<Fetched<T>>, deps: React.Dependenc
       setState({ status: "loading" });
       try {
         const { data, source } = await fn();
-        if (!stale) setState(source === "live" ? { status: "live", data } : { status: "demo", data });
+        if (!stale) {
+          // Live-only policy: a "demo" result means the real fetch fell back to a
+          // fixture — we never render fabricated data. Treat it as a retryable
+          // failure so the page shows its error+retry state instead. (Pages keep
+          // their now-unreachable "demo" branches; harmless dead code.)
+          if (source === "live") {
+            setState({ status: "live", data });
+          } else {
+            setState({
+              status: "error",
+              error: new Error("Live data is unavailable — the backend did not respond in time."),
+              retry: () => setGeneration((g) => g + 1),
+            });
+          }
+        }
       } catch (e) {
         if (!stale) {
           setState({

@@ -254,8 +254,28 @@ async def list_documents(
     result = await asyncio.to_thread(
         lambda: query.order("ingested_at", desc=True).range(offset, offset + limit - 1).execute()
     )
+    items = result.data or []
+
+    # Attach asset_links per document (one batch query, no N+1) so consumers such as
+    # the projects portfolio can classify documents by the equipment class of their
+    # linked assets. Without this the list omits asset_links and everything reads as
+    # "Unclassified".
+    doc_ids = [d["document_id"] for d in items]
+    if doc_ids:
+        links_result = await asyncio.to_thread(
+            lambda: supabase.table("document_asset_links")
+            .select("document_id, asset_id")
+            .in_("document_id", doc_ids)
+            .execute()
+        )
+        links_by_doc: dict[str, list[str]] = {}
+        for row in (links_result.data or []):
+            links_by_doc.setdefault(row["document_id"], []).append(row["asset_id"])
+        for d in items:
+            d["asset_links"] = links_by_doc.get(d["document_id"], [])
+
     return {
-        "items": result.data or [],
+        "items": items,
         "total": result.count or 0,
         "limit": limit,
         "offset": offset,
@@ -327,12 +347,59 @@ async def get_extraction_results(
 
     return ExtractionResult(
         document_id=document_id,
-        extraction_model="mXLM-RoBERTa + PaddleOCR3",
+        extraction_model=f"{settings.NVIDIA_NIM_NER_MODEL} + {settings.NVIDIA_NIM_OCR_MODEL}",
         entities=[],
         graph_edges_created=job.get("graph_edges") or 0,
         vector_chunks_indexed=0,
         review_items=[],  # populated by link_to_graph activity in Task 5
     )
+
+
+@router.get("/{document_id}/artifact-url", summary="Get a short-lived signed URL to open the vault artifact")
+async def get_artifact_url(
+    document_id: str,
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    """
+    Private vault buckets can't be opened by a plain browser navigation — the stored
+    `/object/authenticated/` URL requires an Authorization header a browser can't send
+    (Supabase returns 400 "headers must have required property 'authorization'"). Return
+    a short-lived signed URL instead: the token rides in the query string, so `window.open`
+    works without a header.
+    """
+    doc_result = await asyncio.to_thread(
+        lambda: supabase.table("documents")
+        .select("vault_url")
+        .eq("document_id", document_id)
+        .limit(1)
+        .execute()
+    )
+    if not doc_result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Document '{document_id}' not found")
+
+    vault_url = doc_result.data[0].get("vault_url") or ""
+    marker = f"/object/authenticated/{settings.SUPABASE_STORAGE_BUCKET}/"
+    idx = vault_url.find(marker)
+    if idx == -1:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Artifact storage path unavailable")
+    storage_path = vault_url[idx + len(marker):]
+
+    try:
+        signed = await asyncio.to_thread(
+            lambda: supabase.storage.from_(settings.SUPABASE_STORAGE_BUCKET).create_signed_url(storage_path, 3600)
+        )
+    except Exception as exc:
+        log.error("artifact.sign_failed", document_id=document_id, error=str(exc))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Could not sign artifact URL: {exc}")
+
+    # supabase-py has returned this key as signedURL / signedUrl / signed_url across versions.
+    signed_url = signed.get("signedURL") or signed.get("signedUrl") or signed.get("signed_url")
+    if not signed_url:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Signed URL missing from storage response")
+    if signed_url.startswith("/"):
+        signed_url = f"{settings.SUPABASE_URL}{signed_url}"
+    return {"signed_url": signed_url, "expires_in": 3600}
 
 
 @router.get("/{document_id}/topology", summary="Get extracted P&ID topology for engineer verification")

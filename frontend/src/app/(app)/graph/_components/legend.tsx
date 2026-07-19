@@ -36,15 +36,21 @@ function edgeTone(e: GraphEdgeData): TimelineEvent["tone"] {
 }
 
 /** Map graph edges to shared Timeline events (validity windows). */
-export function validityEvents(edges: GraphEdgeData[]): TimelineEvent[] {
+export function validityEvents(edges: GraphEdgeData[], labelOf?: (id: string) => string | undefined): TimelineEvent[] {
   return edges.map((e) => {
     const end = new Date(e.valid_to);
     const open = end.getFullYear() >= SENTINEL_YEAR;
+    // Label with the distinguishing TARGET node (the doc/concept the edge points to)
+    // — most edges share the same relationship type (e.g. DOCUMENTED_BY) and the same
+    // provenance document, so those repeat for every row. Relationship stays as a caption.
+    const rel = e.label ? e.label.replace(/_/g, " ").toLowerCase() : "relationship";
+    const target = labelOf?.(e.target);
     return {
       id: e.id,
-      label: e.label,
+      label: target || e.document_id || e.label || "relationship",
       timestamp: new Date(e.valid_from).toLocaleDateString("en-IN", { month: "short", year: "numeric" }),
       meta: open ? "Current" : `until ${end.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })}`,
+      description: rel,
       tone: edgeTone(e),
     };
   });

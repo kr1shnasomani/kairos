@@ -5,23 +5,11 @@ import type { AuditLogEntry } from "@/lib/types";
 import { getAuditLog } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { relativeTime } from "@/lib/utils";
-import { Button, DataTable, DemoChip, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import { Button, DataTable, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
 import { StatPills } from "@/components/stat-pills";
 
 /** AuditLogEntry re-mapped so it satisfies DataTable's Record constraint. */
 type AuditRow = Pick<AuditLogEntry, keyof AuditLogEntry>;
-
-// Built lazily (mount-once useState initializer) — no Date.now() at module scope.
-function buildFixture(): AuditLogEntry[] {
-  const now = Date.now();
-  return [
-    { log_id: "AL-001", entity_type: "brief", entity_id: "BRIEF-2024-001", action: "brief_acknowledged", performed_by: "field_worker_01", timestamp: new Date(now - 7200000).toISOString(), metadata: { delivery_mode: "field_bottom_tabs" } },
-    { log_id: "AL-002", entity_type: "document", entity_id: "DOC-OEM-001", action: "quarantine_promoted", performed_by: "engineer_kiran", timestamp: new Date(now - 14400000).toISOString(), metadata: { authority_level: 2, relationship_type: "DOCUMENTED_BY" } },
-    { log_id: "AL-003", entity_type: "asset", entity_id: "P-101", action: "sla_escalated", performed_by: "system", timestamp: new Date(now - 28800000).toISOString(), metadata: { conflict_id: "CONF-0041", hours_overdue: 3 } },
-    { log_id: "AL-004", entity_type: "document", entity_id: "DOC-INSP-007", action: "quarantine_disputed", performed_by: "admin_priya", timestamp: new Date(now - 172800000).toISOString(), metadata: { reason: "Conflicting measurement unit" } },
-    { log_id: "AL-005", entity_type: "asset", entity_id: "V-247", action: "moc_resolved", performed_by: "engineer_kiran", timestamp: new Date(now - 345600000).toISOString(), metadata: { moc_id: "MOC-2024-003", decision: "approved" } },
-  ];
-}
 
 const ACTION_TONE: Record<string, "danger" | "caution" | "verified" | "info" | "neutral"> = {
   sla_escalated: "danger",
@@ -30,40 +18,127 @@ const ACTION_TONE: Record<string, "danger" | "caution" | "verified" | "info" | "
   attribution_flag: "caution",
   circuit_breaker_override: "caution",
   recurring_failure_detected: "caution",
+  deviation_flag_raised: "caution",
   brief_acknowledged: "verified",
   quarantine_promoted: "verified",
   moc_resolved: "verified",
+  asset_created: "verified",
+  document_ingested: "info",
   rca_pack_generated: "info",
+  synthesis: "info",
   model_gate_result: "info",
   offboarding_programme_created: "info",
 };
 
-const ENTITY_TYPES = ["document", "brief", "asset"];
+const pretty = (t: string) => t.replace(/_/g, " ");
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
+// A compact, human-readable one-liner per audit action — fills the Details
+// column with the key facts of each record instead of a bare metadata toggle.
+function summarizeMeta(action: string, meta: Record<string, unknown> | null): string | null {
+  if (!meta) return null;
+  const m = meta as Record<string, unknown>;
+  const parts: string[] = [];
+  const push = (v: unknown) => { if (v !== null && v !== undefined && v !== "") parts.push(String(v)); };
+
+  switch (action) {
+    case "model_gate_result":
+      push(m.model_name);
+      if (typeof m.f1 === "number") push(`F1 ${m.f1.toFixed(2)}`);
+      if (m.passed !== undefined) push(m.passed ? "passed" : "failed");
+      break;
+    case "synthesis":
+      if (m.query) push(`"${String(m.query).slice(0, 48)}"`);
+      push(m.refused ? "refused · safety gate" : "answered");
+      if (m.query_category) push(pretty(String(m.query_category)));
+      break;
+    case "sla_escalated":
+      push(m.asset_id);
+      if (m.input_type) push(pretty(String(m.input_type)));
+      if (m.escalated_to) push(`→ ${pretty(String(m.escalated_to))}`);
+      break;
+    case "document_ingested":
+      push(m.file_name);
+      if (m.document_type) push(pretty(String(m.document_type)));
+      if (m.authority_level) push(`L${m.authority_level}`);
+      break;
+    case "asset_created":
+      push(m.tag_number);
+      push(m.eam_source);
+      break;
+    case "offboarding_programme_created":
+      push(m.personnel_email);
+      if (m.total_sessions) push(`${m.total_sessions} sessions`);
+      break;
+    case "deviation_flag_raised":
+      push(m.asset_id);
+      push(m.affected_topology_path);
+      break;
+  }
+
+  // Generic fallback: first few scalar fields.
+  if (parts.length === 0) {
+    for (const [k, v] of Object.entries(m)) {
+      if (v === null || typeof v === "object") continue;
+      parts.push(`${pretty(k)} ${v}`);
+      if (parts.length >= 3) break;
+    }
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Some entities key on a raw UUID (quarantine items, queries, offboarding
+// sessions), which reads as noise next to the DOC-/asset-/model ids that are
+// already legible. Derive a human label from the metadata so the column is
+// consistent. The full id stays in the title tooltip and the entity-ID filter.
+function entityLabel(r: AuditRow): { primary: string; secondary: string } {
+  const id = r.entity_id == null ? "" : String(r.entity_id);
+  const type = cap(pretty(r.entity_type));
+  // Opaque = a bare UUID or no id at all (e.g. synthesis queries) → derive a label.
+  const isOpaque = id === "" || UUID_RE.test(id);
+  if (!isOpaque) return { primary: id, secondary: type };
+  const m = (r.metadata ?? {}) as Record<string, unknown>;
+  // Short identifiers only — not free text like a query (that would read as a
+  // sentence in the Entity column; the query text is already in the Details column).
+  const friendly =
+    (typeof m.asset_id === "string" && m.asset_id) ||
+    (typeof m.personnel_email === "string" && m.personnel_email) ||
+    (typeof m.tag_number === "string" && m.tag_number) ||
+    "";
+  return friendly
+    ? { primary: String(friendly), secondary: type }
+    : { primary: type, secondary: id ? `#${id.slice(0, 8)}` : "" };
+}
 
 const COLUMNS: TableColumn<AuditRow>[] = [
   {
     key: "timestamp", label: "Recorded", sortValue: (r) => Date.parse(r.timestamp),
-    className: "w-[10%]",
+    className: "w-[9%]",
     render: (r) => <span className="tabular-nums whitespace-nowrap text-caption text-muted" title={r.timestamp}>{relativeTime(r.timestamp)}</span>,
   },
   {
     key: "action", label: "Action", sortable: true,
-    className: "w-[18%]",
-    render: (r) => <StatusBadge tone={ACTION_TONE[r.action] ?? "neutral"} dot={false}>{r.action.replace(/_/g, " ")}</StatusBadge>,
+    className: "w-[16%]",
+    render: (r) => <StatusBadge tone={ACTION_TONE[r.action] ?? "neutral"} dot={false}>{pretty(r.action)}</StatusBadge>,
   },
   {
     key: "entity_id", label: "Entity", sortable: true,
-    className: "w-[20%]",
-    render: (r) => (
-      <span className="block min-w-0">
-        <span className="tabular-nums block truncate font-semibold text-accent" title={String(r.entity_id)}>{r.entity_id}</span>
-        <span className="block text-label capitalize text-muted">{r.entity_type}</span>
-      </span>
-    ),
+    className: "w-[22%]",
+    render: (r) => {
+      const { primary, secondary } = entityLabel(r);
+      return (
+        <span className="block min-w-0">
+          <span className="block truncate font-semibold text-accent" title={r.entity_id ? String(r.entity_id) : primary}>{primary}</span>
+          <span className="block text-label text-muted">{secondary}</span>
+        </span>
+      );
+    },
   },
   {
     key: "performed_by", label: "Performed by", sortable: true,
-    className: "w-[20%]",
+    className: "w-[15%]",
     render: (r) => (
       <span className="block min-w-0">
         <span className="block truncate font-medium text-ink" title={String(r.performed_by)}>{r.performed_by}</span>
@@ -73,44 +148,45 @@ const COLUMNS: TableColumn<AuditRow>[] = [
   },
   {
     key: "metadata", label: "Details",
-    // fills remaining ~32% — no explicit width needed with table-fixed
+    // No explicit width — fills the remaining ~41% with the readable summary.
     render: (r) => {
-      const meta = r.metadata ?? null;
+      const meta = (r.metadata ?? null) as Record<string, unknown> | null;
       if (!meta || Object.keys(meta).length === 0) return <span className="text-muted">—</span>;
+      const summary = summarizeMeta(r.action, meta);
       return (
-        <details onClick={(e) => e.stopPropagation()}>
-          <summary className="cursor-pointer list-none text-label font-medium text-muted hover:text-ink">▶ metadata</summary>
-          <pre className="mt-1 max-w-full overflow-x-auto rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-label text-muted">{JSON.stringify(meta, null, 2)}</pre>
-        </details>
+        <div className="min-w-0">
+          {summary && <span className="block truncate text-caption text-ink" title={summary}>{summary}</span>}
+          <details onClick={(e) => e.stopPropagation()} className="mt-0.5">
+            <summary className="cursor-pointer list-none text-label font-medium text-accent transition-colors hover:opacity-80">Raw metadata</summary>
+            <pre className="mt-1 max-w-full overflow-x-auto rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-label text-muted">{JSON.stringify(meta, null, 2)}</pre>
+          </details>
+        </div>
       );
     },
   },
 ];
 
 export default function AuditPage() {
-  const [fixture] = useState(buildFixture);
   const [entityTypeFilter, setEntityTypeFilter] = useState("all");
   const [entityId, setEntityId] = useState("");
   const [entityIdInput, setEntityIdInput] = useState("");
 
-  // Spec §5: params unchanged — { entity_id?, limit: 100 }, refetch on entity search.
   const state = useFetch(() => getAuditLog({ entity_id: entityId || undefined, limit: 100 }), [entityId]);
   const loading = state.status === "loading";
-  const hasData = state.status === "live" || state.status === "demo";
-
-  const entries = useMemo<AuditRow[]>(() => {
-    if (!hasData) return [];
-    const fetched = state.data.items ?? [];
-    if (fetched.length > 0) return fetched;
-    return fixture.filter((e) => !entityId || e.entity_id.toLowerCase().includes(entityId.toLowerCase()));
-  }, [state, hasData, fixture, entityId]);
-  const isDemo = state.status === "demo" || (hasData && (state.data.items ?? []).length === 0);
+  const entries = useMemo<AuditRow[]>(() => (state.status === "live" ? state.data.items ?? [] : []), [state]);
 
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const e of entries) counts[e.entity_type] = (counts[e.entity_type] ?? 0) + 1;
     return counts;
   }, [entries]);
+
+  // Derived from the real data — every entity type present is filterable, so the
+  // tab counts always add up to the record total (no stale hard-coded set).
+  const entityTypes = useMemo(
+    () => Object.keys(typeCounts).sort((a, b) => typeCounts[b] - typeCounts[a]),
+    [typeCounts],
+  );
 
   const rows = useMemo(
     () => (entityTypeFilter === "all" ? entries : entries.filter((e) => e.entity_type === entityTypeFilter)),
@@ -124,18 +200,15 @@ export default function AuditPage() {
       <PageHeader
         eyebrow="Layer 7–8 · Immutable record"
         title="Audit trail"
-        lede="Every governance decision, delivery, and model gate result, in chronological order. Immutable by design."
+        lede="Every governance decision, delivery, ingestion, and model-gate result, in chronological order. Immutable by design."
         actions={
-          <>
-            {isDemo && <DemoChip />}
-            <a
-              href={exportHref}
-              download="kairos-audit-log.json"
-              className="inline-flex h-9 items-center rounded-lg border border-line px-3.5 text-caption font-semibold text-ink transition-colors hover:bg-surface-2"
-            >
-              Export JSON
-            </a>
-          </>
+          <a
+            href={exportHref}
+            download="kairos-audit-log.json"
+            className="inline-flex h-9 items-center rounded-lg border border-line px-3.5 text-caption font-semibold text-ink transition-colors hover:bg-surface-2"
+          >
+            Export JSON
+          </a>
         }
       />
 
@@ -144,9 +217,7 @@ export default function AuditPage() {
           loading={loading}
           pills={[
             { key: "records", label: "Records", value: entries.length },
-            { key: "document", label: "Documents", value: typeCounts.document ?? 0 },
-            { key: "brief", label: "Briefs", value: typeCounts.brief ?? 0 },
-            { key: "asset", label: "Assets", value: typeCounts.asset ?? 0 },
+            ...entityTypes.slice(0, 4).map((t) => ({ key: t, label: cap(pretty(t)), value: typeCounts[t] })),
           ]}
         />
       </section>
@@ -155,7 +226,7 @@ export default function AuditPage() {
         <FilterTabs
           tabs={[
             { key: "all", label: "All", count: entries.length },
-            ...ENTITY_TYPES.map((t) => ({ key: t, label: `${t.charAt(0).toUpperCase() + t.slice(1)}s`, count: typeCounts[t] })),
+            ...entityTypes.map((t) => ({ key: t, label: cap(pretty(t)), count: typeCounts[t] })),
           ]}
           active={entityTypeFilter}
           onChange={setEntityTypeFilter}

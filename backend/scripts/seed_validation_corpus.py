@@ -15,7 +15,6 @@ Run inside the API container, after documents are ingested:
 """
 
 import asyncio
-import os
 import sys
 from pathlib import Path
 

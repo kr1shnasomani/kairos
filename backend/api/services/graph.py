@@ -388,7 +388,19 @@ class GraphService:
                 as_of=as_of_str,
                 authority_min=authority_min,
             )
-            return [{"edge": dict(record["r"]), "target": dict(record["target"])} async for record in result]
+            # Dedupe by edge_id property: the graph can hold multiple physical KNOWLEDGE_EDGE
+            # relationships that share one logical edge_id (Cypher DISTINCT can't collapse them
+            # — they're separate graph elements). Keep the first, drop repeats.
+            seen: set[str] = set()
+            facts: List[Dict[str, Any]] = []
+            async for record in result:
+                edge = dict(record["r"])
+                edge_id = edge.get("edge_id")
+                if edge_id in seen:
+                    continue
+                seen.add(edge_id)
+                facts.append({"edge": edge, "target": dict(record["target"])})
+            return facts
 
     # -------------------------------------------------------------------------
     # Blast-radius analysis (Layer 7)
@@ -438,14 +450,30 @@ class GraphService:
         Traverses the graph to find all facts and downstream relationships
         that derive from the specified document (provenance_pointer = document_id).
         """
+        # Return both endpoints: the affected entity is the edge SOURCE (e.g. the asset
+        # whose knowledge derives from this document); the target is usually the document
+        # node itself. Dedupe by edge_id — re-runs can leave duplicate relationships.
         cypher = """
-        MATCH ()-[r:KNOWLEDGE_EDGE {document_id: $document_id}]->(target)
-        RETURN r, target
+        MATCH (source)-[r:KNOWLEDGE_EDGE {document_id: $document_id}]->(target)
+        RETURN r, source, target
         LIMIT 500
         """
         async with self.driver.session(database=self.database) as session:
             result = await session.run(cypher, document_id=document_id)
-            affected = [{"edge": dict(record["r"]), "target": dict(record["target"])} async for record in result]
+            seen: set = set()
+            affected = []
+            async for record in result:
+                edge = dict(record["r"])
+                edge_id = edge.get("edge_id")
+                if edge_id and edge_id in seen:
+                    continue
+                if edge_id:
+                    seen.add(edge_id)
+                affected.append({
+                    "edge": edge,
+                    "source": dict(record["source"]),
+                    "target": dict(record["target"]),
+                })
             return {"document_id": document_id, "affected_count": len(affected), "affected": affected}
 
     async def get_last_inspection_date(self, asset_id: str) -> Optional[str]:

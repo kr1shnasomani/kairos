@@ -1,6 +1,5 @@
 """Elicitation — Tasks 19, 29-31: voice notes, micro-interview trigger, off-boarding."""
 
-import pytest
 from tests.conftest import uid
 
 

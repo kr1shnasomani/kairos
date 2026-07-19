@@ -419,6 +419,34 @@ List vault documents.
 }
 ```
 
+Each item includes `asset_links: ["EQ-101", ...]` — the asset ids the document is linked to (batch-joined
+from `document_asset_links`, one query, no N+1). Consumers such as the projects portfolio classify documents
+by their linked assets' equipment class; without this every doc would read as "Unclassified".
+
+---
+
+### `GET /documents/{document_id}/artifact-url`
+
+Get a short-lived Supabase **signed URL** to open the raw vault artifact in a browser.
+
+**Auth required:** Yes
+
+The stored `vault_url` points at Supabase's `/object/authenticated/` endpoint, which **requires an
+`Authorization` header a plain link/`window.open` cannot send** (Supabase returns `400 headers must have
+required property 'authorization'`). This endpoint mints a signed URL instead — the token rides in the query
+string, so it opens without a header. The frontend "Open artifact" button fetches this (authenticated) then
+`window.open`s the result.
+
+**Response `200`:**
+```json
+{
+  "signed_url": "https://…supabase.co/storage/v1/object/sign/kairos-vault/<path>?token=…",
+  "expires_in": 3600
+}
+```
+
+**Errors:** `404` document not found · `422` artifact path unavailable · `502` signing failed
+
 ---
 
 ### `GET /documents/{document_id}/status`
@@ -1416,12 +1444,12 @@ Items enter quarantine when `confidence < 0.7` or entity resolution fails. `sla_
 
 Promote a quarantine item to the canonical graph. **Human action only — no auto-promotion, ever.**
 
-**Auth required:** Yes — `reliability`, `engineer`, or `admin` (OPA blocks `field_worker` with 403)
+**Auth required:** Yes — `reliability` or `admin` only (OPA `can_promote_quarantine`; `engineer` and `field_worker` get 403). The frontend hides the Promote button accordingly (`PROMOTE_ROLES`).
 
 **Request body:**
 ```json
 {
-  "promoted_by": "engineer@kairos.local",
+  "promoted_by": "reliability@kairos.local",
   "notes": "Verified against P&ID Rev D",
   "authority_level": 3,
   "valid_from": "2024-01-01T00:00:00Z"
@@ -1531,6 +1559,45 @@ List Management of Change records.
 
 ---
 
+### `GET /governance/moc/{moc_id}`
+
+Get one MoC item enriched for the detail view. The `moc_items` table stores only the linkage; `parameter`, `source_a`, and `source_b` are joined from the linked `knowledge_conflicts` row, and `blast_radius_count` is computed from the affected document's graph traversal (best-effort).
+
+**Auth required:** Yes
+
+**Response `200`:**
+```json
+{
+  "moc_id": "MOC-2024-007",
+  "asset_id": "EQ-101",
+  "parameter": "max_allowable_pressure",
+  "source_a": { "value": "1200 psi", "document_id": "DOC-...", "edge_id": "..." },
+  "source_b": { "value": "1400 psi", "document_id": "DOC-..." },
+  "blast_radius_count": 3,
+  "status": "pending",
+  "created_at": "2024-02-20T10:00:00Z",
+  "draft_content": "..."
+}
+```
+
+**Response `404`:** `{"detail": "MoC '<id>' not found"}`
+
+---
+
+### `POST /governance/moc/{moc_id}/approve`
+
+In-app MoC sign-off (engineer/admin authority — mirrors OPA `can_resolve_moc`). Marks the MoC approved, closes the superseded edge's validity window, and resolves the linked engineering-track conflict — the same effect as an approved MoC webhook, human-initiated. Shares the conflict-closing helper with the webhook path.
+
+**Auth required:** Yes (`engineer` or `admin`)
+
+**Request body:** `{ "note": "optional engineer note" }`
+
+**Response `200`:** `{"status": "approved", "moc_id": "..."}`
+
+**Response `409`:** `{"detail": "MoC already approved."}` · **`404`:** `{"detail": "MoC '<id>' not found"}`
+
+---
+
 ### `POST /governance/moc/webhook`
 
 Receive an MoC resolution webhook from the plant MoC system.
@@ -1601,29 +1668,33 @@ Get the blast-radius report for a proposed document change.
   "affected": [
     {
       "edge": {
-        "relationship_type": "CONTAINS_TOPOLOGY_ELEMENT",
-        "edge_id": "DOC-…_CONTAINS_TOPOLOGY_ELEMENT_TOPO-EQ-001_…",
-        "authority_level": 3,
-        "confidence": 0.85,
+        "relationship_type": "DOCUMENTED_BY",
+        "edge_id": "PG-18_DOCUMENTED_BY_DOC-…_2026-07-17T20:37:03Z",
+        "authority_level": 5,
+        "confidence": 0.9,
         "verification_status": "unverified",
-        "valid_from": "2026-07-10T11:52:56Z",
+        "valid_from": "2026-07-17T20:37:03Z",
         "valid_to": "9999-12-31T23:59:59Z",
-        "document_id": "DOC-TS4FXYKHCQEF"
+        "document_id": "DOC-…"
+      },
+      "source": {
+        "asset_id": "PG-18",
+        "name": "Local Gauge Bypass",
+        "equipment_class": "instrument_bypass"
       },
       "target": {
-        "concept_id": "TOPO-EQ-001",
-        "label": "P-101",
-        "element_type": "equipment_nodes",
-        "source_document_id": "DOC-TS4FXYKHCQEF"
+        "document_id": "DOC-…",
+        "document_type": "shift_log"
       }
     }
   ]
 }
 ```
 
-> ⚠️ The payload is `affected: [{edge, target}]` (edge/target node pairs) + `affected_count` — **not**
-> `affected_assets` / `affected_facts` / `severity`. Targets are heterogeneous graph nodes (facts,
-> concepts, assets); read a display label from `target.label ?? target.name ?? target.concept_id`.
+> ⚠️ Each pair is `{edge, source, target}` + `affected_count`. **The affected entity is the edge `source`**
+> (e.g. the asset whose knowledge derives from this document); `target` is usually the document node itself.
+> Results are **deduped by `edge_id`** server-side (re-runs can leave duplicate relationships). Nodes are
+> heterogeneous graph nodes; read a label from `source.name ?? source.tag_number ?? source.asset_id`.
 > The frontend `getBlastRadius` fetcher flattens each pair into `{item_id, item_type, description,
 > asset_id, flagged_for_review}` (flagged = edge `verification_status != "verified"`).
 

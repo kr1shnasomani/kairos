@@ -5,18 +5,62 @@ import { SUGGESTIONS, type CopilotAnswer } from "@/lib/copilot";
 import { synthesize } from "@/lib/api";
 import { Answer, Thinking, SYNTHESIS_ENABLED } from "./_components/answer-card";
 import { Composer } from "./_components/composer";
+import { cn } from "@/lib/utils";
 
 interface Turn {
   id: number;
   query: string;
   asOf?: string;
-  answer: CopilotAnswer | null; // null while thinking
+  answer: CopilotAnswer | null;
+}
+
+function InfoPopover({ turnCount, asOf, onClose }: { turnCount: number; asOf: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50" onClick={onClose}>
+      <div
+        className="absolute right-4 top-[60px] w-72 rounded-2xl border border-line bg-surface p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <p className="text-micro font-bold uppercase tracking-[0.1em] text-accent">Governed answers</p>
+          <button
+            onClick={onClose}
+            aria-label="Close info"
+            className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <h3 className="mt-1.5 text-title font-semibold">Evidence before prose</h3>
+        <p className="mt-2 text-caption leading-relaxed text-muted">
+          Kairos cites governed sources, exposes uncertainty, and refuses safety-critical answers when confidence is insufficient.
+        </p>
+        <div className="mt-4 space-y-3 border-t border-line pt-4">
+          <div>
+            <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Query scope</p>
+            <p className="mt-1 text-caption font-medium text-ink">
+              {asOf ? `Knowledge valid on ${asOf}` : "Current governed knowledge"}
+            </p>
+          </div>
+          <div>
+            <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Conversation</p>
+            <p className="mt-1 text-caption tabular text-ink">
+              {turnCount} {turnCount === 1 ? "question" : "questions"} in this session
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function CopilotPage() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [asOf, setAsOf] = useState("");
+  const [infoOpen, setInfoOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const nextId = useRef(0);
 
@@ -38,97 +82,114 @@ export default function CopilotPage() {
   const empty = turns.length === 0;
 
   return (
-    <div data-testid="copilot-workspace" className="mx-auto min-h-[calc(100dvh-1px)] max-w-[1400px] px-5 sm:px-8">
-      <div data-testid="copilot-layout" className="grid min-h-[calc(100dvh-1px)] items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <main data-testid="copilot-conversation" className="flex min-h-[calc(100dvh-1px)] min-w-0 flex-col">
-      <div className="flex-1 py-8">
-        {empty ? (
-          <div className="flex min-h-[60vh] flex-col items-center justify-center text-center">
-            <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">
-              Expert copilot
-            </p>
-            <h1 className="mt-2 text-display font-semibold text-balance">
-              Ask the governed knowledge base
-            </h1>
-            <p className="mt-2 max-w-md text-sm leading-relaxed text-muted text-pretty">
-              Every answer is assembled from source documents with citations and confidence. On
-              safety-critical parameters it refuses rather than guess.
-            </p>
-            {!SYNTHESIS_ENABLED && (
-              <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,transparent)] px-3 py-1.5 text-caption text-caution">
-                <span className="size-1.5 shrink-0 rounded-full bg-caution" aria-hidden="true" />
-                Phase 1 — retrieval only; synthesis unlocks in Phase 2
-              </div>
-            )}
-            <div className="mt-6 flex max-w-xl flex-wrap justify-center gap-2">
-              {SUGGESTIONS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => ask(s)}
-                  className="rounded-full border border-line bg-surface px-3.5 py-2 text-body text-ink transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-accent"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-7">
-            {turns.map((t) => (
-              <div key={t.id} className="flex flex-col gap-4">
-                <div className="flex flex-col items-end gap-0.5">
-                  <p className="max-w-[80%] rounded-2xl rounded-br-sm bg-accent px-4 py-2.5 text-sm leading-relaxed text-on-accent">
-                    {t.query}
-                  </p>
-                  {t.asOf && (
-                    <span className="text-micro text-muted">
-                      as of{" "}
-                      {new Date(t.asOf).toLocaleDateString("en-IN", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </span>
-                  )}
-                </div>
-                <div>{t.answer ? <Answer data={t.answer} /> : <Thinking />}</div>
-              </div>
-            ))}
-            <div ref={endRef} />
-          </div>
+    <div data-testid="copilot-workspace" className="relative flex flex-col h-[calc(100dvh-56px)] md:h-[calc(100dvh-64px)] w-full">
+      {/* ⓘ absolute top-right inside the workspace */}
+      <button
+        id="copilot-info-btn"
+        onClick={() => setInfoOpen((v) => !v)}
+        aria-label="About governed answers"
+        aria-expanded={infoOpen}
+        className={cn(
+          "absolute right-4 top-4 z-40 grid size-8 place-items-center rounded-full border text-muted transition-colors",
+          infoOpen
+            ? "border-accent bg-accent-soft text-accent"
+            : "border-transparent hover:border-line hover:text-ink hover:bg-surface-2"
         )}
-      </div>
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 16v-4M12 8h.01" />
+        </svg>
+      </button>
 
-      <div className="sticky bottom-0 -mx-5 bg-canvas px-5 pb-5 pt-3 sm:-mx-8 sm:px-8">
-        <Composer
-          value={input}
-          onChange={setInput}
-          onSubmit={() => ask(input)}
-          asOf={asOf}
-          onAsOfChange={setAsOf}
-        />
-        <p className="mt-2 text-center text-label text-muted">
-          Answers cite sources and refuse on safety-critical parameters. Verify before acting.
-        </p>
-      </div>
-        </main>
+      {infoOpen && (
+        <InfoPopover turnCount={turns.length} asOf={asOf} onClose={() => setInfoOpen(false)} />
+      )}
 
-        <aside data-testid="copilot-context" className="hidden rounded-xl border border-line bg-surface p-4 shadow-sm lg:sticky lg:top-20 lg:mt-8 lg:block">
-          <p className="text-label font-bold uppercase tracking-[0.1em] text-accent">Governed answers</p>
-          <h2 className="mt-1 text-title font-semibold">Evidence before prose</h2>
-          <p className="mt-2 text-caption leading-relaxed text-muted">
-            Kairos cites governed sources, exposes uncertainty, and refuses safety-critical answers when confidence is insufficient.
-          </p>
-          <div className="mt-4 border-t border-line pt-4">
-            <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Query scope</p>
-            <p className="mt-1.5 text-caption font-medium text-ink">{asOf ? `Knowledge valid on ${asOf}` : "Current governed knowledge"}</p>
+      {/* Conversation scrollable area */}
+      <div data-testid="copilot-conversation" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {empty ? (
+            <div className="flex flex-1 flex-col items-center justify-center px-4 text-center sm:px-8">
+              <div className="mb-5 grid size-16 place-items-center rounded-2xl bg-accent-soft">
+                <svg className="size-8 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              </div>
+              <h1 className="text-display font-semibold text-balance text-ink">
+                Ask the knowledge base
+              </h1>
+              <p className="mt-2 max-w-md text-sm leading-relaxed text-muted text-pretty">
+                Every answer is assembled from governed source documents with citations and confidence scores. On safety-critical parameters, it refuses rather than guess.
+              </p>
+              {!SYNTHESIS_ENABLED && (
+                <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,transparent)] px-3 py-1.5 text-caption text-caution">
+                  <span className="size-1.5 shrink-0 rounded-full bg-caution" aria-hidden="true" />
+                  Phase 1 — retrieval only; synthesis unlocks in Phase 2
+                </div>
+              )}
+              <div className="mt-7 flex max-w-2xl flex-wrap justify-center gap-2">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => ask(s)}
+                    className="rounded-full border border-line bg-surface px-4 py-2 text-body text-ink transition-all hover:border-[color-mix(in_srgb,var(--accent)_50%,var(--line))] hover:bg-accent-soft hover:text-accent"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mx-auto w-full max-w-3xl flex-1 space-y-8 px-4 py-8 sm:px-6">
+              {turns.map((t) => (
+                <div key={t.id} className="flex flex-col gap-4">
+                  {/* User bubble — right aligned */}
+                  <div className="flex justify-end">
+                    <div className="max-w-[80%] space-y-1">
+                      <div className="rounded-2xl rounded-br-sm bg-accent px-4 py-3 text-sm leading-relaxed text-on-accent">
+                        {t.query}
+                      </div>
+                      {t.asOf && (
+                        <p className="text-right text-label text-muted">
+                          as of {new Date(t.asOf).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Kairos avatar + answer */}
+                  <div className="flex items-start gap-3">
+                    <div className="mt-1 grid size-8 shrink-0 place-items-center rounded-full bg-accent-soft">
+                      <svg className="size-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      </svg>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {t.answer ? <Answer data={t.answer} /> : <Thinking />}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div ref={endRef} />
+            </div>
+          )}
+        </div>
+
+        {/* Composer — pinned to bottom */}
+        <div className="shrink-0 border-t border-line bg-canvas px-4 pb-4 pt-3 sm:px-6">
+          <div className="mx-auto max-w-3xl">
+            <Composer
+              value={input}
+              onChange={setInput}
+              onSubmit={() => ask(input)}
+              asOf={asOf}
+              onAsOfChange={setAsOf}
+            />
+            <p className="mt-2 text-center text-label text-muted">
+              Answers cite sources and refuse on safety-critical parameters.
+            </p>
           </div>
-          <div className="mt-4 border-t border-line pt-4">
-            <p className="text-micro font-semibold uppercase tracking-[0.1em] text-muted">Conversation</p>
-            <p className="tabular mt-1.5 text-caption text-ink">{turns.length} {turns.length === 1 ? "question" : "questions"} in this session</p>
-          </div>
-        </aside>
+        </div>
       </div>
-    </div>
   );
 }

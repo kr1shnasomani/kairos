@@ -220,7 +220,7 @@ Key methods:
 - `create_knowledge_edge(asset_id, document_id, rel_type, props)` — writes edge with all 6 required properties. `valid_to` defaults to the open-ended sentinel `_OPEN_VALID_TO` (see below) when not supplied; it is never stored as `null`.
 - `merge_document_node(document_id, props)` — MERGE Document node
 - `detect_conflict(asset_id, parameter, new_value, new_authority)` — dual-track conflict detection
-- `get_blast_radius(document_id)` — graph traversal for downstream impact of a document change
+- `get_blast_radius(document_id)` — traverses `(source)-[r:KNOWLEDGE_EDGE {document_id}]->(target)` and returns each `{edge, source, target}`. The **affected entity is the `source`** (e.g. the asset), not the target (the document node). Deduped by `edge_id` (re-runs leave duplicate relationships).
 - `close_validity_window(edge_id, closed_at)` — sets `valid_to` on a KNOWLEDGE_EDGE (used by MoC webhook on approval)
 - `create_concept_node(props)` — Concept:Regulation seed
 - `link_concept_to_asset(concept_id, asset_id, props)` — compliance framework linkage
@@ -284,7 +284,7 @@ LLM synthesis + embedding. Never originates knowledge — only assembles retriev
 
 Assembles operator briefs from 5 parallel graph+vector+ES+Supabase queries.
 
-- `assemble_work_order_brief(event)` — pulls failure history, open conflicts, procedures, quarantine flags; appends correlated DCS alarms / PTW context
+- `assemble_work_order_brief(event)` — pulls failure history, open conflicts, procedures, quarantine flags; appends correlated DCS alarms / PTW context. Headline + body are **operator-readable prose** (grouped record counts, named source documents, ⚠ lines for conflicts/quarantine) — **not** a raw edge dump. No LLM call (phase discipline); authority/verification stay in the source badges.
 - `assemble_ptw_brief(event)` — adds isolation topology, regulatory requirements; revokes any pending WO brief task for the same asset
 - `assemble_shift_handover_brief(event)` — pulls active WOs, alarms, open PTWs
 - `assemble_recurring_failure_brief(event)` — triggered when same-family WO detected in 90-day window; priority=high headline includes recurrence count

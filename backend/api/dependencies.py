@@ -38,6 +38,15 @@ async def get_neo4j_driver(settings: SettingsDep) -> AsyncDriver:
         _neo4j_driver = AsyncGraphDatabase.driver(
             settings.NEO4J_URI,
             auth=(settings.NEO4J_USERNAME, settings.NEO4J_PASSWORD),
+            # Aura Free closes idle connections; without pool hygiene the next query on a
+            # stale pooled connection throws SessionExpired ("defunct connection") → the
+            # intermittent 500s seen on Neo4j-backed endpoints (compliance/dashboard,
+            # /assets/{id}/knowledge, graph, blast-radius). Liveness-check a connection
+            # that's been idle before handing it out, and recycle connections well before
+            # Aura's idle timeout so they never go stale.
+            liveness_check_timeout=30,          # ping (RESET) a connection idle >30s; replace if dead
+            max_connection_lifetime=300,        # recycle after 5 min, below Aura's idle window
+            connection_acquisition_timeout=60,
         )
     return _neo4j_driver
 

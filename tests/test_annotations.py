@@ -1,6 +1,5 @@
 """Annotations — Task 21: Active Learning Annotation Interface (Layer 3)."""
 
-import pytest
 from tests.conftest import uid
 
 

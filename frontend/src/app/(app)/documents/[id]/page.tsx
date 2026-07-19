@@ -3,8 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDocument } from "@/lib/api";
 import { authorityLabel, relativeTime, triggerLabel } from "@/lib/utils";
-import { AuthorityBadge, SourceChip, StatusBadge, Timeline, type TimelineEvent, DemoChip, PageHeader } from "@/components/ui";
+import { AuthorityBadge, SourceChip, StatusBadge, Timeline, type TimelineEvent, PageHeader } from "@/components/ui";
 import { BlastRadiusPanel, SupersedeAction } from "@/components/lazy";
+import { OpenArtifactButton } from "./open-artifact";
 import type { VaultDocument } from "@/lib/types";
 
 function fmtSize(bytes?: number): string {
@@ -38,6 +39,8 @@ function buildVersionChain(old: VaultDocument, newer: VaultDocument): TimelineEv
 export default async function DocumentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { data: d, source } = await getDocument(id);
+  // Live-only: no fixture stand-in for a real vault document.
+  if (source === "demo") throw new Error("Document detail: live data unavailable");
   if (!d) notFound();
 
   // Fetch the superseding doc to build the version chain timeline
@@ -66,7 +69,6 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
         {d.status === "superseded"
           ? <StatusBadge tone="neutral" dot={false}>Superseded</StatusBadge>
           : <StatusBadge tone="verified">Active</StatusBadge>}
-        {source === "demo" && <DemoChip />}
       </div>
       <PageHeader
         compact
@@ -117,7 +119,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
           {d.sha256_hash && <Row label="SHA-256"><span className="tabular break-all text-muted">{d.sha256_hash}</span></Row>}
           <Row label="Vault">
             {d.vault_url
-              ? <a href={d.vault_url} className="font-medium text-accent hover:underline">Open artifact →</a>
+              ? <OpenArtifactButton documentId={d.document_id} />
               : <span className="text-muted">Authenticated vault URL (available live)</span>}
           </Row>
         </div>

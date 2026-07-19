@@ -1,9 +1,7 @@
 // Lists offboarding programmes — structured knowledge-transfer sessions for departing experts.
 import Link from "next/link";
 import { getOffboardingList } from "@/lib/api";
-import { DemoChip, PageHeader, StatusBadge } from "@/components/ui";
-
-export const metadata = { title: "Offboarding programmes — Kairos" };
+import { PageHeader, StatusBadge } from "@/components/ui";
 
 function progressBar(done: number, total: number) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -30,6 +28,8 @@ function emailInitials(email: string) {
 
 export default async function OffboardingPage() {
   const { data: programmes, source } = await getOffboardingList();
+  // Live-only: never render fixture programmes.
+  if (source === "demo") throw new Error("Off-boarding: live data unavailable");
   const totalSessions = programmes.reduce((sum, programme) => sum + programme.total_sessions, 0);
   const completedSessions = programmes.reduce((sum, programme) => sum + (programme.sessions_completed ?? 0), 0);
   const completedProgrammes = programmes.filter((programme) => programme.total_sessions > 0 && (programme.sessions_completed ?? 0) === programme.total_sessions).length;
@@ -48,7 +48,6 @@ export default async function OffboardingPage() {
           <span aria-hidden="true" className="absolute bottom-3 left-2 top-3 w-[3px] rounded-full bg-info" />
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Handover coverage</p>
-            {source === "demo" && <DemoChip />}
           </div>
           <p className="tabular mt-1 text-title font-semibold text-ink">{activeProgrammes} active programmes</p>
           <p className="mt-1 text-label text-muted">Knowledge capture ahead of retirement</p>

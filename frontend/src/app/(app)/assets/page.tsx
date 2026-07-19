@@ -1,14 +1,15 @@
 // Assets list — the canonical asset registry every piece of knowledge attaches to.
-import Link from "next/link";
 import { getAssets } from "@/lib/api";
-import { DemoChip, EmptyState, PageHeader } from "@/components/ui";
+import { EmptyState, PageHeader } from "@/components/ui";
 import { StatPills, type StatPillDef } from "@/components/stat-pills";
 import { AssetRegistry } from "./asset-registry";
-
-export const metadata = { title: "Assets — Kairos" };
+import { IdentityConfirmAction } from "./identity-action";
 
 export default async function AssetsPage() {
   const { data, source } = await getAssets();
+  // Live-only: never render fixtures. A fallback means the backend is unreachable →
+  // surface the shared error boundary (Try again) instead of fabricated assets.
+  if (source === "demo") throw new Error("Assets: live data unavailable");
   const items = data.items ?? [];
 
   // Spec §3: pills by equipment class — total plus the top classes by count.
@@ -27,13 +28,7 @@ export default async function AssetsPage() {
         lede="Every piece of knowledge orbits a canonical asset."
         actions={
           <>
-            {source === "demo" && <DemoChip detail="backend offline" />}
-            <Link
-              href="/assets/bootstrap"
-              className="inline-flex h-9 items-center rounded-lg border border-line px-3.5 text-body font-semibold text-ink transition-colors hover:bg-surface-2"
-            >
-              Identity confirmation
-            </Link>
+            <IdentityConfirmAction />
           </>
         }
       />

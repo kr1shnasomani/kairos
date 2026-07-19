@@ -12,7 +12,7 @@ from typing import Optional
 import structlog
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 
-from api.dependencies import CurrentUserDep, Neo4jDep, SupabaseDep, require_role
+from api.dependencies import CurrentUserDep, Neo4jDep, SettingsDep, SupabaseDep, require_role
 from api.models.document import PromoteQuarantineRequest, RequestQuarantineInfoRequest
 from api.services.graph import GraphService
 from api.services.metrics import conflicts_open
@@ -199,11 +199,12 @@ async def promote_quarantine_item(
     payload: PromoteQuarantineRequest,
     supabase: SupabaseDep,
     driver: Neo4jDep,
-    current_user: dict = Depends(require_role("reliability", "admin", "engineer")),
+    current_user: dict = Depends(require_role("reliability", "admin")),
 ) -> dict:
     """
     Human authority promotes an unverified field input to the canonical temporal graph.
-    Requires reliability, engineer, or admin role.
+    Requires reliability or admin role — matches OPA `can_promote_quarantine` and the
+    frontend PROMOTE_ROLES. Engineers resolve conflicts/MoC but do not promote quarantine.
     """
     result = await asyncio.to_thread(
         lambda: supabase.table("quarantine_items")
@@ -514,6 +515,35 @@ async def list_moc(
     return {"items": result.data or [], "total": result.count or 0}
 
 
+async def _resolve_moc_conflict(
+    supabase, driver, conflict_id, approved_by: str, now: datetime, now_iso: str
+) -> None:
+    """Close the superseded edge's validity window and mark the linked conflict resolved.
+
+    Shared by the MoC webhook and the in-app approve endpoint so the graph mutation
+    (close old edge → resolve conflict) lives in exactly one place. No-ops when the MoC
+    has no linked conflict or the conflict/edge can't be found.
+    """
+    if not conflict_id:
+        return
+    conflict_result = await asyncio.to_thread(
+        lambda: supabase.table("knowledge_conflicts").select("*").eq("conflict_id", str(conflict_id)).execute()
+    )
+    if not conflict_result.data:
+        return
+    conflict = conflict_result.data[0]
+    old_edge_id = (conflict.get("source_a") or {}).get("edge_id")
+    if old_edge_id:
+        await GraphService(driver).close_validity_window(old_edge_id, now)
+    await asyncio.to_thread(
+        lambda: supabase.table("knowledge_conflicts").update({
+            "status": "resolved",
+            "resolved_by": approved_by,
+            "resolved_at": now_iso,
+        }).eq("conflict_id", str(conflict_id)).execute()
+    )
+
+
 @router.post("/moc/webhook", summary="Receive MoC resolution webhook from plant MoC system")
 async def receive_moc_webhook(
     supabase: SupabaseDep,
@@ -568,25 +598,8 @@ async def receive_moc_webhook(
     )
 
     if resolution_status == "approved" and conflict_id:
-        # Fetch the conflict to get old edge (source_a) and new document (source_b)
-        conflict_result = await asyncio.to_thread(
-            lambda: supabase.table("knowledge_conflicts").select("*").eq("conflict_id", str(conflict_id)).execute()
-        )
-        if conflict_result.data:
-            conflict = conflict_result.data[0]
-            graph = GraphService(driver)
-            old_edge_id = (conflict.get("source_a") or {}).get("edge_id")
-            if old_edge_id:
-                await graph.close_validity_window(old_edge_id, now)
-
-            # Mark conflict resolved
-            await asyncio.to_thread(
-                lambda: supabase.table("knowledge_conflicts").update({
-                    "status": "resolved",
-                    "resolved_by": approved_by,
-                    "resolved_at": now_iso,
-                }).eq("conflict_id", str(conflict_id)).execute()
-            )
+        # Close the superseded edge and resolve the conflict (shared with in-app approve).
+        await _resolve_moc_conflict(supabase, driver, conflict_id, approved_by, now, now_iso)
 
     await asyncio.to_thread(
         lambda: supabase.table("audit_log").insert({
@@ -600,6 +613,108 @@ async def receive_moc_webhook(
 
     log.info("moc.webhook_received", moc_id=moc_id, status=resolution_status)
     return {"status": "received", "moc_id": moc_id, "resolution": resolution_status}
+
+
+@router.get("/moc/{moc_id}", summary="Get MoC item detail with conflicting sources")
+async def get_moc_item(
+    moc_id: str,
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+    driver: Neo4jDep,
+) -> dict:
+    """Return one MoC item enriched with the conflicting sources + blast-radius count from
+    its linked knowledge_conflicts row. The moc_items table stores only the linkage; the
+    parameter/source_a/source_b live on the conflict, so the detail view joins them here.
+    """
+    moc_result = await asyncio.to_thread(
+        lambda: supabase.table("moc_items").select("*").eq("moc_id", moc_id).execute()
+    )
+    if not moc_result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MoC '{moc_id}' not found")
+    moc = moc_result.data[0]
+
+    parameter: str = ""
+    source_a: dict = {}
+    source_b: dict = {}
+    blast_count = 0
+    conflict_id = moc.get("conflict_id")
+    if conflict_id:
+        conflict_result = await asyncio.to_thread(
+            lambda: supabase.table("knowledge_conflicts")
+            .select("parameter, source_a, source_b")
+            .eq("conflict_id", str(conflict_id)).execute()
+        )
+        if conflict_result.data:
+            conflict = conflict_result.data[0]
+            parameter = conflict.get("parameter") or ""
+            source_a = conflict.get("source_a") or {}
+            source_b = conflict.get("source_b") or {}
+            blast_doc = source_b.get("document_id") or source_a.get("document_id")
+            if blast_doc:
+                try:
+                    blast = await GraphService(driver).get_blast_radius(blast_doc)
+                    blast_count = blast.get("affected_count", 0)
+                except Exception:  # noqa: BLE001 — blast radius is best-effort enrichment
+                    log.warning("moc.blast_radius_failed", moc_id=moc_id, document_id=blast_doc)
+
+    return {
+        "moc_id": moc["moc_id"],
+        "asset_id": moc.get("asset_id"),
+        "parameter": parameter,
+        "source_a": source_a,
+        "source_b": source_b,
+        "blast_radius_count": blast_count,
+        "status": moc.get("status"),
+        "created_at": moc.get("created_at"),
+        "draft_content": moc.get("description"),
+    }
+
+
+@router.post("/moc/{moc_id}/approve", summary="Approve a MoC in-app (engineer/admin sign-off)")
+async def approve_moc_item(
+    moc_id: str,
+    supabase: SupabaseDep,
+    driver: Neo4jDep,
+    current_user: dict = Depends(require_role("engineer", "admin")),
+    payload: dict = Body(default={}),
+) -> dict:
+    """In-app MoC sign-off — engineer/admin authority (mirrors OPA can_resolve_moc). Marks the
+    MoC approved, closes the superseded edge's validity window, and resolves the linked
+    engineering-track conflict. Same effect as an approved MoC webhook, human-initiated.
+    """
+    approver = current_user.get("user_id", "unknown")
+    note = (payload or {}).get("note")
+
+    moc_result = await asyncio.to_thread(
+        lambda: supabase.table("moc_items").select("*").eq("moc_id", moc_id).execute()
+    )
+    if not moc_result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MoC '{moc_id}' not found")
+    moc = moc_result.data[0]
+    if moc.get("status") == "approved":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="MoC already approved.")
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    await asyncio.to_thread(
+        lambda: supabase.table("moc_items").update({
+            "status": "approved",
+            "approved_by": approver,
+            "approved_at": now_iso,
+        }).eq("moc_id", moc_id).execute()
+    )
+    await _resolve_moc_conflict(supabase, driver, moc.get("conflict_id"), approver, now, now_iso)
+    await asyncio.to_thread(
+        lambda: supabase.table("audit_log").insert({
+            "action": "moc_approved",
+            "entity_type": "moc_item",
+            "entity_id": moc_id,
+            "performed_by": approver,
+            "details": {"note": note, "conflict_id": str(moc.get("conflict_id")) if moc.get("conflict_id") else None},
+        }).execute()
+    )
+    log.info("moc.approved", moc_id=moc_id, approver=approver)
+    return {"status": "approved", "moc_id": moc_id}
 
 
 # =============================================================================
@@ -654,13 +769,17 @@ async def validation_corpus_stats(
 
 @router.post("/model-gate/run", summary="Trigger NER model gate evaluation")
 async def run_model_gate_endpoint(
-    model_name: str,
+    settings: SettingsDep,
     current_user: dict = Depends(require_role("admin")),
+    model_name: str | None = None,
 ) -> dict:
-    """Admin only. Runs NER accuracy evaluation against the validation corpus on the validation queue."""
+    """Admin only. Runs NER accuracy evaluation against the validation corpus on the validation
+    queue. Defaults to the configured NER model when model_name is omitted, so the UI can trigger
+    a run without knowing the model name."""
     from workers.model_validation import run_model_gate
-    task = run_model_gate.apply_async(args=[model_name])
-    return {"task_id": task.id, "model_name": model_name, "status": "queued"}
+    target_model = model_name or settings.NVIDIA_NIM_NER_MODEL
+    task = run_model_gate.apply_async(args=[target_model])
+    return {"task_id": task.id, "model_name": target_model, "status": "queued"}
 
 
 @router.get("/model-gate/history", summary="Model gate run history")

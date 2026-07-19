@@ -19,6 +19,7 @@ import type {
   MocItem,
   CircuitBreakerState,
   ModelGateHistory,
+  ModelGateResult,
   ModelGateRunResponse,
   ValidationCorpusStats,
   BlastRadiusReport,
@@ -47,7 +48,7 @@ import type {
   KnowledgeGraphData,
 } from "./types";
 import { fixtureBriefs } from "./fixtures";
-import { auditPackFixtureFor, complianceFixture } from "./compliance";
+import { auditPackFixtureFor } from "./compliance";
 import { assets as fixtureAssets, getAsset as getAssetFixture, type KnowledgeEdge } from "./assets";
 import { conflictsFixture, quarantineFixture } from "./governance";
 import { documentsFixture, getDocumentFixture } from "./documents";
@@ -225,9 +226,11 @@ export interface Fetched<T> {
   source: DataSource;
 }
 
-// Default 1500ms fails fast so a down/hanging backend falls back to fixtures quickly.
-// Endpoints that hit slow Supabase queries and have no fixture pass a longer timeout.
-async function getJson<T>(path: string, timeoutMs = 1500): Promise<T> {
+// Live-only policy: give real queries room to land (cold Neo4j/Supabase calls run
+// ~1s+). A genuine down/hanging backend still surfaces as an error+retry after the
+// timeout — we never substitute fabricated data. Slow endpoints pass an even
+// longer timeout (e.g. compliance gaps at 5s).
+async function getJson<T>(path: string, timeoutMs = 4000): Promise<T> {
   const makeRequest = async () => {
     const token = await getStrictReadToken();
     return fetch(`${API_BASE}${path}`, {
@@ -311,15 +314,14 @@ export async function getBrief(briefId: string): Promise<Fetched<Brief | null>> 
 
 // --- Compliance ---
 export async function getComplianceGaps(framework?: string): Promise<Fetched<ComplianceGapsResponse>> {
-  try {
-    const qs = framework && framework !== "All" ? `?framework=${encodeURIComponent(framework)}` : "";
-    const data = await getJson<ComplianceGapsResponse>(`/compliance/gaps${qs}`);
-    // Empty live gaps → show the curated story (demo-primary), matching getAssets/getBriefs.
-    if (!data.items || data.items.length === 0) throw new Error("empty");
-    return { data, source: "live" };
-  } catch {
-    return { data: complianceFixture, source: "demo" };
-  }
+  // Live-only: compliance gaps are real backend data — never substitute a fixture.
+  // This is the heaviest query in the app (assets × regulation clauses in Neo4j,
+  // ~1s+ cold), so allow a generous 5s abort. A genuine failure propagates to the
+  // caller so the page shows a retry state, not fabricated gaps. An empty result
+  // is a valid state ("no gaps found"), not an error.
+  const qs = framework && framework !== "All" ? `?framework=${encodeURIComponent(framework)}` : "";
+  const data = await getJson<ComplianceGapsResponse>(`/compliance/gaps${qs}`, 5000);
+  return { data, source: "live" };
 }
 
 // --- Assets ---
@@ -512,6 +514,17 @@ export async function getDocument(documentId: string): Promise<Fetched<VaultDocu
   }
 }
 
+/** Short-lived signed URL to open a vault artifact in the browser (the stored
+ *  vault_url is the auth-only endpoint that a plain link can't open). */
+export async function getArtifactUrl(documentId: string): Promise<string | null> {
+  try {
+    const data = await getJson<{ signed_url?: string }>(`/documents/${documentId}/artifact-url`, 8000);
+    return data.signed_url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // --- Compliance dashboard ---
 export async function getComplianceDashboard(): Promise<Fetched<ComplianceDashboard | null>> {
   try {
@@ -576,10 +589,32 @@ export async function getCircuitBreaker(): Promise<Fetched<CircuitBreakerState |
 }
 
 // --- Governance: model gate ---
+/** Raw audit-log row from GET /governance/model-gate/history (contract-locked to {items}). */
+interface RawGateRow {
+  id: number | string;
+  entity_id?: string;
+  details?: { precision?: number; recall?: number; f1?: number; passed?: boolean; corpus_size?: number } | null;
+  timestamp?: string;
+}
+
 export async function getModelGateHistory(): Promise<Fetched<ModelGateHistory>> {
   try {
-    const data = await getJson<ModelGateHistory>("/governance/model-gate/history");
-    return { data, source: "live" };
+    // The backend returns raw audit rows {id, entity_id, details, timestamp}; flatten each to
+    // the UI ModelGateResult shape here (adapter layer). Rows without metrics are skipped.
+    const raw = await getJson<{ items: RawGateRow[] }>("/governance/model-gate/history");
+    const history: ModelGateResult[] = (raw.items ?? [])
+      .filter((r) => r.details && typeof r.details.f1 === "number")
+      .map((r) => ({
+        run_id: String(r.id),
+        task_id: null,
+        precision: r.details!.precision ?? 0,
+        recall: r.details!.recall ?? 0,
+        f1: r.details!.f1 ?? 0,
+        passed: !!r.details!.passed,
+        corpus_size: r.details!.corpus_size ?? 0,
+        run_at: r.timestamp ?? "",
+      }));
+    return { data: { history }, source: "live" };
   } catch {
     return { data: { history: [] }, source: "demo" };
   }
@@ -606,22 +641,26 @@ export async function getBlastRadius(documentId: string): Promise<Fetched<BlastR
     const raw = await getJson<{
       document_id: string;
       affected_count: number;
-      affected?: Array<{ edge?: Record<string, unknown>; target?: Record<string, unknown> }>;
+      affected?: Array<{ edge?: Record<string, unknown>; source?: Record<string, unknown>; target?: Record<string, unknown> }>;
     }>(`/governance/blast-radius/${documentId}`);
     const items: BlastRadiusItem[] = (raw.affected ?? []).map((a, i) => {
       const edge = a.edge ?? {};
-      const target = a.target ?? {};
+      // The affected entity is the edge SOURCE (the asset/concept whose knowledge
+      // derives from this document); the target is the document node itself.
+      const node = a.source && Object.keys(a.source).length ? a.source : (a.target ?? {});
+      const assetId = (node.asset_id as string) ?? (node.tag_number as string) ?? undefined;
       return {
         item_id: (edge.edge_id as string) ?? `br-${i}`,
-        item_type: (target.element_type as string) ?? (edge.relationship_type as string) ?? "fact",
+        item_type: assetId ? "asset" : ((node.element_type as string) ?? (edge.relationship_type as string) ?? "fact"),
         description:
-          (target.label as string) ??
-          (target.name as string) ??
-          (target.fact_text as string) ??
-          (target.concept_id as string) ??
-          (target.asset_id as string) ??
-          "Linked node",
-        asset_id: (target.asset_id as string) ?? undefined,
+          (node.name as string) ??
+          (node.tag_number as string) ??
+          assetId ??
+          (node.label as string) ??
+          (node.fact_text as string) ??
+          (node.concept_id as string) ??
+          "Linked entity",
+        asset_id: assetId,
         flagged_for_review: edge.verification_status !== "verified",
       };
     });
@@ -839,7 +878,7 @@ export function ackEvent(eventId: string, body: { user_id: string; role: string;
 
 export async function getGovernorState(userId: string): Promise<Fetched<GovernorEventState | null>> {
   try {
-    const data = await getJson<GovernorEventState>(`/events/governor-state/${userId}`);
+    const data = await getJson<GovernorEventState>(`/briefs/governor/status`);
     return { data, source: "live" };
   } catch {
     return { data: null, source: "demo" };
@@ -1197,8 +1236,18 @@ export async function getKnowledgeGraph(
     const raw = await getJson<AssetKnowledgeResponse>(`/assets/${assetId}/knowledge${qs}`);
     const nodesMap = new Map<string, GraphNodeData>();
     nodesMap.set(assetId, { id: assetId, label: assetId, kind: "Asset", properties: {} });
-    const edges: GraphEdgeData[] = raw.facts.map((f, i) => {
+    // Dedupe edges — re-ingested datasets leave many identical KNOWLEDGE_EDGEs
+    // (same target + relationship + document + validity). Left raw they stack as
+    // overlapping lines and repeat endlessly in the validity-window list.
+    const edges: GraphEdgeData[] = [];
+    const seenEdge = new Set<string>();
+    raw.facts.forEach((f, i) => {
       const tId = graphNodeId(f.target, i);
+      const e = f.edge as Record<string, unknown>;
+      const label = String(e.parameter ?? e.relationship_type ?? "related_to");
+      const sig = `${tId}|${label}|${String(e.document_id ?? "")}|${String(e.valid_from ?? "")}`;
+      if (seenEdge.has(sig)) return;
+      seenEdge.add(sig);
       if (!nodesMap.has(tId)) {
         nodesMap.set(tId, {
           id: tId,
@@ -1207,19 +1256,18 @@ export async function getKnowledgeGraph(
           properties: f.target,
         });
       }
-      const e = f.edge as Record<string, unknown>;
-      return {
+      edges.push({
         id: `e-${i}`,
         source: assetId,
         target: tId,
-        label: String(e.parameter ?? e.relationship_type ?? "related_to"),
+        label,
         authority_level: Number(e.authority_level ?? 5),
         verification_status: normVerifStatus(e.verification_status),
         valid_from: String(e.valid_from ?? "2020-01-01T00:00:00"),
         valid_to: String(e.valid_to ?? "9999-12-31T23:59:59"),
         document_id: String(e.document_id ?? ""),
         confidence: Number(e.confidence ?? 0),
-      };
+      });
     });
     return {
       data: { asset_id: assetId, as_of: raw.as_of, nodes: Array.from(nodesMap.values()), edges },

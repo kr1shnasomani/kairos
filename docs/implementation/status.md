@@ -98,6 +98,7 @@ None of these block the platform; it is fully functional without them.
 - [ ] **Test-suite hygiene:** run the write-heavy suite ONLY against `--profile local-stores` or in CI — never against cloud (the teardown purge is unreliable on cloud Supabase and pollutes the golden data). Optionally add the 7 secrets `tests.yml` needs.
 
 ### Frontend polish (optional)
+- [ ] **Revisit mobile navigation layout** — the mobile bottom tabs (`FieldBottomTabs`) were temporarily removed in favor of the hamburger sidebar. Need to revisit this UX decision later.
 - [ ] **Friendly copilot shell** — warm greeting + "what can you do?" handling + suggestion chips (keeps the governed-RAG core; only improves the conversational wrapper).
 - [ ] **Verify the safety-critical RefusalCard** live in the UI.
 
@@ -105,6 +106,70 @@ None of these block the platform; it is fully functional without them.
 - [ ] **Import the 2 Grafana dashboard JSONs** (`infra/grafana/provisioning/dashboards/*.json`) into Grafana Cloud so hosted dashboards match what was built.
 - [ ] **Decide on the 4 dead infra configs** (`infra/otel`, `infra/tempo`, grafana datasources/provisioning) — delete for a clean tree or keep as a record (labeled in INFRA.md §8 either way).
 - [ ] **CI gating** (fail a PR on retrieval/provenance/layer regression) — deferred; only the deterministic metrics are safe to gate.
+- [ ] **Remove dead frontend fixture modules** (`lib/*.ts` + `DemoChip`) — no longer rendered post live-only; optional cleanup.
+
+---
+
+## Manual-testing hardening (2026-07-19)
+
+Page-by-page manual QA pass (field-worker → engineer → admin surfaces). Shipped this session:
+- **Live-only data policy** — frontend never renders fabricated data: `useFetch` maps a fixture fallback to
+  error+retry, server pages `throw` on it (`(app)/layout.tsx` = `force-dynamic`), custom pages show inline
+  retry, cross-site shows an honest "no data" state. Read timeout 1.5 s → 4 s (compliance gaps 5 s).
+- **Middleware → proxy** (`src/proxy.ts`, Next 16) — fixes the "tab title reverts to `Kairos` on refresh"
+  bug (header now set on the request so `generateMetadata` can read it).
+- **Brief content** — operator-readable prose instead of a raw KNOWLEDGE_EDGE dump.
+- **Open artifact** — new `GET /documents/{id}/artifact-url` (signed URL) fixes the Supabase 400.
+- **Documents list** now returns `asset_links` → projects portfolio classifies docs by equipment class.
+- **Blast radius** — returns edge `source` (the affected asset) + dedup; panel always-visible + React Flow
+  `<Handle>`s added (fixes "handle id: null" #008).
+- **Audit trail** — readable metadata summaries, entity labels (UUID → friendly), badge wrap fix.
+- **Role gating** — quarantine promote = reliability/admin; model-gate Run + Identity confirmation = admin.
+- **Cosmetic/data** — events limit 250→200, graph/RCA default `EQ-101`/`HE-301`, stale `mXLM-RoBERTa` model
+  name → config-driven (`ministral-14b`), admin sidebar superset (Voice/Deviation).
+- **Graph page** — right context panel height-matched to the 560px canvas + internal scroll; validity-window
+  rows labelled by the distinct **target** node (was every row "DOCUMENTED_BY"); `getKnowledgeGraph` **dedupes
+  edges** (re-ingest left ~42 stacked dupes → ~5); `Timeline` dot/spine re-centered (dots no longer offset).
+- **Governance hub** — shows KPI **skeletons while loading** (was em-dashes that read as "no data").
+- **Audit trail** — synthesis entity shows "Query" (was the full question text reading as a sentence).
+- **Sidebar** — added a "+ **Ingest Document**" action below the Knowledge group (staff-gated).
+- **Neo4j Aura idle-connection fix** — the driver (`dependencies.py`) now sets `liveness_check_timeout=30`
+  + `max_connection_lifetime=300`. Aura closes idle connections and `GraphService` uses raw `session.run`
+  (no auto-retry), so a stale pooled connection threw `SessionExpired` ("defunct connection") → intermittent
+  500s on Neo4j endpoints (compliance/dashboard, assets/knowledge, graph, blast-radius) → under live-only the
+  `/management` overview erroring wholesale. Liveness-checking + recycling stale connections fixes it globally.
+
+> **Re-verify:** the frontend test suite (124 passed, 2026-07-18) predates the live-only sweep — several
+> pages dropped `DemoChip`/fixture branches; **re-run `npm test` and reconcile** before relying on that
+> number. `tsc` + `eslint` are clean; a clean `next build` passes.
+
+---
+
+## Pending — follow-ups & manual QA (2026-07-19)
+
+> **Admin login = the complete surface (confirmed against code).** The admin sidebar is a full **superset**
+> of every role's navigation — all Operate/Analyze/Assure/Knowledge items **plus Voice + Deviation + System
+> Health** — and OPA grants admin `*`, so every action works. Pages are **shared React components**; role
+> only gates visibility/actions, so a page fix made while working as admin applies to that same page for
+> every role that can see it. **Safe to log in as admin and work from there as the master workspace.**
+
+### Needs you (blocked for the agent / decision)
+- [ ] Run the stale-audit cleanup SQL (cloud delete is guarded): `delete from audit_log where action='model_gate_result' and entity_id='mXLM-RoBERTa';`
+- [ ] Decide: remove the dead frontend fixture modules (`lib/*.ts` + `DemoChip`) — optional cleanup (already listed above).
+
+### Re-verify after the live-only sweep
+- [ ] Re-run the **frontend test suite** (`npm test`) and reconcile the 124 count (pages dropped `DemoChip`/fixture branches).
+- [ ] Emit a fresh **work order** → confirm the new operator-readable brief format (the persisted EQ-102 brief keeps the old raw text).
+- [ ] Optional: run a real **model gate** from the admin page for a correct `ministral-14b` audit entry.
+
+### Manual QA still to walk (role × page)
+- [ ] Full **admin** walkthrough — System Health, plant-state write, model-gate Run, Identity confirmation (admin-exclusive actions).
+- [ ] **Reliability** + **compliance** role passes — reliability promotes quarantine; compliance cockpit read access.
+- [ ] Pages not yet eyeballed: `/copilot`, `/documents/compare`, `/documents/[id]/topology`, `/governance/moc/[id]` · `/sla` · `/circuit-breaker`, `/system-information`, `/settings`, field `elicitation`/`voice` flows.
+
+### Known non-blocking gaps
+- [ ] **Alias resolution** — `/assets/{id}/knowledge` 404s for tag aliases (`P-101`→`EQ-101`); graph/RCA now default to canonical ids, but aliases don't resolve server-side. Backend change if wanted.
+- [ ] **CLAUDE.md** (project root, outside `docs/`) still states the old non-negotiable "every fetcher `try { live } catch { fixture }` … Demo chip" — update for full consistency with live-only.
 
 ---
 

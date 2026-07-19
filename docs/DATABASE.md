@@ -117,7 +117,7 @@ All Neo4j access goes through `backend/api/services/graph.py`. Never write Cyphe
 | `create_knowledge_edge(...)` | Creates `KNOWLEDGE_EDGE` with all 6 mandatory properties; validates label whitelist |
 | `close_validity_window(edge_id, valid_to)` | Supersession — never deletion |
 | `detect_conflict(asset_id, parameter, new_value)` | Checks for contradicting active edges on same parameter |
-| `get_blast_radius(document_id)` | Downstream impact traversal from a document node |
+| `get_blast_radius(document_id)` | Downstream impact traversal; returns `{edge, source, target}` per affected edge (affected entity = `source`), deduped by `edge_id` |
 | `get_event_timeline(asset_id, from_dt, to_dt)` | Chronological Event nodes for RCA |
 
 ### Init

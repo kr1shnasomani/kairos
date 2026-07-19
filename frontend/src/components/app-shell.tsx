@@ -24,7 +24,7 @@ const STAFF: Role[] = ["engineer", "reliability", "admin"];
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
   | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph" | "audit"
-  | "events" | "offboarding" | "projects" | "voice" | "chevron" | "settings" | "health" | "info";
+  | "events" | "offboarding" | "projects" | "voice" | "chevron" | "settings" | "health" | "info" | "alert";
 
 function Icon({ name, className = "size-[18px]" }: { name: IconName; className?: string }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -49,6 +49,7 @@ function Icon({ name, className = "size-[18px]" }: { name: IconName; className?:
     settings: <><circle cx="12" cy="12" r="3" /><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /></>,
     health: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
     info: <><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></>,
+    alert: <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></>,
   };
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -72,6 +73,8 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { href: "/copilot", label: "Copilot", icon: "copilot" },
       { href: "/assets", label: "Assets", icon: "assets" },
       { href: "/events", label: "Events", icon: "events", roles: STAFF },
+      { href: "/field/voice", label: "Voice", icon: "voice", roles: ["field_worker", "admin"] },
+      { href: "/field/deviation", label: "Deviation", icon: "alert", roles: ["field_worker", "admin"] },
     ],
   },
   {
@@ -184,6 +187,26 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
             </div>
           );
         })}
+
+        {/* Ingest Document — a create action, set apart below the groups (the
+            space-y-5 on <nav> gives the gap the design calls for). Staff only. */}
+        {STAFF.includes(role) && (
+          <Link
+            href="/documents/ingest"
+            onClick={onNavigate}
+            className={cn(
+              "flex items-center gap-2.5 rounded-lg border border-dashed px-2 py-1.5 text-body font-semibold transition-colors",
+              pathname === "/documents/ingest"
+                ? "border-accent bg-accent-soft text-accent"
+                : "border-line text-muted hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))] hover:bg-surface-2 hover:text-ink",
+            )}
+          >
+            <svg className="size-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Ingest Document
+          </Link>
+        )}
       </nav>
 
       {user && <GovernorPill userId={user.user_id} />}
@@ -302,15 +325,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Route-aware browser titles: "Kairos: <page>" (client pages can't export Next metadata).
-  useEffect(() => {
-    const nav = NAV.flatMap((g) => g.items).find(
-      (i) => pathname === i.href || pathname.startsWith(i.href + "/"),
-    );
-    const tail = decodeURIComponent(pathname.split("/").filter(Boolean).pop() ?? "");
-    const page = nav?.label ?? (tail ? capitalize(tail.replace(/-/g, " ")) : "");
-    document.title = page ? `Kairos: ${page}` : "Kairos";
-  }, [pathname]);
 
   // Central role guard: no staff/admin page is reachable by URL without the right role.
   // Only enforced once a real user is resolved (anonymous dev sessions = backend engineer default).
@@ -340,6 +354,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       } else if (token) {
         const profile = await getMe();
         if (!alive) return;
+        if (!profile) {
+          // A token exists but is stale/expired (e.g. Supabase JWT past its 1h TTL).
+          // Don't silently fall back to the engineer dev-default — that reads as a
+          // surprise account switch (field_worker → engineer) and hides field nav.
+          // Re-authenticate instead; the anonymous no-token demo bypass is untouched.
+          logout();
+          router.replace("/login");
+          return;
+        }
         setUser(profile);
       }
       if (alive) setAuthed(true);
@@ -592,7 +615,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      {/* Bottom tab bar — mobile only, all roles */}
+      {/* Bottom tab bar temporarily removed per user request (revisiting mobile UX later) */}
+      {/* 
       <div className="md:hidden">
         <BottomTabs
           pathname={pathname}
@@ -602,6 +626,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           moreRef={moreTriggerRef}
         />
       </div>
+      */}
       <AccountMenu open={accountOpen} onClose={() => setAccountOpen(false)} name="Kairos user" role={role} onSignOut={signOut} />
     </div>
   );

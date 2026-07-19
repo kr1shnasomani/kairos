@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAssetDetail } from "@/lib/api";
-import { AuthorityBadge, SourceChip, StatusBadge, DemoChip, PageHeader } from "@/components/ui";
+import { AuthorityBadge, SourceChip, StatusBadge, PageHeader } from "@/components/ui";
 // React Flow must not SSR — imported from the client-only lazy module.
 import { KnowledgeGraph } from "@/components/lazy";
 
@@ -11,6 +11,8 @@ const VERIF_TONE = { verified: "verified", unverified: "caution", disputed: "dan
 export default async function AssetDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { data: a, source } = await getAssetDetail(id);
+  // Live-only: no fixture stand-in for a real asset.
+  if (source === "demo") throw new Error("Asset detail: live data unavailable");
   if (!a) notFound();
 
   const stats = [
@@ -41,7 +43,6 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                 <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
                 {a.criticalityLabel}
               </span>
-              {source === "demo" && <DemoChip />}
             </>
           }
         />
@@ -60,7 +61,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
           <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-5">
             <div>
               <h2 className="text-sm font-semibold text-ink">Knowledge</h2>
-              <p className="mt-0.5 text-caption text-muted">Verified operational facts linked to this asset.</p>
+              <p className="mt-0.5 text-caption text-muted">Operational facts linked to this asset — authority and verification status shown per fact.</p>
             </div>
             <span className="tabular text-label font-semibold text-muted">{a.knowledge.length} facts</span>
           </div>
