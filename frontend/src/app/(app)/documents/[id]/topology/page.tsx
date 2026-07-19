@@ -19,7 +19,7 @@ import { getDocumentTopology } from "@/lib/api";
 import type { TopologyGraph, TopologyNode } from "@/lib/types";
 import { useCanvasTokens } from "@/lib/graph-theme";
 import { EmptyState, PageHeader } from "@/components/ui";
-import { nodeTypes, nodeVar } from "./_components/topo-node";
+import { nodeTypes, edgeTypes, nodeVar } from "./_components/topo-node";
 import { NodeDetail, TopoLegend } from "./_components/topo-panels";
 import { FIXTURE, buildLayout } from "./_components/topo-data";
 
@@ -108,6 +108,7 @@ function TopologyPageInner() {
                 nodes={nodes}
                 edges={edges}
                 nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodeClick={onNodeClick}

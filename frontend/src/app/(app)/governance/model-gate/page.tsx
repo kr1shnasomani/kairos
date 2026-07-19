@@ -4,7 +4,7 @@
 // failed run blocks model promotion. KPI strip (latest run) → pass-mix donut +
 // quality trend → paginated run history table. One useFetch drives every zone.
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { TooltipContentProps } from "recharts";
 import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, Tooltip, XAxis, YAxis } from "recharts";
 import { AXIS, ChartContainer, GRID, downsample } from "@/components/charts";
@@ -68,14 +68,21 @@ const COLUMNS: TableColumn<GateRow>[] = [
 ];
 
 export default function ModelGatePage() {
-  const state = useFetch(fetchHistory);
+  // reloadKey lets a completed run refresh every zone (KPIs, charts, table) via useFetch's deps.
+  const [reloadKey, setReloadKey] = useState(0);
+  const state = useFetch(fetchHistory, [reloadKey]);
   const loading = state.status === "loading";
   const history = state.status === "live" || state.status === "demo" ? state.data : null;
   const reduced = useReducedMotion();
   const role = useRole();
   const isAdmin = ADMIN_ROLES.includes(role);
   const [running, setRunning] = useState(false);
+  const [queued, setQueued] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Stop polling on unmount.
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   // Newest-first — the table's default order (run_at desc); [0] is the latest run.
   const rows = useMemo(
@@ -98,9 +105,32 @@ export default function ModelGatePage() {
   async function handleRun() {
     setRunning(true);
     setRunError(null);
+    // The gate evaluates the NER model over the whole validation corpus (a NIM call per
+    // item) — it runs ~2-3 min on the Celery queue. The POST only *enqueues* it, so poll
+    // the history until a newer run appears, then refresh every zone.
+    const baselineTop = latest?.run_at ?? "";
     try {
       await runModelGate();
-      // ponytail: no polling — Temporal task; user refreshes to see new run
+      setQueued(true);
+      if (pollRef.current) clearInterval(pollRef.current);
+      let attempts = 0;
+      pollRef.current = setInterval(async () => {
+        attempts += 1;
+        try {
+          const res = await getModelGateHistory();
+          const newTop = res.data?.history[0]?.run_at ?? "";
+          if (newTop && newTop > baselineTop) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            setQueued(false);
+            setReloadKey((k) => k + 1); // refresh KPIs, charts, table
+            return;
+          }
+        } catch { /* transient — keep polling */ }
+        if (attempts >= 15) { // ~5 min ceiling
+          if (pollRef.current) clearInterval(pollRef.current);
+          setQueued(false);
+        }
+      }, 20_000);
     } catch (e) {
       // Distinguish a permission failure (admin-only endpoint) and other server
       // errors from an actual offline backend — postJson encodes the status as
@@ -130,8 +160,8 @@ export default function ModelGatePage() {
 
       <PageHeader
         className="mt-4"
-        eyebrow="Layer 12 · Model gate"
-        title="Model gate"
+        eyebrow="Layer 12 · Model Gate"
+        title="Model Gate"
         lede="Precision / recall gate on the validation corpus. A failed run blocks model promotion. Runs are triggered manually or by the nightly Temporal workflow."
         actions={
           // Running the gate is admin-only on the backend (403 otherwise), so only
@@ -139,15 +169,20 @@ export default function ModelGatePage() {
           isAdmin ? (
             <button
               onClick={handleRun}
-              disabled={running}
+              disabled={running || queued}
               className="inline-flex min-h-11 items-center rounded-lg bg-accent px-3.5 text-body font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
             >
-              {running ? "Triggering…" : "Run gate now"}
+              {running ? "Triggering…" : queued ? "Running…" : "Run gate now"}
             </button>
           ) : undefined
         }
       />
 
+      {queued && (
+        <p className="mt-2 text-caption text-accent">
+          Gate run queued — it evaluates the NER model over the validation corpus and takes ~2–3 minutes. This page refreshes automatically when the run lands.
+        </p>
+      )}
       {runError && <p className="mt-2 text-caption text-danger">{runError}</p>}
 
       {state.status === "error" ? (

@@ -89,7 +89,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/compliance", label: "Compliance", icon: "compliance", roles: STAFF },
       { href: "/governance", label: "Governance", icon: "governance", roles: STAFF },
-      { href: "/audit", label: "Audit trail", icon: "audit", roles: STAFF },
+      { href: "/audit", label: "Audit Trail", icon: "audit", roles: STAFF },
     ],
   },
   {
@@ -97,7 +97,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/documents", label: "Documents", icon: "documents", roles: STAFF },
       { href: "/projects", label: "Projects", icon: "projects", roles: STAFF },
-      { href: "/offboarding", label: "Off-boarding", icon: "offboarding", roles: STAFF },
+      { href: "/offboarding", label: "Off-Boarding", icon: "offboarding", roles: STAFF },
     ],
   },
 ];

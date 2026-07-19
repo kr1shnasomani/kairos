@@ -199,7 +199,7 @@ export default function AuditPage() {
     <div data-testid="audit-workspace" className="mx-auto max-w-[1400px]">
       <PageHeader
         eyebrow="Layer 7–8 · Immutable record"
-        title="Audit trail"
+        title="Audit Trail"
         lede="Every governance decision, delivery, ingestion, and model-gate result, in chronological order. Immutable by design."
         actions={
           <a

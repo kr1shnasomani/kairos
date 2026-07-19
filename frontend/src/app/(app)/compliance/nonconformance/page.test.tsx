@@ -19,9 +19,9 @@ function conflict(i: number) {
 }
 
 function respond(conflicts: unknown[], quarantine: unknown[] = [], events: unknown[] = []) {
-  mocks.getConflicts.mockResolvedValue({ data: { items: conflicts }, source: "demo" });
-  mocks.getQuarantine.mockResolvedValue({ data: { items: quarantine }, source: "demo" });
-  mocks.getEvents.mockResolvedValue({ data: { items: events }, source: "demo" });
+  mocks.getConflicts.mockResolvedValue({ data: { items: conflicts }, source: "live" });
+  mocks.getQuarantine.mockResolvedValue({ data: { items: quarantine }, source: "live" });
+  mocks.getEvents.mockResolvedValue({ data: { items: events }, source: "live" });
 }
 
 describe("NonConformancePage", () => {

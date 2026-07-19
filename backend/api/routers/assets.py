@@ -19,6 +19,29 @@ log = structlog.get_logger(__name__)
 router = APIRouter()
 
 
+async def resolve_canonical_asset_id(asset_id: str, graph: GraphService, supabase) -> Optional[str]:
+    """Resolve a tag to its canonical asset_id.
+
+    Returns `asset_id` unchanged if it's already a canonical graph node; if it's a
+    **confirmed** alias in `asset_alias_map` (e.g. `P-101` → `EQ-101`), returns the
+    canonical id; otherwise `None`. Lets `/assets/{id}/*` accept legacy tag aliases
+    instead of 404ing.
+    """
+    if await graph.get_asset(asset_id):
+        return asset_id
+    res = await asyncio.to_thread(
+        lambda: supabase.table("asset_alias_map")
+        .select("canonical_asset_id")
+        .eq("alias", asset_id)
+        .eq("confirmed", True)
+        .limit(1)
+        .execute()
+    )
+    if res.data:
+        return res.data[0]["canonical_asset_id"]
+    return None
+
+
 @router.post("/", summary="Register a new canonical asset", status_code=status.HTTP_201_CREATED)
 async def create_asset(
     payload: AssetCreate,
@@ -200,14 +223,17 @@ async def get_asset_knowledge(
     asset_id: str,
     current_user: CurrentUserDep,
     driver: Neo4jDep,
+    supabase: SupabaseDep,
     as_of: Optional[str] = Query(None, description="ISO8601 timestamp for time-travel query"),
 ) -> dict:
     """
     Returns all temporal graph edges (facts) for this asset.
+    Accepts a canonical id or a confirmed tag alias (e.g. P-101 → EQ-101).
     Pass as_of for time-travel queries — returns state of knowledge at that moment.
     """
     graph = GraphService(driver)
-    if not await graph.get_asset(asset_id):
+    canonical = await resolve_canonical_asset_id(asset_id, graph, supabase)
+    if not canonical:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Asset '{asset_id}' not found")
 
     as_of_dt: Optional[datetime] = None
@@ -217,5 +243,12 @@ async def get_asset_knowledge(
         except ValueError:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid as_of format: '{as_of}'. Use ISO8601.")
 
-    facts = await graph.get_asset_knowledge_at(asset_id, as_of=as_of_dt)
-    return {"asset_id": asset_id, "as_of": as_of or "now", "fact_count": len(facts), "facts": facts}
+    facts = await graph.get_asset_knowledge_at(canonical, as_of=as_of_dt)
+    return {
+        "asset_id": canonical,
+        "requested_id": asset_id,
+        "resolved_from_alias": canonical != asset_id,
+        "as_of": as_of or "now",
+        "fact_count": len(facts),
+        "facts": facts,
+    }

@@ -27,7 +27,7 @@ describe("RcaPage", () => {
   });
 
   it("uses a responsive analysis workspace and structured result panels", async () => {
-    mocks.getRcaPack.mockResolvedValue(rcaFor("P-101", "SEAL-FAIL"));
+    mocks.getRcaPack.mockResolvedValue(rcaFor("EQ-101", "SEAL-FAIL"));
 
     render(<RcaPage />);
 
@@ -36,8 +36,9 @@ describe("RcaPage", () => {
     expect(screen.getByTestId("rca-builder-fields")).toHaveClass("lg:grid-cols-[minmax(140px,0.7fr)_minmax(180px,1fr)_180px_auto]");
 
     await assemble();
+    // Page default asset is EQ-101 (canonical golden asset).
     expect(mocks.getRcaPack).toHaveBeenCalledWith(
-      "P-101",
+      "EQ-101",
       "SEAL-FAIL",
       expect.stringMatching(/T00:00:00Z$/),
       false,
@@ -46,7 +47,7 @@ describe("RcaPage", () => {
     expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Ranked hypotheses" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Supporting documents" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Export JSON" })).toHaveAttribute("download", "P-101-SEAL-FAIL-rca.json");
+    expect(screen.getByRole("link", { name: "Export JSON" })).toHaveAttribute("download", "EQ-101-SEAL-FAIL-rca.json");
   });
 
   it("renders dashes, not crashes, for missing confidence and evidence weights", async () => {

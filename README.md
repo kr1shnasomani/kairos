@@ -6,27 +6,38 @@
 
 ## Industrial Operational Intelligence Platform
 
---- 
+[Demo Video](#quick-start) · [Architecture](./docs/ARCHITECTURE.md) · [Presentation](./docs/ARCHITECTURE.md) · [Documentation](#documentation)
 
-**[Demo Video](#quick-start)** · **[Architecture](./docs/ARCHITECTURE.md)** · **[Documentation](#documentation)**
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=flat-square&logo=fastapi&logoColor=white)
+![Neo4j](https://img.shields.io/badge/Neo4j-Graph_DB-018BFF?style=flat-square&logo=neo4j&logoColor=white)
+![Qdrant](https://img.shields.io/badge/Qdrant-Vector_DB-FF0000?style=flat-square&logo=qdrant&logoColor=white)
+![Elasticsearch](https://img.shields.io/badge/Elasticsearch-Exact_Search-005571?style=flat-square&logo=elasticsearch&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-Auth_%26_Storage-3ECF8E?style=flat-square&logo=supabase&logoColor=white)
+![Temporal](https://img.shields.io/badge/Temporal-Workflows-111111?style=flat-square)
+![Redis](https://img.shields.io/badge/Redis-Streams_%26_Cache-DC382D?style=flat-square&logo=redis&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-Frontend-000000?style=flat-square&logo=nextdotjs&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Local_Infra-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Go](https://img.shields.io/badge/Go-OT_Connectors-00ADD8?style=flat-square&logo=go&logoColor=white)
+![NVIDIA_NIM](https://img.shields.io/badge/NVIDIA_NIM-LLM_Synthesis-76B900?style=flat-square&logo=nvidia&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-Observability-F46800?style=flat-square&logo=grafana&logoColor=white)
+
+</div>
 
 ---
 
-![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=for-the-badge&logo=fastapi&logoColor=white)
-![Neo4j](https://img.shields.io/badge/Neo4j-Graph_DB-018BFF?style=for-the-badge&logo=neo4j&logoColor=white)
-![Qdrant](https://img.shields.io/badge/Qdrant-Vector_DB-FF0000?style=for-the-badge&logo=qdrant&logoColor=white)
-![Elasticsearch](https://img.shields.io/badge/Elasticsearch-Exact_Search-005571?style=for-the-badge&logo=elasticsearch&logoColor=white)
-![Supabase](https://img.shields.io/badge/Supabase-Auth_%26_Storage-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
-![Temporal](https://img.shields.io/badge/Temporal-Workflows-111111?style=for-the-badge)
-![Redis](https://img.shields.io/badge/Redis-Streams_%26_Cache-DC382D?style=for-the-badge&logo=redis&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-Frontend-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-Local_Infra-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-![Go](https://img.shields.io/badge/Go-OT_Connectors-00ADD8?style=for-the-badge&logo=go&logoColor=white)
-![NVIDIA_NIM](https://img.shields.io/badge/NVIDIA_NIM-LLM_Synthesis-76B900?style=for-the-badge&logo=nvidia&logoColor=white)
-![Grafana](https://img.shields.io/badge/Grafana-Observability-F46800?style=for-the-badge&logo=grafana&logoColor=white)
+## Table of Contents
 
-</div>
+- [Overview](#overview)
+- [How It Works](#how-it-works)
+- [Key Capabilities](#key-capabilities)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Quick Start](#quick-start)
+- [Local URLs](#local-urls)
+- [Repository Layout](#repository-layout)
+- [Documentation](#documentation)
+- [Development](#development)
 
 ---
 
@@ -192,8 +203,7 @@ KAIROS is a monorepo: a Python backend, a Next.js frontend, a shared demo datase
 
 ```text
 kairos/
-├── backend/            # Python platform (FastAPI API, Temporal workflows,
-│                       #   Celery + Go OT workers, init/seed/dataset scripts
+├── backend/            # Python platform (FastAPI API, Temporal workflows, Celery + Go OT workers0
 ├── frontend/           # Next.js point-of-action web app (field mobile + desktop)
 ├── dataset/            # Golden demo + benchmark corpus (docs · events · telemetry)
 ├── db/                 # Neo4j Cypher schema · consolidated Supabase schema · maintenance SQL
@@ -224,6 +234,7 @@ Each major area has its own deep-dive in [`docs/`](#documentation).
 | [`docs/DATASET.md`](./docs/DATASET.md) | The golden demo corpus and how to load it |
 | [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) | Evaluation methodology + results (harness in [`benchmark/`](./benchmark), latest run in [`benchmark/RESULTS.md`](./benchmark/RESULTS.md)) |
 | [`docs/TESTS.md`](./docs/TESTS.md) | Integration test suite and data hygiene |
+| [`DEPLOY.md`](./DEPLOY.md) | Production deploy — Vercel frontend · AWS EC2 backend · cloud stores · Neo4j keep-alive cron |
 | [`AGENTS.md`](./AGENTS.md) | Contributor guardrails, conventions, and pitfalls |
 
 ## Development

@@ -53,6 +53,7 @@ export function buildLayout(topo: TopologyGraph, tokens: CanvasTokens): { nodes:
     const isLoop = e.edge_type === "instrumentation_loop";
     return {
       id: e.edge_id,
+      type: "floating",
       source: e.source_id,
       target: e.target_id,
       label: e.label,

@@ -13,7 +13,7 @@ describe("CircuitBreakerPage", () => {
   });
 
   it("presents asset-class safeguards as metric strip, ranked chart, and table", async () => {
-    mocks.getCircuitBreaker.mockResolvedValue({ data: null, source: "demo" });
+    mocks.getCircuitBreaker.mockResolvedValue({ data: null, source: "live" });
 
     render(<CircuitBreakerPage />);
 

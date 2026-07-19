@@ -4,7 +4,7 @@ import { complianceFixture } from "@/lib/compliance";
 import CompliancePage from "./page";
 
 vi.mock("@/lib/api", () => ({
-  getComplianceGaps: vi.fn().mockResolvedValue({ data: complianceFixture, source: "demo" }),
+  getComplianceGaps: vi.fn().mockResolvedValue({ data: complianceFixture, source: "live" }),
   getComplianceDashboard: vi.fn().mockResolvedValue({
     data: {
       total_gaps: { critical: 3, major: 3, minor: 2 },
@@ -12,7 +12,7 @@ vi.mock("@/lib/api", () => ({
       by_asset_class: {},
       last_updated: "2026-07-14T00:00:00Z",
     },
-    source: "demo",
+    source: "live",
   }),
 }));
 

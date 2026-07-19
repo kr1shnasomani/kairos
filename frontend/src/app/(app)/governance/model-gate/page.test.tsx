@@ -12,6 +12,12 @@ vi.mock("@/lib/api", () => ({
   runModelGate: vi.fn(),
 }));
 
+// The "Run gate now" button is admin-gated; render as admin so it appears.
+vi.mock("@/components/use-role", () => ({
+  useRole: () => "admin",
+  ADMIN_ROLES: ["admin"],
+}));
+
 function run(i: number, passed = true): ModelGateResult {
   return {
     run_id: `mg-${i}`,
@@ -69,13 +75,14 @@ describe("ModelGatePage", () => {
     expect(screen.queryByText("Demo data")).not.toBeInTheDocument();
   });
 
-  it("falls back to fixture rows with a demo chip when the backend is offline", async () => {
+  it("shows a retry-able error when history is unavailable (live-only — no fixture fallback)", async () => {
     mocks.getModelGateHistory.mockResolvedValue({ data: { history: [] }, source: "demo" });
 
     render(<ModelGatePage />);
 
-    await waitFor(() => expect(screen.getByText("Demo data")).toBeInTheDocument());
-    expect(screen.getAllByText("passed").length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getByTestId("model-gate-error")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.queryByText("Demo data")).not.toBeInTheDocument();
   });
 
   it("does not crash on a single-run history", async () => {

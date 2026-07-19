@@ -112,7 +112,7 @@ describe("SlaPage", () => {
   it("zero overdue → verified KPIs, empty charts, on-time table state", async () => {
     mocks.getSlaReport.mockResolvedValue({
       data: makeReport({ overdue_conflicts: [], overdue_conflicts_total: 0, overdue_quarantine_items: [], overdue_quarantine_total: 0, escalated_this_run: { conflicts: 0, quarantine_items: 0 } }),
-      source: "demo",
+      source: "live",
     });
     render(<SlaPage />);
 

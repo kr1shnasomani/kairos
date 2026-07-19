@@ -2,7 +2,15 @@
 
 // Custom React Flow node + color mapping for P&ID topology elements.
 import { memo } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import {
+  Handle,
+  Position,
+  useInternalNode,
+  getStraightPath,
+  BaseEdge,
+  type NodeProps,
+  type EdgeProps,
+} from "@xyflow/react";
 import type { TopologyNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useCanvasTokens, type CanvasTokens } from "@/lib/graph-theme";
@@ -36,9 +44,11 @@ const TopoNode = memo(function TopoNode({ data, selected }: NodeProps) {
   const tokens = useCanvasTokens();
   const color = nodeColor(n.node_type, n.verification_status, tokens);
   const dashed = n.verification_status === "unverified";
+  // Single centered handles — position is irrelevant for floating edges.
+  const h: React.CSSProperties = { opacity: 0, pointerEvents: "none", top: "50%", left: "50%" };
   return (
     <>
-      <Handle type="target" position={Position.Top} style={{ opacity: 0, pointerEvents: "none" }} />
+      <Handle type="target" position={Position.Left} style={h} />
       <div
         style={{ borderColor: color, borderStyle: dashed ? "dashed" : "solid" }}
         className={cn(
@@ -61,9 +71,43 @@ const TopoNode = memo(function TopoNode({ data, selected }: NodeProps) {
           </p>
         )}
       </div>
-      <Handle type="source" position={Position.Bottom} style={{ opacity: 0, pointerEvents: "none" }} />
+      <Handle type="source" position={Position.Right} style={h} />
     </>
   );
 });
 
+// ── Floating edge — nearest-border intersection routing ───────────────────────
+
+function topoNodeCenter(node: ReturnType<typeof useInternalNode>) {
+  const x = node?.internals.positionAbsolute.x ?? 0;
+  const y = node?.internals.positionAbsolute.y ?? 0;
+  const hw = (node?.measured?.width  ?? 120) / 2;
+  const hh = (node?.measured?.height ??  50) / 2;
+  return { cx: x + hw, cy: y + hh, hw, hh };
+}
+
+function topoBorderIntersect(
+  { cx, cy, hw, hh }: ReturnType<typeof topoNodeCenter>,
+  other: { cx: number; cy: number },
+) {
+  const dx = other.cx - cx;
+  const dy = other.cy - cy;
+  if (!dx && !dy) return { x: cx, y: cy };
+  const s = Math.min(hw / Math.abs(dx || 1e-9), hh / Math.abs(dy || 1e-9));
+  return { x: cx + dx * s, y: cy + dy * s };
+}
+
+export function TopoFloatingEdge({ id, source, target, style, markerEnd, label }: EdgeProps) {
+  const srcNode = useInternalNode(source);
+  const tgtNode = useInternalNode(target);
+  if (!srcNode || !tgtNode) return null;
+  const sc = topoNodeCenter(srcNode);
+  const tc = topoNodeCenter(tgtNode);
+  const sp = topoBorderIntersect(sc, tc);
+  const tp = topoBorderIntersect(tc, sc);
+  const [path, lx, ly] = getStraightPath({ sourceX: sp.x, sourceY: sp.y, targetX: tp.x, targetY: tp.y });
+  return <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} label={label} labelX={lx} labelY={ly} />;
+}
+
 export const nodeTypes = { topo: TopoNode };
+export const edgeTypes = { floating: TopoFloatingEdge };

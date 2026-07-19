@@ -63,7 +63,7 @@ export default function CircuitBreakerPage() {
         Governance
       </Link>
 
-      <PageHeader className="mt-4" eyebrow="Layer 11 · SPC governor" title="Circuit breaker" lede="Statistical process control gates that halt ingestion for an asset class when z-score anomalies exceed threshold. Halted classes require admin override or human-verified resolution." />
+      <PageHeader className="mt-4" eyebrow="Layer 11 · SPC governor" title="Circuit Breaker" lede="Statistical process control gates that halt ingestion for an asset class when z-score anomalies exceed threshold. Halted classes require admin override or human-verified resolution." />
 
       {state.status === "demo" && <div className="mt-4"><DemoChip /></div>}
       {state.status === "error" && (

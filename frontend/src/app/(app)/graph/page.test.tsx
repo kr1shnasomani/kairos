@@ -42,6 +42,6 @@ describe("GraphPage", () => {
     expect(screen.getByTestId("graph-context")).toHaveTextContent("Authority & verification");
     await waitFor(() => expect(screen.getByTestId("graph-summary")).toHaveTextContent("3 nodes"));
     expect(screen.getByTestId("graph-summary")).toHaveTextContent("2 relationships");
-    expect(screen.getByTestId("knowledge-graph")).toHaveAttribute("data-asset", "P-101");
+    expect(screen.getByTestId("knowledge-graph")).toHaveAttribute("data-asset", "EQ-101");
   });
 });

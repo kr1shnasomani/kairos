@@ -679,7 +679,7 @@ export function EvidenceLineage({
           )}
           {auditEntries && auditEntries.length > 0 && (
             <div>
-              <p className="mb-1.5 text-label font-bold uppercase tracking-[0.1em] text-muted">Audit trail</p>
+              <p className="mb-1.5 text-label font-bold uppercase tracking-[0.1em] text-muted">Audit Trail</p>
               <ul className="space-y-1">
                 {auditEntries.map((e) => (
                   <li key={e.log_id} className="flex flex-wrap gap-2 text-label text-muted">

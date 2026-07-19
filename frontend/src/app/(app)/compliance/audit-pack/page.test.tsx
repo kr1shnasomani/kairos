@@ -22,7 +22,7 @@ function respond(clauses: AuditPackClause[]) {
       framework: "OISD-117", clauses, total_clauses: clauses.length,
       total_evidence_docs: clauses.length, human_review_required: [],
     },
-    source: "demo",
+    source: "live",
   });
 }
 

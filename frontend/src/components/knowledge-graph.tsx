@@ -9,9 +9,13 @@ import {
   Position,
   useNodesState,
   useEdgesState,
+  useInternalNode,
+  getStraightPath,
+  BaseEdge,
   type Node,
   type Edge,
   type NodeProps,
+  type EdgeProps,
   type NodeMouseHandler,
   type EdgeMouseHandler,
 } from "@xyflow/react";
@@ -60,15 +64,55 @@ function edgeStyle(e: GraphEdgeData, tokens: CanvasTokens): React.CSSProperties 
   };
 }
 
+// ── Floating edge — draws straight line between node border intersection points ─
+// Computes the exact point where the line between two node centers crosses each
+// node's rectangular border, so edges always attach to the nearest side.
+
+
+function nodeCenter(node: ReturnType<typeof useInternalNode>) {
+  const x = node?.internals.positionAbsolute.x ?? 0;
+  const y = node?.internals.positionAbsolute.y ?? 0;
+  const hw = (node?.measured?.width  ?? 120) / 2;
+  const hh = (node?.measured?.height ??  50) / 2;
+  return { cx: x + hw, cy: y + hh, hw, hh };
+}
+
+function borderIntersect(
+  { cx, cy, hw, hh }: ReturnType<typeof nodeCenter>,
+  other: { cx: number; cy: number },
+) {
+  const dx = other.cx - cx;
+  const dy = other.cy - cy;
+  if (!dx && !dy) return { x: cx, y: cy };
+  const sx = hw / Math.abs(dx || 1e-9);
+  const sy = hh / Math.abs(dy || 1e-9);
+  const s  = Math.min(sx, sy);
+  return { x: cx + dx * s, y: cy + dy * s };
+}
+
+function FloatingEdge({ id, source, target, style, markerEnd, label }: EdgeProps) {
+  const srcNode = useInternalNode(source);
+  const tgtNode = useInternalNode(target);
+  if (!srcNode || !tgtNode) return null;
+  const sc = nodeCenter(srcNode);
+  const tc = nodeCenter(tgtNode);
+  const sp = borderIntersect(sc, tc);
+  const tp = borderIntersect(tc, sc);
+  const [path, lx, ly] = getStraightPath({ sourceX: sp.x, sourceY: sp.y, targetX: tp.x, targetY: tp.y });
+  return <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} label={label} labelX={lx} labelY={ly} />;
+}
+
 // ── Custom node — MUST be at module scope + wrapped in memo ──────────────────
 
 const KairosNode = memo(function KairosNode({ data, selected }: NodeProps) {
   const nd = data as unknown as GraphNodeData;
   const tokens = useCanvasTokens();
   const color = kindColor(nd.kind, tokens);
+  // Single centered handles — position is irrelevant for floating edges.
+  const h: React.CSSProperties = { opacity: 0, pointerEvents: "none", top: "50%", left: "50%" };
   return (
     <>
-      <Handle type="target" position={Position.Top} style={{ opacity: 0, pointerEvents: "none" }} />
+      <Handle type="target" position={Position.Left} style={h} />
       <div
         style={{ borderColor: color }}
         className={cn(
@@ -83,15 +127,17 @@ const KairosNode = memo(function KairosNode({ data, selected }: NodeProps) {
           {nd.label}
         </p>
       </div>
-      <Handle type="source" position={Position.Bottom} style={{ opacity: 0, pointerEvents: "none" }} />
+      <Handle type="source" position={Position.Right} style={h} />
     </>
   );
 });
 
-// nodeTypes MUST be module-scope — never define inside a component (causes remount).
+// Module-scope type maps — never define inside a component (causes remount).
 const nodeTypes = { kairos: KairosNode };
+const edgeTypes = { floating: FloatingEdge };
 
 // ── Layout — radial around the center asset ──────────────────────────────────
+
 
 function buildRFNodes(graph: KnowledgeGraphData): Node[] {
   const others = graph.nodes.filter((n) => n.id !== graph.asset_id);
@@ -120,6 +166,7 @@ function buildRFNodes(graph: KnowledgeGraphData): Node[] {
 function buildRFEdges(graph: KnowledgeGraphData, tokens: CanvasTokens): Edge[] {
   return graph.edges.map((e) => ({
     id: e.id,
+    type: "floating",
     source: e.source,
     target: e.target,
     label: e.label,
@@ -332,6 +379,7 @@ function KnowledgeGraphInner({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}

@@ -323,7 +323,7 @@ Get the parent–child asset hierarchy (up to 10 levels deep via Neo4j `PARENT_O
 
 ### `GET /assets/{asset_id}/knowledge`
 
-Get all temporal graph facts linked to this asset from Neo4j.
+Get all temporal graph facts linked to this asset from Neo4j. Accepts a **canonical id or a confirmed tag alias** — `P-101` resolves to `EQ-101` via `asset_alias_map` (`resolve_canonical_asset_id`); the response echoes `requested_id` and `resolved_from_alias`. Facts are **deduped by `edge_id`** (the graph can hold physical duplicate relationships).
 
 **Auth required:** Yes
 
@@ -335,7 +335,9 @@ Get all temporal graph facts linked to this asset from Neo4j.
 **Response `200`:**
 ```json
 {
-  "asset_id": "P-101",
+  "asset_id": "EQ-101",
+  "requested_id": "P-101",
+  "resolved_from_alias": true,
   "fact_count": 4,
   "facts": [
     {
@@ -1272,11 +1274,11 @@ Get current push governor state for the authenticated user.
 
 ### `GET /briefs/{brief_id}`
 
-Get a specific brief.
+Get a specific brief. Recipient-scoped: returns the brief only if it's addressed to the caller (`recipient_user_id == user_id`) **or to their site** (`recipient_user_id == site-{site_id}`) — otherwise `404`. Site-wide briefs (recipient `site-{site_id}`) are readable by any user at that site; without the site clause they were unopenable by anyone. Same scoping applies to `POST /briefs/{brief_id}/ack`.
 
 **Auth required:** Yes
 
-**Response `200`:** Full brief object.
+**Response `200`:** Full brief object. · **`404`** if not found or not addressed to the caller / their site.
 
 ---
 
@@ -1732,7 +1734,7 @@ Trigger NER model gate evaluation against the validation corpus.
 **Query params:**
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `model_name` | string | Yes | NER model to evaluate (e.g. `mistralai/ministral-14b-instruct-2512`) |
+| `model_name` | string | No | NER model to evaluate. **Defaults to `NVIDIA_NIM_NER_MODEL`** when omitted, so the UI can trigger a run without knowing the model name. |
 
 **Response `200`:**
 ```json
@@ -1743,7 +1745,7 @@ Trigger NER model gate evaluation against the validation corpus.
 }
 ```
 
-The Celery task runs on the `validation` queue. Results are written to `audit_log` with `action=model_gate_result`. The gate compares F1 against the incumbent baseline; if lower, the run is marked `failed`.
+The endpoint only **enqueues** the task and returns immediately. The Celery task runs on the `validation` queue and takes **~2.5 min** (a NIM call per corpus item). Results are written to `audit_log` with `action=model_gate_result`. The gate compares F1 against the incumbent baseline; if lower, the run is marked `failed`. The UI polls `history` and auto-refreshes when the run lands.
 
 ---
 
@@ -1773,6 +1775,8 @@ Return the last 20 model gate run results.
   "total": 1
 }
 ```
+
+> Shape is **contract-locked** to `{items, total}` (raw `audit_log` rows) by `tests/test_contract.py` and `tests/test_governance.py`. The frontend `getModelGateHistory` adapter flattens each row's `details` into the UI `ModelGateResult` shape and returns `{ history: [...] }`.
 
 ---
 

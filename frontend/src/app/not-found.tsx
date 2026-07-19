@@ -4,12 +4,10 @@ export default function NotFound() {
   return (
     <main className="grid min-h-dvh place-items-center px-5">
       <div className="w-full max-w-sm text-center">
-        <span className="mx-auto grid size-12 place-items-center rounded-xl bg-accent" aria-hidden="true">
-          <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-            <path d="M4 15.5 L9 20 L22 5" stroke="var(--on-accent)" strokeWidth="3.4" strokeLinecap="square" />
-            <path d="M13 20 L18.5 8 L21.5 20 Z" fill="var(--on-accent)" />
-          </svg>
-        </span>
+        {/* Plain <img>, not next/image — the root not-found renders inside the
+            _global-error boundary at build time, where <Image>'s config context is null. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.png" alt="Kairos" width={48} height={48} className="mx-auto size-12 rounded-xl object-cover" />
         <p className="tabular mt-5 text-body font-semibold text-muted">404</p>
         <h1 className="mt-1 text-display font-semibold">Page not found</h1>
         <p className="mt-1.5 text-body leading-relaxed text-muted">

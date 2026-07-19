@@ -7,14 +7,13 @@ vi.mock("@/lib/api", () => ({ synthesize: vi.fn(), createAnnotation: vi.fn() }))
 describe("CopilotPage", () => {
   afterEach(cleanup);
 
-  it("uses a responsive governed conversation workspace", () => {
+  it("uses a full-height governed conversation workspace", () => {
     render(<CopilotPage />);
 
-    expect(screen.getByTestId("copilot-workspace")).toHaveClass("max-w-[1400px]");
-    expect(screen.getByTestId("copilot-layout")).toHaveClass("lg:grid-cols-[minmax(0,1fr)_300px]");
-    expect(screen.getByTestId("copilot-conversation")).toHaveTextContent("Ask the governed knowledge base");
-    expect(screen.getByTestId("copilot-context")).toHaveTextContent("Governed answers");
-    expect(screen.getByTestId("copilot-composer")).toHaveClass("min-h-11");
-    expect(screen.getByRole("button", { name: "Send" })).toHaveClass("size-11");
+    expect(screen.getByTestId("copilot-workspace")).toHaveClass("flex", "flex-col");
+    expect(screen.getByTestId("copilot-conversation")).toHaveClass("overflow-y-auto");
+    expect(screen.getByTestId("copilot-composer")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ask the copilot")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 });

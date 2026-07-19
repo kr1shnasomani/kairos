@@ -4,10 +4,10 @@ import { getConflicts } from "@/lib/api";
 import ManagementPage from "./page";
 
 vi.mock("@/lib/api", () => ({
-  getConflicts: vi.fn().mockResolvedValue({ data: { total: 3, items: [] }, source: "demo" }),
+  getConflicts: vi.fn().mockResolvedValue({ data: { total: 3, items: [] }, source: "live" }),
   getComplianceDashboard: vi.fn().mockResolvedValue({
     data: { total_gaps: { critical: 2, major: 1, minor: 0 }, by_framework: {}, by_asset_class: {} },
-    source: "demo",
+    source: "live",
   }),
   getSlaReport: vi.fn().mockResolvedValue({
     data: {
@@ -18,15 +18,15 @@ vi.mock("@/lib/api", () => ({
       overdue_quarantine_items: [{ item_id: "q1", asset_id: null, input_type: "field_note", sla_due_at: "2026-07-13T08:00:00Z", escalated_at: null }],
       overdue_quarantine_total: 1,
     },
-    source: "demo",
+    source: "live",
   }),
-  getQuarantine: vi.fn().mockResolvedValue({ data: { items: [], total: 5 }, source: "demo" }),
+  getQuarantine: vi.fn().mockResolvedValue({ data: { items: [], total: 5 }, source: "live" }),
   getEvents: vi.fn().mockResolvedValue({
     data: {
       items: [{ event_id: "e1", event_type: "work_order_created", occurred_at: "2026-07-15T07:00:00Z", priority: "high", payload: {}, acknowledged: false }],
       total: 1,
     },
-    source: "demo",
+    source: "live",
   }),
   getHealthDetailed: vi.fn().mockResolvedValue({
     data: {

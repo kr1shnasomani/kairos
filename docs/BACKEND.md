@@ -128,7 +128,7 @@ All backends are injected as FastAPI dependencies. Each is a singleton (module-l
 
 | Dependency | Type | Notes |
 |------------|------|-------|
-| `Neo4jDep` | `AsyncDriver` | Bolt to `NEO4J_URI` |
+| `Neo4jDep` | `AsyncDriver` | Bolt to `NEO4J_URI`. Pool hygiene for Aura: `liveness_check_timeout=30` + `max_connection_lifetime=300` recycle idle connections so a stale one never throws `SessionExpired`. |
 | `QdrantDep` | `AsyncQdrantClient` | HTTP to `QDRANT_URL` |
 | `ElasticsearchDep` | `AsyncElasticsearch` | HTTP to `ELASTICSEARCH_URL` |
 | `RedisDep` | `aioredis.Redis` | DB 0 |
@@ -216,12 +216,12 @@ Key methods:
 - `get_asset(asset_id)` — single asset lookup
 - `list_assets(site_id, equipment_class, skip, limit)` — paginated
 - `get_asset_hierarchy(asset_id)` — PARENT_OF traversal up to 10 levels
-- `get_asset_knowledge_at(asset_id, as_of)` — KNOWLEDGE_EDGE traversal with optional time-travel
+- `get_asset_knowledge_at(asset_id, as_of)` — KNOWLEDGE_EDGE traversal with optional time-travel. **Deduped by `edge_id`** — the graph can hold multiple physical relationships sharing one logical `edge_id` (Cypher `DISTINCT` can't collapse them), so the same fact would otherwise repeat.
 - `create_knowledge_edge(asset_id, document_id, rel_type, props)` — writes edge with all 6 required properties. `valid_to` defaults to the open-ended sentinel `_OPEN_VALID_TO` (see below) when not supplied; it is never stored as `null`.
 - `merge_document_node(document_id, props)` — MERGE Document node
 - `detect_conflict(asset_id, parameter, new_value, new_authority)` — dual-track conflict detection
 - `get_blast_radius(document_id)` — traverses `(source)-[r:KNOWLEDGE_EDGE {document_id}]->(target)` and returns each `{edge, source, target}`. The **affected entity is the `source`** (e.g. the asset), not the target (the document node). Deduped by `edge_id` (re-runs leave duplicate relationships).
-- `close_validity_window(edge_id, closed_at)` — sets `valid_to` on a KNOWLEDGE_EDGE (used by MoC webhook on approval)
+- `close_validity_window(edge_id, closed_at)` — sets `valid_to` on a KNOWLEDGE_EDGE (used by MoC webhook **and** the in-app MoC approve endpoint, via the shared `_resolve_moc_conflict` helper)
 - `create_concept_node(props)` — Concept:Regulation seed
 - `link_concept_to_asset(concept_id, asset_id, props)` — compliance framework linkage
 - `get_event_timeline(asset_id, window_start_iso)` — Event nodes linked to an asset within a date window for RCA pack assembly
@@ -459,7 +459,7 @@ Triggered by `POST /elicitation/offboarding` — one task per equipment family s
 
 Task: `workers.model_validation.run_model_gate(model_name)` on the `validation` queue.
 
-Triggered by `POST /governance/model-gate/run` (admin only).
+Triggered by `POST /governance/model-gate/run` (admin only). `model_name` is **optional** — the endpoint defaults it to `NVIDIA_NIM_NER_MODEL` so the UI can trigger without knowing the model name. The endpoint only **enqueues**; the task itself runs **~2.5 min** (one NIM call per corpus item), so the UI shows a "queued" banner and polls history until the run lands.
 
 1. Loads validation corpus from `validation_corpus` table
 2. Runs NER extraction using the specified model on each corpus sample

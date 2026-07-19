@@ -153,29 +153,56 @@ Page-by-page manual QA pass (field-worker → engineer → admin surfaces). Ship
 > only gates visibility/actions, so a page fix made while working as admin applies to that same page for
 > every role that can see it. **Safe to log in as admin and work from there as the master workspace.**
 
-### Needs you (blocked for the agent / decision)
-- [ ] Run the stale-audit cleanup SQL (cloud delete is guarded): `delete from audit_log where action='model_gate_result' and entity_id='mXLM-RoBERTa';`
-- [ ] Decide: remove the dead frontend fixture modules (`lib/*.ts` + `DemoChip`) — optional cleanup (already listed above).
+### Resolved this pass (2026-07-19 — deep page QA + governance endpoints)
+- [x] **MoC in-app sign-off had no backend** — added `GET /governance/moc/{id}` (enriches the thin `moc_items` row with `parameter`/`source_a`/`source_b`/`blast_radius_count` from the linked conflict) and `POST /governance/moc/{id}/approve` (engineer/admin; closes the superseded edge + resolves the conflict via the shared `_resolve_moc_conflict` helper). The UI called these all along — they used to 404.
+- [x] **Promote gating reconciled** — endpoint `require_role` dropped `engineer` → now `reliability`/`admin`, matching OPA + frontend `PROMOTE_ROLES`.
+- [x] **Model-gate 422** — `POST /model-gate/run` had `model_name` as a required query param the UI never sent; now optional, defaults to `NVIDIA_NIM_NER_MODEL`.
+- [x] **Model-gate history never rendered** — backend returns raw `{items}` (contract-locked); `getModelGateHistory` now flattens to `{history:[ModelGateResult]}`.
+- [x] **Model-gate run "did nothing"** — it's a ~2.5-min Celery task; added a queued banner, disabled-while-running button, background poll, and auto-refresh on completion. Distinguished 403/other/offline in the error copy; Run button already admin-gated.
+- [x] **Asset knowledge duplicate facts** — `get_asset_knowledge_at` now dedupes by `edge_id` (6→3 facts on HE-303). Subtitle "Verified operational facts" → honest "Operational facts … verification status shown per fact".
+- [x] **Neo4j `SessionExpired`** — driver pool hygiene (`liveness_check_timeout=30`, `max_connection_lifetime=300`) killed the intermittent 500s on Neo4j-backed endpoints.
+- [x] **/management box-leveling + resilience** — Recent Signals stretches to match the left column with an internal scroller; system health split onto its own fetch so a slow ping never blanks the page.
+- [x] **404 page + asset cleanup** — `not-found.tsx` now uses the real `logo.png` (old inline-SVG mark removed); deleted unused `logo.jpeg` + 5 Next.js boilerplate SVGs from `frontend/`.
+- [x] **Docs/AGENTS/API/BACKEND/FRONTEND synced** — live-only fetcher rule, Neo4j pitfalls, model-gate async + adapter, MoC endpoints. (`CLAUDE.md` is a symlink to `AGENTS.md` — updated in one edit.)
 
-### Re-verify after the live-only sweep
-- [ ] Re-run the **frontend test suite** (`npm test`) and reconcile the 124 count (pages dropped `DemoChip`/fixture branches).
-- [ ] Emit a fresh **work order** → confirm the new operator-readable brief format (the persisted EQ-102 brief keeps the old raw text).
-- [ ] Optional: run a real **model gate** from the admin page for a correct `ministral-14b` audit entry.
+### Resolved (2026-07-19 — batch follow-through)
+- [x] **Alias resolution** — `/assets/{id}/knowledge` now accepts confirmed tag aliases via a shared `resolve_canonical_asset_id` helper (`P-101` → `EQ-101`, 5 facts, `resolved_from_alias: true`).
+- [x] **Brief detail 404 on site-wide briefs** — `GET /briefs/{id}` + `/ack` filtered `.eq(recipient_user_id, user_id)`, so a `site-{site_id}` brief was unopenable by anyone (this was the user's `/briefs/4eaf5ff9…` 404, which I'd wrongly called "doesn't exist"). Now scoped to `[user_id, site-{site_id}]` via the shared `_brief_recipients` helper — matches the list endpoint.
+- [x] **Brief humanized format** — verified in code (`assemble_work_order_brief`): headline/body use `_summarize_relationships`/`_distinct_docs`, no raw `DOCUMENTED_BY | confidence=` dump. Old persisted briefs keep pre-fix text.
+- [x] **Frontend tests (partial)** — reconciled the 3 files I own to live-only (`use-fetch` demo→error, `management` demo→live mocks, `model-gate` useRole+removed demo-chip test): 11/11 green. **~11 other page-test files remain red** — pre-existing live-only debt (demo-source mocks, admin-button `useRole` mocks, removed demo-chip assertions), heterogeneous, for pages not touched this session. Recipe: flip happy-path mocks `demo→live`, mock `useRole` for admin-gated buttons, delete "offline fixture fallback" tests.
+- [x] **Page spot-check** — circuit-breaker, documents/compare, system-information, SLA all render live data cleanly.
+
+### Needs you (blocked for the agent — cloud deletes are classifier-guarded)
+- [ ] Stale-audit cleanup (mXLM-RoBERTa): `delete from audit_log where action='model_gate_result' and entity_id='mXLM-RoBERTa';`
+- [ ] Dedupe the 3 identical `ministral-14b` runs (ids 44,45,46 at 2026-07-19T08:03): `delete from audit_log a using audit_log b where a.action='model_gate_result' and b.action='model_gate_result' and a.entity_id=b.entity_id and a.entity_id='mistralai/ministral-14b-instruct-2512' and a.timestamp < b.timestamp;`
+- [ ] **Neo4j edge dedup (87 duplicate extras / 22 edge_ids; verified 0 divergent-state, safe)** — run in the Aura console:<br>`MATCH ()-[r:KNOWLEDGE_EDGE]->() WITH r.edge_id AS eid, collect(r) AS rels WHERE size(rels)>1 UNWIND rels[1..] AS x DELETE x;`  (read path already dedupes; this makes the graph physically canonical, 123→36 edges.)
+
+### Decisions for you (won't do unilaterally)
+- [ ] **Compliance role** is backend-OPA-only — not in the frontend `Role` type, not seeded, not in route access (a compliance user would redirect-loop). Wire it up (Role type + `/compliance`+`/audit` route access + `roleHome` + seed a user) only if a compliance persona is wanted in the demo.
+- [ ] **Reliability** gating is correct (STAFF_ONLY + PROMOTE_ROLES) but **no reliability user is seeded** — seed one to walk it live.
+- [ ] **Dead frontend fixture modules** (`lib/*.ts` + `DemoChip`) — *not* a safe delete: api.ts imports all of them in catch branches, and `copilot.ts`/`rca.ts` also export live types + real constants (`SUGGESTIONS`, `RCA_PRESETS`); removal is a real refactor of every fetcher's error path + 11 `DemoChip` sites + fixture-using tests, with zero user-facing benefit. Recommend a dedicated cleanup task.
+
+### Resolved (2026-07-19 — green suite + build fix + CI)
+- [x] **Frontend test suite reconciled to live-only — 124/124 green** (was 104 pass / 20 fail). Fixes: `demo→live` in happy-path mocks (compliance, governance, sla, circuit-breaker, audit-pack, nonconformance, management); `useRole` mocked for admin-gated buttons (model-gate); removed-behavior tests rewritten (`use-fetch` demo→error, model-gate/audit empty-state, cross-site honest-empty, rca/graph EQ-101 defaults, copilot full-height layout).
+- [x] **Pre-existing `next build` blocker fixed** — Next 16.2.10's *default* `_global-error` page failed to prerender (`useContext` null), breaking the build (confirmed on HEAD, independent of this session's changes). Added a self-contained `src/app/global-error.tsx` (client, own `<html>/<body>`, inline styles). Build now compiles + prerenders clean; the local dev container OOMs (137) only because it's capped at **2 GB** — CI (ubuntu-latest ~7 GB) and the published image build on the runner, not this container.
+- [x] **Frontend tests green locally (124/124)**; CI (`frontend.yml`) stays tsc → lint → build → audit. vitest is not gated in CI (the dev container OOMs at 2 GB, masking the exit code) — run it locally. Backend changes verified ruff-clean.
+- [ ] Emit a fresh **work order** → confirm the new operator-readable brief format live (code path already verified; the persisted EQ-102 brief keeps the old raw text). Optional end-to-end check (writes to cloud).
 
 ### Manual QA still to walk (role × page)
-- [ ] Full **admin** walkthrough — System Health, plant-state write, model-gate Run, Identity confirmation (admin-exclusive actions).
 - [ ] **Reliability** + **compliance** role passes — reliability promotes quarantine; compliance cockpit read access.
-- [ ] Pages not yet eyeballed: `/copilot`, `/documents/compare`, `/documents/[id]/topology`, `/governance/moc/[id]` · `/sla` · `/circuit-breaker`, `/system-information`, `/settings`, field `elicitation`/`voice` flows.
+- [ ] Pages not yet eyeballed: `/copilot`, `/documents/compare`, `/documents/[id]/topology`, `/governance/sla` · `/circuit-breaker`, `/system-information`, `/settings`, field `elicitation`/`voice` flows. *(Admin walkthrough, plant-state, model-gate, bootstrap, asset detail, /management, 404 — done this pass.)*
 
 ### Known non-blocking gaps
 - [ ] **Alias resolution** — `/assets/{id}/knowledge` 404s for tag aliases (`P-101`→`EQ-101`); graph/RCA now default to canonical ids, but aliases don't resolve server-side. Backend change if wanted.
-- [ ] **CLAUDE.md** (project root, outside `docs/`) still states the old non-negotiable "every fetcher `try { live } catch { fixture }` … Demo chip" — update for full consistency with live-only.
+- [ ] **Underlying duplicate KNOWLEDGE_EDGE relationships** — the read path now dedupes by `edge_id`, but the graph still physically holds the duplicates (from ingestion). Optional Neo4j cleanup (guarded write) if a canonical single-edge graph is wanted.
+- [ ] **Model-gate "Run" button** for non-admins is already hidden; no remaining FE gap there.
 
 ---
 
-## Verification snapshot (2026-07-18)
+## Verification snapshot (2026-07-18, test counts updated 2026-07-19)
 
-- Backend test suite: **~175 passed · 3 skipped** (1 transient flake; passes in isolation). Frontend: **124 passed**.
+- Backend test suite: **~175 passed · 3 skipped** (1 transient flake; passes in isolation) — **not re-run this session** (write-heavy; must run against `--profile local-stores`, never cloud). This session's backend changes (alias resolve, brief recipient scoping, MoC endpoints, promote gating, model-gate default) are low-risk and don't touch the asserted paths (`test_promote_quarantine_item` uses `admin_client`).
+- Frontend suite: **live-only reconciliation in progress** — `tsc` + `eslint` + `next build` clean; `vitest` ~107 passed / **~17 failing** across ~11 page-test files that still assert the pre-live-only demo/fixture path (heterogeneous debt; recipe recorded in the follow-ups section). The 3 files touched this session (`use-fetch`, `management`, `model-gate`) are green.
 - Benchmark (cloud stores): retrieval **25/25**, answer **23/25**, provenance **25/25**, entity-F1 **~0.96**.
 - P&ID Path B: live-validated on `dataset/02_Document_Corpus/pid_line3_isolation_boundary.png`.
 - **Cloud stores:** Neo4j Aura + Qdrant Cloud + Supabase + Grafana Cloud (observability). Default local stack ≈ 13 containers (neo4j/qdrant/grafana/tempo/otel offloaded); ~2–3 GB idle RAM.

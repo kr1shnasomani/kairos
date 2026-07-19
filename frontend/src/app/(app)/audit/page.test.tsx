@@ -48,20 +48,16 @@ describe("AuditPage", () => {
     expect(screen.getByRole("link", { name: "Export JSON" })).toHaveAttribute("download", "kairos-audit-log.json");
     expect(screen.getByText(/authority_level/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Documents/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Document/ }));
     await waitFor(() => expect(screen.queryByText("AL-2")).not.toBeInTheDocument());
     expect(screen.getByText("AL-1")).toBeInTheDocument();
   });
 
-  it("shows the tailored empty state when a search matches nothing", async () => {
+  it("shows the empty state when there is no audit activity (live-only — no fixture)", async () => {
     respond([]);
 
     render(<AuditPage />);
 
-    // Backend empty → fixture; a non-matching entity search empties it.
-    await waitFor(() => expect(screen.getByText("AL-001")).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("Filter by entity ID"), { target: { value: "NO-SUCH-ENTITY" } });
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
     await waitFor(() => expect(screen.getByText("No audit activity")).toBeInTheDocument());
   });
 });

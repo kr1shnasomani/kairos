@@ -40,14 +40,14 @@ const SURFACES: Array<{ key: SurfaceKey; href: string; group: string; title: str
     key: "circuit-breaker",
     href: "/governance/circuit-breaker",
     group: "Safeguards",
-    title: "Circuit breaker",
+    title: "Circuit Breaker",
     desc: "Inspect anomaly gates that halt ingestion until an administrator reviews the affected asset class.",
   },
   {
     key: "model-gate",
     href: "/governance/model-gate",
     group: "Safeguards",
-    title: "Model gate",
+    title: "Model Gate",
     desc: "Review validation precision and recall before a model is allowed to move into production.",
   },
 ];

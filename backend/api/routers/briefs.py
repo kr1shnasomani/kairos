@@ -17,6 +17,18 @@ log = structlog.get_logger(__name__)
 router = APIRouter()
 
 
+def _brief_recipients(current_user: dict) -> list[str]:
+    """Recipient ids a user may read: themselves plus their **site-wide** address
+    (`site-{site_id}`). Site-wide briefs carry `recipient_user_id = site-{site_id}` and
+    would otherwise be unopenable by any individual user. Mirrors the list endpoint's
+    `.or_()` scoping so detail/ack agree with the list."""
+    recipients = [current_user.get("user_id", "")]
+    site_id = current_user.get("site_id", "")
+    if site_id:
+        recipients.append(f"site-{site_id}")
+    return recipients
+
+
 @router.get("/", summary="Get pending briefs for the current user")
 async def get_my_briefs(
     current_user: CurrentUserDep,
@@ -131,13 +143,14 @@ async def get_brief(
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
 ) -> dict:
-    """Returns a single brief with full evidence lineage. Enforces recipient ownership."""
-    user_id = current_user.get("user_id", "")
+    """Returns a single brief with full evidence lineage. Enforces recipient ownership —
+    the user's own briefs plus **site-wide** briefs addressed to their site (`site-{site_id}`),
+    which would otherwise be unopenable by anyone."""
     result = await asyncio.to_thread(
         lambda: supabase.table("briefs")
         .select("*")
         .eq("brief_id", brief_id)
-        .eq("recipient_user_id", user_id)
+        .in_("recipient_user_id", _brief_recipients(current_user))
         .limit(1)
         .execute()
     )
@@ -165,7 +178,7 @@ async def ack_brief(
         lambda: supabase.table("briefs")
         .select("brief_id, requires_countersignature")
         .eq("brief_id", brief_id)
-        .eq("recipient_user_id", user_id)
+        .in_("recipient_user_id", _brief_recipients(current_user))
         .limit(1)
         .execute()
     )

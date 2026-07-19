@@ -94,10 +94,10 @@ frontend/
 | `/governance/conflicts` | Conflict list + resolve | Live |
 | `/governance/quarantine` | Quarantine list + promote/dispute/request-info | Live (role-gated) |
 | `/governance/moc` | Management of Change queue | Live |
-| `/governance/moc/[id]` | MoC detail + source comparison + engineer sign-off | Live (admin-gated write) |
+| `/governance/moc/[id]` | MoC detail (sources joined from linked conflict) + engineer/admin sign-off | Live (`GET/POST /governance/moc/{id}` + `/approve`) |
 | `/governance/sla` | SLA report — overdue conflicts + quarantine | Live |
 | `/governance/circuit-breaker` | SPC circuit-breaker state by asset class | Live |
-| `/governance/model-gate` | Model gate — P/R/F1 history + validation corpus | Live |
+| `/governance/model-gate` | Model gate — P/R/F1 history + validation corpus. Run is a ~2.5-min async task: button shows a queued banner, polls history, auto-refreshes | Live (Run = admin) |
 | `/compliance/audit-pack` | Audit-evidence pack by clause + human sign-off | Live |
 | `/compliance/nonconformance` | Non-conformances (conflicts + failed inspections + disputes) | Composed from existing endpoints |
 | `/documents` | Document registry | Live |
@@ -381,8 +381,11 @@ realigned to those canonical tags, `P-101` is a confirmed alias of `EQ-101`).
 
 Every data page is **live** (real backend data). There is no "demo fallback" column anymore: when a fetch
 fails, the page shows a **loading skeleton** then an **error + retry**, never a fixture (see §6). The
-`/management` overview aggregates 6 live fetches; `/governance` hub + `/management/cross-site` are the only
-surfaces with no primary data fetch (hub = static links; cross-site = honest "no data in single-site").
+`/management` overview aggregates **5 core live fetches** (conflicts · quarantine · SLA · compliance · events);
+**system health is fetched separately** on its own `useFetch` so a slow/failed cloud ping (`/health/detailed`
+pings every store, ~2.5s) shows an inline "unavailable" strip instead of blanking the whole page. `/governance`
+hub + `/management/cross-site` are the only surfaces with no primary data fetch (hub = static links;
+cross-site = honest "no data in single-site").
 
 Write contracts (resolve/promote/dispute, ingest, sign-off) are role-gated: `field_worker` sees a read-only
 view; action buttons are hidden via `useRole()`. **Quarantine promote** is `reliability`/`admin` only

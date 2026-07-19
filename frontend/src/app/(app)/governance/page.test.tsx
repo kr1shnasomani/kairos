@@ -9,7 +9,7 @@ vi.mock("@/lib/api", () => ({
       { conflict_id: "C-2", status: "pending_moc", track: "engineering", is_overdue: false },
       { conflict_id: "C-3", status: "resolved", track: "administrative", is_overdue: false },
     ] },
-    source: "demo",
+    source: "live",
   }),
   getQuarantine: vi.fn().mockResolvedValue({
     data: { items: [
@@ -17,7 +17,7 @@ vi.mock("@/lib/api", () => ({
       { item_id: "Q-2", review_status: "pending", is_overdue: false },
       { item_id: "Q-3", review_status: "promoted", is_overdue: false },
     ] },
-    source: "demo",
+    source: "live",
   }),
 }));
 

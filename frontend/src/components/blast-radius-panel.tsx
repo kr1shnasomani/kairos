@@ -8,9 +8,13 @@ import {
   Position,
   useNodesState,
   useEdgesState,
+  useInternalNode,
+  getStraightPath,
+  BaseEdge,
   type Node,
   type Edge,
   type NodeProps,
+  type EdgeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { getBlastRadius } from "@/lib/api";
@@ -34,23 +38,54 @@ const BlastNode = memo(function BlastNode({ data }: NodeProps) {
   const d = data as { label: string; itemType: string; isCenter: boolean; flagged: boolean };
   const tokens = useCanvasTokens();
   const color = d.isCenter ? tokens["--accent"] : tokens[ITEM_TYPE_TOKENS[d.itemType] ?? "--muted"];
+  const h: React.CSSProperties = { opacity: 0, pointerEvents: "none", top: "50%", left: "50%" };
   return (
     <div
       style={{ borderColor: color }}
       className={`relative min-w-[80px] max-w-[130px] rounded-xl border-2 px-2.5 py-1.5 text-center shadow-sm ${d.isCenter ? "bg-[color-mix(in_srgb,var(--accent)_8%,var(--surface))]" : "bg-surface"}`}
     >
-      {/* Invisible handles — required for React Flow to attach edges (error #008
-          without them); connection is disabled so no dots show. */}
-      <Handle type="target" position={Position.Top} isConnectable={false} style={{ opacity: 0 }} />
-      <Handle type="source" position={Position.Bottom} isConnectable={false} style={{ opacity: 0 }} />
+      <Handle type="target" position={Position.Left}  isConnectable={false} style={h} />
       <p className="text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color }}>{d.itemType}</p>
       <p className="mt-0.5 truncate text-micro font-semibold leading-snug text-ink">{d.label}</p>
       {d.flagged && <p className="mt-0.5 text-label font-bold text-danger">FLAGGED</p>}
+      <Handle type="source" position={Position.Right} isConnectable={false} style={h} />
     </div>
   );
 });
 
+function BlastFloatingEdge({ id, source, target, style, markerEnd }: EdgeProps) {
+  const srcNode = useInternalNode(source);
+  const tgtNode = useInternalNode(target);
+  if (!srcNode || !tgtNode) return null;
+  const sc = blastNodeCenter(srcNode);
+  const tc = blastNodeCenter(tgtNode);
+  const sp = blastBorderIntersect(sc, tc);
+  const tp = blastBorderIntersect(tc, sc);
+  const [path] = getStraightPath({ sourceX: sp.x, sourceY: sp.y, targetX: tp.x, targetY: tp.y });
+  return <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} />;
+}
+
+function blastNodeCenter(node: ReturnType<typeof useInternalNode>) {
+  const x = node?.internals.positionAbsolute.x ?? 0;
+  const y = node?.internals.positionAbsolute.y ?? 0;
+  const hw = (node?.measured?.width  ?? 110) / 2;
+  const hh = (node?.measured?.height ??  45) / 2;
+  return { cx: x + hw, cy: y + hh, hw, hh };
+}
+
+function blastBorderIntersect(
+  { cx, cy, hw, hh }: ReturnType<typeof blastNodeCenter>,
+  other: { cx: number; cy: number },
+) {
+  const dx = other.cx - cx;
+  const dy = other.cy - cy;
+  if (!dx && !dy) return { x: cx, y: cy };
+  const s = Math.min(hw / Math.abs(dx || 1e-9), hh / Math.abs(dy || 1e-9));
+  return { x: cx + dx * s, y: cy + dy * s };
+}
+
 const blastNodeTypes = { blast: BlastNode };
+const blastEdgeTypes = { floating: BlastFloatingEdge };
 
 function buildBlastDiagram(report: BlastRadiusReport, tokens: CanvasTokens): { nodes: Node[]; edges: Edge[] } {
   const center: Node = {
@@ -81,6 +116,7 @@ function buildBlastDiagram(report: BlastRadiusReport, tokens: CanvasTokens): { n
     const color = item.flagged_for_review ? tokens["--danger"] : tokens["--line"];
     return {
       id: `e-${item.item_id}`,
+      type: "floating",
       source: "__doc__",
       target: item.item_id,
       style: { stroke: color, strokeWidth: 1.2 },
@@ -147,7 +183,7 @@ function BlastRadiusPanelInner({ documentId }: { documentId: string }) {
     <section className="mt-8">
       <div className="flex w-full items-center text-xs font-bold uppercase tracking-[0.1em] text-muted">
         <span>
-          Blast radius
+          Blast Radius
           {report.affected_count > 0 && (
             <span className="ml-2 inline-flex items-center rounded-full bg-danger px-1.5 py-0.5 text-micro font-semibold text-white">
               {report.affected_count}
@@ -171,6 +207,7 @@ function BlastRadiusPanelInner({ documentId }: { documentId: string }) {
                   nodes={nodes}
                   edges={edges}
                   nodeTypes={blastNodeTypes}
+                  edgeTypes={blastEdgeTypes}
                   onNodesChange={onNodesChange}
                   onEdgesChange={onEdgesChange}
                   fitView
