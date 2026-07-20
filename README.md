@@ -36,7 +36,6 @@
 - [Quick Start](#quick-start)
 - [Local URLs](#local-urls)
 - [Repository Layout](#repository-layout)
-- [Documentation](#documentation)
 - [Development](#development)
 
 ---
@@ -59,50 +58,30 @@ At its core KAIROS is a pipeline: raw industrial artifacts go in one end, and go
 
 ```mermaid
 flowchart TD
-    subgraph IN [" Inputs "]
-        direction LR
-        D["📄 Documents<br/><sub>PDFs · P&IDs · scanned & handwritten forms</sub>"]
-        E["⚡ Operational events<br/><sub>work orders · PTWs · tag-outs · alarms</sub>"]
-        V["🎙️ Voice notes<br/><sub>field observations</sub>"]
-    end
+    D["📄 Documents<br/><sub>PDFs · P&IDs · scanned/handwritten forms</sub>"]
+    E["⚡ Operational events<br/><sub>work orders · PTWs · tag-outs · alarms</sub>"]
+    V["🎙️ Voice notes<br/><sub>field observations</sub>"]
 
-    subgraph PERCEPT [" Perception "]
-        P["OCR · Entity extraction · P&ID topology<br/><sub>NVIDIA NIM · Groq Whisper · Jina embeddings</sub>"]
-    end
-
-    subgraph KNOW [" Knowledge stores "]
-        direction LR
-        G[("🕸️ Temporal Knowledge Graph<br/><sub>Neo4j: every fact is a<br/>time-bounded, authority-ranked edge</sub>")]
-        VS[("🔍 Vector<br/><sub>Qdrant</sub>")]
-        XS[("🎯 Exact<br/><sub>Elasticsearch</sub>")]
-    end
-
-    subgraph GOV [" Governance plane "]
-        GV["Conflict resolution · Quarantine · Management of Change<br/>Model gate · SPC circuit breaker · SLA escalation"]
-        H(["👤 Human review<br/><sub>the only path to promotion</sub>"])
-    end
-
-    subgraph OUT [" Retrieval & point-of-action delivery "]
-        R["Expert Copilot · RCA · Proactive Briefs<br/><sub>hybrid retrieval · mandatory citations · EEMUA governor</sub>"]
-        UI["📱 Field mobile  +  🖥️ Desktop engineering workspace"]
-    end
+    P["Perception<br/><sub>OCR · entity extraction · P&ID topology · speech-to-text</sub>"]
+    G[("🕸️ Temporal Knowledge Graph<br/><sub>Neo4j — every fact a time-bounded, authority-ranked, cited edge</sub>")]
+    IDX[("🔍 Vector + exact index<br/><sub>Qdrant · Elasticsearch</sub>")]
+    GOV["🛡️ Governance plane<br/><sub>conflicts · quarantine · Management of Change · model gate · circuit breaker</sub>"]
+    H(["👤 Human review<br/><sub>the only path to promotion</sub>"])
+    OUT["📤 Retrieval & point-of-action delivery<br/><sub>Copilot · RCA · proactive briefs — 📱 field + 🖥️ desktop</sub>"]
 
     D --> P
     E --> P
     V --> P
     P --> G
-    G <--> VS
-    G <--> XS
-    G --> GV
-    GV <--> H
-    GV --> R
-    VS --> R
-    XS --> R
-    R --> UI
+    G <--> IDX
+    G --> GOV
+    GOV <--> H
+    GOV --> OUT
+    IDX --> OUT
 
     classDef store fill:#eef2ff,stroke:#5e6ad2,color:#1e1b4b;
     classDef human fill:#fff7ed,stroke:#e79d13,color:#7c2d12;
-    class G,VS,XS store;
+    class G,IDX store;
     class H human;
 ```
 
@@ -126,15 +105,7 @@ For the full design, including the 13-layer breakdown, knowledge-graph mechanics
 
 ## Architecture
 
-KAIROS is a 13-layer platform spanning perception, knowledge modelling, retrieval, governance, and delivery. A FastAPI core orchestrates five datastores, durable Temporal workflows, Celery workers, and Go OT connectors, with a Next.js interface on top. The [mermaid diagram above](#how-it-works) is the birds-eye view; the [architecture document](./docs/ARCHITECTURE.md) is the full blueprint.
-
-| Plane | What lives here |
-|---|---|
-| **Perception** | OCR, NER, P&ID topology extraction, speech-to-text |
-| **Knowledge** | Temporal graph (Neo4j) + vector (Qdrant) + exact (Elasticsearch), kept in sync |
-| **Governance** | Conflicts, quarantine, Management of Change, model gate, circuit breaker, SLA |
-| **Retrieval & synthesis** | Copilot, RCA, brief assembly, hybrid retrieval, EEMUA governor |
-| **Delivery** | Next.js field-mobile + desktop workspace, offline-capable |
+KAIROS is a 13-layer platform organised into five planes — **perception, knowledge, governance, retrieval, and delivery** (the flow above). A FastAPI core orchestrates five datastores, durable Temporal workflows, Celery workers, and Go OT connectors, with a Next.js interface on top. [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) is the full 13-layer blueprint — design rationale, end-to-end data flows, and the day-one-to-enterprise scalability model.
 
 ## Tech Stack
 
@@ -148,7 +119,7 @@ KAIROS is a 13-layer platform spanning perception, knowledge modelling, retrieva
 
 ## Quick Start
 
-The entire stack runs inside Docker, requiring no local Python, Node, or Go required.
+The entire stack runs inside Docker — no local Python, Node, or Go required.
 
 **Prerequisites:** Docker Desktop · Make
 
@@ -203,7 +174,7 @@ KAIROS is a monorepo: a Python backend, a Next.js frontend, a shared demo datase
 
 ```text
 kairos/
-├── backend/            # Python platform (FastAPI API, Temporal workflows, Celery + Go OT workers0
+├── backend/            # Python platform (FastAPI API, Temporal workflows, Celery + Go OT workers)
 ├── frontend/           # Next.js point-of-action web app (field mobile + desktop)
 ├── dataset/            # Golden demo + benchmark corpus (docs · events · telemetry)
 ├── db/                 # Neo4j Cypher schema · consolidated Supabase schema · maintenance SQL
@@ -217,25 +188,7 @@ kairos/
 └── README.md
 ```
 
-Each major area has its own deep-dive in [`docs/`](#documentation).
-
-## Documentation
-
-| Document | Contents |
-|---|---|
-| [`docs/PROBLEM_STATEMENT.md`](./docs/PROBLEM_STATEMENT.md) | The problem KAIROS solves and how it is judged |
-| [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | The complete 13-layer platform design |
-| [`docs/API.md`](./docs/API.md) | REST API reference |
-| [`docs/BACKEND.md`](./docs/BACKEND.md) | Services, workers, data models, config |
-| [`docs/INFRA.md`](./docs/INFRA.md) | Containers, ports, data stores, observability, dev commands |
-| [`docs/DATABASE.md`](./docs/DATABASE.md) | Schema reference across all five stores |
-| [`docs/FRONTEND.md`](./docs/FRONTEND.md) | Routes, components, API wiring, auth flow |
-| [`docs/FIXTURES.md`](./docs/FIXTURES.md) | Mock-data fallbacks and the demo-chip contract |
-| [`docs/DATASET.md`](./docs/DATASET.md) | The golden demo corpus and how to load it |
-| [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) | Evaluation methodology + results (harness in [`benchmark/`](./benchmark), latest run in [`benchmark/RESULTS.md`](./benchmark/RESULTS.md)) |
-| [`docs/TESTS.md`](./docs/TESTS.md) | Integration test suite and data hygiene |
-| [`DEPLOY.md`](./DEPLOY.md) | Production deploy — Vercel frontend · AWS EC2 backend · cloud stores · Neo4j keep-alive cron |
-| [`AGENTS.md`](./AGENTS.md) | Contributor guardrails, conventions, and pitfalls |
+Each major area has its own deep-dive in the docs below.
 
 ## Development
 

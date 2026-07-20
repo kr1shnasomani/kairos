@@ -461,7 +461,7 @@ Cross-site pattern detection requires knowledge to flow from local data planes t
 
 | What | Tool | Notes |
 |------|------|-------|
-| Cloud LLM synthesis | **NVIDIA NIM** | Llama 3.3 70B (`meta/llama-3.3-70b-instruct`), OpenAI-compatible API |
+| Cloud LLM synthesis | **NVIDIA NIM** | Llama 3.1 70B (`meta/llama-3.1-70b-instruct`), OpenAI-compatible API; Gemini is the cloud fallback tier |
 | Local LLM fallback | **Ollama** | Qwen2.5 14B — edge/offline synthesis fallback |
 | OCR | **NVIDIA NIM Nemotron-OCR-v2** | Cloud API; PyMuPDF fast path for native digital PDFs |
 | Named entity recognition | **NVIDIA NIM ministral-14b** | JSON-prompted NER; Ollama llama3.1:8b local fallback; regex last resort |
@@ -501,10 +501,10 @@ Redis Streams is the pragmatic choice for the build. Redpanda is the honest stor
 |------|------|-------|
 | Auth and row-level security | **Supabase Auth** | Free, built-in JWT, RBAC at asset level out of the box |
 | Policy enforcement | **Open Policy Agent** (Docker) | Free, single binary, define governance rules in Rego — agents generate policies fast |
-| Secrets management | **HashiCorp Vault** (Docker) | Free self-hosted, one container, handles encryption keys and signing |
-| Observability | **OpenTelemetry + Grafana** (Docker) | Free, traces and metrics across all services, good for demo dashboards |
+| Secrets management | **Supabase Vault** (cloud) | Encrypted secrets in Supabase; no local Vault container |
+| Observability | **OpenTelemetry → Grafana Cloud** | Backend exports traces/metrics directly to Grafana Cloud; no local otel-collector/Tempo/Grafana containers |
 
-OPA and Vault each run as a single Docker container. Both worth including — they make the governance story credible to judges and are straightforward for agents to configure.
+OPA runs as a single Docker container and makes the governance story credible. Secrets live in Supabase Vault (cloud) and observability ships to Grafana Cloud — the former local Vault / Grafana / OTEL-collector containers were removed.
 
 ---
 
@@ -512,10 +512,10 @@ OPA and Vault each run as a single Docker container. Both worth including — th
 
 | What | Tool | Notes |
 |------|------|-------|
-| Web and desktop interfaces | **Next.js 14 + React** | App Router, server components, fast to build |
-| Mobile field app | **Expo + React Native** | Or just make Next.js mobile-responsive for the MVP |
-| UI components | **shadcn/ui + Tailwind** | Looks sharp, builds fast |
-| Graph visualisation | **Neovis.js** or **React Flow** | Renders Neo4j graph directly in the browser |
+| Web and desktop interfaces | **Next.js 16 + React 19** | App Router, server components, TypeScript strict |
+| Mobile field app | **Responsive Next.js** (MVP) | Same codebase, mobile-first field routes; Expo + React Native is the future native-app option |
+| UI components | **Custom primitives (`ui.tsx`) + Tailwind CSS v4** | Design-token driven; no component-library dependency |
+| Graph visualisation | **React Flow** | Renders the graph from JSON returned by the API (Neovis.js was the alternative) |
 
 ---
 
@@ -524,8 +524,9 @@ OPA and Vault each run as a single Docker container. Both worth including — th
 Everything self-hosted runs from a single `docker-compose.yml`:
 
 ```
-services: neo4j, qdrant, elasticsearch, redis,
-          temporal, opa, vault, grafana, otel-collector
+services (default): elasticsearch, redis, temporal, opa, go-connector, backend-api, frontend
+# neo4j + qdrant   → cloud by default; local containers are profile-gated (--profile local-stores)
+# vault / grafana / tempo / otel-collector → removed (Supabase Vault + Grafana Cloud)
 ```
 
 One command starts the entire local stack. Agents generate this file in minutes.
@@ -606,7 +607,7 @@ The redaction pipeline operates as follows: before any cross-site promotion, a P
 
 ### Air-Gapped and Edge Deployment
 
-For facilities with strict data sovereignty requirements or no reliable external connectivity, KAIROS deploys entirely within the plant's network perimeter. The full data plane deploys on bare-metal Kubernetes. OCR, entity extraction, and P&ID parsing run on plant-local GPU infrastructure unquantized. The synthesis LLM deploys as quantized Llama 3.3 70B or Qwen 3 for text synthesis over structured inputs. Performance characteristics are within acceptable operating bounds for synthesis tasks because the LLM is receiving structured JSON from the graph, not raw documents.
+For facilities with strict data sovereignty requirements or no reliable external connectivity, KAIROS deploys entirely within the plant's network perimeter. The full data plane deploys on bare-metal Kubernetes. OCR, entity extraction, and P&ID parsing run on plant-local GPU infrastructure unquantized. The synthesis LLM deploys as quantized Llama 3.1 70B or Qwen 3 for text synthesis over structured inputs. Performance characteristics are within acceptable operating bounds for synthesis tasks because the LLM is receiving structured JSON from the graph, not raw documents.
 
 Control plane connectivity synchronizes on a scheduled basis when network connectivity is available, pushing model updates (validated against Layer 0 before sync) and receiving cross-site pattern updates. If connectivity is severed for extended periods, the plant data plane continues operating fully. No operational dependency on external connectivity.
 

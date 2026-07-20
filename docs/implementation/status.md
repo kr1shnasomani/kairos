@@ -89,13 +89,33 @@ None of these block the platform; it is fully functional without them.
 - [ ] **Neo4j Aura keep-alive:** cron-job.org (daily) → `/health/detailed`, so Aura doesn't pause after 3 days idle.
 - [ ] **AWS billing alarm (~$30)** so the $120 credit isn't overrun.
 
-### Security
-- [ ] **Triage Dependabot alerts** — GitHub flagged 79 (10 critical) on last push; review the criticals.
-- [ ] **Add CodeQL** workflow once the repo is public.
+### Known bugs (found in conformance audit, 2026-07-21)
+- [ ] **MoC webhook signature verification is dead code** — `routers/governance.py:562` does
+  `getattr(settings, "MOC_WEBHOOK_SECRET", None)`, but `Settings` (`api/config.py`) never declares that
+  field, so it's always `None` and the HMAC-check branch never runs. **No inbound MoC webhook request is
+  signature-verified today**, regardless of `.env`. The rest of the MoC flow (auto-draft, blast-radius,
+  warning banners, graph update on resolution) is unaffected and fully functional. Fix: add
+  `MOC_WEBHOOK_SECRET: str | None = None` to `Settings` and set it in `.env`. See
+  `docs/implementation/conformance.md` (L7) for detail. Not yet fixed — docs-only pass so far.
 
-### Testing
-- [ ] **Manual end-to-end walkthrough** — click every page as `admin`, then as `field_worker` to confirm the role gate redirects. (Guide: FRONTEND.md navigation + this file.)
-- [ ] **Test-suite hygiene:** run the write-heavy suite ONLY against `--profile local-stores` or in CI — never against cloud (the teardown purge is unreliable on cloud Supabase and pollutes the golden data). Optionally add the 7 secrets `tests.yml` needs.
+### Documentation sync (audit 2026-07-21)
+
+> Full-repo doc verification. **Good news first:** the cloud-offload (Neo4j Aura / Qdrant Cloud / Grafana
+> Cloud), the production model names (`llama-3.1-70b`, `ministral-14b`, `nemotron-ocr`, `jina-v3`,
+> `whisper-large-v3`), the Ollama-disabled fallback tier (`OLLAMA_BASE_URL` empty), and test counts
+> (~175/3) are **consistent across every doc** — INFRA/DOCKER/DATABASE/BACKEND/status all correct.
+> The drift is concentrated in one place:
+
+- [x] **`ARCHITECTURE.md §6 (Tech Stack)` drift fixed to as-built** (2026-07-21): L464 LLM → `meta/llama-3.1-70b-instruct`;
+  L504 Secrets → Supabase Vault (cloud); L505 Observability → Grafana Cloud; L515 → Next.js 16 + React 19;
+  L517 → custom `ui.tsx` + Tailwind v4; the local-compose service list dropped `vault/grafana/otel-collector`
+  and marks neo4j/qdrant profile-gated; L609 air-gapped narrative → Llama 3.1. *Kept as intentional design
+  narrative (not drift):* Redpanda (enterprise-scale story), Expo/React-Native (MVP is responsive Next),
+  Neovis-as-alternative (React Flow chosen), the Ollama fallback tier.
+- [x] **This file's "Verification snapshot" reconciled** (2026-07-21) — the stale "vitest ~107 passed / ~17
+  failing … in progress" line now reads **124/124 green**, matching the resolved 2026-07-19 entries above.
+- [ ] Minor: "Neo4j 5.20" (`ARCHITECTURE.md §6` + `DATABASE.md`) — Aura runs 2025.x; low priority, both docs
+  agree so it's not a sync break, just a version-accuracy nit.
 
 ### Frontend polish (optional)
 - [ ] **Revisit mobile navigation layout** — the mobile bottom tabs (`FieldBottomTabs`) were temporarily removed in favor of the hamburger sidebar. Need to revisit this UX decision later.
@@ -138,10 +158,6 @@ Page-by-page manual QA pass (field-worker → engineer → admin surfaces). Ship
   (no auto-retry), so a stale pooled connection threw `SessionExpired` ("defunct connection") → intermittent
   500s on Neo4j endpoints (compliance/dashboard, assets/knowledge, graph, blast-radius) → under live-only the
   `/management` overview erroring wholesale. Liveness-checking + recycling stale connections fixes it globally.
-
-> **Re-verify:** the frontend test suite (124 passed, 2026-07-18) predates the live-only sweep — several
-> pages dropped `DemoChip`/fixture branches; **re-run `npm test` and reconcile** before relying on that
-> number. `tsc` + `eslint` are clean; a clean `next build` passes.
 
 ---
 
@@ -202,7 +218,7 @@ Page-by-page manual QA pass (field-worker → engineer → admin surfaces). Ship
 ## Verification snapshot (2026-07-18, test counts updated 2026-07-19)
 
 - Backend test suite: **~175 passed · 3 skipped** (1 transient flake; passes in isolation) — **not re-run this session** (write-heavy; must run against `--profile local-stores`, never cloud). This session's backend changes (alias resolve, brief recipient scoping, MoC endpoints, promote gating, model-gate default) are low-risk and don't touch the asserted paths (`test_promote_quarantine_item` uses `admin_client`).
-- Frontend suite: **live-only reconciliation in progress** — `tsc` + `eslint` + `next build` clean; `vitest` ~107 passed / **~17 failing** across ~11 page-test files that still assert the pre-live-only demo/fixture path (heterogeneous debt; recipe recorded in the follow-ups section). The 3 files touched this session (`use-fetch`, `management`, `model-gate`) are green.
+- Frontend suite: **124/124 green** — reconciled to live-only on 2026-07-19 (was ~107 passed / ~17 failing mid-sweep; see the resolved "green suite + build fix + CI" entry above). `tsc` + `eslint` + `next build` clean. vitest is not gated in CI (the dev container OOMs at 2 GB, masking the exit code) — run it locally.
 - Benchmark (cloud stores): retrieval **25/25**, answer **23/25**, provenance **25/25**, entity-F1 **~0.96**.
 - P&ID Path B: live-validated on `dataset/02_Document_Corpus/pid_line3_isolation_boundary.png`.
 - **Cloud stores:** Neo4j Aura + Qdrant Cloud + Supabase + Grafana Cloud (observability). Default local stack ≈ 13 containers (neo4j/qdrant/grafana/tempo/otel offloaded); ~2–3 GB idle RAM.

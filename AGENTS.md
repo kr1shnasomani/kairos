@@ -129,6 +129,10 @@ Gotcha rebuilds: `docker compose up -d --no-deps --build kairos-frontend` (new n
 
 ## Known Pitfalls
 
+> Grouped by area for scanning; every row is a real gotcha hit during the build. Nothing here is removed — only sorted.
+
+### Backend · database · models · API
+
 | Area | Fix |
 |---|---|
 | `quarantine_items` FK failure | `asset_id = None`, never `""` |
@@ -143,6 +147,11 @@ Gotcha rebuilds: `docker compose up -d --no-deps --build kairos-frontend` (new n
 | Work-order dedup test flake | Unique `asset_id` per run (10-min dedup window) |
 | Site-wide brief wrong recipient | `user_id = f"site-{site_id}"` in `BriefEngine.deliver()` |
 | NIM OCR wrong base URL | `https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-ocr-v2` |
+
+### Frontend — build & runtime
+
+| Area | Fix |
+|---|---|
 | `dynamic(ssr:false)` build error | Not allowed in Server Components (Next 16) — put it in a `"use client"` wrapper (`components/lazy.tsx`) |
 | eslint `react-hooks/purity` | No `Date.now()`/`new Date()` in render — move clock reads to `lib/utils.ts` (e.g. `nowMs`, `slaCountdown`) |
 | eslint `set-state-in-effect` | Wrap async fetch in a `load()`; for mount-once DOM/token sync, scoped `eslint-disable` with a reason |
@@ -155,11 +164,21 @@ Gotcha rebuilds: `docker compose up -d --no-deps --build kairos-frontend` (new n
 | `next build` exits 137 in the dev container | OOM — `kairos-frontend` is capped at **2 GB**, and a Turbopack production build needs more. Not a code error (compile + prerender succeed). CI (ubuntu-latest ~7 GB) and the Docker image build on the runner, not this container. To build locally, raise the container `mem_limit` or run on the host. |
 | `not-found.tsx` uses plain `<img>`, not `next/image` | The root not-found renders inside the `_global-error` boundary at build time, where `<Image>`'s config context is null → prerender crash. Use a plain `<img>` (eslint-disable `no-img-element`), same as `brand-link.tsx`. |
 | API boot race on ES | `kairos-backend-api` runs `ensure_indices()` at startup and **exits** if ES isn't ready. If the API is down after `make dev`, `docker restart kairos-backend-api` once ES is healthy. |
+
+### Cloud stores — Neo4j Aura · Qdrant · Supabase
+
+| Area | Fix |
+|---|---|
 | **Neo4j + Qdrant are CLOUD** (Aura + Qdrant Cloud, via `.env`) | Local `kairos-neo4j`/`kairos-qdrant` containers are **profile-gated** — they do NOT start by default; `docker compose --profile local-stores up` brings them back for offline dev/tests. Cloud creds live in `.env` only (never in compose). Aura DB is named after the instance (e.g. `2016aa75`), **not** `neo4j` — always open sessions with `database=settings.NEO4J_DATABASE` (GraphService defaults to it). Cloud Qdrant **requires payload indexes** on any filter field (`asset_id`, `document_id`, `is_quarantine`) — `init_qdrant.py` creates them; without them filtered searches 400. Every Qdrant client must pass `api_key=settings.QDRANT_API_KEY` or it 403s. |
 | **Never run the write-heavy test suite against cloud** | `pytest tests/` creates + purges test entities; the teardown purge is unreliable against cloud Supabase (transient Cloudflare 500s) and **pollutes the golden data**. Run tests with local stores (`--profile local-stores`, point `.env` at them) or in CI. To restore clean golden data: truncate Supabase operational tables + wipe Neo4j/Qdrant/ES, then `init-all → seed → load-dataset`. |
 | Seed cloud (run once) | `make init-all` (schema + Qdrant collections **+ payload indexes**) → `make seed` (regulations + users) → `make load-dataset`. Idempotent. Doc pipelines are async — re-run `scripts/seed_validation_corpus.py` ~30 s after load (validation_corpus needs ES content indexed first). |
 | Neo4j Aura keep-alive | Aura Free pauses after 3 days idle. Point cron-job.org (daily) at `/health/detailed` — it pings Neo4j and resets the timer. |
 | Neo4j `SessionExpired` / "defunct connection" | **Different** from the 3-day pause: Aura closes **idle connections** (minutes) → the next query on a stale pooled connection 500s (intermittent on `compliance/dashboard`, `/assets/{id}/knowledge`, graph, blast-radius). Fixed in `dependencies.py` with driver pool hygiene: `liveness_check_timeout=30` + `max_connection_lifetime=300`. The daily cron does **not** fix this — the driver config does. |
+
+### Feature-specific — endpoints, roles & pages
+
+| Area | Fix |
+|---|---|
 | Asset knowledge shows duplicate facts | The graph can hold multiple physical `KNOWLEDGE_EDGE` relationships sharing one logical `edge_id` (Cypher `DISTINCT` can't collapse them — separate graph elements). `GraphService.get_asset_knowledge_at` dedupes by the `edge_id` property; the frontend graph fetcher also dedupes. |
 | Model-gate run "does nothing" | `POST /governance/model-gate/run` only **enqueues** a Celery task that evaluates the NER model over the whole validation corpus (a NIM call per item) — it runs **~2.5 min**. `model_name` is optional (defaults to `NVIDIA_NIM_NER_MODEL`). The page shows a "queued" banner, disables the button, polls history every 20s, and auto-refreshes when the run lands. History endpoint returns raw audit rows `{items}` (contract-locked) → `api.ts` `getModelGateHistory` flattens to `{history:[ModelGateResult]}`. |
 | `POST /search/rca-pack` slow (~90s) | NIM 70B; returns empty + `synthesis_available:false` when the graph lacks history → RCA page shows honest "Synthesis unavailable". Not a bug. |
