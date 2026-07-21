@@ -1,12 +1,11 @@
-<div align="center">
-  <img src="./banner.jpeg" alt="KAIROS logo" width=max />
+<img width="2048" height="918" alt="image" src="https://github.com/user-attachments/assets/92f54712-99e9-4e93-aadc-b3105b897372" /><div align="center">
 </div>
 
 <div align="center">
 
-## Industrial Operational Intelligence Platform
+[Problem Statement](./docs/PROBLEM_STATEMENT.md) · [Solution](./docs/ARCHITECTURE.md) · [Presentation](https://drive.google.com/drive/folders/1VKHJ9fKbqC6gWd8TPG_npSFcXUUjaT89?usp=sharing) · [Demo Video](#quick-start)
 
-[Demo Video](#quick-start) · [Architecture](./docs/ARCHITECTURE.md) · [Presentation](./docs/ARCHITECTURE.md) · [Documentation](#documentation)
+A 13-layer platform organised into five planes: **perception, knowledge, governance, retrieval, and delivery**. A FastAPI core orchestrates five datastores, durable Temporal workflows, Celery workers, and Go OT connectors, with a Next.js interface on top.
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=flat-square&logo=fastapi&logoColor=white)
@@ -31,12 +30,9 @@
 - [Overview](#overview)
 - [How It Works](#how-it-works)
 - [Key Capabilities](#key-capabilities)
-- [Architecture](#architecture)
 - [Tech Stack](#tech-stack)
 - [Quick Start](#quick-start)
-- [Local URLs](#local-urls)
 - [Repository Layout](#repository-layout)
-- [Development](#development)
 
 ---
 
@@ -44,7 +40,7 @@
 
 Asset-intensive facilities, such as refineries, plants, pipelines, and power stations, run on knowledge scattered across a dozen disconnected systems. P&IDs live in one archive, maintenance history in another, standard operating procedures in a third, inspection records and regulatory filings elsewhere again. A technician standing in front of a failing pump cannot see that the same seal failed twice before, that the OEM revised the spec eighteen months ago, or that an isolation valve is overdue for inspection. The most dangerous gaps are the ones nobody knows to query, and a quarter of the experienced engineers who hold that context in their heads are retiring within the decade.
 
-**KAIROS** turns that fragmented, tribal knowledge into a single **governed, temporal knowledge graph** and delivers the right information to the right person at the exact moment it is needed, doing so *proactively* with a source citation behind every claim. It ingests heterogeneous documents, extracts and links their entities, records how every fact changes over time, and surfaces answers, briefs, root-cause analyses, and compliance evidence on any device.
+**Kairos** turns that fragmented, tribal knowledge into a single **governed, temporal knowledge graph** and delivers the right information to the right person at the exact moment it is needed, doing so *proactively* with a source citation behind every claim. It ingests heterogeneous documents, extracts and links their entities, records how every fact changes over time, and surfaces answers, briefs, root-cause analyses, and compliance evidence on any device.
 
 Three principles run through the entire platform:
 
@@ -54,7 +50,7 @@ These principles are enforced in the data model (every fact is an edge that carr
 
 ## How It Works
 
-At its core KAIROS is a pipeline: raw industrial artifacts go in one end, and governed, cited, point-of-action intelligence comes out the other. Between them sits a knowledge graph that remembers not just *what* is true but *when* it was true and *how sure* we are.
+At its core Kairos is a pipeline: raw industrial artifacts go in one end, and governed, cited, point-of-action intelligence comes out the other. Between them sits a knowledge graph that remembers not just *what* is true but *when* it was true and *how sure* we are.
 
 ```mermaid
 flowchart TD
@@ -94,18 +90,14 @@ For the full design, including the 13-layer breakdown, knowledge-graph mechanics
 
 ## Key Capabilities
 
-- **Universal document ingestion** — PDFs, engineering drawings, scanned/handwritten forms, and multi-script (Hindi / Hinglish) text flow through an OCR → NER → graph-linking → indexing pipeline into an immutable, deduplicated vault.
-- **Temporal knowledge graph** — every fact is a time-bounded edge with authority, provenance, confidence, and verification status; query the past, watch knowledge get superseded, never lose history.
-- **Expert copilot** — hybrid retrieval with citations, confidence scores, phase-gated synthesis, and explicit refusal on safety-critical queries, on mobile for technicians, not just desktops for engineers.
-- **Proactive briefs** — events (work orders, PTWs, tag-outs, inspections, alarms) assemble contextual briefs, rate-limited by an EEMUA-191 governor and suppressed by plant state.
-- **Maintenance & RCA intelligence** — fuses work-order history, failure records, OEM manuals, and inspection findings into root-cause timelines and hypotheses, with a blast-radius view of everything a change affects.
-- **Governed accuracy** — dual-track conflict resolution, human-only quarantine promotion, Management-of-Change, SLA escalation, an SPC circuit breaker, and a model gate.
-- **Compliance cockpit** — regulatory clauses (OISD, ISO 45001, Factory Act, PESO) mapped against current procedures, automatic gap detection, and human-signed audit-evidence packs.
-- **Knowledge capture at the cliff** — micro-interviews and voice capture pull undocumented expertise out of departing experts before it walks out the door.
-
-## Architecture
-
-KAIROS is a 13-layer platform organised into five planes — **perception, knowledge, governance, retrieval, and delivery** (the flow above). A FastAPI core orchestrates five datastores, durable Temporal workflows, Celery workers, and Go OT connectors, with a Next.js interface on top. [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) is the full 13-layer blueprint — design rationale, end-to-end data flows, and the day-one-to-enterprise scalability model.
+- **Universal document ingestion:** PDFs, engineering drawings, scanned/handwritten forms, and multi-script (Hindi / Hinglish) text flow through an OCR → NER → graph-linking → indexing pipeline into an immutable, deduplicated vault.
+- **Temporal knowledge graph:** every fact is a time-bounded edge with authority, provenance, confidence, and verification status; query the past, watch knowledge get superseded, never lose history.
+- **Expert copilot:** hybrid retrieval with citations, confidence scores, phase-gated synthesis, and explicit refusal on safety-critical queries, on mobile for technicians, not just desktops for engineers.
+- **Proactive briefs:** events (work orders, PTWs, tag-outs, inspections, alarms) assemble contextual briefs, rate-limited by an EEMUA-191 governor and suppressed by plant state.
+- **Maintenance & RCA intelligence:** fuses work-order history, failure records, OEM manuals, and inspection findings into root-cause timelines and hypotheses, with a blast-radius view of everything a change affects.
+- **Governed accuracy:** dual-track conflict resolution, human-only quarantine promotion, Management-of-Change, SLA escalation, an SPC circuit breaker, and a model gate.
+- **Compliance cockpit:** regulatory clauses (OISD, ISO 45001, Factory Act, PESO) mapped against current procedures, automatic gap detection, and human-signed audit-evidence packs.
+- **Knowledge capture at the cliff:** micro-interviews and voice capture pull undocumented expertise out of departing experts before it walks out the door.
 
 ## Tech Stack
 
@@ -138,27 +130,14 @@ make seed                     # regulatory framework + demo users
 
 # 4. Load the golden demo dataset (optional but recommended)
 make load-dataset             # ingest the sample corpus through the real pipeline
-#   make load-dataset ARGS=--fast   # structured backbone + events only (fast)
+# make load-dataset ARGS=--fast   # structured backbone + events only (fast)
 ```
 
 Then open the frontend at **[http://localhost:3000](http://localhost:3000)**.
 
 To reset to a clean, deterministic state at any time: `make nuke && make dev && make init-all && make seed && make load-dataset`.
 
-## Local URLs
-
-| Service | URL | Credentials (dev) |
-|---|---|---|
-| **Frontend** | [localhost:3000](http://localhost:3000) | see demo users below |
-| **API docs (FastAPI)** | [localhost:8000/docs](http://localhost:8000/docs) | — |
-| **Temporal UI** | [localhost:8088](http://localhost:8088) | — |
-| **Neo4j** | Neo4j Aura console (cloud) | — |
-| **Qdrant** | Qdrant Cloud console | — |
-| **Grafana** | Grafana Cloud (hosted dashboards) | — |
-
-> Neo4j, Qdrant, and Grafana are **cloud** services (credentials in `.env`). The local Neo4j/Qdrant
-> containers only run with `docker compose --profile local-stores up` (`:7474` / `:6333`). Secrets use
-> Supabase Vault — there is no local Vault container.
+> Supabase, Neo4j, Qdrant, and Grafana are **cloud** services (credentials in `.env`). The local Neo4j/Qdrant containers only run with `docker compose --profile local-stores up` (`:7474` / `:6333`). Secrets use Supabase Vault.
 
 **Demo users** (seeded by `make seed`, pre-fillable on the login screen):
 
@@ -170,7 +149,7 @@ To reset to a clean, deterministic state at any time: `make nuke && make dev && 
 
 ## Repository Layout
 
-KAIROS is a monorepo: a Python backend, a Next.js frontend, a shared demo dataset, and the infrastructure to run it all locally.
+Kairos is a monorepo: a Python backend, a Next.js frontend, a shared demo dataset, and the infrastructure to run it all locally.
 
 ```text
 kairos/
@@ -180,7 +159,7 @@ kairos/
 ├── db/                 # Neo4j Cypher schema · consolidated Supabase schema · maintenance SQL
 ├── docs/               # Product & technical documentation (this folder)
 ├── fixtures/           # Shared mock data (P&ID topology, EAM assets)
-├── infra/              # Caddy (HTTPS) · OPA policies · Temporal config (observability now Grafana Cloud)
+├── infra/              # Caddy (HTTPS) · OPA policies · Temporal config · Grafana Cloud
 ├── tests/              # Integration test suite (self-cleaning)
 ├── docker-compose.yml  # Full local infrastructure
 ├── Makefile            # Project lifecycle commands
@@ -188,19 +167,4 @@ kairos/
 └── README.md
 ```
 
-Each major area has its own deep-dive in the docs below.
-
-## Development
-
-```bash
-# Backend integration tests (stack must be running)
-docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120
-
-# Remove integration-test residue from the databases
-make purge-test-data
-
-# Frontend checks (from frontend/)
-npx tsc --noEmit && npm run lint && npm run build
-```
-
-The test suite cleans up after itself, meaning every test-created entity is purged at the end of the session (see [`docs/TESTS.md`](./docs/TESTS.md)). CI runs typecheck, lint, build, and dependency audit on every change.
+Each major area has its own deep-dive in the docs folder.
