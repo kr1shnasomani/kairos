@@ -53,32 +53,84 @@ These principles are enforced in the data model (every fact is an edge that carr
 At its core Kairos is a pipeline: raw industrial artifacts go in one end, and governed, cited, point-of-action intelligence comes out the other. Between them sits a knowledge graph that remembers not just *what* is true but *when* it was true and *how sure* we are.
 
 ```mermaid
-flowchart TD
-    D["📄 Documents<br/><sub>PDFs · P&IDs · scanned/handwritten forms</sub>"]
-    E["⚡ Operational events<br/><sub>work orders · PTWs · tag-outs · alarms</sub>"]
-    V["🎙️ Voice notes<br/><sub>field observations</sub>"]
+---
+config:
+  layout: dagre
+---
+flowchart TB
+ subgraph CLIENT["Presentation · Next.js on Vercel"]
+    direction LR
+        FE1["Field mobile<br>offline-capable PWA"]
+        FE2["Engineer / admin<br>desktop workspace"]
+  end
+ subgraph CORE["Application core · FastAPI behind Caddy (HTTPS)"]
+    direction LR
+        API["REST API<br>routers to services"]
+        OPA["OPA<br>RBAC authorization"]
+  end
+ subgraph ORCH["Async orchestration"]
+    direction LR
+        TMP["Temporal<br>ingestion pipeline"]
+        CEL["Celery<br>6 task queues"]
+        GO["Go<br>OT connectors"]
+        BUS["Redis Streams<br>EEMUA push governor"]
+  end
+ subgraph SVC["Intelligence services"]
+    direction LR
+        PERC["Perception<br>OCR · NER · P&amp;ID vision · STT"]
+        SYN["Retrieval + synthesis<br>hybrid search · Copilot · RCA · briefs"]
+        GOVN["Governance<br>conflicts · quarantine · MoC<br>model gate · circuit breaker"]
+        HUM(["Human review"])
+  end
+ subgraph DATA["Polyglot knowledge & data stores"]
+    direction LR
+        NEO[("Neo4j Aura<br>temporal graph")]
+        QD[("Qdrant<br>vectors")]
+        ES[("Elasticsearch<br>exact")]
+        SUPA[("Supabase<br>Postgres · Auth · Vault · files")]
+  end
+ subgraph EXT["External model APIs · cloud"]
+    direction LR
+        NIM["NVIDIA NIM<br>LLM · NER · OCR"]
+        GROQ["Groq<br>Whisper STT"]
+        JINA["Jina<br>embeddings"]
+  end
+    CLIENT -- HTTPS --> CORE
+    CORE -- events / ingest --> ORCH
+    CORE -- query --> SVC
+    ORCH --> SVC
+    SVC -- read / write --> DATA
+    SVC -- inference --> EXT
+    GOVN <--> HUM
+    CORE -.-> OBS["Observability · OTEL to Grafana Cloud"]
 
-    P["Perception<br/><sub>OCR · entity extraction · P&ID topology · speech-to-text</sub>"]
-    G[("🕸️ Temporal Knowledge Graph<br/><sub>Neo4j — every fact a time-bounded, authority-ranked, cited edge</sub>")]
-    IDX[("🔍 Vector + exact index<br/><sub>Qdrant · Elasticsearch</sub>")]
-    GOV["🛡️ Governance plane<br/><sub>conflicts · quarantine · Management of Change · model gate · circuit breaker</sub>"]
-    H(["👤 Human review<br/><sub>the only path to promotion</sub>"])
-    OUT["📤 Retrieval & point-of-action delivery<br/><sub>Copilot · RCA · proactive briefs — 📱 field + 🖥️ desktop</sub>"]
-
-    D --> P
-    E --> P
-    V --> P
-    P --> G
-    G <--> IDX
-    G --> GOV
-    GOV <--> H
-    GOV --> OUT
-    IDX --> OUT
-
-    classDef store fill:#eef2ff,stroke:#5e6ad2,color:#1e1b4b;
-    classDef human fill:#fff7ed,stroke:#e79d13,color:#7c2d12;
-    class G,IDX store;
-    class H human;
+     FE1:::box
+     FE2:::box
+     API:::box
+     OPA:::box
+     TMP:::box
+     CEL:::box
+     GO:::box
+     BUS:::box
+     PERC:::box
+     SYN:::box
+     GOVN:::box
+     HUM:::box
+     NEO:::box
+     QD:::box
+     ES:::box
+     SUPA:::box
+     NIM:::box
+     GROQ:::box
+     JINA:::box
+     OBS:::box
+    classDef box fill:#ffffff,stroke:#cbd5e1,color:#1e293b
+    style CLIENT fill:#eef1f6,stroke:#c3ccdb,color:#2b3550
+    style CORE fill:#eaf0fb,stroke:#bcccec,color:#23324e
+    style ORCH fill:#f3eefb,stroke:#d6c6ec,color:#3a2b4e
+    style SVC fill:#e9f7f0,stroke:#aadcc6,color:#1e3b32
+    style DATA fill:#fdf3e7,stroke:#eccfa4,color:#4a3620
+    style EXT fill:#eaf4fb,stroke:#b3d5ec,color:#1f3949
 ```
 
 1. **Ingest & perceive.** Documents, events, and voice notes enter through one gate. OCR and NER lift entities (including equipment tags, process parameters, regulatory clauses, people, and dates) out of unstructured text; P&ID drawings are parsed into a connected topology. Files are stored byte-for-byte in an immutable, SHA-256-deduplicated vault.
