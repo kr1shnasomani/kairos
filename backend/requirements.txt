@@ -54,7 +54,7 @@ PyMuPDF==1.24.5
 # opencv/scipy/scikit-learn/pandas) was Path A (local GPU) and is intentionally NOT
 # installed here — it is pinned in requirements-cv.txt for a future GPU-backed
 # drawing-parser service. numpy + Pillow stay below for P&ID image handling.
-Pillow==10.3.0
+Pillow==12.3.0
 numpy==1.26.4
 
 # --- Utilities ---
