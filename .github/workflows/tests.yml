@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Build .env: start from example (all local-service defaults are pre-filled)
       # then append the secrets that require real cloud credentials
