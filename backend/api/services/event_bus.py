@@ -134,6 +134,22 @@ class EventBusService:
         log.info("governor.push_recorded", user_id=user_id, count=new_count)
         return new_count
 
+    async def record_push_once(self, user_id: str, brief_id: str) -> bool:
+        """
+        Records a governor push for a brief at most once per rolling hour.
+
+        A brief is "pushed" the first time it is delivered to the operator; simply
+        re-viewing it (a page refresh) must not re-count, or opening the inbox twice
+        would blow past the hourly ceiling. Uses a per-brief SET NX marker so the
+        underlying counter is only incremented on the brief's first delivery.
+        Returns True if this call counted a new push, False if already counted.
+        """
+        seen_key = f"kairos:governor:{user_id}:counted:{brief_id}"
+        first = await self.redis.set(seen_key, "1", nx=True, ex=3600)
+        if first:
+            await self.record_push(user_id)
+        return bool(first)
+
     async def get_governor_state(self, user_id: str) -> Dict[str, Any]:
         from datetime import datetime, timezone, timedelta
         count_key = self._governor_key(user_id)

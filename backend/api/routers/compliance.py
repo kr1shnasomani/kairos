@@ -85,7 +85,7 @@ WHERE reg.applies_to_equipment_class IS NULL
     OR a.equipment_class CONTAINS reg.applies_to_equipment_class
     OR reg.applies_to_equipment_class CONTAINS a.equipment_class
 OPTIONAL MATCH (a)-[r:KNOWLEDGE_EDGE]->(d:Document)
-WHERE (r.valid_to IS NULL OR r.valid_to > datetime())
+WHERE (r.valid_to IS NULL OR datetime(r.valid_to) > datetime())
   AND (d.document_type IS NULL OR d.document_type IN ['procedure', 'inspection_report', 'oem_manual', 'regulation'])
 WITH reg, collect(DISTINCT CASE WHEN d IS NOT NULL THEN {
     document_id: d.document_id,

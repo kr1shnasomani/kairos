@@ -6,6 +6,7 @@ import asyncio
 import time
 
 import httpx
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
@@ -18,6 +19,8 @@ from api.dependencies import (
     TemporalDep,
     require_role,
 )
+
+log = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -61,35 +64,40 @@ async def detailed_health_check(
             await neo4j.verify_connectivity()
             checks["neo4j"] = "ok"
         except Exception as e:
-            checks["neo4j"] = f"error: {str(e)}"
+            log.warning("health.check_failed", component="neo4j", error=str(e))
+            checks["neo4j"] = "error"
 
     async def check_qdrant():
         try:
             await qdrant.get_collections()
             checks["qdrant"] = "ok"
         except Exception as e:
-            checks["qdrant"] = f"error: {str(e)}"
+            log.warning("health.check_failed", component="qdrant", error=str(e))
+            checks["qdrant"] = "error"
 
     async def check_es():
         try:
             await es.info()
             checks["elasticsearch"] = "ok"
         except Exception as e:
-            checks["elasticsearch"] = f"error: {str(e)}"
+            log.warning("health.check_failed", component="elasticsearch", error=str(e))
+            checks["elasticsearch"] = "error"
 
     async def check_redis():
         try:
             await redis.ping()
             checks["redis"] = "ok"
         except Exception as e:
-            checks["redis"] = f"error: {str(e)}"
+            log.warning("health.check_failed", component="redis", error=str(e))
+            checks["redis"] = "error"
 
     async def check_temporal():
         try:
             await temporal.service_client.check_health()
             checks["temporal"] = "ok"
         except Exception as e:
-            checks["temporal"] = f"error: {str(e)}"
+            log.warning("health.check_failed", component="temporal", error=str(e))
+            checks["temporal"] = "error"
 
     await asyncio.gather(
         check_neo4j(),
@@ -161,5 +169,6 @@ async def model_health_check(
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001 — a probe failure is a status, not a 500
+        log.warning("health.model_probe_failed", provider=provider, error=str(exc))
         return {"provider": provider, "ok": False,
-                "latency_ms": round((time.perf_counter() - t0) * 1000), "detail": str(exc)[:120]}
+                "latency_ms": round((time.perf_counter() - t0) * 1000), "detail": "probe failed"}

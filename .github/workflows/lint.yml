@@ -1,5 +1,9 @@
 name: Linting
 
+# Least-privilege default for all jobs — read-only access to repo contents.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

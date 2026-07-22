@@ -98,7 +98,7 @@ export default function MocDetailPage() {
         lede={
           <>
             Parameter discrepancy on <Link href={`/assets/${moc.asset_id}`} className="font-semibold text-accent hover:underline">{moc.asset_id}</Link>:{" "}
-            <span className="font-medium">{moc.parameter.replace(/_/g, " ")}</span>
+            <span className="font-medium">{moc.parameter ? moc.parameter.replace(/_/g, " ") : (moc.description ?? "—")}</span>
           </>
         }
       />
@@ -142,7 +142,7 @@ export default function MocDetailPage() {
         </section>
       )}
 
-          {moc.blast_radius_count > 0 && (
+          {(moc.blast_radius_count ?? 0) > 0 && (
             <section className="rounded-xl border border-line bg-surface p-4 shadow-sm">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-muted">Downstream impact</h2>

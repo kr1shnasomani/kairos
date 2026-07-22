@@ -39,7 +39,9 @@ export function VoiceRecorder({ onBlob, disabled }: Props) {
       return;
     }
     const url = URL.createObjectURL(blob);
-    setAudioUrl(url);
+    // Defensive: an object URL is always a `blob:` URL. Refuse anything else before it
+    // can reach the <audio src> sink, so no non-blob scheme can ever be rendered.
+    setAudioUrl(url.startsWith("blob:") ? url : null);
     return () => URL.revokeObjectURL(url);
   }, [blob]);
 

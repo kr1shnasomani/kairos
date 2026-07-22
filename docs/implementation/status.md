@@ -26,6 +26,42 @@ product.
 
 ---
 
+## Session fixes — 2026-07-22 (security hardening + demo-readiness)
+
+Verified end-to-end (backend endpoints + browser via agent-browser; `tsc` clean; Go connector builds).
+
+**Security (CodeQL + Dependabot alerts)**
+
+| Area | Fix | Files |
+|---|---|---|
+| `golang.org/x/crypto` — 4 CRITICAL + 3 (auth-bypass, key-forwarding, DoS) | Bumped `0.23.0 → 0.52.0`; this requires Go 1.25, so `go.mod` + builder image bumped `1.22 → 1.25` (connector rebuilds clean) | `backend/connectors/go.mod`, `go.sum`, `Dockerfile` |
+| Stack-trace exposure (CodeQL ×2) | Health checks + model probe now log the exception via `structlog` and return only `"error"` / `"probe failed"` — no internal detail to clients | `backend/api/routers/health.py` |
+| XSS-through-DOM (CodeQL ×1, false-positive) | `<audio src>` object URL scheme-guarded to `blob:` only | `frontend/src/components/voice-recorder.tsx` |
+| Missing workflow permissions (CodeQL ×7) | Least-privilege top-level `permissions: contents: read` | `.github/workflows/{lint,tests,neo4j,frontend}.yml` |
+
+> Not yet closed by any PR at time of writing: the `x/crypto` bump here supersedes Dependabot PR #8 (which only reached `0.48.0`). Dependabot PRs #7/#10/#11/#12 (pip/npm/actions/docker bumps) still to be merged; #13 duplicates #12.
+
+**Bug fixes (empty/broken pages found in the full 42-route audit)**
+
+| Symptom | Root cause | Fix |
+|---|---|---|
+| **Briefs page** intermittently threw *"live data unavailable"* | Briefs `GET` counted every brief **on every page view** against the EEMUA governor → 2 refreshes exhausted the 6/hr ceiling → suppressed → empty → the fetcher mapped empty to a fixture-fallback error | `EventBusService.record_push_once()` counts each brief **once/hour** (Redis `SET NX`); `getBriefs` treats an empty-but-successful response as a valid live state (`BriefInbox` renders its own suppressed/empty panel). `briefs.py`, `event_bus.py`, `api.ts` |
+| **`/governance/moc`** showed *"No changes under review"* despite a live draft | Backend MoC lifecycle uses `draft` / `pending_approval`; the list only rendered `pending`/`approved`/`rejected`, so drafts were invisible. Rendering the live item also crashed on `parameter.replace` (item has `description`, not `parameter`) | `PENDING_STATUSES` groups `draft`/`pending_approval` under **Pending**; `MocItem`/`MocStatus` aligned to the live shape (`description`, optional structured fields); columns + detail page guarded. `moc/page.tsx`, `moc/[id]/page.tsx`, `types.ts` |
+| **`/compliance/audit-pack`** empty for every framework | (1) UI sent display strings (`OISD-117`) but Neo4j stores `OISD_117`; (2) evidence Cypher compared `valid_to` (a **string**) with `datetime()` → null → 0 evidence | UI frameworks now `{key,label}` matching the seeded graph (`OISD_117`, `ISO_45001`); audit Cypher parses `datetime(r.valid_to)`. Now 8 + 4 clauses with 10 evidence docs. `audit-pack/page.tsx`, `compliance.py` |
+
+**Operational (state resets during the session, no code)**
+- Restarted `kairos-backend-api` (ES boot-race exit) and `kairos-frontend` (Turbopack dev-manifest corruption from rapid reloads — clears the hard-404s on nested dynamic routes).
+- Regenerated off-boarding interview questions (5 sessions × 5) via the elicitation worker.
+- Reset the Redis governor counter once (`kairos:governor:dev-user:hourly_count`).
+
+**Known remaining (data/seed, not code — no page is broken by these)**
+- Audit-pack `vessel`/`compressor` clauses show 0 evidence (no asset has a matching `equipment_class`); `PESO`/`Factory Act` frameworks are not seeded → intentionally not shown.
+- `validation_corpus` is empty (re-run `scripts/seed_validation_corpus.py` before demoing a live Model-Gate run).
+- 2 non-golden docs (`DOC-DMW8QGDN4UPT`, `DOC-9WL3QQJOQL9S`) linger in the Documents list.
+- The `valid_to`-stored-as-string mismatch exists in other Cypher queries too (`brief_engine`, `offboarding`, `graph`, `elicitation`); only the audit query was corrected here — the rest are a candidate for a root-cause data migration.
+
+---
+
 ## Layer completion
 
 | # | Layer | Status | Evidence (code) | Notes |

@@ -294,9 +294,10 @@ export async function probeModel(provider: string): Promise<ModelProbe> {
 export async function getBriefs(): Promise<Fetched<BriefsResponse>> {
   try {
     const data = await getJson<BriefsResponse>("/briefs/?unacknowledged_only=false&limit=20");
-    // Governor suppression / empty backend → show the curated story instead of a blank inbox.
-    if (!data.briefs || data.briefs.length === 0) return { data: fixtureBriefs, source: "demo" };
-    return { data, source: "live" };
+    // An empty briefs list from a successful call is a VALID live state — no briefs
+    // pending, or the governor has suppressed them. BriefInbox renders an honest
+    // empty / "governor suppressed" panel for it, so this is never a fixture fallback.
+    return { data: { ...data, briefs: data.briefs ?? [] }, source: "live" };
   } catch {
     return { data: fixtureBriefs, source: "demo" };
   }

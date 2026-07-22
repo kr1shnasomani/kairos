@@ -10,7 +10,13 @@ import { fmtPct } from "@/lib/format";
 import { Button, DataTable, DemoChip, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
 import { StatPills } from "@/components/stat-pills";
 
-const FRAMEWORKS = ["OISD-117", "ISO 45001", "PESO", "Factory Act"];
+// `key` must match the framework value stored on Neo4j regulation nodes (underscored);
+// `label` is the human-facing display. Only frameworks actually seeded in the graph are
+// listed — see GET /compliance/frameworks → configured_frameworks (OISD_117, ISO_45001).
+const FRAMEWORKS = [
+  { key: "OISD_117", label: "OISD-117" },
+  { key: "ISO_45001", label: "ISO 45001" },
+];
 
 /** AuditPackClause re-mapped so it satisfies DataTable's Record constraint. */
 type ClauseRow = Pick<AuditPackClause, keyof AuditPackClause>;
@@ -69,7 +75,8 @@ function buildColumns(framework: string): TableColumn<ClauseRow>[] {
 }
 
 export default function AuditPackPage() {
-  const [framework, setFramework] = useState(FRAMEWORKS[0]);
+  const [framework, setFramework] = useState(FRAMEWORKS[0].key);
+  const frameworkLabel = FRAMEWORKS.find((f) => f.key === framework)?.label ?? framework;
   // Spec §5: params unchanged — same getAuditPack(framework) call, refetch on change.
   const state = useFetch(() => getAuditPack(framework), [framework]);
   const loading = state.status === "loading";
@@ -119,7 +126,7 @@ export default function AuditPackPage() {
 
       <section data-testid="audit-pack-controls" className="mt-4 flex flex-wrap items-center gap-3 print:hidden">
         <FilterTabs
-          tabs={FRAMEWORKS.map((f) => ({ key: f, label: f }))}
+          tabs={FRAMEWORKS.map((f) => ({ key: f.key, label: f.label }))}
           active={framework}
           onChange={setFramework}
         />
@@ -135,7 +142,7 @@ export default function AuditPackPage() {
         ) : (
           <DataTable<ClauseRow>
             key={framework}
-            columns={buildColumns(framework)}
+            columns={buildColumns(frameworkLabel)}
             rows={clauses}
             keyFn={(r) => r.clause_id}
             pageSize={25}

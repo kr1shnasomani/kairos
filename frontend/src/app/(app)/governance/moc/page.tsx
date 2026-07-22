@@ -15,9 +15,16 @@ type MocRow = Pick<MocItem, keyof MocItem>;
 
 const STATUS_TONE: Record<string, "caution" | "verified" | "danger"> = {
   pending: "caution",
+  draft: "caution",
+  pending_approval: "caution",
   approved: "verified",
   rejected: "danger",
 };
+
+// Backend MoC lifecycle: draft → pending_approval → approved | rejected. Auto-drafted EWR
+// items sit in `draft`/`pending_approval` awaiting engineering sign-off — both read as
+// "pending review" to a reviewer, so the Pending view groups them together.
+const PENDING_STATUSES = new Set(["pending", "draft", "pending_approval"]);
 
 // Built lazily (mount-once useState initializer) — no Date.now() at module scope.
 function buildFixture(): MocItem[] {
@@ -35,15 +42,19 @@ const COLUMNS: TableColumn<MocRow>[] = [
     key: "parameter", label: "Discrepancy", className: "w-full max-w-[300px]",
     render: (r) => (
       <span className="block min-w-0">
-        <span className="block truncate font-medium text-ink">{r.parameter.replace(/_/g, " ")}</span>
-        <span className="tabular block truncate text-label text-muted">{String(r.source_a?.value ?? "—")} vs {String(r.source_b?.value ?? "—")}</span>
+        <span className="block truncate font-medium text-ink" title={r.description ?? undefined}>
+          {r.parameter ? r.parameter.replace(/_/g, " ") : (r.description ?? "—")}
+        </span>
+        {(r.source_a || r.source_b) && (
+          <span className="tabular block truncate text-label text-muted">{String(r.source_a?.value ?? "—")} vs {String(r.source_b?.value ?? "—")}</span>
+        )}
       </span>
     ),
   },
   { key: "asset_id", label: "Asset", render: (r) => <span className="tabular text-caption font-medium text-accent">{r.asset_id ?? "—"}</span> },
   {
     key: "blast_radius_count", label: "Blast radius", sortValue: (r) => r.blast_radius_count ?? 0,
-    render: (r) => <span className={`tabular ${r.blast_radius_count > 0 ? "font-semibold text-danger" : "text-muted"}`}>{r.blast_radius_count ?? 0}</span>,
+    render: (r) => <span className={`tabular ${(r.blast_radius_count ?? 0) > 0 ? "font-semibold text-danger" : "text-muted"}`}>{r.blast_radius_count ?? 0}</span>,
   },
   { key: "status", label: "Status", sortable: true, render: (r) => <StatusBadge tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusBadge> },
   {
@@ -66,13 +77,18 @@ export default function MocListPage() {
   const isDemo = state.status === "demo" || (hasData && fetched.length === 0);
 
   const counts = useMemo(() => ({
-    pending: items.filter((m) => m.status === "pending").length,
+    pending: items.filter((m) => PENDING_STATUSES.has(m.status)).length,
     approved: items.filter((m) => m.status === "approved").length,
     rejected: items.filter((m) => m.status === "rejected").length,
   }), [items]);
 
   const rows = useMemo<MocRow[]>(
-    () => (statusFilter === "all" ? items : items.filter((m) => m.status === statusFilter)),
+    () =>
+      statusFilter === "all"
+        ? items
+        : statusFilter === "pending"
+          ? items.filter((m) => PENDING_STATUSES.has(m.status))
+          : items.filter((m) => m.status === statusFilter),
     [items, statusFilter],
   );
 

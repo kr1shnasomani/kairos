@@ -326,17 +326,24 @@ export interface SlaReport {
 }
 
 // --- Governance: MoC (GET /governance/moc) ---
-export type MocStatus = "pending" | "approved" | "rejected";
+// Backend MoC lifecycle: draft → pending_approval → approved | rejected. ("pending" is the
+// UI bucket that groups the pre-approval states; see PENDING_STATUSES in the MoC page.)
+export type MocStatus = "draft" | "pending_approval" | "pending" | "approved" | "rejected";
 
 export interface MocItem {
   moc_id: string;
   asset_id: string;
-  parameter: string;
-  source_a: ConflictSource;
-  source_b: ConflictSource;
-  blast_radius_count: number;
   status: MocStatus;
   created_at: string;
+  // Live MoC items (auto-drafted EWRs) carry a free-text `description` and `conflict_id`.
+  // The structured parameter/source fields only exist on richer/legacy items, so they are
+  // optional — the UI falls back to `description` when they are absent.
+  description?: string | null;
+  conflict_id?: string | null;
+  parameter?: string;
+  source_a?: ConflictSource;
+  source_b?: ConflictSource;
+  blast_radius_count?: number;
   draft_content?: string | null;
 }
 

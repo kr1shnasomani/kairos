@@ -1,5 +1,9 @@
 name: Neo4j Aura keep-alive
 
+# Least-privilege default — this job only calls the Aura HTTPS API, no repo access needed.
+permissions:
+  contents: read
+
 # Aura Free pauses a database after 3 days idle. This runs a trivial `RETURN 1`
 # against the Aura HTTPS Query API on a schedule, resetting the idle timer.
 # It talks to Aura directly — no backend/host required.

@@ -100,9 +100,12 @@ async def get_my_briefs(
 
     delivered = critical + normal
 
-    # Record a push event only for non-frozen briefs actually delivered
-    for _ in delivered:
-        await bus.record_push(user_id)
+    # Each brief counts against the EEMUA governor exactly ONCE per rolling hour.
+    # record_push_once is idempotent per brief_id, so re-opening the inbox (a page
+    # refresh) never re-pushes already-delivered briefs — otherwise simply viewing
+    # your briefs twice would exhaust the ceiling and suppress your own inbox.
+    for b in delivered:
+        await bus.record_push_once(user_id, b["brief_id"])
 
     # Refresh governor state after recording pushes
     gov = await bus.get_governor_state(user_id)
