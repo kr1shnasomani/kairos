@@ -62,12 +62,15 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          # Must match backend/connectors/go.mod (bumped to 1.25 by golang.org/x/crypto 0.52.0).
+          go-version: '1.25'
           cache-dependency-path: backend/connectors/go.sum
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.59
+          # golangci-lint v2 is required to typecheck Go 1.25 sources; v1.59 could not,
+          # producing spurious "undefined: <pkg>" typecheck errors on every import.
+          version: v2.5.0
           working-directory: backend/connectors
 
   docker-lint:
