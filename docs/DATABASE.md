@@ -30,8 +30,29 @@ Neo4j is the primary knowledge store. It holds the authoritative, time-versioned
 | `Document` | `document_id` | Ingested documents in the immutable vault. Merged before any edge write. |
 | `Event` | `event_id` | Operational events (work orders, alarms, PTW, inspections). |
 | `Person` | `person_id` | Engineers, operators, named individuals. |
-| `Concept` | `concept_id` | Extracted knowledge fragments (failure modes, parameters, procedures). |
+| `Concept` | `concept_id` | Extracted knowledge fragments (failure modes, parameters, procedures) **and regulation clauses** (`type: 'Regulation'`) + P&ID topology elements. |
 | `Organisation` | `org_id` | Platform root + external organisations. Seed: `KAIROS_PLATFORM`. |
+
+### Regulation Concept Properties (`Concept {type: 'Regulation'}`)
+
+Seeded by `backend/scripts/seed_regulations.py`; read by `GET /compliance/{gaps,dashboard,audit-pack}`.
+
+| Property | Type | Notes |
+|----------|------|-------|
+| `concept_id` | String | e.g. `OISD-117-4.1.1` |
+| `framework` | String | `OISD_117`, `ISO_45001`, … — stored with underscores, **not** the display form `OISD-117` |
+| `clause_id` | String | e.g. `4.1.1` |
+| `requirement_text` | String | Verbatim clause requirement |
+| `applies_to_equipment_class` | String \| null | `null` = applies to every equipment class. Matched against `Asset.equipment_class` by equality **or substring either way**, so `pump` matches `rotating_centrifugal_pump` |
+| `requires_document_type` | List\<String\> \| null | **Evidence type that satisfies this clause** — e.g. `["procedure"]`, `["inspection_report"]`, `["oem_manual"]`. `null` (pre-mapping seeds) = any document type counts, so older graphs keep working instead of reporting a false gap on every clause |
+| `authority_level` | Integer | 1–5. Drives finding severity: 1 → `critical`, 2 → `major`, else `minor` |
+
+> `requires_document_type` is what makes gap detection clause-specific. Without it the query could
+> only ask "does this asset have *any* verified procedure", which ignored the clause entirely and —
+> since nothing but manual quarantine promotion ever writes `verification_status='verified'` —
+> reported every (regulation × asset) pair as a gap unconditionally. Values must match the
+> `document_type` strings the loader actually assigns (see `scripts/load_demo_dataset.py`), or the
+> gap becomes unclosable.
 
 ### Asset Node Properties
 

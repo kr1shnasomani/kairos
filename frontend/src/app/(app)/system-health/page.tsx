@@ -6,6 +6,7 @@ import { getHealthDetailed, probeEndpoint, probeModel, type ProbeResult, type Mo
 import { getMe } from "@/lib/auth";
 import { ADMIN_ROLES } from "@/components/use-role";
 import { PageHeader, StatusBadge } from "@/components/ui";
+import { SystemTabs } from "@/components/system-tabs";
 import { Skeleton } from "@/components/skeleton";
 import { capitalize, cn } from "@/lib/utils";
 import { fmtRelTime } from "@/lib/format";
@@ -161,6 +162,7 @@ export default function SystemHealthPage() {
 
   return (
     <div className="w-full">
+      <SystemTabs />
       <PageHeader
         eyebrow="Infrastructure"
         title="System Health"

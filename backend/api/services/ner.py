@@ -9,8 +9,9 @@ import os
 import re
 from typing import Any, Dict, Optional
 
-import httpx
 import structlog
+
+from api.services.http import shared_client
 
 log = structlog.get_logger(__name__)
 
@@ -39,9 +40,18 @@ Text: {text}"""
 
 
 class NERService:
-    def __init__(self):
+    def __init__(self, model: Optional[str] = None):
+        """
+        `model` overrides NVIDIA_NIM_NER_MODEL for this instance.
+
+        The Layer-0 model gate exists to score a *candidate* model, so it must be able to
+        pick one. Without this parameter the gate always called whatever the env var held
+        and merely labelled the result with the requested name — producing an
+        authoritative-looking F1 attributed to a model that was never invoked (and, when
+        the configured model is unreachable, scoring the regex fallback instead).
+        """
         self._nim_key = os.getenv("NVIDIA_NIM_API_KEY", "")
-        self._nim_model = os.getenv("NVIDIA_NIM_NER_MODEL", "mistralai/ministral-14b-instruct-2512")
+        self._nim_model = model or os.getenv("NVIDIA_NIM_NER_MODEL", "meta/llama-3.2-11b-vision-instruct")
         self._ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         self._ollama_ner_model = os.getenv("OLLAMA_NER_MODEL", "llama3.1:8b")
 
@@ -54,49 +64,51 @@ class NERService:
         if self._nim_key:
             result = await self._extract_via_nim(text)
             if result is not None:
-                return result
+                return self._with_spans(result, text)
 
         result = await self._extract_via_ollama(text)
         if result is not None:
-            return result
+            return self._with_spans(result, text)
 
         return self._regex_fallback(text)
 
     async def _extract_via_nim(self, text: str) -> Optional[Dict[str, Any]]:
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    _NIM_URL,
-                    headers={"Authorization": f"Bearer {self._nim_key}"},
-                    json={
-                        "model": self._nim_model,
-                        "messages": [{"role": "user", "content": _NER_PROMPT.format(text=text[:2000])}],
-                        "max_tokens": 1024,
-                        "temperature": 0.0,
-                    },
-                )
-                resp.raise_for_status()
-                content = resp.json()["choices"][0]["message"]["content"].strip()
-                return self._parse_response(content, source="nim")
+            client = shared_client(30.0)
+            resp = await client.post(
+                _NIM_URL,
+                headers={"Authorization": f"Bearer {self._nim_key}"},
+                json={
+                    "model": self._nim_model,
+                    "messages": [{"role": "user", "content": _NER_PROMPT.format(text=text[:2000])}],
+                    "max_tokens": 1024,
+                    "temperature": 0.0,
+                },
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"].strip()
+            return self._parse_response(content, source="nim")
         except Exception as exc:
             log.warning("ner.nim_failed", error=str(exc))
             return None
 
     async def _extract_via_ollama(self, text: str) -> Optional[Dict[str, Any]]:
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{self._ollama_url}/api/chat",
-                    json={
-                        "model": self._ollama_ner_model,
-                        "messages": [{"role": "user", "content": _NER_PROMPT.format(text=text[:2000])}],
-                        "stream": False,
-                        "options": {"temperature": 0.0},
-                    },
-                )
-                resp.raise_for_status()
-                content = resp.json()["message"]["content"].strip()
-                return self._parse_response(content, source="ollama")
+            client = shared_client(30.0)
+            resp = await client.post(
+                f"{self._ollama_url}/api/chat",
+                json={
+                    "model": self._ollama_ner_model,
+                    "messages": [{"role": "user", "content": _NER_PROMPT.format(text=text[:2000])}],
+                    "stream": False,
+                    "options": {"temperature": 0.0},
+                },
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            content = resp.json()["message"]["content"].strip()
+            return self._parse_response(content, source="ollama")
         except Exception as exc:
             log.warning("ner.ollama_failed", error=str(exc))
             return None
@@ -138,6 +150,45 @@ class NERService:
         except (json.JSONDecodeError, ValueError) as exc:
             log.warning("ner.parse_failed", source=source, error=str(exc))
             return None
+
+    @staticmethod
+    def _with_spans(result: Dict[str, Any], text: str) -> Dict[str, Any]:
+        """
+        Recovers character offsets for LLM-extracted entities.
+
+        The model returns entity *text* with no positions, so start/end came back as None —
+        which left the annotation UI unable to highlight an entity in its source document
+        and made the `low_confidence_spans` field a misnomer. Offsets are recovered by
+        locating each entity in the original text.
+
+        Note this does not affect the Layer-0 F1 metric: workers/model_validation.py matches
+        on surface-form overlap (`_span_match`), never on offsets.
+
+        A per-value cursor means a repeated entity gets successive positions rather than
+        every mention collapsing onto the first.
+        """
+        cursors: Dict[str, int] = {}
+        lowered = text.lower()
+
+        for entity in result.get("entities", []):
+            value = entity.get("text") or ""
+            if not value:
+                continue
+            key = value.lower()
+            begin = cursors.get(key, 0)
+
+            index = text.find(value, begin)
+            if index == -1:
+                # The model often normalises case ("eq-101" -> "EQ-101").
+                index = lowered.find(key, begin)
+            if index == -1:
+                continue  # paraphrased or inferred — leave unlocated rather than guess
+
+            entity["start"] = index
+            entity["end"] = index + len(value)
+            cursors[key] = index + len(value)
+
+        return result
 
     def _regex_fallback(self, text: str) -> Dict[str, Any]:
         entities = []

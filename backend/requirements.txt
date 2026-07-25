@@ -45,8 +45,14 @@ opentelemetry-instrumentation-httpx==0.45b0
 # --- PDF Processing ---
 PyMuPDF==1.24.5
 
+# --- Spreadsheet ingestion (.xlsx/.ods: work-order exports, asset registries) ---
+# Pure-python, read-only streaming. Hand-rolling zip+XML would silently mangle date
+# serials and shared strings on the way into the graph — not a corner to cut at an
+# ingestion trust boundary. Email archives (.eml/.mbox) need no dependency (stdlib).
+openpyxl==3.1.5
+
 # --- NLP / NER ---
-# NER via NIM (ministral-14b) — cloud only, no local model packages.
+# NER via NIM (llama-3.2-11b-vision) — cloud only, no local model packages.
 
 # --- Image handling (rasterize/downscale P&ID drawings for the Layer 3 vision model) ---
 # P&ID topology extraction uses a cloud VLM (Path B) — see ARCHITECTURE.md Layer 3.
@@ -54,7 +60,7 @@ PyMuPDF==1.24.5
 # opencv/scipy/scikit-learn/pandas) was Path A (local GPU) and is intentionally NOT
 # installed here — it is pinned in requirements-cv.txt for a future GPU-backed
 # drawing-parser service. numpy + Pillow stay below for P&ID image handling.
-Pillow==10.3.0
+Pillow==12.3.0
 numpy==1.26.4
 
 # --- Utilities ---

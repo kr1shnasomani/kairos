@@ -18,9 +18,9 @@ from api.config import Settings
 from api.models.brief import Brief, SourceCitation
 from api.models.event import PTWEvent, ShiftHandoverEvent, WorkOrderEvent
 from api.services.event_bus import EventBusService
-from api.services.metrics import briefs_delivered
 from api.services.graph import GraphService
 from api.services.llm import LLMService
+from api.services.metrics import briefs_delivered
 from api.services.vector_store import VectorStoreService
 
 log = structlog.get_logger(__name__)

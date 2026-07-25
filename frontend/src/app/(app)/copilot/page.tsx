@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SUGGESTIONS, type CopilotAnswer } from "@/lib/copilot";
 import { synthesize } from "@/lib/api";
-import { Answer, Thinking, SYNTHESIS_ENABLED } from "./_components/answer-card";
+import { Answer, AnswerError, Thinking, SYNTHESIS_ENABLED } from "./_components/answer-card";
 import { Composer } from "./_components/composer";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,9 @@ interface Turn {
   query: string;
   asOf?: string;
   answer: CopilotAnswer | null;
+  /** Set when retrieval or synthesis failed. The turn shows an error + retry —
+   *  never a fabricated answer. */
+  error?: string;
 }
 
 function InfoPopover({ turnCount, asOf, onClose }: { turnCount: number; asOf: string; onClose: () => void }) {
@@ -68,15 +71,26 @@ export default function CopilotPage() {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turns]);
 
+  function run(id: number, q: string, at?: string) {
+    setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer: null, error: undefined } : turn)));
+    synthesize(q, at)
+      .then((answer) => {
+        setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer } : turn)));
+      })
+      .catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : "Live data is unavailable.";
+        setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, error: message } : turn)));
+      });
+  }
+
   function ask(query: string) {
     const q = query.trim();
     if (!q) return;
     const id = nextId.current++;
+    const at = asOf || undefined;
     setInput("");
-    setTurns((t) => [...t, { id, query: q, asOf: asOf || undefined, answer: null }]);
-    synthesize(q, asOf || undefined).then((answer) => {
-      setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer } : turn)));
-    });
+    setTurns((t) => [...t, { id, query: q, asOf: at, answer: null }]);
+    run(id, q, at);
   }
 
   const empty = turns.length === 0;
@@ -165,7 +179,13 @@ export default function CopilotPage() {
                       </svg>
                     </div>
                     <div className="min-w-0 flex-1">
-                      {t.answer ? <Answer data={t.answer} /> : <Thinking />}
+                      {t.error ? (
+                        <AnswerError message={t.error} onRetry={() => run(t.id, t.query, t.asOf)} />
+                      ) : t.answer ? (
+                        <Answer data={t.answer} />
+                      ) : (
+                        <Thinking />
+                      )}
                     </div>
                   </div>
                 </div>

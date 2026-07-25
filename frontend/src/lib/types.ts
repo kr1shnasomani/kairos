@@ -135,11 +135,22 @@ export interface ComplianceGap {
   site_id?: string | null;
   severity: GapSeverity;
   suggested_remediation?: string | null;
+  /** `gap` = no document of the required type exists. `unverified_evidence` = one exists
+   *  but no human has verified the edge. Conflating them is what made every clause read
+   *  as non-compliant. */
+  status?: "gap" | "unverified_evidence";
+  /** Evidence type the clause requires, e.g. ["procedure"]. */
+  requires_document_type?: string[] | null;
+  evidence_count?: number;
+  verified_count?: number;
 }
 
 export interface ComplianceGapsResponse {
   items: ComplianceGap[];
   total: number;
+  /** Split of `total` by finding kind — a true gap is not the same as unverified evidence. */
+  gap_total?: number;
+  unverified_total?: number;
   limit: number;
   offset: number;
   framework: string | null;
@@ -371,6 +382,13 @@ export interface CircuitBreakerState {
 }
 
 // --- Governance: model gate ---
+export interface EntityTypeScore {
+  precision?: number;
+  recall?: number;
+  f1?: number;
+  count?: number;
+}
+
 export interface ModelGateResult {
   run_id: string;
   task_id?: string | null;
@@ -380,6 +398,10 @@ export interface ModelGateResult {
   passed: boolean;
   corpus_size: number;
   run_at: string;
+  /** Model the gate scored. Optional: older audit rows predate the field. */
+  model_name?: string;
+  /** Per-entity-type breakdown — shows which entity types a model actually fails on. */
+  by_entity_type?: Record<string, EntityTypeScore>;
 }
 
 export interface ModelGateHistory {
@@ -562,6 +584,9 @@ export interface TopologyGraph {
   nodes: TopologyNode[];
   edges: TopologyEdge[];
   generated_at: string;
+  /** "vision_model" = extracted from the drawing. "demo_fixture" = the VLM was
+   *  unreachable and the pipeline fell back to canned topology; the UI must say so. */
+  topology_source?: "vision_model" | "demo_fixture";
 }
 
 // --- Audit log (GET /audit-log) ---

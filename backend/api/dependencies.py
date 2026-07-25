@@ -13,7 +13,6 @@ import structlog
 from elasticsearch import AsyncElasticsearch
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
 from neo4j import AsyncDriver, AsyncGraphDatabase
 from qdrant_client import AsyncQdrantClient
 from supabase import Client, create_client

@@ -15,8 +15,6 @@ from api.dependencies import get_es_client, get_qdrant_client
 from api.middleware.opa import OPAMiddleware
 from api.middleware.ratelimit import RateLimitMiddleware
 from api.middleware.telemetry import setup_telemetry
-from api.services.search_engine import SearchEngineService
-from api.services.vector_store import VectorStoreService
 from api.routers import (
     annotations,
     assets,
@@ -31,6 +29,8 @@ from api.routers import (
     health,
     search,
 )
+from api.services.search_engine import SearchEngineService
+from api.services.vector_store import VectorStoreService
 
 log = structlog.get_logger(__name__)
 
@@ -39,7 +39,7 @@ log = structlog.get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifecycle: startup and shutdown."""
     log.info("kairos.startup", env=settings.APP_ENV, version=settings.APP_VERSION)
-    
+
     # Initialize connections and ensure collections/indices
     qdrant_client = await get_qdrant_client(settings)
     vector_store = VectorStoreService(qdrant_client, settings)
@@ -50,6 +50,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await search_engine.ensure_indices()
 
     yield
+
+    # Drain the pooled outbound HTTP client so in-flight provider connections close
+    # cleanly instead of being dropped when the loop stops.
+    from api.services.http import close_shared_client
+
+    await close_shared_client()
     log.info("kairos.shutdown")
 
 

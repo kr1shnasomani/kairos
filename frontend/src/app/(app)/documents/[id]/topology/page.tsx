@@ -41,7 +41,12 @@ function TopologyPageInner() {
     getDocumentTopology(id).then(({ data, source }) => {
       const resolved = data ?? FIXTURE;
       setTopo(resolved);
-      setIsDemo(source === "demo" || !data);
+      // Two independent ways this can be non-extracted topology, and both must be shown:
+      // the fetch failed (frontend fixture), or it succeeded but the backend pipeline fell
+      // back to its own demo fixture because the vision model was unreachable. The second
+      // case returns source:"live" with plausible-looking elements, so it previously
+      // rendered as if the drawing had actually been parsed.
+      setIsDemo(source === "demo" || !data || data.topology_source === "demo_fixture");
       setLoading(false);
     });
   }, [id]);
@@ -75,9 +80,12 @@ function TopologyPageInner() {
           Document
         </Link>
         {isDemo && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-label text-muted">
+          <span
+            title="This topology was not extracted from the drawing — do not treat it as engineering data."
+            className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-label text-muted"
+          >
             <span className="size-1.5 rounded-full bg-caution" aria-hidden="true" />
-            Demo topology
+            {topo?.topology_source === "demo_fixture" ? "Fixture — vision model unavailable" : "Demo topology"}
           </span>
         )}
       </div>

@@ -43,6 +43,7 @@ def _get_supabase():
     global _supabase_client
     if _supabase_client is None:
         import os
+
         from supabase import create_client
         _supabase_client = create_client(
             os.environ["SUPABASE_URL"],
@@ -56,6 +57,7 @@ def _get_redis():
     global _redis_client
     if _redis_client is None:
         import os
+
         import redis as sync_redis
         _redis_client = sync_redis.from_url(
             os.environ.get("REDIS_URL", "redis://kairos-redis:6379"),
@@ -69,6 +71,7 @@ def _get_neo4j_driver():
     global _neo4j_driver
     if _neo4j_driver is None:
         import os
+
         from neo4j import AsyncGraphDatabase
         _neo4j_driver = AsyncGraphDatabase.driver(
             os.environ.get("NEO4J_URI", "bolt://kairos-neo4j:7687"),
@@ -85,6 +88,7 @@ def _get_qdrant_client():
     global _qdrant_client
     if _qdrant_client is None:
         import os
+
         from qdrant_client import AsyncQdrantClient
         _qdrant_client = AsyncQdrantClient(
             url=os.environ.get("QDRANT_URL", "http://kairos-qdrant:6333"),
@@ -98,6 +102,7 @@ def _get_es_client():
     global _es_client
     if _es_client is None:
         import os
+
         from elasticsearch import AsyncElasticsearch
         _es_client = AsyncElasticsearch(
             [os.environ.get("ELASTICSEARCH_URL", "http://kairos-elasticsearch:9200")]
@@ -385,7 +390,7 @@ async def run_ocr(
 
 @activity.defn
 async def run_ner(document_id: str, text: str, job_id: str) -> Dict[str, Any]:
-    """Step 3: NER entity extraction — NIM ministral-14b, degrades gracefully when model absent."""
+    """Step 3: NER entity extraction — NIM llama-3.2-11b-vision, degrades gracefully when model absent."""
     from api.services.ner import NERService
 
     supabase = _get_supabase()
@@ -695,9 +700,10 @@ async def index_vectors(
     Embedding via Jina AI (primary) with Ollama nomic-embed-text as fallback.
     """
     import uuid as uuid_lib
+
+    from api.config import Settings
     from api.services.llm import LLMService
     from api.services.vector_store import VectorStoreService
-    from api.config import Settings
 
     settings = Settings()
     vector_store = VectorStoreService(_get_qdrant_client(), settings)
@@ -760,8 +766,8 @@ async def index_text(
     Step 6: Index full document content into Elasticsearch kairos_documents index.
     Always succeeds — ES is always available in the stack. Used for exact/keyword search.
     """
-    from api.services.search_engine import SearchEngineService
     from api.config import Settings
+    from api.services.search_engine import SearchEngineService
 
     settings = Settings()
     es = _get_es_client()

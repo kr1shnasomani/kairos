@@ -1,6 +1,8 @@
 import type { RcaPack } from "./types";
 
-// Fixture RCA packs — stand in for POST /search/rca-pack while the backend is offline.
+// RCA presets (production) + fixture packs (TEST ONLY — see rcaFor below).
+// These packs are NOT a runtime fallback: getRcaPack rejects on failure and the page
+// renders a retry, so an offline backend never yields invented hypotheses.
 
 // Canonical asset IDs so the RCA pack actually populates against live data.
 // (P-101/HX-301 are an alias / non-existent tag — they return an empty pack.)
@@ -74,6 +76,11 @@ const REFUSED_PACK: RcaPack = {
 
 const SAFETY_CODES = ["RELIEF", "PRESSURE", "PSV", "INTERLOCK", "TORQUE"];
 
+/**
+ * TEST-ONLY fixture builder. Used by rca/page.test.tsx to mock `getRcaPack`.
+ * Never import this from `api.ts` or any render path — returning it on a failed
+ * request presents invented hypotheses as governed evidence.
+ */
 export function rcaFor(assetId: string, failureCode: string): RcaPack {
   const code = failureCode.toUpperCase();
   if (SAFETY_CODES.some((s) => code.includes(s))) return { ...REFUSED_PACK, asset_id: assetId, failure_code: failureCode };

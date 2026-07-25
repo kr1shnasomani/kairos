@@ -224,8 +224,9 @@ def create_offboarding(client: httpx.Client) -> None:
 def _seed_validation_corpus() -> None:
     """Seed the Layer-0 NER ground-truth set (idempotent) once documents are indexed."""
     try:
-        from scripts.seed_validation_corpus import _run as _seed
         import asyncio as _aio
+
+        from scripts.seed_validation_corpus import _run as _seed
         _aio.run(_seed())
     except Exception as exc:  # noqa: BLE001 — non-fatal for the demo load
         log.warning("load.valcorpus_failed", error=str(exc))

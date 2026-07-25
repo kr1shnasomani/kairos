@@ -236,7 +236,13 @@ services:
     image: neo4j:5.20-community
     container_name: kairos-neo4j
     environment:
-      NEO4J_AUTH: "${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-kairos_dev_password}"
+      # Admin user is hardcoded to `neo4j` on purpose: Neo4j rejects any other name for
+      # the initial admin ("Invalid admin username, it must be neo4j") and crash-loops.
+      # Using ${NEO4J_USERNAME} here broke this container whenever .env pointed at Aura,
+      # which is exactly when you want local stores. Password is its own var so it never
+      # collides with the cloud credential. To point the app at this container, set
+      # NEO4J_USERNAME=neo4j + NEO4J_PASSWORD=$NEO4J_LOCAL_PASSWORD in .env.
+      NEO4J_AUTH: "neo4j/${NEO4J_LOCAL_PASSWORD:-kairos_dev_password}"
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
       # Xms == Xmx: pre-allocate the full heap so the JVM never pauses to resize under load.
@@ -246,7 +252,7 @@ services:
       - kairos-neo4j_data:/data
       - kairos-neo4j_logs:/logs
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u ${NEO4J_USERNAME:-neo4j} -p ${NEO4J_PASSWORD:-kairos_dev_password} 'RETURN 1' || exit 1"]
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_LOCAL_PASSWORD:-kairos_dev_password} 'RETURN 1' || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 10

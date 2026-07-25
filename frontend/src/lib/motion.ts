@@ -33,10 +33,19 @@ export function useCountUp(target: number, duration = 600): number {
       prev.current = target;
       return;
     }
-    if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const reducedMotion =
+      typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // Browsers pause requestAnimationFrame in a hidden tab. Animating there left every
+    // KpiCard showing its initial value (0) — and because this effect only re-runs when
+    // `target` changes, it never corrected once the tab became visible. When the value
+    // cannot be animated, commit it on a timer instead: timers are throttled in a hidden
+    // tab but they do fire, whereas rAF does not. Deferred rather than set synchronously so
+    // this does not cascade a render inside the effect.
+    if (reducedMotion || (typeof document !== "undefined" && document.hidden)) {
       prev.current = target;
-      const raf = requestAnimationFrame(() => setValue(target));
-      return () => cancelAnimationFrame(raf);
+      const timer = setTimeout(() => setValue(target), 0);
+      return () => clearTimeout(timer);
     }
     const from = prev.current;
     prev.current = target;

@@ -4,9 +4,17 @@
 >
 > **⚠️ The frontend is now LIVE-ONLY.** The web app never displays fabricated data. Every page shows
 > **real backend data**, a **loading skeleton** while fetching, or an **error + retry** if the backend is
-> unreachable — never a fixture. The frontend fixture modules (`lib/*.ts`) still exist in code but are no
-> longer rendered: `useFetch` treats a fixture fallback as an error, server pages `throw` on it, and the
-> few custom-client pages show an inline retry. See [§3](#3-frontend-live-only-policy).
+> unreachable — never a fixture. `useFetch` treats a fixture fallback as an error, server pages `throw`
+> on it, and the few custom-client pages show an inline retry. See [§3](#3-frontend-live-only-policy).
+>
+> **Two paths used to bypass that policy and no longer do.** `synthesize()` and `getRcaPack()` in
+> `lib/api.ts` do not return a `Fetched<>` envelope, so `useFetch`'s guard never applied to them —
+> on any error they returned a hardcoded answer with invented document IDs, rendered identically to
+> a real cited answer. Both now **throw**; the copilot shows a per-turn `AnswerError` with retry and
+> the RCA page its existing `failed` state. The copilot fixtures (`SEAL`, `PRESSURE_REFUSAL`,
+> `ISOLATION`, `GENERIC`, `answerFor`) are **deleted from `lib/copilot.ts`** — that file now holds
+> types and suggestions only. `rcaFor` in `lib/rca.ts` survives but is marked **TEST-ONLY**
+> (`rca/page.test.tsx` uses it to mock `getRcaPack`) and must never be imported by `api.ts`.
 >
 > **Backend fixtures below are mock-by-design** — they stand in for external plant systems KAIROS does not
 > own (EAM golden record, OT historian, P&ID vision model) and are the intended MVP state, not a gap. This
