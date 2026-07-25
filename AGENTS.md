@@ -96,7 +96,7 @@ Gotcha rebuilds: `docker compose up -d --no-deps --build kairos-frontend` (new n
 
 **Tests — Docker only, never the host.** Host package resolution differs from the pinned images and
 produces false results.
-- Service-free tier (49 tests, no stack, no secrets, no network — what CI's `unit` job runs):
+- Service-free tier (65 tests, no stack, no secrets, no network — what CI's `unit` job runs):
   `docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,model_validation,pid,auth_cache,config_guardrail}.py`
 - Full suite (needs the stack; **local stores only, never cloud**):
   `docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120`
@@ -233,7 +233,7 @@ produces false results.
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
 **Tests:** ~175 passed · 3 skipped · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
 
-**CI:** `tests.yml` is two tiers — **`unit`** runs 49 service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project; `scripts/setup-ci-secrets.sh` sets the secrets. `frontend.yml` (tsc·eslint·build·audit): tsc/eslint/build pass; the **audit step fails on transitive `next`/`sharp` advisories** with no non-breaking fix available upstream (`npm audit fix --force` would downgrade Next to v9).
+**CI:** `tests.yml` is two tiers — **`unit`** runs 65 service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project; `setup-ci-secrets.sh` (repo root) sets the secrets. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, NIM→Gemini per synthesize) and exhausting the Gemini free tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit): tsc/eslint/build pass; the **audit step fails on transitive `next`/`sharp` advisories** with no non-breaking fix available upstream (`npm audit fix --force` would downgrade Next to v9).
 
 > **Ruff is pinned, and that is deliberate.** `lint.yml` had no version pin and there was no
 > config, so it ran with whatever rule set the newest release enabled — Linting went from green

@@ -5,8 +5,8 @@
 # Run this yourself — the values never leave your machine except to GitHub, and they are
 # never printed. `gh secret set` reads from stdin so nothing lands in your shell history.
 #
-#   bash scripts/setup-ci-secrets.sh            # dry run: shows what would be set
-#   bash scripts/setup-ci-secrets.sh --apply    # actually sets them
+#   bash setup-ci-secrets.sh            # dry run: shows what would be set
+#   bash setup-ci-secrets.sh --apply    # actually sets them
 #
 # ---------------------------------------------------------------------------------------
 # READ THIS FIRST
@@ -23,7 +23,7 @@
 #   CI_SUPABASE_ANON_KEY=... \
 #   CI_SUPABASE_SERVICE_ROLE_KEY=... \
 #   CI_SUPABASE_JWT_SECRET=... \
-#   bash scripts/setup-ci-secrets.sh --apply
+#   bash setup-ci-secrets.sh --apply
 #
 # Neo4j, Qdrant, Elasticsearch and Redis need no secrets — CI runs them as local
 # containers via `docker compose --profile local-stores`.
@@ -36,7 +36,7 @@ set -euo pipefail
 APPLY=false
 [[ "${1:-}" == "--apply" ]] && APPLY=true
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "error: gh CLI not found. Install it: https://cli.github.com" >&2

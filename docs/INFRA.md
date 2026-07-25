@@ -221,7 +221,7 @@ docker exec kairos-backend-api python scripts/seed_regulations.py
 # Run tests — full suite (needs the stack up; use local stores, never cloud)
 docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120
 
-# Run the service-free tests with NO stack running at all (49 tests, no secrets, no network).
+# Run the service-free tests with NO stack running at all (65 tests, no secrets, no network).
 # This is what CI's tier-1 `unit` job runs.
 docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api \
   pytest -q --timeout=120 tests/test_pii.py tests/test_query_category.py \
