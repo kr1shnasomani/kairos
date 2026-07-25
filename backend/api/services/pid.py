@@ -23,6 +23,8 @@ from typing import Any, Optional
 import httpx
 import structlog
 
+from api.services.http import shared_client
+
 log = structlog.get_logger(__name__)
 
 # Inline base64 cap for the NIM chat endpoint; larger drawings are downscaled to fit.
@@ -121,14 +123,15 @@ class PIDService:
             "stream": False,
         }
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"},
-                    json=payload,
-                )
-                resp.raise_for_status()
-                return resp.json()["choices"][0]["message"]["content"] or ""
+            client = shared_client(120.0)
+            resp = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"},
+                json=payload,
+                timeout=120.0,
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"] or ""
         except httpx.HTTPStatusError as exc:
             log.error("pid.nim_error", status=exc.response.status_code, body=exc.response.text[:300])
             return ""

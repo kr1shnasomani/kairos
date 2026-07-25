@@ -83,7 +83,7 @@ The perception engine operates as a pipeline of specialized models, not a single
 
 **Text extraction:** Two-path approach. Native digital PDFs are parsed directly via PyMuPDF — fast, zero API cost, preserves text fidelity. Scanned documents and images go to NVIDIA NIM Nemotron-OCR-v2 via the NIM cloud API, which handles mixed-script and multilingual documents. This cloud-first design eliminates local model dependencies and heavy infrastructure while maintaining strong accuracy on the document types KAIROS ingests.
 
-**Named entity recognition:** NVIDIA NIM `mistralai/ministral-14b-instruct-2512` via structured JSON prompting as the primary path — no local model, no package dependencies. Entity types extracted: ASSET_TAG, PROCESS_PARAMETER, FAILURE_MODE, REGULATION, ACTION_VERB, MATERIAL, PERSON, LOCATION, DATE, ORGANIZATION. Fallback: Ollama `llama3.1:8b` (local, for air-gapped or offline operation). Last resort: regex patterns for ASSET_TAG format matching. All three paths produce the same output schema. Model names are configured via `.env` (`NVIDIA_NIM_NER_MODEL`, `OLLAMA_NER_MODEL`) — no hardcoding in service code.
+**Named entity recognition:** NVIDIA NIM `meta/llama-3.2-11b-vision-instruct` via structured JSON prompting as the primary path (was `mistralai/ministral-14b-instruct-2512` until NVIDIA deprecated it — that endpoint now hangs until timeout, which silently degrades extraction to the regex last resort, so the model was swapped 2026-07-25) — no local model, no package dependencies. Entity types extracted: ASSET_TAG, PROCESS_PARAMETER, FAILURE_MODE, REGULATION, ACTION_VERB, MATERIAL, PERSON, LOCATION, DATE, ORGANIZATION. Fallback: Ollama `llama3.1:8b` (local, for air-gapped or offline operation). Last resort: regex patterns for ASSET_TAG format matching. All three paths produce the same output schema. Model names are configured via `.env` (`NVIDIA_NIM_NER_MODEL`, `OLLAMA_NER_MODEL`) — no hardcoding in service code.
 
 KAIROS surfaces low-confidence entity extractions inline in search results through the **Active Learning Annotation Interface**, allowing operators to confirm, correct, or delete proposed entities in one tap. Every correction is stored in `ner_annotations` and linked back to the relevant quarantine item, building a facility-specific labeled dataset over time without imposing a separate annotation task on staff.
 
@@ -464,7 +464,7 @@ Cross-site pattern detection requires knowledge to flow from local data planes t
 | Cloud LLM synthesis | **NVIDIA NIM** | Llama 3.1 70B (`meta/llama-3.1-70b-instruct`), OpenAI-compatible API; Gemini is the cloud fallback tier |
 | Local LLM fallback | **Ollama** | Qwen2.5 14B — edge/offline synthesis fallback |
 | OCR | **NVIDIA NIM Nemotron-OCR-v2** | Cloud API; PyMuPDF fast path for native digital PDFs |
-| Named entity recognition | **NVIDIA NIM ministral-14b** | JSON-prompted NER; Ollama llama3.1:8b local fallback; regex last resort |
+| Named entity recognition | **NVIDIA NIM llama-3.2-11b-vision** | JSON-prompted NER; Ollama llama3.1:8b local fallback; regex last resort |
 | Embeddings | **Jina AI** (`jina-embeddings-v3`) | Cloud API, 1024-dim; Ollama nomic-embed-text fallback |
 | Voice transcription | **Groq API** (`whisper-large-v3`) | Cloud API, no local model |
 | Engineering drawing parser | **Cloud VLM** (NIM `llama-3.2-11b-vision-instruct`) now; **YOLOv9 + LayoutLMv3** later | Path B (cloud vision → topology JSON) implemented in `pid.py`; Path A (custom GPU models) is the future upgrade once a labeled P&ID dataset exists |

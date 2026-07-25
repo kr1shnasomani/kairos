@@ -1,6 +1,7 @@
 "use client";
 
 import { PageHeader } from "@/components/ui";
+import { SystemTabs } from "@/components/system-tabs";
 
 // How KAIROS works — a static, visual explainer. No data fetching; informational only.
 
@@ -52,6 +53,7 @@ function Arrow() {
 export default function SystemInformationPage() {
   return (
     <div className="w-full">
+      <SystemTabs />
       <PageHeader
         eyebrow="Architecture"
         title="System Information"

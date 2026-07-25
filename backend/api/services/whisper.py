@@ -5,9 +5,10 @@ Falls back gracefully when GROQ_API_KEY is not configured.
 """
 
 import os
-import structlog
-import httpx
 from typing import Any, Dict
+
+import httpx
+import structlog
 
 log = structlog.get_logger(__name__)
 

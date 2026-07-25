@@ -23,6 +23,24 @@ export function Thinking() {
   );
 }
 
+/** Retrieval or synthesis failed. Shown instead of an answer — the copilot never
+ *  substitutes fixture content for governed evidence. */
+export function AnswerError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div data-testid="copilot-answer-error" role="alert" className="rounded-xl border border-line bg-surface p-4">
+      <p className="text-body font-medium text-ink">No governed answer available.</p>
+      <p className="mt-1 text-caption text-muted">{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-3 inline-flex min-h-11 items-center rounded-lg border border-line bg-surface-2 px-4 text-caption font-medium text-ink transition-colors hover:bg-canvas"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
 export function Answer({ data }: { data: CopilotAnswer }) {
   const [feedback, setFeedback] = useState<string | null>(null);
 

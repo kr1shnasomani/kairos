@@ -91,6 +91,11 @@ docker-compose.local.yml
 # --- IDE / OS ---
 .DS_Store
 .DS_Store?
+
+# Demo video (47 MB). Deliverables in demo/ are committed EXCEPT the video — a binary that
+# size lives in git history permanently and every clone pays for it. Share it via the
+# submission portal / a release asset, or track it with Git LFS if it must be in-repo.
+demo/*.mp4
 ._*
 .Spotlight-V100
 .Trashes

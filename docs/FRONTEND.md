@@ -103,6 +103,7 @@ frontend/
 | `/documents` | Document registry | Live |
 | `/documents/[id]` | Document detail + supersede chain | Live |
 | `/documents/[id]/topology` | P&ID topology graph (React Flow) | Live |
+| `/system-benchmarks` | **Admin.** Measured evidence: model-gate F1 trend, per-entity-type F1, compliance posture, datastore health | Live |
 | `/documents/ingest` | Upload → pipeline-status timeline | Live (role-gated engineer/admin) |
 | `/documents/compare` | Side-by-side version / metadata diff | Live |
 | `/assets/bootstrap` | MDM asset identity confirmation | Live (admin-gated) |
@@ -301,10 +302,21 @@ computed on failure, but the UI discards the `source: "demo"` path — the user 
 - **Custom-client pages** show an inline "unavailable — retry".
 - **`getComplianceGaps`** treats empty live results as valid (no fixture on empty) and uses a 5 s timeout.
 - **`/management/cross-site`** shows an honest "no data in single-site deployment" state (it has no backend).
+- **`synthesize()` and `getRcaPack()` throw** — they return a bare value, not `Fetched<>`, so
+  `useFetch`'s guard never covered them. They previously returned a hardcoded answer with invented
+  document IDs on any failure, rendered identically to a real cited answer. `/copilot` now shows a
+  per-turn `AnswerError` (`role="alert"` + Retry) and `/rca` its existing `failed` state. Zero
+  search results is a real outcome: `{answer: null, sources: []}`, never a fixture.
+- **`/documents/[id]/topology` discloses backend fixture use.** The ingest pipeline falls back to
+  `fixtures/pid_topology_mock.json` when the vision model is unreachable, stamping
+  `topology_source: "demo_fixture"`. That returns `source: "live"` with plausible-looking elements,
+  so it used to render as if the drawing had been parsed. `getDocumentTopology` now carries the flag
+  through and the page badges it **"Fixture — vision model unavailable"**.
 
 Default read timeout is **4 s** (`getJson`). Guard array reads defensively — `x?.arr.length` still throws
-when `arr` is `undefined` (use `?? []`). The `DemoChip` primitive and `lib/*.ts` fixture modules remain in
-the tree but are effectively dead (optional cleanup).
+when `arr` is `undefined` (use `?? []`). The `DemoChip` primitive and remaining `lib/*.ts` fixture modules
+are effectively dead (optional cleanup); the copilot fixtures were deleted outright and `rcaFor` is
+test-only — see `FIXTURES.md`.
 
 ---
 
@@ -346,7 +358,9 @@ Key types:
 
 `useRole()` — reads role from live user profile via `getMe()`. `PROMOTE_ROLES = ["reliability", "admin"]`
 (matches OPA `can_promote_quarantine` — engineers resolve conflicts but do **not** promote quarantine).
-`ADMIN_ROLES = ["admin"]` gates Identity confirmation, plant-state write, model-gate Run, and System Health.
+`ADMIN_ROLES = ["admin"]` gates Identity confirmation, plant-state write, model-gate Run, System Health, and System Benchmarks.
+
+**`SystemTabs` (`components/system-tabs.tsx`)** joins the four system surfaces — Information · Health · Benchmarks · Settings — into one tabbed section, rendered at the top of each. Admin-only tabs are hidden for non-admins; `routeAllowed` remains the enforcement point. `usePathname()` is guarded with `?? ""` because it returns null without router context.
 
 **File:** `src/components/skeleton.tsx`
 
@@ -359,6 +373,12 @@ Key types:
 > **⚠️ Live-only (see §6).** These fixture modules are **no longer rendered** — the app shows real data, a
 > skeleton, or an error+retry. They remain in the tree as dead code (optional cleanup). Listed here for
 > reference only.
+>
+> **Exceptions to the list below:** `copilot.ts` no longer contains fixtures at all — the `SEAL`,
+> `PRESSURE_REFUSAL`, `ISOLATION`, `GENERIC` answers and `answerFor()` were deleted, leaving types and
+> `SUGGESTIONS`. `rca.ts` keeps `rcaFor()` and its packs but they are **TEST-ONLY** (mocking
+> `getRcaPack` in `rca/page.test.tsx`); importing them from `api.ts` would reintroduce fabricated
+> hypotheses on failure.
 
 All fixture modules mirror the exact API shapes.
 

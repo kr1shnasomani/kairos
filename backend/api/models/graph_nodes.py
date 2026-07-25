@@ -5,6 +5,7 @@ Mirrors the Neo4j node/edge structure for API serialization.
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 

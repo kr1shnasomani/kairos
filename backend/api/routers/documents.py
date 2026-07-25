@@ -15,10 +15,12 @@ import structlog
 from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile, status
 
 from api.config import settings
-from api.dependencies import CurrentUserDep, Neo4jDep, SupabaseDep, TemporalDep
+from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, SupabaseDep, TemporalDep
 from api.models.document import DocumentStatus, ExtractionResult, VaultDocument
 from api.services.graph import GraphService
 from api.services.metrics import ingestion_duration
+from api.services.ner import NERService
+from api.services.pii import PIIService
 from workflows.document_pipeline import DocumentIngestionWorkflow
 
 log = structlog.get_logger(__name__)
@@ -481,6 +483,83 @@ async def get_document(
         asset_links=asset_links,
         access_tags=[],
     )
+
+
+@router.get("/{document_id}/redacted", summary="Export a document's text with PII redacted (DPDP)")
+async def get_redacted_document(
+    document_id: str,
+    current_user: CurrentUserDep,
+    es: ElasticsearchDep,
+    supabase: SupabaseDep,
+) -> dict:
+    """
+    Returns the document's extracted text with personal identifiers masked — the
+    DPDP Act 2023 export boundary for cross-site knowledge sharing.
+
+    Names come from the NER service (PERSON entities); structured identifiers
+    (email, phone, Aadhaar, PAN, employee/shift IDs) are matched by pattern.
+    The vault copy is never modified — redaction applies to this export only.
+    """
+    result = await es.search(
+        index=settings.ELASTICSEARCH_INDEX_DOCUMENTS,
+        body={"query": {"term": {"document_id": document_id}}, "size": 1},
+    )
+    hits = result.get("hits", {}).get("hits", [])
+    if not hits:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No indexed text for document '{document_id}' — it may still be in extraction.",
+        )
+
+    source = hits[0].get("_source", {})
+    text = source.get("content") or ""
+
+    ner_result = await NERService().extract_entities(text) if text else {"entities": []}
+    person_names = [
+        e["text"] for e in ner_result.get("entities", []) if e.get("entity_type") == "PERSON"
+    ]
+
+    redaction = PIIService().redact(text, person_names)
+
+    log.info(
+        "document.redacted_export",
+        document_id=document_id,
+        performed_by=current_user.get("user_id", "unknown"),
+        pii_found=redaction["pii_found"],
+        counts=redaction["counts"],
+    )
+
+    # ARCHITECTURE.md requires redaction operations to be "logged and auditable" — a
+    # structlog line alone is not auditable, so every export lands in audit_log with the
+    # PII type counts. Counts only: never the matched values, or the audit trail would
+    # itself become the PII leak.
+    try:
+        await asyncio.to_thread(
+            lambda: supabase.table("audit_log").insert({
+                "action": "pii_redacted_export",
+                "entity_type": "document",
+                "entity_id": document_id,
+                "performed_by": current_user.get("user_id", "unknown"),
+                "details": {
+                    "pii_found": redaction["pii_found"],
+                    "pii_counts": redaction["counts"],
+                    "pii_span_count": len(redaction["spans"]),
+                    "basis": "DPDP Act 2023 export boundary",
+                },
+            }).execute()
+        )
+    except Exception as exc:
+        log.warning("document.redaction_audit_failed", document_id=document_id, error=str(exc))
+
+    return {
+        "document_id": document_id,
+        "document_type": source.get("document_type"),
+        "redacted_text": redaction["redacted_text"],
+        "pii_found": redaction["pii_found"],
+        "pii_counts": redaction["counts"],
+        "pii_span_count": len(redaction["spans"]),
+        "note": "DPDP Act 2023 export boundary. Vault original is unmodified and retains full text.",
+    }
 
 
 @router.post("/{document_id}/supersede", summary="Mark a document as superseded by a newer version")

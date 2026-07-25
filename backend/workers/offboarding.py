@@ -31,10 +31,11 @@ def generate_offboarding_questions(item_id: str) -> Dict[str, Any]:
 
 
 async def _generate(item_id: str) -> Dict[str, Any]:
-    from api.config import Settings
-    from api.services.llm import LLMService
     from neo4j import AsyncGraphDatabase
     from supabase import create_client
+
+    from api.config import Settings
+    from api.services.llm import LLMService
 
     settings = Settings()
     supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)

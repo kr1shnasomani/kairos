@@ -38,6 +38,7 @@ def setup_telemetry(app: FastAPI) -> None:
     """Configure OpenTelemetry tracing and metrics. No-op if OTEL endpoint is unreachable."""
     try:
         import os
+
         from api.config import settings
 
         endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT

@@ -3,6 +3,7 @@ Auth middleware — request-level auth context and audit logging.
 """
 
 import time
+
 import structlog
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware

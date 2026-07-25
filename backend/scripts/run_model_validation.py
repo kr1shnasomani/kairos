@@ -2,7 +2,7 @@
 CLI: run NER model validation against the rolling validation corpus.
 
 Usage (inside Docker):
-    python scripts/run_model_validation.py --model-name mistralai/ministral-14b-instruct-2512
+    python scripts/run_model_validation.py --model-name meta/llama-3.2-11b-vision-instruct
 
 Outputs per-entity-type precision, recall, F1 and overall metrics to stdout.
 """
@@ -26,10 +26,11 @@ def main() -> None:
 
 
 async def _run(model_name: str) -> dict:
-    from api.config import Settings
-    from api.services.ner import NERService
     from elasticsearch import AsyncElasticsearch
     from supabase import create_client
+
+    from api.config import Settings
+    from api.services.ner import NERService
     from workers.model_validation import evaluate
 
     settings = Settings()
@@ -40,7 +41,7 @@ async def _run(model_name: str) -> dict:
         es_kwargs["basic_auth"] = (settings.ELASTICSEARCH_USERNAME, settings.ELASTICSEARCH_PASSWORD)
     es = AsyncElasticsearch(**es_kwargs)
 
-    ner = NERService()
+    ner = NERService(model=model_name)  # the gate must score the model it was asked about
     try:
         corpus_result = supabase.table("validation_corpus").select("*").execute()
         corpus = corpus_result.data or []

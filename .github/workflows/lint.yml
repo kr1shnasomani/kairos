@@ -52,6 +52,11 @@ jobs:
         uses: astral-sh/ruff-action@v3
         with:
           src: "./backend"
+          # Pinned deliberately. Unpinned, this job took whatever ruff was newest and its
+          # default rule set came with it — Linting went from green to 608 errors on an
+          # unchanged tree when 0.16.0 shipped. Rule selection lives in backend/ruff.toml;
+          # bump this pin as its own change so the new findings get reviewed.
+          version: "0.16.0"
 
   go-lint:
     needs: changes

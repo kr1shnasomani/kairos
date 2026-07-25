@@ -24,6 +24,33 @@ async def test_compliance_gaps_filter_severity(admin_client):
         assert item["severity"] == "critical"
 
 
+async def test_compliance_gaps_are_clause_scoped(admin_client):
+    """
+    Every finding must be tied to the clause's required evidence type and carry a
+    status. Guards the regression where the query ignored the clause and reported
+    every (regulation × asset) pair as a gap unconditionally.
+    """
+    r = await admin_client.get("/compliance/gaps")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["gap_total"] + body["unverified_total"] == body["total"]
+
+    for item in body["items"]:
+        assert item["status"] in ("gap", "unverified_evidence")
+        # A 'gap' means no evidence of the required type exists — by definition.
+        if item["status"] == "gap":
+            assert item["evidence_count"] == 0
+        else:
+            assert item["evidence_count"] > 0 and item["verified_count"] == 0
+        assert item["clause_id"] and item["asset_id"]
+
+
+async def test_compliance_gaps_filter_status(admin_client):
+    r = await admin_client.get("/compliance/gaps", params={"status": "gap"})
+    assert r.status_code == 200
+    assert all(i["status"] == "gap" for i in r.json()["items"])
+
+
 async def test_compliance_dashboard_shape(admin_client):
     r = await admin_client.get("/compliance/dashboard")
     assert r.status_code == 200

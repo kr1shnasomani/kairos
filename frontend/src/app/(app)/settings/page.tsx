@@ -1,11 +1,13 @@
 "use client";
 
 import { PageHeader } from "@/components/ui";
+import { SystemTabs } from "@/components/system-tabs";
 import { ThemeToggle, ContrastToggle } from "@/components/theme-toggle";
 
 export default function SettingsPage() {
   return (
     <div data-testid="settings-workspace" className="mx-auto max-w-[1100px]">
+      <SystemTabs />
       <PageHeader
         eyebrow="Account"
         title="System settings"

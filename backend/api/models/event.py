@@ -2,10 +2,11 @@
 Pydantic models — Events (Layer 8: Operational Event Subscription)
 """
 
+import uuid
 from datetime import datetime
 from typing import Optional
+
 from pydantic import BaseModel, Field
-import uuid
 
 
 def _gen_event_id() -> str:

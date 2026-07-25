@@ -34,6 +34,7 @@ const STAFF_ONLY: Role[] = ["engineer", "reliability", "admin"];
 // the app shell so no page can be reached by URL without the right role.
 const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: Role[] }> = [
   { prefix: "/system-health", roles: ADMIN_ROLES },
+  { prefix: "/system-benchmarks", roles: ADMIN_ROLES },
   { prefix: "/management", roles: STAFF_ONLY },
   { prefix: "/events", roles: STAFF_ONLY },
   { prefix: "/rca", roles: STAFF_ONLY },
