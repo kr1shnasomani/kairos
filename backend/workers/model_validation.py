@@ -42,7 +42,7 @@ async def _run_gate(model_name: str) -> Dict[str, Any]:
         es_kwargs["basic_auth"] = (settings.ELASTICSEARCH_USERNAME, settings.ELASTICSEARCH_PASSWORD)
     es = AsyncElasticsearch(**es_kwargs)
 
-    ner = NERService()
+    ner = NERService(model=model_name)  # the gate must score the model it was asked about
     try:
         corpus_result = await asyncio.to_thread(
             lambda: supabase.table("validation_corpus").select("*").execute()

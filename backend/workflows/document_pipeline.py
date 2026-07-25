@@ -385,7 +385,7 @@ async def run_ocr(
 
 @activity.defn
 async def run_ner(document_id: str, text: str, job_id: str) -> Dict[str, Any]:
-    """Step 3: NER entity extraction — NIM ministral-14b, degrades gracefully when model absent."""
+    """Step 3: NER entity extraction — NIM llama-3.2-11b-vision, degrades gracefully when model absent."""
     from api.services.ner import NERService
 
     supabase = _get_supabase()

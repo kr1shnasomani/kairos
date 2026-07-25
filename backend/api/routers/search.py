@@ -133,14 +133,20 @@ async def synthesize(
     No-ops cleanly when no LLM is configured (Phase 1 fallback).
     """
     llm = LLMService(settings)
-    result = await llm.synthesize(payload.query, payload.context, payload.query_category)
+
+    # Derive the category when the caller didn't supply one. Classifying here rather
+    # than in each client means the safety gate applies to every caller — frontend,
+    # benchmark, and anything added later — instead of only the ones that remember.
+    category = payload.query_category or LLMService.classify_query_category(payload.query)
+
+    result = await llm.synthesize(payload.query, payload.context, category)
 
     parsed: dict = {}
     if result.get("answer"):
         parsed = LLMService.parse_synthesis_response(result["answer"])
 
     refused = bool(result.get("refused"))
-    safety_critical = payload.query_category in SAFETY_CRITICAL_CATEGORIES if payload.query_category else False
+    safety_critical = category in SAFETY_CRITICAL_CATEGORIES if category else False
 
     try:
         await asyncio.to_thread(
@@ -150,7 +156,7 @@ async def synthesize(
                 "performed_by": current_user.get("user_id", "unknown"),
                 "details": {
                     "query": payload.query,
-                    "query_category": payload.query_category,
+                    "query_category": category,
                     "sources_used": parsed.get("sources_used", []),
                     "confidence": parsed.get("confidence"),
                     "refused": refused,

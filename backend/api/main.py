@@ -50,6 +50,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await search_engine.ensure_indices()
 
     yield
+
+    # Drain the pooled outbound HTTP client so in-flight provider connections close
+    # cleanly instead of being dropped when the loop stops.
+    from api.services.http import close_shared_client
+
+    await close_shared_client()
     log.info("kairos.shutdown")
 
 

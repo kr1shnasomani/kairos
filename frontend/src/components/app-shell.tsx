@@ -24,7 +24,8 @@ const STAFF: Role[] = ["engineer", "reliability", "admin"];
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
   | "management" | "governance" | "documents" | "search" | "menu" | "close" | "graph" | "audit"
-  | "events" | "offboarding" | "projects" | "voice" | "chevron" | "settings" | "health" | "info" | "alert";
+  | "events" | "offboarding" | "projects" | "voice" | "chevron" | "settings" | "health" | "info" | "alert"
+  | "chart";
 
 function Icon({ name, className = "size-[18px]" }: { name: IconName; className?: string }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -50,6 +51,7 @@ function Icon({ name, className = "size-[18px]" }: { name: IconName; className?:
     health: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
     info: <><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></>,
     alert: <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></>,
+    chart: <><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></>,
   };
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -216,9 +218,14 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
           <Icon name="info" className="size-[18px]" />System Information
         </Link>
         {ADMIN_ROLES.includes(role) && (
-          <Link href="/system-health" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
-            <Icon name="health" className="size-[18px]" />System Health
-          </Link>
+          <>
+            <Link href="/system-health" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
+              <Icon name="health" className="size-[18px]" />System Health
+            </Link>
+            <Link href="/system-benchmarks" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
+              <Icon name="chart" className="size-[18px]" />System Benchmarks
+            </Link>
+          </>
         )}
         <Link href="/settings" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink"><Icon name="settings" className="size-[18px]" />System Settings</Link>
       </div>

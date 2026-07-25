@@ -2,30 +2,62 @@
 
 ## How to run
 
-All tests must run **inside the Docker container**. The host shortcut is provided for convenience only.
+All tests run **inside Docker**. There is no host shortcut: host package resolution differs from
+the pinned images and produces false results — `auth.test.ts` and `api.test.ts` fail on the host
+and pass in the container. A host run will lie to you.
+
+### Tier 1 — service-free (49 tests, no stack, no secrets, no network)
+
+These need nothing running. This is what CI's `unit` job executes on every push.
 
 ```bash
-# Canonical — inside the container (required per CLAUDE.md)
+docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api \
+  pytest -q --timeout=120 \
+    tests/test_pii.py tests/test_query_category.py tests/test_search_fusion.py \
+    tests/test_ingestion_formats.py tests/test_http_pool.py \
+    tests/test_model_validation.py tests/test_pid.py tests/test_auth_cache.py \
+    tests/test_config_guardrail.py
+```
+
+### Tier 2 — full integration suite (needs the stack)
+
+```bash
+# Full suite
 docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120
 
-# Single file
+# Single file / single test
 docker exec kairos-backend-api python -m pytest tests/test_events.py -v --timeout=120
-
-# Single test
 docker exec kairos-backend-api python -m pytest tests/test_governance.py::test_promote_quarantine_item -v
 
 # DB-write verification tests (slower — wait for Temporal pipeline ~60s)
 docker exec kairos-backend-api python -m pytest tests/test_db_writes.py -v --timeout=180
-
-# Host shortcut (convenience only — not canonical)
-python3 -m pytest tests/ -q --timeout=120
 ```
 
-Prerequisites: `make dev` must be running (full Docker stack up). Seed users must exist — if login fails, run:
+Prerequisites: the stack must be up, and seed users must exist — if login fails, run:
 
 ```bash
 docker exec kairos-backend-api python scripts/seed_users.py
 ```
+
+> ⚠️ **Run tier 2 against local stores, never cloud.** The suite creates and purges test
+> entities and the teardown purge is unreliable against cloud Supabase, so a cloud run
+> pollutes the golden dataset. Bring up `docker compose --profile local-stores up` and point
+> `.env` at the local containers (see `INFRA.md` §`NEO4J_LOCAL_PASSWORD`). Set
+> `KAIROS_SKIP_TEST_CLEANUP=1` to skip the purge entirely.
+
+### CI
+
+`.github/workflows/tests.yml` mirrors the two tiers:
+
+| Job | Needs | Behaviour |
+|---|---|---|
+| `unit` | nothing | Runs the 49 service-free tests on every push and fork PR. Must stay green. |
+| `integration` | `--profile local-stores` + a **throwaway** `CI_SUPABASE_*` project | Runs the full suite. **Skips with exit 0** when `CI_SUPABASE_URL` is unset, so a missing optional credential is never a red build. |
+
+Neo4j, Qdrant, Elasticsearch and Redis run as local containers in CI, so Aura and Qdrant Cloud
+are never touched. `scripts/setup-ci-secrets.sh` sets the secrets (dry-run by default).
+**Never point CI at the production Supabase project** — `make init-all` reinitialises schema and
+the suite purges entities, so it would corrupt the golden dataset on every push.
 
 ---
 
@@ -384,6 +416,58 @@ Hits the **Go service at port 8090** (`http://kairos-backend-go:8090` inside Doc
 | `test_ot_coverage_unknown_asset` | Unknown asset → 200 with mock coverage (not 404) |
 | `test_eam_sync_returns_completed` | `/eam/sync` loads fixture → `status=completed`, `synced>=0` |
 | `test_eam_work_order_forwarding` | Go `/eam/work-order` → proxied to FastAPI → `status=accepted/deduplicated` |
+
+### `test_pii.py` — PII redaction, DPDP export boundary (5 tests, **no services**)
+
+| Test | Asserts |
+|---|---|
+| `test_redacts_structured_identifiers` | Email, phone, Aadhaar, PAN, employee ID, shift ID all masked — asserts each literal is *absent* from the output |
+| `test_person_names_masked_with_stable_pseudonym` | Same name → same `[PERSON_1]` twice, so cross-references survive |
+| `test_equipment_tags_and_part_numbers_are_not_pii` | `EQ-101`, `MS-4471-B`, `XV-203`, `OISD-117` pass through untouched — redaction must not damage operational content |
+| `test_clean_text_is_returned_unchanged` | No PII → identical text, `pii_found=False` |
+| `test_spans_reference_original_offsets` | Span offsets index the original text, not the masked output |
+
+### `test_query_category.py` — Safety-critical classification + refusal gate (17 tests, **no services**)
+
+| Test | Asserts |
+|---|---|
+| `test_safety_critical_queries_are_classified` (×10) | MAWP, PSV set pressure, isolation boundary, torque, insulation class, ESD setpoint each map to the right category |
+| `test_non_safety_queries_are_not_classified` (×4) | Alias, personnel, failure-count, OEM queries return `None` |
+| `test_relief_setting_wins_over_generic_pressure` | Ordering guard: "relief valve set pressure" → `pressure_relief_setting`, not `max_allowable_pressure` |
+| `test_refuses_safety_query_on_unauthoritative_evidence` | Level-5 field observation only → `refused=True`, `answer=None`, sources still returned |
+| `test_authoritative_evidence_clears_the_gate` | Level-3 OEM evidence with no `confidence` field → **not** refused (cascade stubbed) |
+
+### `test_search_fusion.py` — RRF retrieval fusion (7 tests, **no services**)
+
+| Test | Asserts |
+|---|---|
+| `test_bm25_scale_does_not_beat_cosine` | A BM25 score of 98.6 does not outrank a cosine 0.91 at equal authority; the doc both sources agree on wins |
+| `test_authority_still_outranks_relevance` | Level 1 before level 5 regardless of fused score — the safety property holds |
+| `test_merge_keeps_the_longest_snippet` | Duplicate collapse keeps the richer snippet, so synthesis still sees the fact |
+| `test_documents_without_ids_are_dropped` | Empty `document_id` never enters the ranking |
+| `test_graph_edge_renders_readable_snippet` | A graph hit carries text, not `""` |
+| `test_unverified_graph_edge_is_flagged_quarantine` | `verification_status != verified` → `is_quarantine` |
+
+### `test_ingestion_formats.py` — Spreadsheet + email ingestion (4 tests, **no services**)
+
+| Test | Asserts |
+|---|---|
+| `test_spreadsheet_rows_and_sheet_names_extracted` | Both sheets with names; every cell value present; blank rows dropped |
+| `test_unreadable_spreadsheet_degrades_without_raising` | Garbage bytes → empty text + `requires_review`, no exception |
+| `test_email_headers_body_and_attachment_names` | Headers, body and attachment *filename* extracted; attachment bytes never inlined |
+| `test_mbox_archive_yields_every_message` | Both messages in a 2-message mbox are extracted |
+
+### `test_http_pool.py` — Pooled HTTP client + embedding cache (8 tests, **no services**)
+
+| Test | Asserts |
+|---|---|
+| `test_same_loop_reuses_one_client` | Second call in one loop returns the same client |
+| `test_new_event_loop_gets_a_fresh_client` | Each `asyncio.run()` loop gets its own client — the Celery case a global client would break |
+| `test_closed_client_is_replaced` | A closed client is never handed out again |
+| `test_close_is_idempotent` | Double close does not raise |
+| `test_cache_never_stores_a_failed_embedding` | `[]` is never cached — would poison every later search |
+| `test_cache_evicts_least_recently_used` | LRU order respected at `maxsize` |
+| `test_task_is_part_of_the_cache_key` | `retrieval.query` vs `retrieval.passage` do not collide |
 
 ---
 

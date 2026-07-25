@@ -20,62 +20,104 @@ def _severity(authority_level: int) -> str:
     return _SEVERITY.get(authority_level, "minor")
 
 
-# Gap detection Cypher — run for each (Regulation × Asset) pair where no verified procedure exists.
-# High-recall: returns a gap unless a verified, active procedure edge explicitly covers the asset.
-# ponytail: `applies_to_equipment_class IS NULL` means regulation applies to all equipment classes.
-_GAP_CYPHER = """
-MATCH (reg:Concept {type: 'Regulation'})
-WHERE ($framework IS NULL OR reg.framework = $framework)
-MATCH (a:Asset)
+# Gap detection — evaluated per (Regulation × applicable Asset) pair.
+#
+# A clause is *covered* for an asset when that asset has an active, non-superseded
+# edge to a Document of the evidence type the clause actually requires
+# (`reg.requires_document_type`, seeded in scripts/seed_regulations.py). Three outcomes:
+#
+#   gap                 no evidence document of the required type exists
+#   unverified_evidence the document exists but no human has verified the edge
+#   covered             verified evidence exists — not returned as a finding
+#
+# This replaces an earlier check that asked only "does this asset have any verified
+# procedure at all", which ignored the clause entirely and — because nothing but manual
+# quarantine promotion ever writes verification_status='verified' — reported every
+# (regulation, asset) pair as a gap unconditionally.
+#
+# ponytail: `applies_to_equipment_class IS NULL` = clause applies to all equipment classes;
+# `requires_document_type IS NULL` (pre-mapping seeds) = any document type counts, which
+# keeps older graphs working instead of reporting a false gap on every clause.
+# Evidence typing is exact document_type matching. Upgrade to embedding the clause's
+# requirement_text against document chunks when clauses need finer granularity than type.
+# `CALL { WITH reg, a ... }` is the pre-2025 subquery form. The modern `CALL (reg, a) { ... }`
+# needs Neo4j 2025.01+, and the local-stores profile pins neo4j:5.20-community — this form
+# runs on both 5.20 and Aura. Switch when the 5.20 pin moves.
+_EVIDENCE_MATCH = """
+  OPTIONAL MATCH (a)-[r:KNOWLEDGE_EDGE]->(d:Document)
+  WHERE (r.valid_to IS NULL OR datetime(r.valid_to) > datetime())
+    AND r.verification_status <> 'superseded'
+    AND (reg.requires_document_type IS NULL
+         OR d.document_type IN reg.requires_document_type)
+  RETURN count(DISTINCT d) AS evidence_count,
+         count(DISTINCT CASE WHEN r.verification_status = 'verified' THEN d END) AS verified_count
+"""
+
+_APPLICABILITY = """
 WHERE (reg.applies_to_equipment_class IS NULL
     OR a.equipment_class = reg.applies_to_equipment_class
     OR a.equipment_class CONTAINS reg.applies_to_equipment_class
     OR reg.applies_to_equipment_class CONTAINS a.equipment_class)
+"""
+
+_GAP_CYPHER = f"""
+MATCH (reg:Concept {{type: 'Regulation'}})
+WHERE ($framework IS NULL OR reg.framework = $framework)
+MATCH (a:Asset)
+{_APPLICABILITY}
   AND ($asset_id IS NULL OR a.asset_id = $asset_id)
   AND ($site_id IS NULL OR a.site_id = $site_id)
-WITH reg, a
-WHERE NOT EXISTS {
-  MATCH (a)-[r:KNOWLEDGE_EDGE]->(d:Document)
-  WHERE r.verification_status = 'verified'
-    AND (r.valid_to IS NULL OR r.valid_to > datetime())
-    AND d.document_type = 'procedure'
-}
+CALL {{
+  WITH reg, a
+  {_EVIDENCE_MATCH}
+}}
+WITH reg, a, evidence_count, verified_count
+WHERE evidence_count = 0 OR verified_count = 0
 RETURN reg.concept_id AS concept_id,
        reg.framework AS framework,
        reg.clause_id AS clause_id,
        reg.requirement_text AS requirement_text,
        reg.applies_to_equipment_class AS applies_to,
+       reg.requires_document_type AS requires_document_type,
        reg.authority_level AS authority_level,
        a.asset_id AS asset_id,
        a.tag_number AS tag_number,
        a.equipment_class AS equipment_class,
-       a.site_id AS site_id
-ORDER BY reg.authority_level ASC, a.asset_id ASC
+       a.site_id AS site_id,
+       evidence_count,
+       verified_count,
+       CASE WHEN evidence_count = 0 THEN 'gap' ELSE 'unverified_evidence' END AS status
+ORDER BY authority_level ASC, asset_id ASC
 LIMIT $limit
 """
 
-_DASHBOARD_CYPHER = """
-MATCH (reg:Concept {type: 'Regulation'})
+# Deliberately unbounded: this is an aggregate: a LIMIT would cap the groups returned,
+# not the work done, and would silently undercount a compliance posture — worse than a
+# slow query. ponytail: O(regulations × applicable assets) with a subquery per pair, fine
+# at demo scale (12 clauses × 10 assets). Materialise counts into Supabase on a scheduled
+# scan when the asset count reaches the thousands.
+_DASHBOARD_CYPHER = f"""
+MATCH (reg:Concept {{type: 'Regulation'}})
 MATCH (a:Asset)
-WHERE (reg.applies_to_equipment_class IS NULL
-    OR a.equipment_class = reg.applies_to_equipment_class
-    OR a.equipment_class CONTAINS reg.applies_to_equipment_class
-    OR reg.applies_to_equipment_class CONTAINS a.equipment_class)
+{_APPLICABILITY}
   AND ($site_id IS NULL OR a.site_id = $site_id)
-WITH reg, a
-WHERE NOT EXISTS {
-  MATCH (a)-[r:KNOWLEDGE_EDGE]->(d:Document)
-  WHERE r.verification_status = 'verified'
-    AND (r.valid_to IS NULL OR r.valid_to > datetime())
-    AND d.document_type = 'procedure'
-}
+CALL {{
+  WITH reg, a
+  {_EVIDENCE_MATCH}
+}}
+WITH reg, a, evidence_count, verified_count
+WHERE evidence_count = 0 OR verified_count = 0
 RETURN reg.authority_level AS authority_level,
        reg.framework AS framework,
        reg.applies_to_equipment_class AS equipment_class,
+       CASE WHEN evidence_count = 0 THEN 'gap' ELSE 'unverified_evidence' END AS status,
        count(*) AS gap_count
-ORDER BY reg.authority_level ASC
+ORDER BY authority_level ASC
 """
 
+# Audit evidence per clause. Evidence must be of the type the clause requires and must sit
+# on an asset the clause actually applies to — previously any document on any applicable
+# asset counted as evidence for every clause, so the pack could not be wrong.
 _AUDIT_CYPHER = """
 MATCH (reg:Concept {type: 'Regulation', framework: $framework})
 WHERE ($clauses IS NULL OR reg.clause_id IN $clauses)
@@ -86,16 +128,20 @@ WHERE reg.applies_to_equipment_class IS NULL
     OR reg.applies_to_equipment_class CONTAINS a.equipment_class
 OPTIONAL MATCH (a)-[r:KNOWLEDGE_EDGE]->(d:Document)
 WHERE (r.valid_to IS NULL OR datetime(r.valid_to) > datetime())
-  AND (d.document_type IS NULL OR d.document_type IN ['procedure', 'inspection_report', 'oem_manual', 'regulation'])
+  AND r.verification_status <> 'superseded'
+  AND (reg.requires_document_type IS NULL
+       OR d.document_type IN reg.requires_document_type)
 WITH reg, collect(DISTINCT CASE WHEN d IS NOT NULL THEN {
     document_id: d.document_id,
     document_type: d.document_type,
+    asset_id: a.asset_id,
     confidence: r.confidence,
     verification_status: r.verification_status
 } END) AS raw_evidence
 RETURN reg.clause_id AS clause_id,
        reg.requirement_text AS requirement_text,
        reg.applies_to_equipment_class AS applies_to,
+       reg.requires_document_type AS requires_document_type,
        reg.authority_level AS authority_level,
        [e IN raw_evidence WHERE e IS NOT NULL] AS evidence
 ORDER BY reg.clause_id ASC
@@ -110,12 +156,18 @@ async def list_compliance_gaps(
     asset_id: Optional[str] = Query(None),
     site_id: Optional[str] = Query(None),
     severity: Optional[str] = Query(None, description="critical, major, minor"),
+    status: Optional[str] = Query(None, description="gap (no evidence) or unverified_evidence"),
     limit: int = Query(100, le=500),
     offset: int = Query(0),
 ) -> dict:
     """
-    Detects gaps: Regulation nodes with no verified procedure edge on applicable assets.
-    High-recall: errs toward flagging. False-negative control — never auto-clears safety-critical.
+    Detects findings per (clause × applicable asset): `gap` when no document of the
+    evidence type the clause requires is linked to the asset, `unverified_evidence`
+    when one exists but no human has verified the edge.
+
+    High-recall by intent — errs toward flagging — but the finding is now tied to the
+    specific clause requirement, so a cleared clause is genuinely cleared.
+    Never auto-clears safety-critical.
     """
     async with driver.session(database=settings.NEO4J_DATABASE) as session:
         result = await session.run(
@@ -130,10 +182,20 @@ async def list_compliance_gaps(
     items = [
         {**r, "severity": _severity(r["authority_level"])}
         for r in rows
-        if severity is None or _severity(r["authority_level"]) == severity
+        if (severity is None or _severity(r["authority_level"]) == severity)
+        and (status is None or r["status"] == status)
     ]
 
-    return {"items": items, "total": len(items), "limit": limit, "offset": offset, "framework": framework, "last_scan": "realtime"}
+    return {
+        "items": items,
+        "total": len(items),
+        "gap_total": sum(1 for i in items if i["status"] == "gap"),
+        "unverified_total": sum(1 for i in items if i["status"] == "unverified_evidence"),
+        "limit": limit,
+        "offset": offset,
+        "framework": framework,
+        "last_scan": "realtime",
+    }
 
 
 @router.get("/dashboard", summary="Compliance posture dashboard")
@@ -151,13 +213,22 @@ async def compliance_dashboard(
         rows = [dict(r) async for r in result]
 
     totals = {"critical": 0, "major": 0, "minor": 0}
+    unverified_totals = {"critical": 0, "major": 0, "minor": 0}
     by_framework: dict = {}
     by_asset_class: dict = {}
 
     for r in rows:
         sev = _severity(r["authority_level"])
         count = r["gap_count"]
-        totals[sev] = totals.get(sev, 0) + count
+
+        # total_gaps counts only true gaps (no evidence of the required type). Findings
+        # where evidence exists but is unverified are reported separately — conflating the
+        # two is what made every clause look non-compliant.
+        if r["status"] == "gap":
+            totals[sev] = totals.get(sev, 0) + count
+        else:
+            unverified_totals[sev] = unverified_totals.get(sev, 0) + count
+            continue
 
         fw = r["framework"] or "unknown"
         by_framework.setdefault(fw, {"critical": 0, "major": 0, "minor": 0})
@@ -170,6 +241,7 @@ async def compliance_dashboard(
     return {
         "site_id": site_id,
         "total_gaps": totals,
+        "total_unverified_evidence": unverified_totals,
         "by_framework": by_framework,
         "by_asset_class": by_asset_class,
         "last_updated": "realtime",

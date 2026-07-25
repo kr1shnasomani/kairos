@@ -18,6 +18,7 @@ on:
       - 'db/**'
       - 'fixtures/**'
       - 'docker-compose.yml'
+      - '.github/workflows/tests.yml'
   pull_request:
     branches: [ main ]
     paths:
@@ -27,33 +28,130 @@ on:
       - 'db/**'
       - 'fixtures/**'
       - 'docker-compose.yml'
+      - '.github/workflows/tests.yml'
 
 jobs:
-  test:
+  # ===========================================================================
+  # Tier 1 — unit tests. No services, no secrets, no network.
+  # Always runs, on every push and fork PR. This is the gate that must stay green.
+  # ===========================================================================
+  unit:
+    name: Unit (no services)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      # Build .env: start from example (all local-service defaults are pre-filled)
-      # then append the secrets that require real cloud credentials
+      # Layer cache keyed on requirements.txt: the pip install dominates the build, and it
+      # only changes when dependencies do. Cache hit takes this job from ~4 min to ~40 s.
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-backend-${{ hashFiles('backend/requirements.txt', 'backend/Dockerfile') }}
+          restore-keys: ${{ runner.os }}-backend-
+
+      - name: Build API image
+        run: |
+          docker buildx build \
+            --cache-from type=local,src=/tmp/.buildx-cache \
+            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
+            --tag kairos-backend:local --load backend
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      # Pure-logic suites: PII redaction, safety-critical query classification, retrieval
+      # fusion, spreadsheet/email ingestion, NER span matching, P&ID parsing, auth cache,
+      # config guardrails. None of these touch a datastore or a model provider.
+      - name: Run unit tests
+        run: |
+          docker compose run --rm --no-deps \
+            -e KAIROS_SKIP_TEST_CLEANUP=1 \
+            kairos-backend-api pytest -q --timeout=120 \
+              tests/test_pii.py \
+              tests/test_query_category.py \
+              tests/test_search_fusion.py \
+              tests/test_ingestion_formats.py \
+              tests/test_model_validation.py \
+              tests/test_pid.py \
+              tests/test_auth_cache.py \
+              tests/test_config_guardrail.py
+
+  # ===========================================================================
+  # Tier 2 — full integration suite against LOCAL stores.
+  #
+  # DO NOT point this at the production Supabase / Neo4j Aura / Qdrant Cloud project.
+  # The suite creates and then purges test entities, `make init-all` reinitialises schema
+  # and Qdrant collections, and the teardown purge is unreliable against cloud Supabase.
+  # Wiring production credentials here would corrupt the golden demo dataset on every push.
+  #
+  # Neo4j, Qdrant, Elasticsearch and Redis all run as local containers, so they need no
+  # secrets. Supabase has no local container, so this job needs a SEPARATE, throwaway
+  # Supabase project — hence the CI_ prefix on those secret names.
+  #
+  # Absent those secrets the job reports "skipped" and exits 0 rather than failing, so a
+  # missing optional credential never shows up as a red build.
+  # ===========================================================================
+  integration:
+    name: Integration (local stores)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # `secrets` is unavailable in a job-level `if`, so gate on an output instead.
+      - name: Check for CI credentials
+        id: gate
+        env:
+          CI_SUPABASE_URL: ${{ secrets.CI_SUPABASE_URL }}
+        run: |
+          if [ -n "$CI_SUPABASE_URL" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Integration tests skipped::CI_SUPABASE_URL is not set. Tier-1 unit tests still ran. See .github/workflows/tests.yml for the required CI-only secrets."
+          fi
+
+      # Local stores get local addresses. .env.example ships NEO4J_URI=bolt://localhost:7687
+      # for host-run scripts, which is unreachable from inside the compose network — so the
+      # container-visible service names are set explicitly here.
       - name: Create .env
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          CI_SUPABASE_URL: ${{ secrets.CI_SUPABASE_URL }}
+          CI_SUPABASE_ANON_KEY: ${{ secrets.CI_SUPABASE_ANON_KEY }}
+          CI_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.CI_SUPABASE_SERVICE_ROLE_KEY }}
+          CI_SUPABASE_JWT_SECRET: ${{ secrets.CI_SUPABASE_JWT_SECRET }}
+          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+          JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           cp .env.example .env
-          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}"              >> .env
-          echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}"    >> .env
-          echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
-          echo "SUPABASE_JWT_SECRET=${{ secrets.SUPABASE_JWT_SECRET }}" >> .env
-          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}"              >> .env
-          echo "NVIDIA_NIM_API_KEY=${{ secrets.NVIDIA_NIM_API_KEY }}"  >> .env
-          echo "JINA_API_KEY=${{ secrets.JINA_API_KEY }}"              >> .env
+          {
+            echo "NEO4J_URI=neo4j://kairos-neo4j:7687"
+            echo "NEO4J_USERNAME=neo4j"
+            echo "NEO4J_PASSWORD=kairos_dev_password"
+            echo "NEO4J_LOCAL_PASSWORD=kairos_dev_password"
+            echo "NEO4J_DATABASE=neo4j"
+            echo "QDRANT_URL=http://kairos-qdrant:6333"
+            echo "QDRANT_API_KEY="
+            echo "SUPABASE_URL=${CI_SUPABASE_URL}"
+            echo "SUPABASE_ANON_KEY=${CI_SUPABASE_ANON_KEY}"
+            echo "SUPABASE_SERVICE_ROLE_KEY=${CI_SUPABASE_SERVICE_ROLE_KEY}"
+            echo "SUPABASE_JWT_SECRET=${CI_SUPABASE_JWT_SECRET}"
+            echo "NVIDIA_NIM_API_KEY=${NVIDIA_NIM_API_KEY}"
+            echo "JINA_API_KEY=${JINA_API_KEY}"
+            echo "GROQ_API_KEY=${GROQ_API_KEY}"
+          } >> .env
 
-      - name: Start services
-        run: docker compose up -d --build
+      - name: Start services (local stores)
+        if: steps.gate.outputs.ready == 'true'
+        run: docker compose --profile local-stores up -d --build
 
-      # Poll /health until the API is accepting requests (up to 5 minutes)
       - name: Wait for API
+        if: steps.gate.outputs.ready == 'true'
         run: |
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
@@ -63,22 +161,25 @@ jobs:
             sleep 10
           done
           echo "API did not become healthy — dumping logs"
-          docker compose logs kairos-backend-api
+          docker compose --profile local-stores logs kairos-backend-api
           exit 1
 
       - name: Initialise databases
+        if: steps.gate.outputs.ready == 'true'
         run: make init-all
 
       - name: Seed test users
+        if: steps.gate.outputs.ready == 'true'
         run: docker compose exec -T kairos-backend-api python scripts/seed_users.py
 
       - name: Run test suite
+        if: steps.gate.outputs.ready == 'true'
         run: docker compose exec -T kairos-backend-api python -m pytest tests/ -q --timeout=120
 
       - name: Dump logs on failure
-        if: failure()
-        run: docker compose logs --tail=150
+        if: failure() && steps.gate.outputs.ready == 'true'
+        run: docker compose --profile local-stores logs --tail=150
 
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: docker compose --profile local-stores down -v

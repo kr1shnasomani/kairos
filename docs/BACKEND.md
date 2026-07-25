@@ -244,7 +244,29 @@ Orchestrates hybrid search across three engines in parallel.
 2. **Qdrant semantic search** — 1024-dim embedding via `LLMService.embed()`
 3. **Neo4j graph traversal** — only when `asset_id` provided
 
-Results merged and authority-ranked: level 1 (Regulatory) > level 5 (Field).
+**Fusion — Reciprocal Rank Fusion (`_RRF_K = 60`), then authority ordering.** Each source's
+results are scored `1/(60 + rank)` and summed, so a document more than one source agrees on
+ranks higher. RRF replaced a direct comparison of ES relevance against Qdrant cosine
+similarity: BM25 is unbounded and cosine is 0–1, so comparing them numerically ranked by
+whichever source emitted bigger numbers.
+
+Authority remains the **primary** sort key — level 1 (Regulatory) outranks level 5 (Field) —
+because that is a deliberate safety property, not a relevance artefact. RRF orders results
+*within* an authority level, which is where the scale mismatch actually did damage. The
+fused score is written back to `relevance_score`.
+
+**Merging duplicates** (`_better`): when several sources return the same `document_id`, the
+most authoritative record wins but the **longest snippet is kept** — collapsing by
+`document_id` used to discard the losing record's text, so a semantic chunk containing the
+answer could be replaced by a shorter exact-match excerpt and synthesis never saw the fact.
+`retrieval_method` records every method that surfaced it (e.g. `exact+semantic`).
+
+**Graph hits carry text** (`_edge_snippet`): a graph result used to have `snippet=""`, so it
+entered the ranking but gave synthesis nothing to read — a fact existing only as an edge was
+invisible to the answer. Edges now render as a readable fact line including validity,
+verification status and confidence, and an unverified edge is flagged `is_quarantine`.
+
+Covered by `tests/test_search_fusion.py`.
 
 ### `SearchEngineService` (`services/search_engine.py`)
 
@@ -266,7 +288,15 @@ LLM synthesis + embedding. Never originates knowledge — only assembles retriev
 
 - `synthesize(query, context, query_category)` — NIM `meta/llama-3.1-70b-instruct`
 - `rca_synthesize(query, context)` — RCA-specific prompt, returns timeline + hypotheses
-- `embed(text, task)` — Jina `jina-embeddings-v3` (1024-dim)
+- `embed(text, task)` — Jina `jina-embeddings-v3` (1024-dim), **bounded LRU cached** (`_LRU`,
+  512 entries, keyed on `(task, text)`). Every search embeds its query before touching Qdrant,
+  so a repeated or polled query previously paid a Jina round-trip each time. Embeddings are
+  deterministic per `(task, text)` for a fixed model, so caching is safe; a failed embedding
+  (`[]`) is never cached. Process-local — move to Redis if cross-replica hit rate matters.
+- `classify_query_category(query)` — deterministic keyword classifier mapping free text onto a
+  safety-critical category, or `None`. Called by `POST /search/synthesize` when the caller omits
+  `query_category`. Without it the safety gate was unreachable: nothing in the system set the
+  category, so `refused` was always `false`.
 - `parse_synthesis_response(answer)` — extracts structured fields from LLM output
 - `parse_rca_response(answer)` — extracts `hypothesis|evidence_weight|sources` lines
 
@@ -277,8 +307,14 @@ LLM synthesis + embedding. Never originates knowledge — only assembles retriev
 > free-tier cloud fallback; set `OLLAMA_BASE_URL` to add the local air-gapped tier (intentionally empty by
 > default — an accidental local Ollama once consumed ~6 GB RAM). Embeddings stay Jina → Ollama.
 
-**Safety-critical categories** (explicit refusal when evidence confidence < 0.7):
+**Safety-critical categories:**
 `max_allowable_pressure`, `isolation_interlock_sequence`, `torque_specification`, `electrical_rating`, `pressure_relief_setting`, `safety_shutdown_setpoint`
+
+The refusal gate clears on **either** high confidence (`≥ 0.7`) **or** an authoritative source
+(`authority_level ≤ 3` = regulatory / engineering / OEM), and refuses only when both fail.
+Both signals are needed: hybrid search and graph facts carry `authority_level` but no
+`confidence`, so a confidence-only gate read them as `0.0` and would refuse every
+safety-critical query. Covered by `tests/test_query_category.py`.
 
 ### `BriefEngine` (`services/brief_engine.py`)
 
@@ -324,13 +360,35 @@ SPC circuit breaker: halts graph writes for an **asset class** when its 7-day ov
 
 Named entity recognition for the extraction pipeline. Cloud-first: NIM primary, then a regex last resort. (A local Ollama tier exists in code but is disabled — `OLLAMA_BASE_URL` is empty; see §6 `LLMService`.)
 
-- `extract_entities(text, document_type)` — tries NIM `mistralai/ministral-14b-instruct-2512`; falls back to regex ASSET_TAG pattern matching (Ollama tier skipped while `OLLAMA_BASE_URL` is empty). Returns `[(entity, entity_type, confidence)]`
+- `NERService(model=…)` — **overrides `NVIDIA_NIM_NER_MODEL` for this instance.** The Layer-0 model gate scores a *candidate* model, so it must be able to pick one; without this the gate always called the env-var model and merely labelled the result with the requested name.
+- `extract_entities(text, document_type)` — tries NIM `meta/llama-3.2-11b-vision-instruct`; falls back to regex ASSET_TAG pattern matching (Ollama tier skipped while `OLLAMA_BASE_URL` is empty). Returns `[(entity, entity_type, confidence)]`
+- **Character offsets are recovered** (`_with_spans`): the model returns entity *text* with no
+  positions, so `start`/`end` used to come back `None` — leaving the annotation UI unable to
+  highlight an entity in its source document. Each entity is located in the original text, with
+  a per-value cursor so a repeated mention gets successive positions instead of collapsing onto
+  the first. Entities the model paraphrased are left unlocated rather than guessed.
+  This does **not** affect the Layer-0 F1 metric: `workers/model_validation.py` matches on
+  surface-form overlap (`_span_match`), never on offsets.
 
 ### `OCRService` (`services/ocr.py`)
 
 OCR for the extraction pipeline. Cloud-first for scanned documents; zero-API-cost fast path for native digital PDFs.
 
-- `extract_text(file_bytes, mime_type)` — **Fast paths:** plain text (`text/plain`) decoded directly as UTF-8; digital PDFs via PyMuPDF native extraction. **Cloud path:** `nvidia/nemotron-ocr-v2` for scanned documents and images.
+- `extract_text(file_bytes, mime_type)` — **Fast paths (no API cost):**
+
+  | Input | mime | How |
+  |---|---|---|
+  | Plain text / markdown / CSV | `text/plain`, `text/markdown`, `text/csv` | UTF-8 decode |
+  | **Spreadsheets** | `…spreadsheetml.sheet` (.xlsx), `vnd.ms-excel`, `…opendocument.spreadsheet` (.ods) | `openpyxl` read-only streaming → every sheet flattened to tab-separated rows, prefixed `# Sheet: <name>`; blank rows dropped |
+  | **Email archives** | `message/rfc822` (.eml), `application/mbox`, `text/rfc822-headers` | stdlib `email` — Date/From/To/Cc/Subject headers + `text/plain` bodies; attachments listed by filename, never decoded inline (their bytes belong in the vault as their own documents). An mbox is split on its own `From ` delimiter, so every message is extracted |
+  | Digital PDFs | `application/pdf` | PyMuPDF native text |
+
+  **Cloud path:** `nvidia/nemotron-ocr-v2` for scanned documents and images.
+
+  Spreadsheets and email archives are two of the six source types named in the problem
+  statement. `openpyxl` is used rather than hand-rolled zip+XML because xlsx cell typing
+  (dates stored as serial numbers, shared vs inline strings) is exactly the silent corruption
+  that must not reach the graph. Covered by `tests/test_ingestion_formats.py`.
 
 > **Important:** The OCR model uses the NVIDIA CV API (`https://ai.api.nvidia.com/v1/cv/<model>`), NOT the chat completions endpoint (`integrate.api.nvidia.com`). Request format uses `"input": [{"type": "image_url", "url": "data:..."}]`. Response format is `{"data": [{"text_detections": [{"label": "..."}]}]}`. Inline image limit: 180KB base64 — larger pages are skipped (assets API needed). Pages are rasterized at 96 DPI to stay under this limit.
 
@@ -341,6 +399,48 @@ OCR for the extraction pipeline. Cloud-first for scanned documents; zero-API-cos
 - `extract_topology(file_bytes, mime_type) -> dict | None` — rasterizes the drawing (150 DPI for PDFs), downscales to fit the inline size cap (Pillow), sends it to NIM `meta/llama-3.2-11b-vision-instruct` (chat completions, OpenAI-style `image_url` content) with a schema-locked prompt, and parses the returned topology JSON (`equipment_nodes`, `isolation_valves`, `instrumentation_loops`, `isolation_boundaries`). Returns `None` on any failure so the pipeline falls back to the demo fixture.
 - Wired into `run_ocr` for `document_type='pid_drawing'`. The result carries `topology_source` (`vision_model` | `demo_fixture`) through the manifest and `GET /documents/{id}/topology` so a fixture never masquerades as a real extraction. Every element still routes to element-by-element engineer verification (Layer 7).
 - **Path A** (custom YOLOv9 + LayoutLMv3 on GPU) is the documented future upgrade — see `ARCHITECTURE.md` Layer 3.
+
+### `PIIService` (`services/pii.py`)
+
+PII detection and masking for the **DPDP Act 2023 export boundary**.
+
+- `detect(text, person_names) -> [span]` — non-overlapping spans, earliest-start wins with
+  longest-match tiebreak. Structured identifiers by regex (EMAIL, PAN, AADHAAR, EMPLOYEE_ID,
+  SHIFT_ID, Indian PHONE); PERSON names supplied by the caller from `NERService`, so there is
+  no second name model.
+- `redact(text, person_names) -> {redacted_text, spans, counts, pii_found}` — masks each
+  distinct value with a **stable pseudonym** (`[PERSON_1]`), so cross-references in the text
+  survive redaction where a blanket `[REDACTED]` would destroy them. Offsets in `spans` refer
+  to the *original* text.
+
+**Runs at export, never at ingestion.** Operational knowledge legitimately contains personnel
+names — "which technician signed off the EQ-101 seal repair" is a real maintenance question
+(benchmark Q15) — so redacting on the way in would destroy retrieval. Equipment tags and part
+numbers are deliberately never matched; `tests/test_pii.py` pins that.
+
+Exposed via `GET /documents/{id}/redacted`, which also writes a `pii_redacted_export` row to
+`audit_log` (type counts only, never matched values).
+
+> **Scope:** `ARCHITECTURE.md` describes this pipeline as gating cross-site knowledge
+> promotion. No cross-site promotion endpoint exists in the codebase, so that wiring is not
+> built; the redaction pipeline itself is.
+
+### `shared_client` (`services/http.py`)
+
+Pooled outbound HTTP client for model-provider calls, replacing a per-call
+`httpx.AsyncClient` in `llm.py`, `ner.py`, `ocr.py` and `pid.py` — each of which meant a fresh
+TCP + TLS handshake per request, with no keep-alive and socket churn under concurrency.
+
+- `shared_client(default_timeout) -> AsyncClient` — **cached per event loop**, not globally. An
+  `AsyncClient` binds to the loop that created it, and this code runs under several: the FastAPI
+  loop and a fresh `asyncio.run()` loop per Celery task. A single global client would be handed
+  to a dead loop and raise. Limits: 32 connections, 16 keep-alive, 30 s expiry.
+- `close_shared_client()` — awaited from the FastAPI lifespan shutdown hook.
+
+> Always pass an explicit `timeout=` per request. The cached client keeps the *first* caller's
+> default, so a 30 s embedding call would otherwise cap a long NIM synthesis.
+
+Covered by `tests/test_http_pool.py`, including the loop-rebinding case.
 
 ### `metrics` (`services/metrics.py`)
 
@@ -639,7 +739,7 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 |-----|---------|-------------|
 | `NVIDIA_NIM_API_KEY` | `""` | Required for NIM synthesis, NER, and OCR |
 | `NVIDIA_NIM_MODEL` | `meta/llama-3.1-70b-instruct` | LLM synthesis |
-| `NVIDIA_NIM_NER_MODEL` | `mistralai/ministral-14b-instruct-2512` | NER extraction |
+| `NVIDIA_NIM_NER_MODEL` | `meta/llama-3.2-11b-vision-instruct` | NER extraction. Was `mistralai/ministral-14b-instruct-2512`, **deprecated by NVIDIA** — the endpoint hangs until timeout and `NERService` degrades silently to its regex fallback (ASSET_TAG only). Verify any replacement responds before switching. |
 | `NVIDIA_NIM_OCR_MODEL` | `nvidia/nemotron-ocr-v2` | OCR for scanned docs/images |
 | `NVIDIA_NIM_VISION_MODEL` | `meta/llama-3.2-11b-vision-instruct` | P&ID drawing → topology JSON (Layer 3, Path B) |
 | `NVIDIA_NIM_MAX_TOKENS` | `4096` | Set to `512` to avoid ReadTimeout |

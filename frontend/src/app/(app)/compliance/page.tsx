@@ -38,6 +38,31 @@ const COLUMNS: TableColumn<GapRow>[] = [
     ),
   },
   { key: "severity", label: "Severity", sortValue: (g) => SEV_RANK[g.severity], render: (g) => <StatusBadge tone={SEV_TONE[g.severity]}>{g.severity}</StatusBadge> },
+  {
+    key: "status",
+    label: "Finding",
+    sortable: true,
+    sortValue: (g) => (g.status === "gap" ? 0 : 1),
+    // Without this the two finding kinds render identically and the clause-scoped
+    // detection is invisible: "no evidence at all" reads the same as "evidence exists
+    // but nobody verified it", which are different remediations.
+    render: (g) =>
+      g.status === "unverified_evidence" ? (
+        <StatusBadge tone="caution">Unverified evidence</StatusBadge>
+      ) : (
+        <StatusBadge tone="danger">No evidence</StatusBadge>
+      ),
+  },
+  {
+    key: "requires_document_type",
+    label: "Requires",
+    render: (g) =>
+      g.requires_document_type?.length ? (
+        <span className="text-caption text-muted">{g.requires_document_type.join(", ").replace(/_/g, " ")}</span>
+      ) : (
+        "—"
+      ),
+  },
   { key: "requirement_text", label: "Requirement", render: (g) => truncate(g.requirement_text, "max-w-[320px]") },
   { key: "suggested_remediation", label: "Remediation", render: (g) => truncate(g.suggested_remediation, "max-w-[260px]") },
 ];

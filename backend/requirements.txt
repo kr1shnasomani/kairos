@@ -45,6 +45,12 @@ opentelemetry-instrumentation-httpx==0.45b0
 # --- PDF Processing ---
 PyMuPDF==1.24.5
 
+# --- Spreadsheet ingestion (.xlsx/.ods: work-order exports, asset registries) ---
+# Pure-python, read-only streaming. Hand-rolling zip+XML would silently mangle date
+# serials and shared strings on the way into the graph — not a corner to cut at an
+# ingestion trust boundary. Email archives (.eml/.mbox) need no dependency (stdlib).
+openpyxl==3.1.5
+
 # --- NLP / NER ---
 # NER via NIM (ministral-14b) — cloud only, no local model packages.
 
