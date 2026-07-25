@@ -53,6 +53,11 @@ jobs:
           key: ${{ runner.os }}-backend-${{ hashFiles('backend/requirements.txt', 'backend/Dockerfile') }}
           restore-keys: ${{ runner.os }}-backend-
 
+      # docker-compose.yml declares `env_file: [.env]`, so compose refuses to run without
+      # the file even for a job that needs no credentials. The example's defaults are enough.
+      - name: Create .env (no credentials needed)
+        run: cp .env.example .env
+
       - name: Build API image
         run: |
           docker buildx build \
@@ -74,6 +79,7 @@ jobs:
               tests/test_query_category.py \
               tests/test_search_fusion.py \
               tests/test_ingestion_formats.py \
+              tests/test_http_pool.py \
               tests/test_model_validation.py \
               tests/test_pid.py \
               tests/test_auth_cache.py \
@@ -181,5 +187,7 @@ jobs:
         run: docker compose --profile local-stores logs --tail=150
 
       - name: Tear down
-        if: always()
+        # Gate-scoped: when the job skips, no stack was started and no .env exists, so an
+        # unconditional `compose down` fails the job on a no-op.
+        if: always() && steps.gate.outputs.ready == 'true'
         run: docker compose --profile local-stores down -v
