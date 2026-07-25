@@ -749,6 +749,13 @@ safety-critical categories. Classifying server-side means the safety gate applie
 caller (frontend, benchmark, anything added later) rather than only to callers that remember
 to set it; previously nothing in the system set it, so the gate never fired.
 
+When **every** provider tier fails and any returned `HTTP 429`, the response carries
+`rate_limited: true` and a `message` naming the exhausted providers. An exhausted quota is an
+operational limit with a fix, not the model being wrong — unlabelled the two are
+indistinguishable, and a dead free tier reads as poor answer quality. (This is not
+hypothetical: repeated benchmark runs exhausted the Gemini free tier and dragged measured
+answer quality from 24/25 to 13/25 before the cause was visible.)
+
 The refusal gate clears on **either** of two signals, and refuses only when both fail:
 
 | Signal | Clears the gate when |

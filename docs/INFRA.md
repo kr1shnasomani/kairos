@@ -229,6 +229,9 @@ docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-a
   tests/test_model_validation.py tests/test_pid.py tests/test_auth_cache.py \
   tests/test_config_guardrail.py
 
+# Lint the backend exactly as CI does (pinned ruff + backend/ruff.toml)
+docker run --rm -v "$(pwd)/backend:/b" -w /b ghcr.io/astral-sh/ruff:0.16.0 check .
+
 # Validate the compliance Cypher against a local Neo4j (EXPLAIN + semantics)
 docker compose run --rm --no-deps -e NEO4J_URI=bolt://kairos-neo4j:7687 \
   -e NEO4J_USERNAME=neo4j -e NEO4J_PASSWORD=kairos_dev_password -e NEO4J_DATABASE=neo4j \

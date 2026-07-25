@@ -74,7 +74,10 @@ kairos/                          # repo root
 │   │   ├── seed_regulations.py      # Seeds 12 regulations into Neo4j
 │   │   ├── init_neo4j.py            # Neo4j schema constraints + indices
 │   │   ├── init_qdrant.py           # Qdrant collection creation
-│   │   ├── run_model_validation.py  # Entity-extraction F1 vs validation_corpus (Layer-0 model gate)
+│   │   ├── run_model_validation.py  # Entity-extraction F1 vs validation_corpus (Layer-0 model gate).
+│   │   │                             # NOTE: prints only — it does NOT write audit_log, so its
+│   │   │                             # results never appear on /system-benchmarks. Only the
+│   │   │                             # Celery task (POST /governance/model-gate/run) persists.
 │   │   ├── seed_validation_corpus.py # Seed NER ground-truth entities from canon (entity-F1 labels)
 │   │   ├── load_demo_dataset.py     # Load dataset/ via the real API pipeline; seeds aliases + NER corpus (`make load-dataset`)
 │   │   ├── purge_test_data.py       # Delete test-prefixed rows from all stores (`make purge-test-data`)
@@ -300,6 +303,13 @@ LLM synthesis + embedding. Never originates knowledge — only assembles retriev
 - `parse_synthesis_response(answer)` — extracts structured fields from LLM output
 - `parse_rca_response(answer)` — extracts `hypothesis|evidence_weight|sources` lines
 
+> **Every tier failing on 429 is reported as such.** Each provider tags a `rate_limited`
+> result; when the whole cascade fails and any tier was rate-limited, the response gets
+> `rate_limited: true` plus a message naming them. **The second tier is a free-tier Gemini
+> key**, so under sustained load answer quality degrades toward zero while retrieval keeps
+> working — configure Ollama as a genuine third tier, move Gemini to paid, or drop the cascade
+> so a NIM failure surfaces as an honest error.
+>
 > **Provider cascade (`_synthesize_cascade`): NIM → Gemini → Ollama.** Each tier is tried only if
 > configured and falls through to the next on failure (a NIM timeout counts as failure → auto-falls to
 > Gemini). Defaults ship with **only `NVIDIA_NIM_API_KEY` set, so it is NIM-only** — identical to before.

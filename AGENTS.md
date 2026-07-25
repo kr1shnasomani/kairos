@@ -175,6 +175,7 @@ produces false results.
 | `next build` fails on `/_global-error` (`useContext` null) | Next 16.2.10's **default** global-error page fails to prerender. Fixed by a custom `src/app/global-error.tsx` (client, own `<html>/<body>`, **inline styles only** — no providers/tokens exist at that level). Keep it self-contained; don't import app components or `next/image` there. |
 | `next build` exits 137 in the dev container | OOM — `kairos-frontend` is capped at **2 GB**, and a Turbopack production build needs more. Not a code error (compile + prerender succeed). CI (ubuntu-latest ~7 GB) and the Docker image build on the runner, not this container. To build locally, raise the container `mem_limit` or run on the host. |
 | `not-found.tsx` uses plain `<img>`, not `next/image` | The root not-found renders inside the `_global-error` boundary at build time, where `<Image>`'s config context is null → prerender crash. Use a plain `<img>` (eslint-disable `no-img-element`), same as `brand-link.tsx`. |
+| KPI tiles all show `0` | `useCountUp` (`lib/motion.ts`) animates via `requestAnimationFrame`, which browsers **pause in a hidden tab**. Its effect only re-runs when `target` changes, so a value that arrived while hidden never corrected — every `KpiCard` froze on its initial 0 across the whole app. Now commits on a timer when it cannot animate (timers are throttled in a hidden tab but do fire). Reproduce only with the tab backgrounded; a visible browser never shows it. |
 | API boot race on ES | `kairos-backend-api` runs `ensure_indices()` at startup and **exits** if ES isn't ready. If the API is down after `make dev`, `docker restart kairos-backend-api` once ES is healthy. |
 
 ### Cloud stores — Neo4j Aura · Qdrant · Supabase
@@ -232,7 +233,15 @@ produces false results.
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
 **Tests:** ~175 passed · 3 skipped · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
 
-**CI:** `tests.yml` is two tiers — **`unit`** runs 49 service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project; `scripts/setup-ci-secrets.sh` sets the secrets. `frontend.yml` (tsc·eslint·build·audit): tsc/eslint/build pass; the **audit step fails on transitive `next`/`sharp` advisories** with no non-breaking fix available upstream.
+**CI:** `tests.yml` is two tiers — **`unit`** runs 49 service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project; `scripts/setup-ci-secrets.sh` sets the secrets. `frontend.yml` (tsc·eslint·build·audit): tsc/eslint/build pass; the **audit step fails on transitive `next`/`sharp` advisories** with no non-breaking fix available upstream (`npm audit fix --force` would downgrade Next to v9).
+
+> **Ruff is pinned, and that is deliberate.** `lint.yml` had no version pin and there was no
+> config, so it ran with whatever rule set the newest release enabled — Linting went from green
+> to **608 errors on an unchanged tree** when 0.16.0 shipped. Rules now live in
+> `backend/ruff.toml` (`E`/`W`/`F`/`I`, py312, line-length 120). `UP006`/`UP035`
+> (`typing.Dict` → `dict`) is intentionally **not** selected: adopting PEP 585 would rewrite
+> ~280 annotations across every service and worker. Do it as its own reviewed change, then add
+> `"UP"`. Bump the pin in `lint.yml` deliberately, never implicitly.
 
 > Run tests **in Docker**, never on the host: `docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api pytest tests/<file> -q`.
 > Host runs resolve different package versions and produce false failures (`auth.test.ts` / `api.test.ts` fail on host, pass in-container).  
