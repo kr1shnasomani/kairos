@@ -10,10 +10,10 @@ NOTE: The OCR model uses a DIFFERENT base URL and request format than the chat/L
 
 import base64
 import io
-import structlog
 from typing import Any, Dict, List, Optional
 
 import httpx
+import structlog
 
 from api.services.http import shared_client
 

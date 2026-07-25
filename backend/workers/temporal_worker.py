@@ -10,7 +10,7 @@ import os
 
 import structlog
 from temporalio.client import Client
-from temporalio.worker import Worker, UnsandboxedWorkflowRunner
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from workflows.document_pipeline import (
     DocumentIngestionWorkflow,

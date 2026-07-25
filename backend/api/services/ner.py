@@ -9,7 +9,6 @@ import os
 import re
 from typing import Any, Dict, Optional
 
-import httpx
 import structlog
 
 from api.services.http import shared_client

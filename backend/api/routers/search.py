@@ -20,7 +20,7 @@ from api.dependencies import (
 )
 from api.models.document import RCAPackRequest, RCAPackResponse, SearchResponse, SynthesizeRequest, SynthesizeResponse
 from api.services.graph import GraphService
-from api.services.llm import LLMService, SAFETY_CRITICAL_CATEGORIES
+from api.services.llm import SAFETY_CRITICAL_CATEGORIES, LLMService
 from api.services.search_engine import SearchEngineService
 from api.services.search_service import SearchService
 from api.services.vector_store import VectorStoreService

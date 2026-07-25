@@ -26,10 +26,11 @@ def main() -> None:
 
 
 async def _run(model_name: str) -> dict:
-    from api.config import Settings
-    from api.services.ner import NERService
     from elasticsearch import AsyncElasticsearch
     from supabase import create_client
+
+    from api.config import Settings
+    from api.services.ner import NERService
     from workers.model_validation import evaluate
 
     settings = Settings()

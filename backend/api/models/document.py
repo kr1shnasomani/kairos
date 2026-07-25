@@ -4,6 +4,7 @@ Pydantic models — Document (Layer 2: Immutable Vault, Layer 3: Extraction)
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 

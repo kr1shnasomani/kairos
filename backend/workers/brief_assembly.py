@@ -6,9 +6,11 @@ same asset to be batched into a single contextual brief.
 
 import asyncio
 import sys
+
 sys.path.insert(0, "/app")
 
 import structlog
+
 from workers.celery_app import celery_app
 
 log = structlog.get_logger(__name__)
@@ -31,14 +33,15 @@ def assemble_brief(event_type: str, event_dict: dict) -> str:
 
 
 async def _assemble(event_type: str, event_dict: dict) -> str:
-    from api.config import Settings
-    from api.services.brief_engine import BriefEngine
-    from api.models.event import WorkOrderEvent, PTWEvent, ShiftHandoverEvent
+    import redis.asyncio as aioredis
+    from elasticsearch import AsyncElasticsearch
     from neo4j import AsyncGraphDatabase
     from qdrant_client import AsyncQdrantClient
-    from elasticsearch import AsyncElasticsearch
     from supabase import create_client
-    import redis.asyncio as aioredis
+
+    from api.config import Settings
+    from api.models.event import PTWEvent, ShiftHandoverEvent, WorkOrderEvent
+    from api.services.brief_engine import BriefEngine
 
     settings = Settings()
 

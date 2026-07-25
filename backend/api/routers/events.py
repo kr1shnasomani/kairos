@@ -11,7 +11,16 @@ import shortuuid
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, QdrantDep, RedisDep, SettingsDep, SupabaseDep, require_role
+from api.dependencies import (
+    CurrentUserDep,
+    ElasticsearchDep,
+    Neo4jDep,
+    QdrantDep,
+    RedisDep,
+    SettingsDep,
+    SupabaseDep,
+    require_role,
+)
 from api.models.event import (
     AlarmEvent,
     DeviationFlagEvent,
