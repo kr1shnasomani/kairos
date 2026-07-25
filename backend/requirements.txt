@@ -52,7 +52,7 @@ PyMuPDF==1.24.5
 openpyxl==3.1.5
 
 # --- NLP / NER ---
-# NER via NIM (ministral-14b) — cloud only, no local model packages.
+# NER via NIM (llama-3.2-11b-vision) — cloud only, no local model packages.
 
 # --- Image handling (rasterize/downscale P&ID drawings for the Layer 3 vision model) ---
 # P&ID topology extraction uses a cloud VLM (Path B) — see ARCHITECTURE.md Layer 3.
@@ -60,7 +60,7 @@ openpyxl==3.1.5
 # opencv/scipy/scikit-learn/pandas) was Path A (local GPU) and is intentionally NOT
 # installed here — it is pinned in requirements-cv.txt for a future GPU-backed
 # drawing-parser service. numpy + Pillow stay below for P&ID image handling.
-Pillow==10.3.0
+Pillow==12.3.0
 numpy==1.26.4
 
 # --- Utilities ---
