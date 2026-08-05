@@ -31,7 +31,7 @@ flower==2.0.1
 temporalio==1.6.0
 
 # --- HTTP / Async ---
-aiohttp==3.9.5
+aiohttp==3.14.3
 anyio==4.4.0
 
 # --- Observability ---
