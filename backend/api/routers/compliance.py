@@ -4,7 +4,6 @@ Maps facility regulatory framework against current procedures, equipment states,
 and inspection records. High-recall by design: errs toward flagging over clearing.
 """
 
-from typing import Optional
 
 from fastapi import APIRouter, Query
 
@@ -152,11 +151,11 @@ ORDER BY reg.clause_id ASC
 async def list_compliance_gaps(
     current_user: CurrentUserDep,
     driver: Neo4jDep,
-    framework: Optional[str] = Query(None, description="Regulatory framework: OISD_117, ISO_45001, etc."),
-    asset_id: Optional[str] = Query(None),
-    site_id: Optional[str] = Query(None),
-    severity: Optional[str] = Query(None, description="critical, major, minor"),
-    status: Optional[str] = Query(None, description="gap (no evidence) or unverified_evidence"),
+    framework: str | None = Query(None, description="Regulatory framework: OISD_117, ISO_45001, etc."),
+    asset_id: str | None = Query(None),
+    site_id: str | None = Query(None),
+    severity: str | None = Query(None, description="critical, major, minor"),
+    status: str | None = Query(None, description="gap (no evidence) or unverified_evidence"),
     limit: int = Query(100, le=500),
     offset: int = Query(0),
 ) -> dict:
@@ -202,7 +201,7 @@ async def list_compliance_gaps(
 async def compliance_dashboard(
     current_user: CurrentUserDep,
     driver: Neo4jDep,
-    site_id: Optional[str] = Query(None),
+    site_id: str | None = Query(None),
 ) -> dict:
     """
     Aggregated compliance gap counts by severity, framework, and equipment class.
@@ -253,7 +252,7 @@ async def generate_audit_pack(
     current_user: CurrentUserDep,
     driver: Neo4jDep,
     framework: str = Query(..., description="Target regulatory framework, e.g. OISD_117"),
-    clauses: Optional[list[str]] = Query(None, description="Specific clause IDs; omit for all clauses in framework"),
+    clauses: list[str] | None = Query(None, description="Specific clause IDs; omit for all clauses in framework"),
 ) -> dict:
     """
     Assembles evidence package per regulatory clause.

@@ -1,12 +1,12 @@
 """
-LLM service — synthesis (Layer 11). Provider cascade: NVIDIA NIM → Gemini → Ollama.
+LLM service — synthesis (Layer 11). Provider cascade: NVIDIA NIM → OpenRouter → Gemini → Ollama.
 Implements the synthesis layer with mandatory source citation enforcement
 and explicit refusal for safety-critical parameter queries.
 """
 
 import re
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import httpx
 import structlog
@@ -31,12 +31,12 @@ class _LRU:
     """
 
     def __init__(self, maxsize: int = 512) -> None:
-        self._data: "OrderedDict[Tuple[str, str], List[float]]" = OrderedDict()
+        self._data: OrderedDict[tuple[str, str], list[float]] = OrderedDict()
         self._maxsize = maxsize
         self.hits = 0
         self.misses = 0
 
-    def get(self, key: Tuple[str, str]) -> Optional[List[float]]:
+    def get(self, key: tuple[str, str]) -> list[float] | None:
         if key in self._data:
             self._data.move_to_end(key)
             self.hits += 1
@@ -44,7 +44,7 @@ class _LRU:
         self.misses += 1
         return None
 
-    def put(self, key: Tuple[str, str], value: List[float]) -> None:
+    def put(self, key: tuple[str, str], value: list[float]) -> None:
         if not value:
             return  # never cache a failed embedding
         self._data[key] = value
@@ -73,7 +73,7 @@ SAFETY_CRITICAL_CATEGORIES = {
 # ponytail: keyword classifier, deterministic and testable. Swap for an LLM
 # classifier only if real queries start missing — every miss here silently
 # disables the safety gate, so a miss must be cheap to reproduce in a test.
-_CATEGORY_PATTERNS: List[tuple[str, tuple[str, ...]]] = [
+_CATEGORY_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("pressure_relief_setting", (
         "relief valve", "relief setting", "relief set", "psv", " prv", "rupture disc",
         "safety valve", "set pressure", "popping pressure",
@@ -109,6 +109,51 @@ _CATEGORY_PATTERNS: List[tuple[str, tuple[str, ...]]] = [
 # the case the refusal gate exists for.
 AUTHORITATIVE_LEVEL = 3
 
+# How many of the most-relevant context items may vouch for a safety-critical answer.
+_AUTHORITY_TOP_K = 3
+
+
+def _authority_candidates(context: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    The context items permitted to clear the safety gate.
+
+    The gate used to take `min(authority_level)` over the **whole** retrieved context, making it a
+    property of the context *set* rather than of the evidence supporting the answer: one unrelated
+    authoritative document anywhere in the context cleared it, and in the live copilot that was the
+    normal case, so the gate almost never fired.
+
+    Two filters, both derived from measured behaviour on the real corpus
+    (query: "Which valves make up the isolation boundary for V-247?"):
+
+      1. **Most relevant only.** Ranked by `relevance_score` (the RRF fusion score), NOT by
+         position — `SearchService` sorts by `(authority_level, -rrf)`, so the most authoritative
+         document is always first and a top-K-by-position filter would be a no-op. This drops the
+         generic L1 "Applicable Standards and Statutory Provisions" list, which measured as the
+         *least* relevant hit (rrf 0.0156) yet was clearing every safety refusal.
+
+      2. **Same asset as the best evidence.** Relevance alone was not enough: two Fischer OEM
+         bulletins (L3, rrf ~0.031) about `EQ-101` centrifugal-pump seals still ranked inside the
+         top 3 for a question about a `V-247` valve, and an OEM bulletin for different equipment
+         cannot vouch for this one. The target asset is taken from the highest-relevance item.
+
+    Deliberately conservative in both directions: a document with no `asset_id` never vouches when
+    a target asset is known, and when nothing carries a `relevance_score` the whole context is
+    returned — i.e. previous behaviour — because callers that assemble context by hand (graph
+    facts, elicitation) never knew to send these fields, and silently re-scoping their refusals
+    would change safety behaviour based on a field they do not set.
+    """
+    scored = [r for r in context if r.get("relevance_score") is not None]
+    if not scored:
+        return list(context)
+
+    ranked = sorted(scored, key=lambda r: r.get("relevance_score") or 0.0, reverse=True)
+    top = ranked[:_AUTHORITY_TOP_K]
+
+    target_asset = ranked[0].get("asset_id")
+    if not target_asset:
+        return top
+    return [r for r in top if r.get("asset_id") == target_asset] or [ranked[0]]
+
 
 class LLMService:
     """
@@ -118,11 +163,11 @@ class LLMService:
 
     def __init__(self, settings: Settings):
         self.settings = settings
-        self._nim_client: Optional[httpx.AsyncClient] = None
-        self._ollama_client: Optional[httpx.AsyncClient] = None
+        self._nim_client: httpx.AsyncClient | None = None
+        self._ollama_client: httpx.AsyncClient | None = None
 
     @staticmethod
-    def classify_query_category(query: str) -> Optional[str]:
+    def classify_query_category(query: str) -> str | None:
         """
         Maps a free-text query onto a safety-critical category key, or None.
 
@@ -148,13 +193,17 @@ class LLMService:
     def gemini_available(self) -> bool:
         return bool(self.settings.GEMINI_API_KEY)
 
+    @property
+    def openrouter_available(self) -> bool:
+        return bool(self.settings.OPENROUTER_API_KEY)
+
     async def synthesize(
         self,
         query: str,
-        retrieved_context: List[Dict[str, Any]],
-        query_category: Optional[str] = None,
+        retrieved_context: list[dict[str, Any]],
+        query_category: str | None = None,
         confidence_threshold: float = 0.7,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Synthesizes an answer from retrieved context with mandatory source citations.
 
@@ -169,7 +218,8 @@ class LLMService:
         # otherwise read as confidence 0.0 and refuse every safety query.
         if query_category in SAFETY_CRITICAL_CATEGORIES:
             max_confidence = max((r.get("confidence") or 0.0 for r in retrieved_context), default=0.0)
-            best_authority = min((r.get("authority_level") or 5 for r in retrieved_context), default=5)
+            gate_context = _authority_candidates(retrieved_context)
+            best_authority = min((r.get("authority_level") or 5 for r in gate_context), default=5)
             if max_confidence < confidence_threshold and best_authority > AUTHORITATIVE_LEVEL:
                 log.info(
                     "synthesis.safety_critical_refusal",
@@ -206,7 +256,7 @@ class LLMService:
         # Provider cascade: NIM → Gemini → Ollama
         return await self._synthesize_cascade(prompt, retrieved_context)
 
-    def _format_context(self, context: List[Dict[str, Any]]) -> str:
+    def _format_context(self, context: list[dict[str, Any]]) -> str:
         """Formats retrieved chunks into a structured context block."""
         blocks = []
         for i, chunk in enumerate(context, 1):
@@ -236,7 +286,7 @@ CONFIDENCE: [0.0-1.0]
 UNCERTAINTY: [anything you are not certain about]
 SOURCES_USED: [comma-separated source numbers]"""
 
-    async def _synthesize_nim(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _synthesize_nim(self, prompt: str, context: list[dict[str, Any]]) -> dict[str, Any]:
         """Calls NVIDIA NIM (OpenAI-compatible API)."""
         try:
             client = shared_client(self.settings.NVIDIA_NIM_TIMEOUT)
@@ -263,7 +313,7 @@ SOURCES_USED: [comma-separated source numbers]"""
             log.error("nim.synthesis_failed", error=str(e), exc_type=type(e).__name__, rate_limited=rate_limited)
             return {"answer": None, "error": str(e), "sources": context, "rate_limited": rate_limited, "failed_provider": "nim"}
 
-    async def _synthesize_ollama(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _synthesize_ollama(self, prompt: str, context: list[dict[str, Any]]) -> dict[str, Any]:
         """Calls local Ollama (fallback for offline/air-gapped deployments)."""
         try:
             client = shared_client(60.0)
@@ -280,15 +330,22 @@ SOURCES_USED: [comma-separated source numbers]"""
             log.error("ollama.synthesis_failed", error=str(e), rate_limited=rate_limited)
             return {"answer": None, "error": str(e), "sources": context, "rate_limited": rate_limited, "failed_provider": "ollama"}
 
-    async def _synthesize_cascade(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Provider cascade: NIM → Gemini → Ollama. Each tier is tried only if
+    async def _synthesize_cascade(self, prompt: str, context: list[dict[str, Any]]) -> dict[str, Any]:
+        """Provider cascade: NIM → OpenRouter → Gemini → Ollama. Each tier is tried only if
         configured; on failure (answer is None) it falls through to the next. With
-        only NVIDIA_NIM_API_KEY set, this is NIM-only — same behaviour as before."""
-        result: Optional[Dict[str, Any]] = None
-        attempts: Dict[str, Dict[str, Any]] = {}
+        only NVIDIA_NIM_API_KEY set, this is NIM-only — same behaviour as before.
+
+        OpenRouter sits ahead of Gemini deliberately: it serves the same llama-3.1-70b as tier 1,
+        so falling through to it preserves *which model answered*, while Gemini is a different
+        model family and makes a run's answer-quality figure a blend of two models."""
+        result: dict[str, Any] | None = None
+        attempts: dict[str, dict[str, Any]] = {}
         if self.nim_available:
             result = await self._synthesize_nim(prompt, context)
             attempts["nim"] = result
+        if (result is None or result.get("answer") is None) and self.openrouter_available:
+            result = await self._synthesize_openrouter(prompt, context)
+            attempts["openrouter"] = result
         if (result is None or result.get("answer") is None) and self.gemini_available:
             result = await self._synthesize_gemini(prompt, context)
             attempts["gemini"] = result
@@ -300,7 +357,8 @@ SOURCES_USED: [comma-separated source numbers]"""
                 "answer": None,
                 "sources": context,
                 "confidence": None,
-                "message": "No LLM configured. Set NVIDIA_NIM_API_KEY, GEMINI_API_KEY, or OLLAMA_BASE_URL.",
+                "message": ("No LLM configured. Set NVIDIA_NIM_API_KEY, OPENROUTER_API_KEY, "
+                            "GEMINI_API_KEY, or OLLAMA_BASE_URL."),
             }
 
         # Every tier failed. Say *why* — a provider that returned 429 is an exhausted quota,
@@ -308,7 +366,8 @@ SOURCES_USED: [comma-separated source numbers]"""
         # unlabelled these are indistinguishable: the benchmark scores both as a miss and the
         # UI shows both as "no answer", so a dead free tier looks like poor answer quality.
         if result.get("answer") is None:
-            limited = [p for p in ("nim", "gemini", "ollama") if attempts.get(p, {}).get("rate_limited")]
+            limited = [p for p in ("nim", "openrouter", "gemini", "ollama")
+                       if attempts.get(p, {}).get("rate_limited")]
             if limited:
                 result["rate_limited"] = True
                 result["message"] = (
@@ -318,7 +377,39 @@ SOURCES_USED: [comma-separated source numbers]"""
                 log.warning("synthesis.all_providers_rate_limited", providers=limited)
         return result
 
-    async def _synthesize_gemini(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _synthesize_openrouter(self, prompt: str, context: list[dict[str, Any]]) -> dict[str, Any]:
+        """
+        Calls OpenRouter — tier 2, tried before Gemini because it serves the same
+        meta-llama/llama-3.1-70b-instruct as tier 1, so falling back here does not change which
+        model the answer came from.
+        """
+        try:
+            client = shared_client(self.settings.OPENROUTER_TIMEOUT)
+            response = await client.post(
+                f"{self.settings.OPENROUTER_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.settings.OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.settings.OPENROUTER_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": self.settings.NVIDIA_NIM_MAX_TOKENS,
+                    "temperature": self.settings.NVIDIA_NIM_TEMPERATURE,
+                },
+                timeout=self.settings.OPENROUTER_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+            answer_text = data["choices"][0]["message"]["content"]
+            return {"answer": answer_text, "sources": context, "model": "openrouter", "raw": data}
+        except Exception as e:
+            rate_limited = isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429
+            log.error("openrouter.synthesis_failed", error=str(e), exc_type=type(e).__name__, rate_limited=rate_limited)
+            return {"answer": None, "error": str(e), "sources": context, "rate_limited": rate_limited,
+                    "failed_provider": "openrouter"}
+
+    async def _synthesize_gemini(self, prompt: str, context: list[dict[str, Any]]) -> dict[str, Any]:
         """Calls Gemini via Google's OpenAI-compatible endpoint — fallback when NIM fails."""
         try:
             client = shared_client(90.0)
@@ -346,7 +437,7 @@ SOURCES_USED: [comma-separated source numbers]"""
             return {"answer": None, "error": str(e), "sources": context, "rate_limited": rate_limited, "failed_provider": "gemini"}
 
     @staticmethod
-    def parse_synthesis_response(text: str) -> Dict[str, Any]:
+    def parse_synthesis_response(text: str) -> dict[str, Any]:
         """
         Extracts structured fields from the synthesis prompt output.
         Expected format (from _build_synthesis_prompt):
@@ -355,7 +446,7 @@ SOURCES_USED: [comma-separated source numbers]"""
           UNCERTAINTY: ...
           SOURCES_USED: 1, 2, 3
         """
-        out: Dict[str, Any] = {"answer": None, "confidence": None, "uncertainty": None, "sources_used": []}
+        out: dict[str, Any] = {"answer": None, "confidence": None, "uncertainty": None, "sources_used": []}
         for key, field in [
             ("ANSWER", "answer"),
             ("CONFIDENCE", "confidence"),
@@ -376,9 +467,9 @@ SOURCES_USED: [comma-separated source numbers]"""
     async def rca_synthesize(
         self,
         failure_code: str,
-        timeline: List[Dict[str, Any]],
-        evidence: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        timeline: list[dict[str, Any]],
+        evidence: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """
         Generates an RCA pack via NIM/Ollama.
         Returns raw LLM answer dict; caller parses hypotheses via parse_rca_response().
@@ -417,7 +508,7 @@ UNCERTAINTY: [what is not yet known or requires further investigation]"""
         return await self._synthesize_cascade(prompt, evidence)
 
     @staticmethod
-    def parse_rca_response(text: str) -> Dict[str, Any]:
+    def parse_rca_response(text: str) -> dict[str, Any]:
         """
         Parses LLM RCA output into structured hypotheses list.
         Expected format from rca_synthesize prompt:
@@ -425,7 +516,7 @@ UNCERTAINTY: [what is not yet known or requires further investigation]"""
           1. text | evidence_weight: 0.8 | sources: DOC-A, DOC-B
           CONFIDENCE: 0.75
         """
-        hypotheses: List[Dict[str, Any]] = []
+        hypotheses: list[dict[str, Any]] = []
 
         hyp_match = re.search(r"HYPOTHESES:\n(.*?)(?=\n[A-Z]+:|$)", text, re.DOTALL)
         if hyp_match:
@@ -436,7 +527,7 @@ UNCERTAINTY: [what is not yet known or requires further investigation]"""
                 parts = [p.strip() for p in line.split("|")]
                 hyp_text = re.sub(r"^\d+\.\s*", "", parts[0]).strip()
                 weight = 0.5
-                sources: List[str] = []
+                sources: list[str] = []
                 for part in parts[1:]:
                     if "evidence_weight" in part:
                         m = re.search(r"[\d.]+", part.split(":", 1)[-1])
@@ -460,7 +551,7 @@ UNCERTAINTY: [what is not yet known or requires further investigation]"""
     def jina_available(self) -> bool:
         return bool(self.settings.JINA_API_KEY)
 
-    async def embed(self, text: str, task: str = "retrieval.passage") -> List[float]:
+    async def embed(self, text: str, task: str = "retrieval.passage") -> list[float]:
         """
         Generates text embeddings (1024-dim, jina-embeddings-v3).
         Primary: Jina AI — keeps NIM key reserved for LLM synthesis.
@@ -471,7 +562,7 @@ UNCERTAINTY: [what is not yet known or requires further investigation]"""
             return await self._embed_jina(text, task)
         return await self._embed_ollama(text)
 
-    async def _embed_jina(self, text: str, task: str) -> List[float]:
+    async def _embed_jina(self, text: str, task: str) -> list[float]:
         cache_key = (task, text)
         cached = _EMBED_CACHE.get(cache_key)
         if cached is not None:
@@ -500,7 +591,7 @@ UNCERTAINTY: [what is not yet known or requires further investigation]"""
         _EMBED_CACHE.put(cache_key, vector)
         return vector
 
-    async def _embed_ollama(self, text: str) -> List[float]:
+    async def _embed_ollama(self, text: str) -> list[float]:
         try:
             client = shared_client(30.0)
             response = await client.post(

@@ -67,11 +67,11 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 | Database schemas | `docs/DATABASE.md` |
 | Frontend routes & wiring | `docs/FRONTEND.md` |
 | **Frontend implementation plan** | **`docs/implementation/FE.md`** |
-| Mock-data fallbacks + demo chip | `docs/FIXTURES.md` |
+| ~~Mock-data fallbacks + demo chip~~ — **historical**; the fixture modules and `DemoChip` were deleted 2026-08-15 | `docs/FIXTURES.md` |
 | Integration test suite | `docs/TESTS.md` |
 | Golden demo dataset + loader | `docs/DATASET.md` |
 | Benchmarks + evaluation (harness → `benchmark/`, results → `benchmark/RESULTS.md`) | `docs/BENCHMARKS.md` |
-| **Production deploy** (Vercel FE · AWS EC2 backend · cloud stores · Neo4j keep-alive cron) | **`DEPLOY.md`** |
+| Production deploy — **OUT OF SCOPE** (user decision 2026-08-15; kept for reference). The Aura keep-alive is done and independent of deploy (`.github/workflows/uptime.yml`). | `DEPLOY.md` |
 
 ---
 
@@ -80,6 +80,13 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 **Backend:** FastAPI (Python 3.12) · **Neo4j Aura (cloud)** · **Qdrant Cloud** · ES 8.13 · Redis 7.2 · Temporal · Celery · Go (Gin) · OPA · **OTEL → Grafana Cloud** · Supabase (Postgres + Storage + Auth + Vault)  
 **Frontend:** Next.js 16 · React 19 · Tailwind CSS **v4** (not v3) · TypeScript strict · `node:20-alpine`  
 **Models (cloud only — no local packages):** LLM → NIM `meta/llama-3.1-70b-instruct` | NER → NIM `meta/llama-3.2-11b-vision-instruct` | OCR → NIM `nvidia/nemotron-ocr-v2` | Embed → Jina `jina-embeddings-v3` | STT → Groq `whisper-large-v3` — all names in `.env`
+
+> **Synthesis cascade: NIM → OpenRouter → Gemini → Ollama.** OpenRouter sits ahead of Gemini on
+> purpose — it serves the *same* `llama-3.1-70b`, so a fallthrough does not change which model
+> answered. Gemini is a different model family, which is why a Gemini-heavy benchmark run has to be
+> flagged as a confound. `NVIDIA_NIM_TIMEOUT` is **60 s**: it must stay under the frontend's 90 s
+> budget for `POST /search/synthesize`, because a fallthrough costs cap + fallback (observed +11.6 s)
+> and a 90 s cap put fallbacks at 92–102 s, i.e. aborted in the browser.
 
 > **Cloud stores:** Neo4j (Aura), Qdrant (Cloud), Supabase, and Grafana (Cloud observability) are cloud
 > services — creds in `.env` only. Local Neo4j/Qdrant containers are profile-gated (`--profile local-stores`);
@@ -96,7 +103,7 @@ Gotcha rebuilds: `docker compose up -d --no-deps --build kairos-frontend` (new n
 
 **Tests — Docker only, never the host.** Host package resolution differs from the pinned images and
 produces false results.
-- Service-free tier (65 tests, no stack, no secrets, no network — what CI's `unit` job runs):
+- Service-free tier (**68 tests**, no stack, no secrets, no network — what CI's `unit` job runs):
   `docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,model_validation,pid,auth_cache,config_guardrail}.py`
 - Full suite (needs the stack; **local stores only, never cloud**):
   `docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120`
@@ -111,7 +118,7 @@ produces false results.
 - Colors from `var(--token)` only. Never hardcode hex. One component, two palettes (light/dark tokens).
 - No new npm deps unless the task names one. React Flow is the only pre-approved addition.
 - SSR: `API_INTERNAL_URL` for server components; `NEXT_PUBLIC_API_URL` for browser. Never hardcode.
-- **Live-only data policy.** Fetchers return `{ data, source }`; `useFetch` maps `source:"demo"` (fixture fallback) → **error state** — the app shows real data, a loading skeleton, or error+retry, never a fixture. Reads time out at 4000 ms (`getJson`), writes at 8000 ms (`postJson`). Flatten backend shapes inside the `api.ts` fetcher (adapter layer).
+- **Live-only data policy — there are no fixtures left to fall back to.** `DataSource` is a single member (`"live"`) and `FetchState` has no `demo` case, so a fallback cannot be reintroduced without a type error. Fetchers **throw** on failure; the app shows real data, a loading skeleton, or error+retry. `lib/{fixtures,assets,governance,documents,events,compliance}.ts` and `DemoChip` were deleted 2026-08-15 — three of those paths were still rendering fabricated data on *successful* requests. Reads time out at 4000 ms (`getJson`), writes at 8000 ms (`postJson`); `synthesize()` gets 90 000 ms. Flatten backend shapes inside the `api.ts` fetcher (adapter layer).
 - **A fetcher that does NOT return `Fetched<>` is outside `useFetch`'s guard — it must `throw`.** `synthesize()` and `getRcaPack()` return bare values, so the guard never covered them; they used to return invented answers on failure. Never add a fixture fallback to a bare-value fetcher. `lib/rca.ts` `rcaFor` is **test-only**; importing it from `api.ts` reintroduces the bug.
 - **Backend fixture fallbacks must be disclosed in the UI.** A `source:"live"` response can still carry fixture content (P&ID `topology_source: "demo_fixture"`). Surface the flag; don't let it render as extracted data.
 - **Safety-critical = `RefusalCard` only.** Never a hedged answer. Never a fixture masking a real refusal.
@@ -124,6 +131,7 @@ produces false results.
 - Quarantine: one-way gate. `confidence < 0.7` → quarantine. Human-only promotion. No auto-promote.
 - Assets: `MERGE (a:Asset {asset_id: $id}) SET a += $props` — never CREATE.
 - Phase 2 synthesis **only** in `POST /search/synthesize` — never auto-triggered. The endpoint **derives `query_category`** when the caller omits it, so the safety-critical refusal gate applies to every caller; the gate clears on confidence ≥ 0.7 **or** authority ≤ 3 (a confidence-only gate refuses everything, since hybrid/graph hits carry no `confidence`).
+- **Only *relevant, same-asset* evidence may clear the safety gate** (`_authority_candidates`, `services/llm.py`). It used to take `min(authority_level)` over the whole context, so one unrelated authoritative document anywhere in it defeated the refusal — and with top-6 hybrid hits that was the normal case, so the gate almost never fired. Rank by `relevance_score`, **never by position**: `SearchService` sorts by `(authority_level, -rrf)`, so the most authoritative doc is always first and a top-K-by-position filter is a no-op. Callers that want the tight gate must pass `relevance_score`; context without it keeps the old behaviour.
 - **Compliance findings are clause-scoped.** A gap means no document of that clause's `requires_document_type` is linked to the asset — never "the asset has no verified procedure at all", which flagged every (regulation × asset) pair unconditionally.
 - **PII redaction runs at export, never at ingestion.** Names are legitimate operational knowledge ("which technician signed off…"); redacting on ingest breaks retrieval. `services/pii.py` → `GET /documents/{id}/redacted`, audited to `audit_log` with type counts only.
 - **Outbound model calls use `shared_client()`** (`services/http.py`) — pooled **per event loop**, never a per-call `AsyncClient` and never a global one (Celery runs a fresh loop per task). Always pass an explicit `timeout=` per request; the cached client keeps the first caller's default.
@@ -187,7 +195,7 @@ produces false results.
 | **`--profile local-stores` Neo4j crash-loops** | Neo4j rejects any initial admin username but literally `neo4j` (`Invalid admin username, it must be neo4j`). Compose used to interpolate `${NEO4J_USERNAME}`, so the local container died whenever `.env` pointed at Aura — exactly when you want local stores. Now hardcoded to `neo4j` + `NEO4J_LOCAL_PASSWORD`. To point the app at it, also set `NEO4J_USERNAME=neo4j` / `NEO4J_PASSWORD=$NEO4J_LOCAL_PASSWORD`. |
 | **What the benchmark writes** | `run_benchmark.py` + `verify_layers.py` write **only `audit_log` rows** (one per synthesis, ~26 total) — append-only, no golden data touched, no schema change. `run_model_validation.py` and `run_compliance_eval.py` are read-only. Safe to run against cloud; it does spend NIM/Jina quota. |
 | Seed cloud (run once) | `make init-all` (schema + Qdrant collections **+ payload indexes**) → `make seed` (regulations + users) → `make load-dataset`. Idempotent. Doc pipelines are async — re-run `scripts/seed_validation_corpus.py` ~30 s after load (validation_corpus needs ES content indexed first). |
-| Neo4j Aura keep-alive | Aura Free pauses after 3 days idle. Point cron-job.org (daily) at `/health/detailed` — it pings Neo4j and resets the timer. |
+| Neo4j Aura keep-alive | Aura Free pauses after 3 days idle. **Handled by `.github/workflows/uptime.yml`** (daily 03:17 UTC) — it queries Aura *directly* with the driver, so it works whether or not a backend is deployed. Needs repo secrets `NEO4J_URI`/`NEO4J_USERNAME`/`NEO4J_PASSWORD`/`NEO4J_DATABASE`. GitHub disables scheduled workflows after 60 days of repo inactivity. |
 | Neo4j `SessionExpired` / "defunct connection" | **Different** from the 3-day pause: Aura closes **idle connections** (minutes) → the next query on a stale pooled connection 500s (intermittent on `compliance/dashboard`, `/assets/{id}/knowledge`, graph, blast-radius). Fixed in `dependencies.py` with driver pool hygiene: `liveness_check_timeout=30` + `max_connection_lifetime=300`. The daily cron does **not** fix this — the driver config does. |
 
 ### Feature-specific — endpoints, roles & pages
@@ -198,9 +206,11 @@ produces false results.
 | Model-gate run "does nothing" | `POST /governance/model-gate/run` only **enqueues** a Celery task that evaluates the NER model over the whole validation corpus (a NIM call per item) — it runs **~2.5 min**. `model_name` is optional (defaults to `NVIDIA_NIM_NER_MODEL`). The page shows a "queued" banner, disables the button, polls history every 20s, and auto-refreshes when the run lands. History endpoint returns raw audit rows `{items}` (contract-locked) → `api.ts` `getModelGateHistory` flattens to `{history:[ModelGateResult]}`. |
 | `POST /search/rca-pack` slow (~90s) | NIM 70B; returns empty + `synthesis_available:false` when the graph lacks history → RCA page shows honest "Synthesis unavailable". Not a bug. |
 | Off-boarding shapes | List `{items,total}` (item `id`/`total_sessions`); detail adds `session_items[]`. Route `[sessionId]` = **programme id** (select items in-page). Questions are `string[]`; responses `{item_id, responses:[{question_index,answer}]}`. Detail fetch uses a 6 s timeout (slow Supabase). Loader seeds a demo programme. |
-| Field routes | `FieldBottomTabs` is `field_worker`-gated (`use-role.ts`). Tabs: Briefs·Copilot·Assets·Voice·**Me (=sign-out)**. `/field/voice` has its own index page. SW offline is prod-only; the IndexedDB write queue (`idb.ts`) is app-level, works in dev. |
+| Field routes | **There is no mobile bottom tab bar.** `BottomTabs` was deleted from `app-shell.tsx` on 2026-08-15 — it had been commented out since the mobile UX was deferred, so it was neither shipped nor removed. Mobile navigates via the hamburger sidebar; recover the component from git history if it is revived. There is no `FieldBottomTabs`; that name is from an older revision. Field gating itself is live: `role === "field_worker"` (`use-role.ts` `FIELD_ROLES`, `roleHome` → `/briefs`). Routes under `/field`: `deviation`, `elicitation`, `voice`. SW offline is prod-only; the IndexedDB write queue (`idb.ts`) is app-level and works in dev. |
 | Role-based route access | Enforced centrally in `AppShell` via `routeAllowed(path, role)` + `roleHome(role)` in `use-role.ts` (one guard, not per-page). Staff surfaces need engineer/reliability/admin; `/system-health` is admin-only; a field worker hitting a gated URL is redirected to `/briefs`. Unlisted paths are open to all authed. |
 | System Health page | `/system-health` (admin). Probes 11 cheap read-only API GETs + `/health/detailed` every 30s. Search is **excluded** from the always-on set (it embeds via Jina = rate-limited). Opt-in "AI models" section toggles NIM/Gemini/Jina/Groq via `GET /health/model?provider=…` (admin-only, once/min, off by default, `localStorage`-persisted). Never poll model probes by default — they spend provider quota. |
+| Roles & personas | Five roles in `infra/policies/kairos.rego`; the frontend `Role` type now includes **`compliance`** (read-only auditor). `/compliance` + `/audit` use `STAFF_AND_COMPLIANCE`, everything else staff-only, and `roleHome("compliance") = /compliance` — the default `/management` is staff-only and would redirect-loop. Seeded users: admin · engineer · field_worker · **reliability** · **compliance**. Only `reliability`/`admin` may `promote_quarantine` (engineers resolve conflicts but do **not** promote — verified against live OPA). **OPA enforces writes only**; GETs are gated by UI visibility, not policy. |
+| Custom OTEL metrics are per-process | `services/metrics.py` instruments are no-ops without a MeterProvider, so **every process that records one must call `setup_telemetry()`** — not just the API. `briefs_delivered` and `governor_suppressed` fire inside Celery tasks; the worker never configured telemetry, so they could never reach Grafana under any traffic. `celery_app.py` now calls it on `worker_process_init` (per forked child — an exporter thread does not survive a fork); `setup_telemetry(app=None)` skips the FastAPI-only instrumentor. |
 | Sidebar footer | System information (all roles) · System health (admin) · **System settings** (renamed from "Settings"; route stays `/settings`). Help removed. Login has a "Try demo" → admin button. Tab titles = `Kairos: <page>`. |
 
 ---
@@ -233,15 +243,16 @@ produces false results.
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
 **Tests:** ~175 passed · 3 skipped · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
 
-**CI:** `tests.yml` is two tiers — **`unit`** runs 65 service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, NIM→Gemini per synthesize) and exhausting the Gemini free tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit): tsc/eslint/build pass; the **audit step fails on transitive `next`/`sharp` advisories** with no non-breaking fix available upstream (`npm audit fix --force` would downgrade Next to v9).
+**CI:** `tests.yml` is two tiers — **`unit`** runs 65 service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, NIM→Gemini per synthesize) and exhausting the Gemini free tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) **passes in full** — the audit step was fixed 2026-08-15 by a plain `npm audit fix` (0 vulnerabilities, eslint stays on v9; the old note claiming only `eslint@10` could fix it was stale). Two CI facts worth knowing: `lint.yml` needs `pull-requests: read` or `dorny/paths-filter` fails with *"Resource not accessible by integration"* and every lint job silently skips on PRs; and `next/font/google` fetches DM Sans/Geist **from Google at build time**, so a runner that cannot reach fonts.googleapis.com fails the build with `Module not found: @vercel/turbopack-next/internal/font/google/font` — transient, retry it, or self-host via `next/font/local` to remove the class.
 
 > **Ruff is pinned, and that is deliberate.** `lint.yml` had no version pin and there was no
 > config, so it ran with whatever rule set the newest release enabled — Linting went from green
 > to **608 errors on an unchanged tree** when 0.16.0 shipped. Rules now live in
-> `backend/ruff.toml` (`E`/`W`/`F`/`I`, py312, line-length 120). `UP006`/`UP035`
-> (`typing.Dict` → `dict`) is intentionally **not** selected: adopting PEP 585 would rewrite
-> ~280 annotations across every service and worker. Do it as its own reviewed change, then add
-> `"UP"`. Bump the pin in `lint.yml` deliberately, never implicitly.
+> `backend/ruff.toml` (`E`/`W`/`F`/`I`/**`UP`**, py312, line-length 120). **PEP 585/604 was adopted
+> 2026-08-15** — 283 `Dict`/`List` → builtins, 48 dead `typing` imports, 136 `Optional[X]` → `X | None`,
+> 49 `timezone.utc` → `datetime.UTC`, all by `ruff --fix`. `"UP"` is now selected so the old spelling
+> cannot creep back. Bump the pin in `lint.yml` deliberately, never implicitly, and verify against the
+> **pinned** version (0.16.0) — a local 0.15.0 passing proves nothing about CI.
 
 > Run tests **in Docker**, never on the host: `docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api pytest tests/<file> -q`.
 > Host runs resolve different package versions and produce false failures (`auth.test.ts` / `api.test.ts` fail on host, pass in-container).  

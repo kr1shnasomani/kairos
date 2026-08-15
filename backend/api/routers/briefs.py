@@ -4,6 +4,7 @@ EEMUA 191 governor: ≤6 push events/operator/hour; PTW (critical) briefs always
 """
 
 import asyncio
+from datetime import UTC
 
 import structlog
 from fastapi import APIRouter, HTTPException, Query, status
@@ -173,9 +174,9 @@ async def ack_brief(
     For PTW briefs (requires_countersignature=True), acknowledged_at is NOT set until
     a countersignature is received — enforced in Task 13 full wiring.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
     user_id = current_user.get("user_id", "")
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     result = await asyncio.to_thread(
         lambda: supabase.table("briefs")
@@ -255,7 +256,7 @@ async def _recheck_brief_sources(brief_id: str, submitted_by: str, supabase) -> 
     recheck entry in audit_log. Task 16 attribution worker reads these entries and applies
     the actual Neo4j edge confidence adjustment.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
     try:
         result = await asyncio.to_thread(
             lambda: supabase.table("briefs").select("sources, asset_id").eq("brief_id", brief_id).limit(1).execute()
@@ -276,7 +277,7 @@ async def _recheck_brief_sources(brief_id: str, submitted_by: str, supabase) -> 
                     "reason": "incorrect_feedback",
                     "source_document_ids": doc_ids,
                     "asset_id": brief_row.get("asset_id"),
-                    "queued_at": datetime.now(timezone.utc).isoformat(),
+                    "queued_at": datetime.now(UTC).isoformat(),
                 },
             }).execute()
         )

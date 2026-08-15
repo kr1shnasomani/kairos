@@ -5,8 +5,8 @@ Phase 1: raw retrieved facts. Phase 2 (not wired): LLM synthesis.
 
 import asyncio
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 from elasticsearch import AsyncElasticsearch
@@ -188,7 +188,7 @@ class BriefEngine:
         ]
 
         # Flatten quarantine flags across all assets in boundary
-        quarantine_flags: List[str] = []
+        quarantine_flags: list[str] = []
         for q_list in (per_asset_quarantine or []):
             if isinstance(q_list, list):
                 quarantine_flags += [q["item_id"] for q in q_list if isinstance(q, dict)]
@@ -292,7 +292,7 @@ class BriefEngine:
     # Recurring failure brief
     # -------------------------------------------------------------------------
 
-    async def assemble_recurring_failure_brief(self, event_dict: Dict[str, Any]) -> Brief:
+    async def assemble_recurring_failure_brief(self, event_dict: dict[str, Any]) -> Brief:
         asset_id = event_dict["asset_id"]
         failure_code = event_dict.get("failure_code", "UNKNOWN")
         recurrence_count = event_dict.get("recurrence_count", 1)
@@ -327,7 +327,7 @@ class BriefEngine:
 
         if timeline:
             body_lines.append(f"\nFailure timeline — {len(timeline)} work order(s) in 90 days:")
-            prev_ts: Optional[str] = None
+            prev_ts: str | None = None
             for i, row in enumerate(timeline[:6]):
                 occurred = row.get("occurred_at", "?")
                 fc = (row.get("payload") or {}).get("failure_code", "?")
@@ -375,7 +375,7 @@ class BriefEngine:
     # Tag-out brief
     # -------------------------------------------------------------------------
 
-    async def assemble_tag_out_brief(self, event_dict: Dict[str, Any]) -> Brief:
+    async def assemble_tag_out_brief(self, event_dict: dict[str, Any]) -> Brief:
         asset_id = event_dict["asset_id"]
         tag_out_reason = event_dict.get("tag_out_reason", "")
         performed_by = event_dict.get("performed_by", "unknown")
@@ -441,7 +441,7 @@ class BriefEngine:
     # Inspection brief
     # -------------------------------------------------------------------------
 
-    async def assemble_inspection_brief(self, event_dict: Dict[str, Any]) -> Brief:
+    async def assemble_inspection_brief(self, event_dict: dict[str, Any]) -> Brief:
         asset_id = event_dict["asset_id"]
         inspection_type = event_dict.get("inspection_type", "")
         result = event_dict.get("result", "")
@@ -520,7 +520,7 @@ class BriefEngine:
         PTW briefs (priority='critical') always bypass cool-down.
         """
         if brief.asset_id and brief.priority != "critical":
-            cooldown_floor = (datetime.now(timezone.utc) - timedelta(hours=4)).isoformat()
+            cooldown_floor = (datetime.now(UTC) - timedelta(hours=4)).isoformat()
             existing = await asyncio.to_thread(
                 lambda: self.supabase.table("briefs")
                 .select("brief_id")
@@ -540,7 +540,7 @@ class BriefEngine:
                 )
                 return prior_id
 
-        delivered_at = datetime.now(timezone.utc).isoformat()
+        delivered_at = datetime.now(UTC).isoformat()
 
         row = {
             "brief_id": brief.brief_id,
@@ -592,9 +592,9 @@ class BriefEngine:
     # Private helpers
     # -------------------------------------------------------------------------
 
-    async def _get_failure_timeline(self, asset_id: str) -> List[Dict[str, Any]]:
+    async def _get_failure_timeline(self, asset_id: str) -> list[dict[str, Any]]:
         """90-day work order history for an asset — used for recurrence interval analysis."""
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(days=90)).isoformat()
         try:
             result = await asyncio.to_thread(
                 lambda: self.supabase.table("operational_events")
@@ -611,7 +611,7 @@ class BriefEngine:
             log.warning("brief_engine.failure_timeline_failed", error=str(e))
             return []
 
-    async def _get_correlated_events(self, event_id: str) -> List[Dict[str, Any]]:
+    async def _get_correlated_events(self, event_id: str) -> list[dict[str, Any]]:
         """Fetches other events sharing the same compound_event_id."""
         try:
             row = await asyncio.to_thread(
@@ -635,7 +635,7 @@ class BriefEngine:
             log.warning("brief_engine.correlated_events_failed", error=str(e))
             return []
 
-    async def _vector_search(self, query: str, asset_id: str) -> List[Dict[str, Any]]:
+    async def _vector_search(self, query: str, asset_id: str) -> list[dict[str, Any]]:
         try:
             vector = await self.llm.embed(query, task="retrieval.query")
             return await self.vector.search(
@@ -648,7 +648,7 @@ class BriefEngine:
             log.warning("brief_engine.vector_search_failed", error=str(e))
             return []
 
-    async def _get_quarantine(self, asset_id: str) -> List[Dict[str, Any]]:
+    async def _get_quarantine(self, asset_id: str) -> list[dict[str, Any]]:
         result = await asyncio.to_thread(
             lambda: self.supabase.table("quarantine_items")
             .select("item_id, review_status")
@@ -658,14 +658,14 @@ class BriefEngine:
         )
         return result.data or []
 
-    async def _get_open_conflicts(self, asset_id: Optional[str]) -> List[Dict[str, Any]]:
+    async def _get_open_conflicts(self, asset_id: str | None) -> list[dict[str, Any]]:
         query = self.supabase.table("knowledge_conflicts").select("conflict_id, parameter, track, severity").eq("status", "open")
         if asset_id:
             query = query.eq("asset_id", asset_id)
         result = await asyncio.to_thread(lambda: query.execute())
         return result.data or []
 
-    async def _es_procedures(self, asset_id: str) -> List[Dict[str, Any]]:
+    async def _es_procedures(self, asset_id: str) -> list[dict[str, Any]]:
         try:
             resp = await self.es.search(
                 index=self.settings.ELASTICSEARCH_INDEX_DOCUMENTS,
@@ -683,9 +683,9 @@ class BriefEngine:
             log.warning("brief_engine.es_procedures_failed", error=str(e))
             return []
 
-    async def _isolation_topology(self, asset_ids: List[str]) -> List[Dict[str, Any]]:
+    async def _isolation_topology(self, asset_ids: list[str]) -> list[dict[str, Any]]:
         """Graph edges for all assets in the PTW isolation boundary."""
-        edges: List[Dict[str, Any]] = []
+        edges: list[dict[str, Any]] = []
         tasks = [self.graph.get_asset_knowledge_at(aid) for aid in asset_ids]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for r in results:
@@ -693,7 +693,7 @@ class BriefEngine:
                 edges.extend(r)
         return edges
 
-    async def _ptw_regulatory_requirements(self, ptw_type: str) -> List[Dict[str, Any]]:
+    async def _ptw_regulatory_requirements(self, ptw_type: str) -> list[dict[str, Any]]:
         """Fetch relevant OISD_117 regulations for this PTW type from the graph."""
         cypher = """
         MATCH (reg:Concept {type: 'Regulation', framework: 'OISD_117'})
@@ -704,7 +704,7 @@ class BriefEngine:
             result = await session.run(cypher)
             return [dict(r) async for r in result]
 
-    async def _get_open_work_orders(self, site_id: str) -> List[Dict[str, Any]]:
+    async def _get_open_work_orders(self, site_id: str) -> list[dict[str, Any]]:
         result = await asyncio.to_thread(
             lambda: self.supabase.table("operational_events")
             .select("event_id, asset_id, payload, occurred_at")
@@ -716,7 +716,7 @@ class BriefEngine:
         )
         return result.data or []
 
-    async def _asset_pid_topology(self, asset_id: str) -> List[Dict[str, Any]]:
+    async def _asset_pid_topology(self, asset_id: str) -> list[dict[str, Any]]:
         """Neo4j query for pid_topology edges connected to this asset."""
         cypher = """
         MATCH (a:Asset {asset_id: $asset_id})-[r:KNOWLEDGE_EDGE]->(n)
@@ -731,14 +731,14 @@ class BriefEngine:
                 result = await session.run(
                     cypher,
                     asset_id=asset_id,
-                    as_of=datetime.now(timezone.utc).isoformat(),
+                    as_of=datetime.now(UTC).isoformat(),
                 )
                 return [dict(r) async for r in result]
         except Exception as e:
             log.warning("brief_engine.pid_topology_failed", error=str(e))
             return []
 
-    async def _get_active_ptw_for_asset(self, asset_id: str) -> List[Dict[str, Any]]:
+    async def _get_active_ptw_for_asset(self, asset_id: str) -> list[dict[str, Any]]:
         """Supabase query for active PTW events referencing this asset in their payload."""
         try:
             result = await asyncio.to_thread(
@@ -755,7 +755,7 @@ class BriefEngine:
             log.warning("brief_engine.active_ptw_failed", error=str(e))
             return []
 
-    async def _get_open_moc(self, asset_id: str) -> List[Dict[str, Any]]:
+    async def _get_open_moc(self, asset_id: str) -> list[dict[str, Any]]:
         """Supabase query for open MoC items for this asset."""
         try:
             result = await asyncio.to_thread(
@@ -772,7 +772,7 @@ class BriefEngine:
             log.warning("brief_engine.open_moc_failed", error=str(e))
             return []
 
-    async def _get_asset_compliance_obligations(self, asset_id: str) -> List[Dict[str, Any]]:
+    async def _get_asset_compliance_obligations(self, asset_id: str) -> list[dict[str, Any]]:
         """Neo4j query for regulations applicable to this asset's equipment class."""
         cypher = """
         MATCH (a:Asset {asset_id: $asset_id})
@@ -790,7 +790,7 @@ class BriefEngine:
             log.warning("brief_engine.compliance_obligations_failed", error=str(e))
             return []
 
-    async def _get_last_inspection(self, asset_id: str) -> List[Dict[str, Any]]:
+    async def _get_last_inspection(self, asset_id: str) -> list[dict[str, Any]]:
         """Supabase query for the most recent prior inspection event for this asset."""
         try:
             result = await asyncio.to_thread(
@@ -807,7 +807,7 @@ class BriefEngine:
             log.warning("brief_engine.last_inspection_failed", error=str(e))
             return []
 
-    async def _get_active_alarms(self, site_id: str) -> List[Dict[str, Any]]:
+    async def _get_active_alarms(self, site_id: str) -> list[dict[str, Any]]:
         result = await asyncio.to_thread(
             lambda: self.supabase.table("operational_events")
             .select("event_id, asset_id, occurred_at")
@@ -837,14 +837,14 @@ _REL_FRIENDLY = {
 }
 
 
-def _humanize_rel(rel: Optional[str]) -> str:
+def _humanize_rel(rel: str | None) -> str:
     if not rel:
         return "record"
     return _REL_FRIENDLY.get(rel, rel.replace("_", " ").lower())
 
 
-def _distinct_docs(edges: List[Dict[str, Any]]) -> List[str]:
-    seen: List[str] = []
+def _distinct_docs(edges: list[dict[str, Any]]) -> list[str]:
+    seen: list[str] = []
     for e in edges:
         doc = e.get("edge", {}).get("document_id")
         if doc and doc not in seen:
@@ -852,8 +852,8 @@ def _distinct_docs(edges: List[Dict[str, Any]]) -> List[str]:
     return seen
 
 
-def _summarize_relationships(edges: List[Dict[str, Any]]) -> str:
-    counts: Dict[str, int] = {}
+def _summarize_relationships(edges: list[dict[str, Any]]) -> str:
+    counts: dict[str, int] = {}
     for e in edges:
         label = _humanize_rel(e.get("edge", {}).get("relationship_type"))
         counts[label] = counts.get(label, 0) + 1
@@ -861,25 +861,30 @@ def _summarize_relationships(edges: List[Dict[str, Any]]) -> str:
     return ", ".join(parts[:4])
 
 
-def _sources_from_graph(edges: List[Dict[str, Any]]) -> List[SourceCitation]:
+def _sources_from_graph(edges: list[dict[str, Any]]) -> list[SourceCitation]:
     sources = []
     for e in edges:
         edge = e.get("edge", {})
         doc_id = edge.get("document_id")
         if not doc_id:
             continue
+        # The body was humanised long ago; this source list was not, and it is what an
+        # operator actually reads under the prose. It used to emit the raw graph relationship
+        # type ("DOCUMENTED_BY") as the excerpt and "unknown" as the type — internals leaking
+        # into a point-of-action brief. `_humanize_rel` already existed for the body text.
+        rel = _humanize_rel(edge.get("relationship_type"))
         sources.append(SourceCitation(
             document_id=doc_id,
-            document_type=edge.get("document_type", "unknown"),
+            document_type=edge.get("document_type") or "linked record",
             title=doc_id,
             authority_level=edge.get("authority_level", 5),
-            relevant_excerpt=edge.get("relationship_type", ""),
+            relevant_excerpt=f"Linked to this asset as {rel}.",
             is_quarantine=edge.get("verification_status") != "verified",
         ))
     return sources
 
 
-def _sources_from_vector(hits: List[Dict[str, Any]]) -> List[SourceCitation]:
+def _sources_from_vector(hits: list[dict[str, Any]]) -> list[SourceCitation]:
     sources = []
     for h in hits:
         p = h.get("payload", {})
@@ -891,13 +896,18 @@ def _sources_from_vector(hits: List[Dict[str, Any]]) -> List[SourceCitation]:
             document_type=p.get("document_type", "unknown"),
             title=p.get("title", doc_id),
             authority_level=p.get("authority_level", 5),
-            relevant_excerpt=f"Semantic similarity score: {h.get('score', 0):.3f}",
+            # Was "Semantic similarity score: 0.412" — a retrieval debug value shown to an
+            # operator as if it were an excerpt. Prefer real text; fall back to plain words.
+            relevant_excerpt=(
+                (p.get("text") or p.get("content") or "").strip()[:200]
+                or "Matched this asset on semantic similarity."
+            ),
             is_quarantine=p.get("is_quarantine", False),
         ))
     return sources
 
 
-def _calc_confidence(graph_edges: List, vector_hits: List) -> float:
+def _calc_confidence(graph_edges: list, vector_hits: list) -> float:
     if not graph_edges and not vector_hits:
         return 0.3
     verified = sum(

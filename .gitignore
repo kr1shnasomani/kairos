@@ -152,3 +152,11 @@ logs/
 
 # Local .env backups (may contain secrets)
 .env.bak.*
+
+# --- Local-only working material (not part of the product) ---
+# Landing-page screenshot capture tooling: re-run locally when the UI changes,
+# see the header of the script for usage. The screenshots it produces
+# (frontend/public/shots/) ARE committed, because the landing page imports them.
+/scripts/
+# Competition/research scratch notes.
+/comparsion/

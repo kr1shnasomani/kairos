@@ -7,8 +7,7 @@ and surfaces extraction status and results.
 import asyncio
 import hashlib
 import time
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import shortuuid
 import structlog
@@ -33,11 +32,11 @@ async def ingest_document(
     supabase: SupabaseDep,
     temporal: TemporalDep,
     file: UploadFile = File(...),
-    asset_id: Optional[str] = Form(None, description="Canonical asset ID to link this document to"),
+    asset_id: str | None = Form(None, description="Canonical asset ID to link this document to"),
     document_type: str = Form(..., description="oem_manual, procedure, inspection_report, ptw, shift_log, regulation"),
     source_system: str = Form("manual_upload"),
     authority_level: int = Form(4, ge=1, le=5, description="1=Regulatory 2=Engineering 3=OEM 4=Procedure 5=Field"),
-    occurred_at: Optional[str] = Form(None, description="Source document timestamp ISO8601 (e.g. 2024-01-15T08:30:00Z)"),
+    occurred_at: str | None = Form(None, description="Source document timestamp ISO8601 (e.g. 2024-01-15T08:30:00Z)"),
 ) -> dict:
     """
     Ingests a document into the immutable vault (Supabase Storage).
@@ -84,7 +83,7 @@ async def ingest_document(
     document_id = f"DOC-{shortuuid.uuid()[:12].upper()}"
     storage_path = f"{document_type}/{document_id}/{file.filename}"
     mime_type = file.content_type or "application/octet-stream"
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     # Upload raw bytes — no transformation, no preprocessing (Layer 2 immutability)
     try:
@@ -226,9 +225,9 @@ async def ingest_document(
 async def list_documents(
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
-    asset_id: Optional[str] = None,
-    document_type: Optional[str] = None,
-    doc_status: Optional[str] = None,
+    asset_id: str | None = None,
+    document_type: str | None = None,
+    doc_status: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
@@ -314,7 +313,7 @@ async def get_extraction_status(
         graph_edges_created=row.get("graph_edges"),
         review_items_pending=row.get("review_pending", 0),
         error=row.get("error"),
-        updated_at=datetime.fromisoformat(row["created_at"]) if row.get("created_at") else datetime.now(timezone.utc),
+        updated_at=datetime.fromisoformat(row["created_at"]) if row.get("created_at") else datetime.now(UTC),
     )
 
 
@@ -607,7 +606,7 @@ async def supersede_document(
             detail=f"Replacement document '{new_document_id}' not found in vault. Ingest it first.",
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Mark old document superseded in Supabase; link to new version via version_chain
     await asyncio.to_thread(

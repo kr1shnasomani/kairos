@@ -76,7 +76,9 @@ describe("ModelGatePage", () => {
   });
 
   it("shows a retry-able error when history is unavailable (live-only — no fixture fallback)", async () => {
-    mocks.getModelGateHistory.mockResolvedValue({ data: { history: [] }, source: "demo" });
+    // Unavailability is a rejection now. It used to be modelled as `source: "demo"`, which the
+    // hook translated into an error — that indirection is gone along with the fixture fallback.
+    mocks.getModelGateHistory.mockRejectedValue(new Error("backend unavailable"));
 
     render(<ModelGatePage />);
 

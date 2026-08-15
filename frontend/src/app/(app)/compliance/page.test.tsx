@@ -1,9 +1,23 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { complianceFixture } from "@/lib/compliance";
 import CompliancePage from "./page";
 
-vi.mock("@/lib/api", () => ({
+// Test data inlined from the deleted `lib/compliance.ts`. That module was an *application*
+// fallback — api.ts served it whenever a fetch failed — which is why it was removed. Test data
+// is a different thing: it never ships, and mocking the fetch is the point of the test.
+//
+// Declared INSIDE the vi.mock factory on purpose: `vi.mock` is hoisted above module-level
+// consts, so referencing an outer variable here throws "Cannot access before initialization".
+vi.mock("@/lib/api", () => {
+  const gaps = [
+    { concept_id: "REG-OISD-6.4", framework: "OISD_117", clause_id: "6.4", requirement_text: "Relief-device set pressure documented and current", authority_level: 1, asset_id: "P-101", equipment_class: "Centrifugal pump", severity: "critical" },
+    { concept_id: "REG-OISD-7.2", framework: "OISD_117", clause_id: "7.2", requirement_text: "Seal replacement records for rotating equipment", authority_level: 2, asset_id: "EQ-101", equipment_class: "Rotating equipment", severity: "major" },
+    { concept_id: "REG-ISO-7.5", framework: "ISO_45001", clause_id: "7.5", requirement_text: "Documented information controlled and versioned", authority_level: 3, asset_id: "EQ-101", equipment_class: "Rotating equipment", severity: "minor" },
+  ];
+  const complianceFixture = {
+    items: gaps, total: gaps.length, limit: 100, offset: 0, framework: null, last_scan: "test",
+  };
+  return {
   getComplianceGaps: vi.fn().mockResolvedValue({ data: complianceFixture, source: "live" }),
   getComplianceDashboard: vi.fn().mockResolvedValue({
     data: {
@@ -14,7 +28,8 @@ vi.mock("@/lib/api", () => ({
     },
     source: "live",
   }),
-}));
+  };
+});
 
 // jsdom has no matchMedia; useReducedMotion (charts) needs it.
 window.matchMedia = ((query: string) => ({

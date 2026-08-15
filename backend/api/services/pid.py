@@ -18,7 +18,7 @@ import base64
 import io
 import json
 import os
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 import structlog
@@ -65,7 +65,7 @@ class PIDService:
         self.model = os.getenv("NVIDIA_NIM_VISION_MODEL", "meta/llama-3.2-11b-vision-instruct")
         self.base_url = os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
-    async def extract_topology(self, file_bytes: bytes, mime_type: str) -> Optional[dict[str, Any]]:
+    async def extract_topology(self, file_bytes: bytes, mime_type: str) -> dict[str, Any] | None:
         """Extract topology from a drawing. Returns the topology dict, or None on any
         failure so the caller can fall back (to the demo fixture) without crashing."""
         if not self.api_key:
@@ -140,7 +140,7 @@ class PIDService:
             return ""
 
     @staticmethod
-    def _parse_json(answer: str) -> Optional[dict[str, Any]]:
+    def _parse_json(answer: str) -> dict[str, Any] | None:
         """Pull the JSON object out of the model's reply (tolerates markdown fences/prose)."""
         s = answer.strip()
         start, end = s.find("{"), s.rfind("}")
@@ -152,7 +152,7 @@ class PIDService:
             return None
 
     @staticmethod
-    def _first_image(file_bytes: bytes, mime_type: str) -> Optional[tuple[bytes, str]]:
+    def _first_image(file_bytes: bytes, mime_type: str) -> tuple[bytes, str] | None:
         """One PNG of the drawing (first page for PDFs, the image itself otherwise)."""
         if mime_type == "application/pdf":
             try:
@@ -170,7 +170,7 @@ class PIDService:
         return (file_bytes, mime_type)
 
     @staticmethod
-    def _fit_b64(img_bytes: bytes, img_mime: str) -> Optional[tuple[str, str]]:
+    def _fit_b64(img_bytes: bytes, img_mime: str) -> tuple[str, str] | None:
         """Base64 the image, downscaling with Pillow until it fits the inline cap."""
         b64 = base64.b64encode(img_bytes).decode()
         if len(b64) <= _NIM_IMAGE_SIZE_LIMIT:

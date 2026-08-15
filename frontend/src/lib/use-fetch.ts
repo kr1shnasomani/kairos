@@ -9,12 +9,16 @@ import type { Fetched } from "@/lib/api";
 export type FetchState<T> =
   | { status: "loading" }
   | { status: "live"; data: T }
-  | { status: "demo"; data: T }
   | { status: "error"; error: Error; retry: () => void };
 
-/** Drives a `Fetched<T>` fetcher through loading → live/demo/error. `retry`
+/** Drives a `Fetched<T>` fetcher through loading → live/error. `retry`
  *  re-runs the fetcher; a generation counter ignores out-of-date resolutions
- *  (StrictMode double-invoke, rapid dep changes). */
+ *  (StrictMode double-invoke, rapid dep changes).
+ *
+ *  There is no "demo" state. Fetchers used to fall back to bundled fixtures and tag the
+ *  result `source: "demo"`, which this hook mapped straight to an error — so the fixture
+ *  was built, then discarded, on every failure. Fetchers now throw and the fixtures are
+ *  gone; the only paths are live data, a skeleton, or error+retry. */
 export function useFetch<T>(fn: () => Promise<Fetched<T>>, deps: React.DependencyList = []): FetchState<T> {
   const [state, setState] = useState<FetchState<T>>({ status: "loading" });
   const [generation, setGeneration] = useState(0);
@@ -24,21 +28,12 @@ export function useFetch<T>(fn: () => Promise<Fetched<T>>, deps: React.Dependenc
     const load = async () => {
       setState({ status: "loading" });
       try {
-        const { data, source } = await fn();
+        const { data } = await fn();
         if (!stale) {
-          // Live-only policy: a "demo" result means the real fetch fell back to a
-          // fixture — we never render fabricated data. Treat it as a retryable
-          // failure so the page shows its error+retry state instead. (Pages keep
-          // their now-unreachable "demo" branches; harmless dead code.)
-          if (source === "live") {
-            setState({ status: "live", data });
-          } else {
-            setState({
-              status: "error",
-              error: new Error("Live data is unavailable — the backend did not respond in time."),
-              retry: () => setGeneration((g) => g + 1),
-            });
-          }
+          // A resolved fetcher is live by construction — the fixture-fallback branch it used
+          // to guard against no longer exists (fetchers throw instead), and `DataSource` has
+          // a single member so it cannot come back without a type error.
+          setState({ status: "live", data });
         }
       } catch (e) {
         if (!stale) {

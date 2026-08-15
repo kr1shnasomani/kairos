@@ -5,7 +5,6 @@ Hybrid retrieval: exact match (ES) + semantic vector (Qdrant) + graph traversal 
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Query
@@ -39,10 +38,10 @@ async def search(
     es: ElasticsearchDep,
     supabase: SupabaseDep,
     q: str = Query(..., description="Natural language or structured query"),
-    asset_id: Optional[str] = Query(None, description="Scope search to a specific asset"),
+    asset_id: str | None = Query(None, description="Scope search to a specific asset"),
     authority_min: int = Query(5, ge=1, le=5, description="Minimum authority level to include (1=Regulatory only, 5=all)"),
     include_quarantine: bool = Query(False, description="Include unverified quarantine layer items"),
-    as_of: Optional[str] = Query(None, description="ISO8601 timestamp for time-travel search"),
+    as_of: str | None = Query(None, description="ISO8601 timestamp for time-travel search"),
     limit: int = Query(10, le=50),
 ) -> SearchResponse:
     """
@@ -177,6 +176,7 @@ async def synthesize(
         uncertainty=parsed.get("uncertainty") or result.get("uncertainty"),
         model=result.get("model"),
         message=result.get("message"),
+        rate_limited=bool(result.get("rate_limited")),
     )
 
 
@@ -276,7 +276,7 @@ async def generate_rca_pack(
     rca_result = await llm.rca_synthesize(payload.failure_code, timeline, evidence)
 
     hypotheses: list = []
-    confidence: Optional[float] = None
+    confidence: float | None = None
     refused = False
     synthesis_available = bool(rca_result.get("answer"))
 

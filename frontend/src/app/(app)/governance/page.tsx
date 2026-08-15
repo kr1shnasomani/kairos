@@ -69,13 +69,8 @@ export default function GovernancePage() {
     let alive = true;
     Promise.all([getConflicts(), getQuarantine()]).then(([conflicts, quarantine]) => {
       if (!alive) return;
-      // Live-only: if either source fell back to a fixture, don't show fabricated
-      // counts — leave them blank ("—") and offer a retry.
-      if (conflicts.source === "demo" || quarantine.source === "demo") {
-        setOverview(null);
-        setFailed(true);
-        return;
-      }
+      // Live-only is enforced in the fetchers now — they throw instead of returning a
+      // fixture, so a failure lands in .catch() and the counts stay blank with a retry.
       setFailed(false);
       const openConflicts = conflicts.data.items.filter((item) => item.status !== "resolved");
       const pendingQuarantine = quarantine.data.items.filter((item) => item.review_status === "pending");

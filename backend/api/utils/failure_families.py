@@ -1,8 +1,7 @@
-from typing import Dict
 
 # Failure mode families — same family = genuine recurrence, not coincidence.
 # Shared by the attribution worker and the events router recurrence check.
-FAILURE_FAMILIES: Dict[str, str] = {
+FAILURE_FAMILIES: dict[str, str] = {
     # Mechanical
     "VIBE-HIGH": "mechanical", "VIBE-LOW": "mechanical",
     "BEARING-FAIL": "mechanical", "IMBALANCE": "mechanical",

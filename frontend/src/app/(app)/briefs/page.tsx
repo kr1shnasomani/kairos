@@ -4,9 +4,7 @@ import { BriefInbox } from "@/components/brief-inbox";
 import { PageHeader } from "@/components/ui";
 
 export default async function BriefsPage() {
-  const { data, source } = await getBriefs();
-  // Live-only: never render fixture briefs.
-  if (source === "demo") throw new Error("Briefs: live data unavailable");
+  const { data } = await getBriefs();
   return (
     <div className="mx-auto max-w-[1200px]">
       <PageHeader

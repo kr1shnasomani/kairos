@@ -8,7 +8,7 @@ import { getEvents } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { getMe } from "@/lib/auth";
 import { useRole, RESOLVE_ROLES } from "@/components/use-role";
-import { Button, DataTable, DemoChip, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import { Button, DataTable, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
 import { AXIS, ChartContainer, GRID, TONE_VAR, TOOLTIP } from "@/components/charts";
 import { useReducedMotion } from "@/lib/motion";
 import { relativeTime, triggerLabel } from "@/lib/utils";
@@ -71,7 +71,7 @@ export default function EventsPage() {
   // Spec §5: params unchanged — same { limit: 50 } call shape as before.
   const state = useFetch(() => getEvents({ limit: 50 }), [reload]);
   const loading = state.status === "loading";
-  const hasData = state.status === "live" || state.status === "demo";
+  const hasData = state.status === "live";
   const events = useMemo<OperationalEvent[]>(() => (hasData ? state.data.items ?? [] : []), [state, hasData]);
 
   const [search, setSearch] = useState("");
@@ -127,7 +127,6 @@ export default function EventsPage() {
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span className="tabular font-medium text-ink">{events.length} event{events.length !== 1 ? "s" : ""}</span>
-        {state.status === "demo" && <DemoChip />}
       </div>
 
       {canEmit && showEmitter && <EmitPanel siteId={siteId} userId={userId} onEmitted={() => setReload((r) => r + 1)} />}

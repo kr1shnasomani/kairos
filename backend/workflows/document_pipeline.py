@@ -10,8 +10,8 @@ download directly from Supabase Storage — the vault is the source of truth.
 import asyncio
 import hashlib
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 from temporalio import activity, workflow
@@ -120,7 +120,7 @@ async def store_in_vault(
     vault_path: str,
     mime_type: str,
     job_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Downloads the document from Supabase Storage, verifies its SHA-256 against
     the canonical hash in the documents table, and advances the job to ocr_running.
@@ -156,7 +156,7 @@ async def store_in_vault(
         lambda: supabase.table("extraction_jobs").update({
             "pipeline_stage": "ocr_running",
             "progress_pct": 10,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
         }).eq("job_id", job_id).execute()
     )
 
@@ -184,7 +184,7 @@ async def run_ocr(
     mime_type: str,
     job_id: str,
     document_type: str = "unknown",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Downloads the document from Storage and runs the OCR pipeline.
     - pid_drawing       → skips OCR; extracts topology via vision model (fixture fallback); routes all elements to quarantine
@@ -221,7 +221,7 @@ async def run_ocr(
             topology_source = "demo_fixture"
 
         graph = GraphService(_get_neo4j_driver())
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Merge Document node with pid_topology type so edges can point to it
         await graph.merge_document_node(document_id, {"document_type": "pid_topology", "authority_level": 3})
@@ -348,7 +348,7 @@ async def run_ocr(
                     "reason": "low_ocr_confidence",
                     "ocr_confidence": str(overall_confidence),
                     "extraction_method": result.get("extraction_method", "unknown"),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
             )
         )
@@ -389,7 +389,7 @@ async def run_ocr(
 # =============================================================================
 
 @activity.defn
-async def run_ner(document_id: str, text: str, job_id: str) -> Dict[str, Any]:
+async def run_ner(document_id: str, text: str, job_id: str) -> dict[str, Any]:
     """Step 3: NER entity extraction — NIM llama-3.2-11b-vision, degrades gracefully when model absent."""
     from api.services.ner import NERService
 
@@ -419,11 +419,11 @@ async def run_ner(document_id: str, text: str, job_id: str) -> Dict[str, Any]:
 @activity.defn
 async def link_to_graph(
     document_id: str,
-    entities: List[Dict[str, Any]],
-    asset_id: Optional[str],
+    entities: list[dict[str, Any]],
+    asset_id: str | None,
     authority_level: int,
     job_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Step 4: Resolve ASSET_TAG entities to canonical assets and write KNOWLEDGE_EDGE rows.
     Confidence >= 0.7 + resolved → unverified graph edge.
@@ -472,7 +472,7 @@ async def link_to_graph(
         if e.get("entity_type") == "ASSET_TAG" and e.get("confidence", 0.0) >= 0.7
     } - {None})
 
-    asset_class_map: Dict[str, str] = {}
+    asset_class_map: dict[str, str] = {}
     if candidate_ids:
         asset_rows = await asyncio.to_thread(
             lambda: supabase.table("assets").select("asset_id, equipment_class").in_("asset_id", candidate_ids).execute()
@@ -482,7 +482,7 @@ async def link_to_graph(
             for r in (asset_rows.data or [])
         }
 
-    checked_classes: Dict[str, dict] = {}
+    checked_classes: dict[str, dict] = {}
     for cid in candidate_ids:
         ac = asset_class_map.get(cid, "unknown")
         if ac not in checked_classes:
@@ -511,7 +511,7 @@ async def link_to_graph(
             "halted_classes": halted_classes,
         }
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Timestamp normalization: canonical_valid_from = ingested_at by default;
     # use source occurred_at only when drift is within tolerance
@@ -692,9 +692,9 @@ async def link_to_graph(
 async def index_vectors(
     document_id: str,
     text: str,
-    metadata: Dict[str, Any],
+    metadata: dict[str, Any],
     job_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Step 5: Chunk text and index embeddings into Qdrant kairos_documents collection.
     Embedding via Jina AI (primary) with Ollama nomic-embed-text as fallback.
@@ -712,7 +712,7 @@ async def index_vectors(
     # Word-based chunking (~400 words / 50-word overlap ≈ 512 / 50 token segments)
     words = text.split()
     chunk_size, overlap = 400, 50
-    chunks: List[str] = []
+    chunks: list[str] = []
     i = 0
     while i < len(words):
         chunks.append(" ".join(words[i: i + chunk_size]))
@@ -759,9 +759,9 @@ async def index_vectors(
 async def index_text(
     document_id: str,
     text: str,
-    metadata: Dict[str, Any],
+    metadata: dict[str, Any],
     job_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Step 6: Index full document content into Elasticsearch kairos_documents index.
     Always succeeds — ES is always available in the stack. Used for exact/keyword search.
@@ -786,7 +786,7 @@ async def index_text(
             "document_type": metadata.get("document_type", "unknown"),
             "authority_level": metadata.get("authority_level", 5),
             "status": "active",
-            "ingested_at": datetime.now(timezone.utc).isoformat(),
+            "ingested_at": datetime.now(UTC).isoformat(),
         },
     )
 
@@ -802,7 +802,7 @@ async def mark_complete(job_id: str, document_id: str) -> None:
         lambda: supabase.table("extraction_jobs").update({
             "pipeline_stage": "complete",
             "progress_pct": 100,
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
         }).eq("job_id", job_id).execute()
     )
     log.info("activity.pipeline_complete", document_id=document_id, job_id=job_id)
@@ -823,7 +823,7 @@ class DocumentIngestionWorkflow:
     """
 
     @workflow.run
-    async def run(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    async def run(self, params: dict[str, Any]) -> dict[str, Any]:
         document_id = params["document_id"]
         vault_path = params.get("vault_path")
         if not vault_path:

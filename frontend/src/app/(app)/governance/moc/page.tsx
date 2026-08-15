@@ -7,7 +7,7 @@ import type { MocItem } from "@/lib/types";
 import { getMocList } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { relativeTime } from "@/lib/utils";
-import { Button, DataTable, DemoChip, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import { Button, DataTable, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
 import { StatPills } from "@/components/stat-pills";
 
 /** MocItem re-mapped so it satisfies DataTable's Record constraint. */
@@ -27,15 +27,6 @@ const STATUS_TONE: Record<string, "caution" | "verified" | "danger"> = {
 const PENDING_STATUSES = new Set(["pending", "draft", "pending_approval"]);
 
 // Built lazily (mount-once useState initializer) — no Date.now() at module scope.
-function buildFixture(): MocItem[] {
-  const now = Date.now();
-  return [
-    { moc_id: "MOC-2024-001", asset_id: "P-101", parameter: "operating_pressure", source_a: { value: "12.5 bar", document_id: "DOC-OEM-001" }, source_b: { value: "14.0 bar", document_id: "DOC-INSP-007" }, blast_radius_count: 7, status: "pending", created_at: new Date(now - 86400000).toISOString(), draft_content: "EWR Draft: Operating pressure discrepancy on P-101." },
-    { moc_id: "MOC-2024-002", asset_id: "V-247", parameter: "relief_valve_setpoint", source_a: { value: "16 bar", document_id: "DOC-PROC-003" }, source_b: { value: "18 bar", document_id: "DOC-OEM-008" }, blast_radius_count: 3, status: "pending", created_at: new Date(now - 172800000).toISOString(), draft_content: null },
-    { moc_id: "MOC-2024-003", asset_id: "EQ-101", parameter: "maintenance_interval_days", source_a: { value: "90", document_id: "DOC-PROC-011" }, source_b: { value: "120", document_id: "DOC-OEM-002" }, blast_radius_count: 2, status: "approved", created_at: new Date(now - 432000000).toISOString(), draft_content: null },
-  ];
-}
-
 const COLUMNS: TableColumn<MocRow>[] = [
   { key: "moc_id", label: "Change", sortable: true, render: (r) => <span className="tabular whitespace-nowrap font-semibold text-accent">{r.moc_id}</span> },
   {
@@ -65,16 +56,17 @@ const COLUMNS: TableColumn<MocRow>[] = [
 
 export default function MocListPage() {
   const router = useRouter();
-  const [fixture] = useState(buildFixture);
   const [statusFilter, setStatusFilter] = useState("pending");
 
   // Spec §5: params unchanged — same zero-arg getMocList() call as before.
   const state = useFetch(() => getMocList(), []);
   const loading = state.status === "loading";
-  const hasData = state.status === "live" || state.status === "demo";
+  const hasData = state.status === "live";
   const fetched = hasData ? state.data.items ?? [] : [];
-  const items = hasData && fetched.length === 0 ? fixture : fetched;
-  const isDemo = state.status === "demo" || (hasData && fetched.length === 0);
+  // An empty live list is a valid state ("No changes under review"). This used to swap in
+  // buildFixture() — fabricated MOC-2024-001 rows with invented document IDs — whenever the
+  // real list came back empty, i.e. on a *successful* request.
+  const items = fetched;
 
   const counts = useMemo(() => ({
     pending: items.filter((m) => PENDING_STATUSES.has(m.status)).length,
@@ -106,7 +98,6 @@ export default function MocListPage() {
         eyebrow="Layer 7 · Engineering governance"
         title="Management of Change"
         lede="Auto-drafted EWR items for engineering-track conflicts. Approval here closes the validity window of the superseded edge and clears any affected downstream facts."
-        actions={isDemo ? <DemoChip /> : undefined}
       />
 
       <section data-testid="moc-summary" className="mt-5">

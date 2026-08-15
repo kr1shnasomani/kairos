@@ -7,8 +7,8 @@ operator responses into quarantine for human review and graph promotion.
 import asyncio
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import shortuuid
 import structlog
@@ -35,7 +35,7 @@ class ElicitationTriggerRequest(BaseModel):
 
 
 class ElicitationResponseRequest(BaseModel):
-    responses: List[Dict[str, str]]  # [{question, answer}, ...]
+    responses: list[dict[str, str]]  # [{question, answer}, ...]
     submitted_by: str
 
 
@@ -46,7 +46,7 @@ async def trigger_elicitation(
     supabase: SupabaseDep,
     temporal: TemporalDep,
 ) -> dict:
-    reasons: List[str] = []
+    reasons: list[str] = []
 
     # (a) Rare failure code — count occurrences in operational_events for this equipment class
     events_result = await asyncio.to_thread(
@@ -157,7 +157,7 @@ async def submit_responses(
     questions = session.get("questions") or []
 
     workflow_id = f"elicitation-store-{work_order_id}-{shortuuid.uuid()[:6]}"
-    result: Dict[str, Any] = await temporal.execute_workflow(
+    result: dict[str, Any] = await temporal.execute_workflow(
         "StoreElicitationResponseWorkflow",
         {
             "work_order_id": work_order_id,
@@ -259,8 +259,8 @@ class OffboardingCreateRequest(BaseModel):
 
 class OffboardingResponseRequest(BaseModel):
     item_id: str  # UUID of offboarding_session_items row
-    responses: List[Dict[str, Any]]  # [{question_index, answer}, ...]
-    submitted_by: Optional[str] = None  # defaults to current user if not provided
+    responses: list[dict[str, Any]]  # [{question_index, answer}, ...]
+    submitted_by: str | None = None  # defaults to current user if not provided
 
 
 @router.post("/offboarding", summary="Start off-boarding interview programme", status_code=status.HTTP_201_CREATED)
@@ -283,7 +283,7 @@ async def create_offboarding_programme(
     )
     asset_ids = list({row["asset_id"] for row in (wo_result.data or []) if row.get("asset_id")})
 
-    equipment_families: List[str] = []
+    equipment_families: list[str] = []
     if asset_ids:
         assets_result = await asyncio.to_thread(
             lambda: supabase.table("assets")
@@ -292,7 +292,7 @@ async def create_offboarding_programme(
             .execute()
         )
         # Count by equipment_class, take top 6
-        class_counts: Dict[str, int] = {}
+        class_counts: dict[str, int] = {}
         for row in (assets_result.data or []):
             ec = (row.get("equipment_class") or "GENERAL").strip().upper()
             class_counts[ec] = class_counts.get(ec, 0) + 1
@@ -329,7 +329,7 @@ async def create_offboarding_programme(
     session_id = session_row.data[0]["id"]
 
     # Create session items and schedule Celery tasks
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(UTC)
     items_created = []
     for i, family in enumerate(equipment_families):
         scheduled_for = now_utc + timedelta(days=i * payload.session_interval_days)
@@ -383,7 +383,7 @@ async def list_offboarding_programmes(
     sessions = result.data or []
 
     # Compute completion percentage for each
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     for s in sessions:
         completed = await asyncio.to_thread(
             lambda sid=s["id"]: supabase.table("offboarding_session_items")
@@ -499,7 +499,7 @@ async def submit_offboarding_responses(
     item_id_q = quarantine_row.data[0]["item_id"]
 
     # Mark item completed
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     await asyncio.to_thread(
         lambda: supabase.table("offboarding_session_items").update({
             "status": "completed",

@@ -1,8 +1,15 @@
 name: Linting
 
 # Least-privilege default for all jobs — read-only access to repo contents.
+#
+# `pull-requests: read` is required by the `changes` job: dorny/paths-filter calls the
+# GitHub API to list a PR's changed files, and with `contents: read` alone that call fails
+# with "Resource not accessible by integration". The gate then errors, and because every
+# lint job is conditioned on its output, python-lint / go-lint / docker-lint were all
+# silently skipped on pull requests — linting looked configured but never ran on a PR.
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

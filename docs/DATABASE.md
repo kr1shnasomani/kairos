@@ -4,7 +4,7 @@ Four persistence systems, each with a distinct responsibility. No system is inte
 
 | System | Role | Hosting |
 |--------|------|------|
-| **Neo4j 5.20** | Temporal Reality Graph — the knowledge authority | **Cloud (Neo4j Aura)** · local `7474`/`7687` only with `--profile local-stores` |
+| **Neo4j (Aura 2025.x)** | Temporal Reality Graph — the knowledge authority | **Cloud (Neo4j Aura)** · local `7474`/`7687` only with `--profile local-stores` (image pinned to 5.x) |
 | **Supabase (PostgreSQL 15)** | Relational backbone — events, briefs, governance, auth | **Cloud (managed)** |
 | **Qdrant v1.9.4** | Vector store — semantic search over extracted knowledge | **Cloud (Qdrant Cloud)** · local `6333`/`6334` only with `--profile local-stores` |
 | **Elasticsearch 8.13** | Full-text exact search — keyword, tag, document retrieval | Local container · `9200` |

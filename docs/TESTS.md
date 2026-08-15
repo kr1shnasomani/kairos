@@ -6,7 +6,7 @@ All tests run **inside Docker**. There is no host shortcut: host package resolut
 the pinned images and produces false results — `auth.test.ts` and `api.test.ts` fail on the host
 and pass in the container. A host run will lie to you.
 
-### Tier 1 — service-free (65 tests, no stack, no secrets, no network)
+### Tier 1 — service-free (68 tests, no stack, no secrets, no network)
 
 These need nothing running. This is what CI's `unit` job executes on every push.
 
@@ -51,7 +51,7 @@ docker exec kairos-backend-api python scripts/seed_users.py
 
 | Job | Needs | Behaviour |
 |---|---|---|
-| `unit` | nothing | Runs the 65 service-free tests on every push and fork PR. Must stay green. |
+| `unit` | nothing | Runs the 68 service-free tests on every push and fork PR, plus the benchmark grader selftest. Must stay green. |
 | `integration` | `--profile local-stores` + a **throwaway** `CI_SUPABASE_*` project | Runs the full suite. **Skips with exit 0** when `CI_SUPABASE_URL` is unset, so a missing optional credential is never a red build. |
 
 Neo4j, Qdrant, Elasticsearch and Redis run as local containers in CI, so Aura and Qdrant Cloud
@@ -75,7 +75,7 @@ gh secret set GROQ_API_KEY
 > Gemini, and elicitation calls the LLM. Gemini's free tier is a few hundred requests/day and
 > is shared with the benchmark harnesses, so a busy day of pushes exhausts it; once it 429s,
 > synthesis silently returns no answer and *measured answer quality collapses* (observed:
-> 24/25 → 13/25). Tier-1 gives 65 green tests with **zero** provider calls, which is the
+> 24/25 → 13/25). Tier-1 gives 68 green tests with **zero** provider calls, which is the
 > signal CI should be providing. Enable tier 2 only for a deliberate pre-release run, against
 > a throwaway Supabase project.
 

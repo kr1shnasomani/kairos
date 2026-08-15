@@ -29,6 +29,11 @@ export const FIELD_ROLES: Role[] = ["field_worker"];
 /** Staff surfaces (engineers, reliability, admin) — field workers are excluded. */
 const STAFF_ONLY: Role[] = ["engineer", "reliability", "admin"];
 
+/** Staff plus the read-only compliance auditor. Used for the two surfaces OPA grants it
+ *  (`read_compliance`, `read_audit`). Compliance is deliberately NOT in STAFF_ONLY: it must not
+ *  reach governance, events, RCA, graph, documents, projects or off-boarding. */
+const STAFF_AND_COMPLIANCE: Role[] = [...STAFF_ONLY, "compliance"];
+
 // Path-prefix access rules. First match wins; unlisted paths (e.g. /briefs, /copilot,
 // /assets, /field, /settings) are open to any authenticated role. Enforced centrally in
 // the app shell so no page can be reached by URL without the right role.
@@ -39,9 +44,9 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: Role[] }> = [
   { prefix: "/events", roles: STAFF_ONLY },
   { prefix: "/rca", roles: STAFF_ONLY },
   { prefix: "/graph", roles: STAFF_ONLY },
-  { prefix: "/compliance", roles: STAFF_ONLY },
+  { prefix: "/compliance", roles: STAFF_AND_COMPLIANCE },
   { prefix: "/governance", roles: STAFF_ONLY },
-  { prefix: "/audit", roles: STAFF_ONLY },
+  { prefix: "/audit", roles: STAFF_AND_COMPLIANCE },
   { prefix: "/documents", roles: STAFF_ONLY },
   { prefix: "/projects", roles: STAFF_ONLY },
   { prefix: "/offboarding", roles: STAFF_ONLY },
@@ -53,7 +58,12 @@ export function routeAllowed(path: string, role: Role): boolean {
   return !rule || rule.roles.includes(role);
 }
 
-/** The landing surface for a role — where an unauthorized redirect sends them. */
+/** The landing surface for a role — where an unauthorized redirect sends them.
+ *  Must be a route the role can actually view, or the shell's guard bounces them straight
+ *  back and the user redirect-loops: `/management` is STAFF_ONLY, so compliance needs its own
+ *  home rather than the default. */
 export function roleHome(role: Role): string {
-  return role === "field_worker" ? "/briefs" : "/management";
+  if (role === "field_worker") return "/briefs";
+  if (role === "compliance") return "/compliance";
+  return "/management";
 }

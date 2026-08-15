@@ -7,7 +7,7 @@ import type { AuditPackClause } from "@/lib/types";
 import { getAuditPack } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { fmtPct } from "@/lib/format";
-import { Button, DataTable, DemoChip, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import { Button, DataTable, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
 import { StatPills } from "@/components/stat-pills";
 
 // `key` must match the framework value stored on Neo4j regulation nodes (underscored);
@@ -80,8 +80,7 @@ export default function AuditPackPage() {
   // Spec §5: params unchanged — same getAuditPack(framework) call, refetch on change.
   const state = useFetch(() => getAuditPack(framework), [framework]);
   const loading = state.status === "loading";
-  const pack = state.status === "live" || state.status === "demo" ? state.data : null;
-  const isDemo = state.status === "demo" || (state.status === "live" && !state.data);
+  const pack = state.status === "live" ? state.data : null;
 
   const clauses: ClauseRow[] = pack?.clauses ?? [];
   const reviewNeeded = clauses.filter((c) => c.clearance_blocked).length;
@@ -105,7 +104,6 @@ export default function AuditPackPage() {
         lede="Evidence organised by regulatory clause. This accelerates audit preparation; it is not automated compliance. Clauses below the confidence threshold are blocked and require human sign-off."
         actions={
           <>
-            {isDemo && <DemoChip />}
             <Button variant="ghost" onClick={() => window.print()} className="print:hidden">
               Print / export PDF
             </Button>

@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, "/app")
 
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any
 
 import structlog
 
@@ -25,11 +25,11 @@ log = structlog.get_logger(__name__)
     time_limit=600,
     soft_time_limit=540,
 )
-def run_model_gate(model_name: str) -> Dict[str, Any]:
+def run_model_gate(model_name: str) -> dict[str, Any]:
     return asyncio.run(_run_gate(model_name))
 
 
-async def _run_gate(model_name: str) -> Dict[str, Any]:
+async def _run_gate(model_name: str) -> dict[str, Any]:
     from elasticsearch import AsyncElasticsearch
     from supabase import create_client
 
@@ -82,7 +82,7 @@ async def _run_gate(model_name: str) -> Dict[str, Any]:
                     passed = False
                     break
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "model_name": model_name,
             "corpus_size": len(corpus),
             "precision": metrics["precision"],
@@ -124,13 +124,13 @@ def _span_match(pred_text: str, gt_text_lower: str) -> bool:
 async def evaluate(
     ner: Any,
     es: Any,
-    corpus: List[Dict[str, Any]],
+    corpus: list[dict[str, Any]],
     settings: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run NER over corpus documents and compute precision/recall/F1 per entity type."""
     doc_ids = list({row["document_id"] for row in corpus})
 
-    doc_texts: Dict[str, str] = {}
+    doc_texts: dict[str, str] = {}
     for doc_id in doc_ids:
         try:
             resp = await es.search(
@@ -150,7 +150,7 @@ async def evaluate(
 
     # Run NER once per unique document (not per corpus row) — fewer model calls and no intra-run
     # variance from re-extracting the same doc, so a single flaky call can't spuriously miss.
-    doc_predictions: Dict[str, List[Dict[str, Any]]] = {}
+    doc_predictions: dict[str, list[dict[str, Any]]] = {}
     for doc_id in doc_ids:
         text = doc_texts.get(doc_id)
         if text is None:  # doc not indexed — score each row against its own entity text as a fallback
@@ -162,7 +162,7 @@ async def evaluate(
             log.warning("model_gate.ner_failed", doc_id=doc_id, error=str(exc))
             doc_predictions[doc_id] = []
 
-    by_type: Dict[str, Dict[str, int]] = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
+    by_type: dict[str, dict[str, int]] = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
 
     for row in corpus:
         doc_id = row["document_id"]
@@ -197,7 +197,7 @@ async def evaluate(
             if _span_match(e.get("text", ""), gt_text) and e.get("entity_type") != gt_type:
                 by_type[e["entity_type"]]["fp"] += 1
 
-    entity_metrics: Dict[str, Dict[str, Any]] = {}
+    entity_metrics: dict[str, dict[str, Any]] = {}
     total_tp = total_fp = total_fn = 0
 
     for etype, counts in by_type.items():

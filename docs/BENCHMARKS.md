@@ -18,7 +18,16 @@ Self-contained evaluation harness + evidence, in `benchmark/` (mounted into the 
 | `run_load_test.py` | **Concurrency sweep** — p50/p95/p99, throughput, error rate, first-bottleneck detection |
 | `questions.json` | 25 domain-expert Q&A across 15 categories, grounded in `dataset/00_Reference/00_KAIROS_CANON.md` |
 | `RESULTS.md` | Raw output of the scripts (results only — this file holds the interpretation) |
-| `scripts/seed_validation_corpus.py` | Seeds the Layer-0 NER ground-truth set (`validation_corpus`) that `scripts/run_model_validation.py` scores |
+| `scripts/seed_validation_corpus.py` | Seeds the Layer-0 NER ground-truth set (`validation_corpus`) that `scripts/run_model_validation.py` scores. **40 labels** (was 13) as of 2026-08-15 — every one verified present in that document's *indexed* text before being added |
+
+> **Sizes, and what limits them.** The question set was widened **25 → 37** on 2026-08-15 so no
+> category sits at n=1 (eight did, where a single flip moved a category from 100% to 0%); retrieval
+> holds at 37/37 and the interval tightened from [87–100%] to [91–100%]. The NER corpus went
+> **13 → 40** labels, but `ORGANIZATION` only reaches n=3: the golden corpus contains exactly two
+> unambiguous vendors. "Rajgarh Petrochemical Complex" appears in 13 documents and was deliberately
+> **not** labelled — it reads equally well as ORGANIZATION or LOCATION, and a ground truth that
+> punishes a defensible answer is worse than a smaller one. That n=3 is a property of the dataset,
+> not of the labelling effort.
 
 The last three harnesses cover evaluation criteria that previously had **no number attached** —
 compliance gap accuracy and time-to-answer are named in the problem statement, and scalability
@@ -98,7 +107,7 @@ Per-category breakdown (15 categories) and per-question output: [`../benchmark/R
 > **This was previously an argument, not a measurement.** The paragraph below cited the problem
 > statement's own industry figures against KAIROS's retrieval latency — which compares a measured
 > number to a survey statistic, not a baseline on the same corpus. `run_time_to_answer.py` now
-> measures both halves on the same 25 questions. Run it before quoting any reduction figure.
+> measures both halves on the same question set. Run it before quoting any reduction figure.
 
 Why a naive latency comparison would be dishonest: BM25 returns a document list in ~50 ms while
 KAIROS returns a cited answer in ~8 s. On machine time alone, keyword search wins — the real cost

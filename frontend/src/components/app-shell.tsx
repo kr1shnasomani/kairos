@@ -20,6 +20,8 @@ import { PageSkeleton } from "./skeleton";
 // Staff surfaces (Assure group + RCA) are hidden from field workers. Dev-bypass (no session)
 // defaults to engineer, so an unauthenticated demo still sees everything.
 const STAFF: Role[] = ["engineer", "reliability", "admin"];
+/** Staff plus the read-only compliance auditor — mirrors STAFF_AND_COMPLIANCE in use-role.ts. */
+const STAFF_AND_COMPLIANCE: Role[] = [...STAFF, "compliance"];
 
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
@@ -89,9 +91,11 @@ const NAV: { group: string; items: NavItem[] }[] = [
   {
     group: "Assure",
     items: [
-      { href: "/compliance", label: "Compliance", icon: "compliance", roles: STAFF },
+      // The compliance auditor sees exactly these two and nothing else in the sidebar —
+      // matching `read_compliance` / `read_audit` in kairos.rego and ROUTE_ACCESS.
+      { href: "/compliance", label: "Compliance", icon: "compliance", roles: STAFF_AND_COMPLIANCE },
       { href: "/governance", label: "Governance", icon: "governance", roles: STAFF },
-      { href: "/audit", label: "Audit Trail", icon: "audit", roles: STAFF },
+      { href: "/audit", label: "Audit Trail", icon: "audit", roles: STAFF_AND_COMPLIANCE },
     ],
   },
   {
@@ -236,73 +240,6 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
 
 /** Bottom tab bar for all roles on mobile — thumb-reachable, ≥44px targets.
     Field workers keep Voice + Me (sign-out); staff get Overview + More (nav sheet). */
-function BottomTabs({ pathname, isField, onSignOut, onMore, moreRef }: {
-  pathname: string;
-  isField: boolean;
-  onSignOut: () => void;
-  onMore: () => void;
-  moreRef: React.RefObject<HTMLButtonElement | null>;
-}) {
-  const tabs: { href: string; label: string; icon: IconName }[] = [
-    { href: "/briefs", label: "Briefs", icon: "briefs" },
-    { href: "/copilot", label: "Copilot", icon: "copilot" },
-    { href: "/assets", label: "Assets", icon: "assets" },
-    isField
-      ? { href: "/field/voice", label: "Voice", icon: "voice" }
-      : { href: "/management", label: "Overview", icon: "management" },
-  ];
-
-  return (
-    <nav
-      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] print:hidden"
-      aria-label="Primary navigation"
-    >
-      {tabs.map((tab) => {
-        const active = pathname === tab.href || pathname.startsWith(tab.href + "/");
-        return (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            className={cn(
-              "flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-micro font-semibold transition-colors",
-              active ? "text-accent" : "text-muted hover:text-ink",
-            )}
-            aria-current={active ? "page" : undefined}
-          >
-            <Icon name={tab.icon} className="size-5" />
-            {tab.label}
-          </Link>
-        );
-      })}
-      {isField ? (
-        /* Me tab — sign out */
-        <button
-          onClick={onSignOut}
-          className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-micro font-semibold text-muted transition-colors hover:text-ink"
-          aria-label="Sign out"
-        >
-          <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-          </svg>
-          Me
-        </button>
-      ) : (
-        /* More tab — opens the grouped nav sheet */
-        <button
-          ref={moreRef}
-          onClick={onMore}
-          className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-micro font-semibold text-muted transition-colors hover:text-ink"
-          aria-label="More navigation"
-          aria-haspopup="dialog"
-        >
-          <Icon name="menu" className="size-5" />
-          More
-        </button>
-      )}
-    </nav>
-  );
-}
-
 function AccountMenu({ open, onClose, name, role, onSignOut }: { open: boolean; onClose: () => void; name: string; role: string; onSignOut: () => void }) {
   if (!open) return null;
   return (
@@ -439,7 +376,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [moreOpen]);
 
   const role: Role = user?.role ?? "engineer";
-  const isField = role === "field_worker";
 
   const paletteItems = useMemo<PaletteItem[]>(() => {
     const nav = NAV.flatMap((g) =>
@@ -622,18 +558,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      {/* Bottom tab bar temporarily removed per user request (revisiting mobile UX later) */}
-      {/* 
-      <div className="md:hidden">
-        <BottomTabs
-          pathname={pathname}
-          isField={isField}
-          onSignOut={signOut}
-          onMore={() => setMoreOpen(true)}
-          moreRef={moreTriggerRef}
-        />
-      </div>
-      */}
+      {/* No mobile bottom tab bar. `BottomTabs` was deleted on 2026-08-15 — it had been
+          commented out since the mobile UX was deferred, so it was neither shipped nor
+          removed. Mobile navigates via the hamburger sidebar; recover from git if revived. */}
       <AccountMenu open={accountOpen} onClose={() => setAccountOpen(false)} name="Kairos user" role={role} onSignOut={signOut} />
     </div>
   );

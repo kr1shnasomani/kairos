@@ -6,8 +6,8 @@ Halts graph writes for an asset_class when z_score > 2.0.
 
 import asyncio
 import statistics
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 
@@ -18,12 +18,12 @@ class CircuitBreakerService:
     def __init__(self, supabase) -> None:
         self.supabase = supabase
 
-    async def check(self, asset_class: str) -> Dict[str, Any]:
+    async def check(self, asset_class: str) -> dict[str, Any]:
         """
         Z-score SPC check for asset_class.
         Returns {halted, z_score, reason, override_count_7d}.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         thirty_days_ago = (now - timedelta(days=30)).isoformat()
         seven_days_ago = (now - timedelta(days=7)).isoformat()
 
@@ -86,7 +86,7 @@ class CircuitBreakerService:
     async def record_override(
         self,
         asset_class: str,
-        document_id: Optional[str],
+        document_id: str | None,
         override_type: str,
     ) -> None:
         """Insert an extraction_overrides row for SPC tracking."""
@@ -103,7 +103,7 @@ class CircuitBreakerService:
             override_type=override_type,
         )
 
-    async def get_all_states(self) -> List[Dict[str, Any]]:
+    async def get_all_states(self) -> list[dict[str, Any]]:
         """Returns current CB state per distinct asset_class that has override records."""
         result = await asyncio.to_thread(
             lambda: self.supabase.table("extraction_overrides")

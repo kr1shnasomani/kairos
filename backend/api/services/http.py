@@ -13,7 +13,6 @@ loop per Celery task. A single global client would be reused across a dead loop 
 """
 
 import asyncio
-from typing import Dict, Optional, Tuple
 
 import httpx
 import structlog
@@ -25,7 +24,7 @@ log = structlog.get_logger(__name__)
 _LIMITS = httpx.Limits(max_connections=32, max_keepalive_connections=16, keepalive_expiry=30.0)
 
 # loop id -> (loop, client). Holding the loop itself lets us detect reuse across loops.
-_clients: Dict[int, Tuple[asyncio.AbstractEventLoop, httpx.AsyncClient]] = {}
+_clients: dict[int, tuple[asyncio.AbstractEventLoop, httpx.AsyncClient]] = {}
 
 
 def shared_client(default_timeout: float = 30.0) -> httpx.AsyncClient:
@@ -58,7 +57,7 @@ async def close_shared_client() -> None:
     Closes the client for the running loop. Called from the FastAPI shutdown hook so the
     API drains its pool cleanly; short-lived Celery loops are left to process teardown.
     """
-    loop: Optional[asyncio.AbstractEventLoop]
+    loop: asyncio.AbstractEventLoop | None
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:

@@ -47,18 +47,16 @@ import type {
   GraphEdgeData,
   KnowledgeGraphData,
 } from "./types";
-import { fixtureBriefs } from "./fixtures";
-import { auditPackFixtureFor } from "./compliance";
-import { assets as fixtureAssets, getAsset as getAssetFixture, type KnowledgeEdge } from "./assets";
-import { conflictsFixture, quarantineFixture } from "./governance";
-import { documentsFixture, getDocumentFixture } from "./documents";
-import { eventFixtures, getEventFixture } from "./events";
 import { type CopilotAnswer } from "./copilot";
 import { criticalityMeta } from "./utils";
 
 // Live in dev mode: no Authorization header → backend treats the caller as
-// dev-user / engineer (docs/API.md §Auth). When the backend is unreachable we
-// fall back to fixtures so the UI is always demoable.
+// dev-user / engineer (docs/API.md §Auth).
+//
+// There are no fixture fallbacks. Fetchers throw when the backend is unreachable and the UI
+// renders error+retry. The previous behaviour — returning bundled fixtures tagged
+// `source: "demo"` — could never reach the screen anyway (the live-only guard mapped it to an
+// error), so it only made failures look like data in the source.
 
 // Server components run inside the container — use the internal Docker hostname.
 // Browser clients use the public URL (host port-mapped).
@@ -218,7 +216,22 @@ export function sendBriefFeedback(briefId: string, rating: string, notes?: strin
   return postJson<{ feedback_recorded: boolean }>(`/briefs/${briefId}/feedback`, { rating, notes });
 }
 
-export type DataSource = "live" | "demo";
+/**
+ * Only "live" exists. The former "demo" member meant "this fetcher fell back to a bundled
+ * fixture", which the live-only policy then mapped straight to an error state — so it could
+ * never reach the screen, yet every fetcher still carried a fixture path and every page still
+ * had an unreachable demo branch. Fetchers now throw instead, and the type is a single member
+ * so nothing can reintroduce the fallback silently.
+ */
+/** Formerly exported by the deleted lib/assets.ts fixture module; api.ts is its only consumer. */
+export interface KnowledgeEdge {
+  claim: string;
+  authority_level: AuthorityLevel;
+  verification: "verified" | "unverified" | "disputed";
+  source_doc: string;
+}
+
+export type DataSource = "live";
 
 export interface Fetched<T> {
   data: T;
@@ -297,8 +310,10 @@ export async function getBriefs(): Promise<Fetched<BriefsResponse>> {
     // pending, or the governor has suppressed them. BriefInbox renders an honest
     // empty / "governor suppressed" panel for it, so this is never a fixture fallback.
     return { data: { ...data, briefs: data.briefs ?? [] }, source: "live" };
-  } catch {
-    return { data: fixtureBriefs, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -306,9 +321,10 @@ export async function getBrief(briefId: string): Promise<Fetched<Brief | null>> 
   try {
     const data = await getJson<Brief>(`/briefs/${briefId}`);
     return { data, source: "live" };
-  } catch {
-    const found = fixtureBriefs.briefs.find((b) => b.brief_id === briefId) ?? null;
-    return { data: found, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -326,26 +342,16 @@ export async function getComplianceGaps(framework?: string): Promise<Fetched<Com
 
 // --- Assets ---
 // Fixture assets carry a richer shape; project them onto the live list envelope.
-const FIXTURE_CRIT: Record<string, string> = { high: "safety_critical", medium: "critical", low: "non_critical" };
 
 export async function getAssets(): Promise<Fetched<AssetsResponse>> {
   try {
     const data = await getJson<AssetsResponse>("/assets/?limit=100");
     if (!data.items || data.items.length === 0) throw new Error("empty");
     return { data, source: "live" };
-  } catch {
-    const demo: AssetsResponse = {
-      items: fixtureAssets.map((a) => ({
-        asset_id: a.asset_id,
-        name: a.name,
-        equipment_class: a.equipment_class,
-        criticality: FIXTURE_CRIT[a.criticality] ?? a.criticality,
-      })),
-      total: fixtureAssets.length,
-      limit: 100,
-      offset: 0,
-    };
-    return { data: demo, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -355,8 +361,10 @@ export async function getConflicts(): Promise<Fetched<ConflictsResponse>> {
     const data = await getJson<ConflictsResponse>("/governance/conflicts?limit=50");
     if (!data.items) throw new Error("no items");
     return { data, source: "live" };
-  } catch {
-    return { data: conflictsFixture, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -365,8 +373,10 @@ export async function getQuarantine(): Promise<Fetched<QuarantineResponse>> {
     const data = await getJson<QuarantineResponse>("/governance/quarantine?limit=50");
     if (!data.items) throw new Error("no items");
     return { data, source: "live" };
-  } catch {
-    return { data: quarantineFixture, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -407,7 +417,7 @@ export async function synthesize(query: string, asOf?: string): Promise<CopilotA
     // search first (exactly what the benchmark does). Without this the answer is always empty.
     const qs = new URLSearchParams({ q: query, limit: "6" });
     if (asOf) qs.set("as_of", asOf);
-    const search = await getJson<{ results: Array<{ document_id: string; snippet?: string; title?: string; authority_level?: number; asset_id?: string | null }> }>(
+    const search = await getJson<{ results: Array<{ document_id: string; snippet?: string; title?: string; authority_level?: number; asset_id?: string | null; relevance_score?: number }> }>(
       `/search?${qs.toString()}`, 12000,
     );
     const results = search.results ?? [];
@@ -422,6 +432,10 @@ export async function synthesize(query: string, asOf?: string): Promise<CopilotA
       document_id: r.document_id,
       title: r.title ?? r.document_id,
       authority_level: r.authority_level ?? 5,
+      // Required by the safety gate. It clears only if one of the most RELEVANT sources is
+      // authoritative; without a score it falls back to considering every source, which let a
+      // single unrelated regulation in the context clear a safety-critical refusal.
+      relevance_score: r.relevance_score,
       asset_id: r.asset_id ?? null,
     }));
 
@@ -509,8 +523,10 @@ export async function getDocuments(): Promise<Fetched<DocumentsResponse>> {
     const data = await getJson<DocumentsResponse>("/documents/?limit=50");
     if (!data.items || data.items.length === 0) throw new Error("empty");
     return { data, source: "live" };
-  } catch {
-    return { data: documentsFixture, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -518,8 +534,10 @@ export async function getDocument(documentId: string): Promise<Fetched<VaultDocu
   try {
     const data = await getJson<VaultDocument>(`/documents/${documentId}`);
     return { data, source: "live" };
-  } catch {
-    return { data: getDocumentFixture(documentId), source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -539,8 +557,10 @@ export async function getComplianceDashboard(): Promise<Fetched<ComplianceDashbo
   try {
     const data = await getJson<ComplianceDashboard>("/compliance/dashboard");
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -549,8 +569,10 @@ export async function getAuditPack(framework: string): Promise<Fetched<AuditPack
   try {
     const data = await getJson<AuditPack>(`/compliance/audit-pack?framework=${encodeURIComponent(framework)}`);
     return { data, source: "live" };
-  } catch {
-    return { data: auditPackFixtureFor(framework), source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -559,8 +581,10 @@ export async function getSlaReport(): Promise<Fetched<SlaReport | null>> {
   try {
     const data = await getJson<SlaReport>("/governance/sla-report");
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -569,8 +593,10 @@ export async function getMocList(): Promise<Fetched<MocResponse>> {
   try {
     const data = await getJson<MocResponse>("/governance/moc?limit=50");
     return { data, source: "live" };
-  } catch {
-    return { data: { items: [], total: 0, limit: 50, offset: 0 }, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -578,8 +604,10 @@ export async function getMoc(mocId: string): Promise<Fetched<MocItem | null>> {
   try {
     const data = await getJson<MocItem>(`/governance/moc/${mocId}`);
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -592,8 +620,10 @@ export async function getCircuitBreaker(): Promise<Fetched<CircuitBreakerState |
   try {
     const data = await getJson<CircuitBreakerState>("/governance/circuit-breaker");
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -638,8 +668,10 @@ export async function getModelGateHistory(): Promise<Fetched<ModelGateHistory>> 
         by_entity_type: r.details!.by_entity_type ?? undefined,
       }));
     return { data: { history }, source: "live" };
-  } catch {
-    return { data: { history: [] }, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -651,8 +683,10 @@ export async function getValidationCorpusStats(): Promise<Fetched<ValidationCorp
   try {
     const data = await getJson<ValidationCorpusStats>("/governance/validation-corpus/stats");
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -694,8 +728,10 @@ export async function getBlastRadius(documentId: string): Promise<Fetched<BlastR
       generated_at: new Date().toISOString(),
     };
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -716,8 +752,10 @@ export async function getAnnotations(documentId: string): Promise<Fetched<Annota
   try {
     const data = await getJson<Annotation[]>(`/annotations?document_id=${encodeURIComponent(documentId)}`);
     return { data, source: "live" };
-  } catch {
-    return { data: [], source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -725,8 +763,10 @@ export async function getAnnotationStats(): Promise<Fetched<AnnotationStats | nu
   try {
     const data = await getJson<AnnotationStats>("/annotations/stats");
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -742,8 +782,10 @@ export async function getElicitationQuestions(workOrderId: string): Promise<Fetc
   try {
     const data = await getJson<ElicitationSession>(`/elicitation/${workOrderId}/questions`);
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -780,8 +822,10 @@ export async function getOffboardingList(): Promise<Fetched<OffboardingProgramme
     const res = await getJson<{ items?: OffboardingProgramme[] } | OffboardingProgramme[]>("/elicitation/offboarding", 6000);
     const data = Array.isArray(res) ? res : (res.items ?? []);
     return { data, source: "live" };
-  } catch {
-    return { data: [], source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -789,8 +833,10 @@ export async function getOffboarding(programmeId: string): Promise<Fetched<Offbo
   try {
     const data = await getJson<OffboardingProgramme>(`/elicitation/offboarding/${programmeId}`, 6000);
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -806,8 +852,10 @@ export async function getOffboardingQuestions(programmeId: string): Promise<Fetc
     const map: Record<string, string[]> = {};
     for (const it of raw.items ?? []) map[it.id] = it.questions ?? [];
     return { data: map, source: "live" };
-  } catch {
-    return { data: {}, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -881,8 +929,10 @@ export async function getPlantState(siteId: string): Promise<Fetched<PlantState 
   try {
     const data = await getJson<PlantState>(`/events/plant-state/${siteId}`);
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -890,8 +940,10 @@ export async function getEvent(eventId: string): Promise<Fetched<OperationalEven
   try {
     const data = await getJson<OperationalEvent>(`/events/${eventId}`);
     return { data, source: "live" };
-  } catch {
-    return { data: getEventFixture(eventId), source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -903,8 +955,10 @@ export async function getGovernorState(userId: string): Promise<Fetched<Governor
   try {
     const data = await getJson<GovernorEventState>(`/briefs/governor/status`);
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -976,8 +1030,10 @@ export async function getDocumentTopology(documentId: string): Promise<Fetched<T
       topology_source: raw.topology_source === "vision_model" ? "vision_model" : "demo_fixture",
     };
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -989,8 +1045,10 @@ export async function getDocumentStatus(documentId: string): Promise<Fetched<Doc
   try {
     const data = await getJson<DocumentStatus>(`/documents/${documentId}/status`);
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -1016,8 +1074,10 @@ export async function getAuditLog(params: {
       metadata: it.metadata ?? it.details ?? null,
     }));
     return { data: { items, total: raw.total }, source: "live" };
-  } catch {
-    return { data: { items: [], total: 0 }, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -1051,8 +1111,10 @@ export async function getHealthDetailed(): Promise<Fetched<HealthDetailed | null
       },
       source: "live",
     };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -1061,8 +1123,10 @@ export async function getOtCoverage(assetId: string): Promise<Fetched<OtCoverage
   try {
     const data = await getJson<OtCoverage>(`/ot/coverage/${assetId}`);
     return { data, source: "live" };
-  } catch {
-    return { data: null, source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -1098,11 +1162,6 @@ export interface DocumentIngestResponse {
 }
 
 // --- Events: list ---
-function demoEvents(params?: { event_type?: string; limit?: number }): Fetched<EventsResponse> {
-  const matched = eventFixtures().filter((event) => !params?.event_type || event.event_type === params.event_type);
-  const limit = params?.limit ?? 50;
-  return { data: { items: matched.slice(0, limit), total: matched.length, limit, offset: 0 }, source: "demo" };
-}
 
 export async function getEvents(params?: { event_type?: string; limit?: number }): Promise<Fetched<EventsResponse>> {
   try {
@@ -1110,10 +1169,13 @@ export async function getEvents(params?: { event_type?: string; limit?: number }
     if (params?.event_type) qs.set("event_type", params.event_type);
     if (params?.limit) qs.set("limit", String(params.limit));
     const data = await getJson<EventsResponse>(`/events/?${qs}`);
-    if (data.items.length === 0) return demoEvents(params);
+    // An empty list from a successful call is a VALID live state — no events match the
+    // filter. This used to swap in fixtures on empty, which is worse than the catch-branch
+    // fallbacks: it fabricated data on a *successful* request. Same defect the briefs
+    // fetcher had. The page renders its own empty state.
     return { data, source: "live" };
-  } catch {
-    return demoEvents(params);
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -1177,26 +1239,10 @@ export async function getAssetDetail(id: string): Promise<Fetched<AssetDetailVie
       })),
     };
     return { data: view, source: "live" };
-  } catch {
-    const a = getAssetFixture(id);
-    if (!a) return { data: null, source: "demo" };
-    const crit = criticalityMeta(a.criticality);
-    return {
-      data: {
-        asset_id: a.asset_id,
-        name: a.name,
-        equipment_class: a.equipment_class,
-        criticalityLabel: crit.label,
-        criticalityColor: crit.color,
-        parent: a.parent,
-        open_work_orders: a.open_work_orders,
-        compliance_gaps: a.compliance_gaps,
-        last_inspection: a.last_inspection,
-        aliases: a.aliases,
-        knowledge: a.knowledge,
-      },
-      source: "demo",
-    };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -1223,37 +1269,6 @@ function normVerifStatus(v: unknown): GraphEdgeData["verification_status"] {
   return "unverified";
 }
 
-function fixtureKnowledgeGraph(assetId: string): KnowledgeGraphData {
-  const asset = getAssetFixture(assetId) ?? fixtureAssets[0];
-  const nodesMap = new Map<string, GraphNodeData>();
-  nodesMap.set(asset.asset_id, { id: asset.asset_id, label: `${asset.asset_id} — ${asset.name}`, kind: "Asset", properties: {} });
-  const edges: GraphEdgeData[] = asset.knowledge.map((k, i) => {
-    const docId = `doc:${k.source_doc}`;
-    if (!nodesMap.has(docId)) {
-      nodesMap.set(docId, { id: docId, label: k.source_doc, kind: "Document", properties: {} });
-    }
-    const claimId = `claim:${i}`;
-    nodesMap.set(claimId, { id: claimId, label: k.claim.slice(0, 40) + (k.claim.length > 40 ? "…" : ""), kind: "Concept", properties: {} });
-    return {
-      id: `e-${i}`,
-      source: asset.asset_id,
-      target: claimId,
-      label: "has_fact",
-      authority_level: k.authority_level,
-      verification_status: normVerifStatus(k.verification),
-      valid_from: "2020-01-01T00:00:00",
-      valid_to: "9999-12-31T23:59:59",
-      document_id: k.source_doc,
-      confidence: k.verification === "verified" ? 0.92 : k.verification === "disputed" ? 0.45 : 0.61,
-    };
-  });
-  return {
-    asset_id: asset.asset_id,
-    as_of: new Date().toISOString(),
-    nodes: Array.from(nodesMap.values()),
-    edges,
-  };
-}
 
 export async function getKnowledgeGraph(
   assetId: string,
@@ -1301,7 +1316,9 @@ export async function getKnowledgeGraph(
       data: { asset_id: assetId, as_of: raw.as_of, nodes: Array.from(nodesMap.values()), edges },
       source: "live",
     };
-  } catch {
-    return { data: fixtureKnowledgeGraph(assetId), source: "demo" };
+  } catch (e) {
+    // Live-only: never substitute fixture data for a failed fetch. The caller
+    // (useFetch / a server component) turns this into an error+retry state.
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }

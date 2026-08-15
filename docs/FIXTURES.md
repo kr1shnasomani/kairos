@@ -1,3 +1,14 @@
+> **HISTORICAL — the fixture system described below no longer exists.**
+>
+> `lib/{fixtures,assets,governance,documents,events,compliance}.ts` and the `DemoChip` component
+> were deleted on 2026-08-15, and `DataSource` narrowed to a single member (`"live"`) so a fallback
+> cannot return without a type error. Fetchers now throw; the UI shows live data, a skeleton, or
+> error+retry.
+>
+> Three of these paths were **not** dead when removed — `getEvents`, `governance/moc` and
+> `governance/model-gate` rendered fabricated data on *successful* requests. Kept here as a record
+> of what the system used to do and why it was removed.
+
 # KAIROS — Fixtures Reference
 
 > **For AI coding agents:** This doc covers two very different kinds of fixture.

@@ -21,20 +21,17 @@ import { useRole, ADMIN_ROLES } from "@/components/use-role";
 const F1_THRESHOLD = 0.8;
 
 // ── Demo fixture (backend offline) ────────────────────────────────────────────
-const FIXTURE_HISTORY: ModelGateResult[] = [
-  { run_id: "mg-005", task_id: null, precision: 0.91, recall: 0.88, f1: 0.895, passed: true,  corpus_size: 142, run_at: new Date(Date.now() - 3600000).toISOString() },
-  { run_id: "mg-004", task_id: null, precision: 0.87, recall: 0.84, f1: 0.855, passed: true,  corpus_size: 140, run_at: new Date(Date.now() - 86400000).toISOString() },
-  { run_id: "mg-003", task_id: null, precision: 0.72, recall: 0.69, f1: 0.705, passed: false, corpus_size: 138, run_at: new Date(Date.now() - 172800000).toISOString() },
-  { run_id: "mg-002", task_id: null, precision: 0.84, recall: 0.81, f1: 0.825, passed: true,  corpus_size: 135, run_at: new Date(Date.now() - 259200000).toISOString() },
-  { run_id: "mg-001", task_id: null, precision: 0.79, recall: 0.76, f1: 0.775, passed: true,  corpus_size: 130, run_at: new Date(Date.now() - 432000000).toISOString() },
-];
-
-/** History rows; live-but-empty stays empty (EmptyState), offline falls back to the fixture. */
+/**
+ * History rows. Live-but-empty stays empty (EmptyState).
+ *
+ * There is no fixture fallback: this page previously substituted FIXTURE_HISTORY — invented
+ * runs with made-up F1 values (0.825, 0.775) — when the fetch failed. On the one page whose
+ * whole purpose is to show *measured* model evidence, that is the most damaging place in the
+ * app to fabricate. `getModelGateHistory` now throws and useFetch renders error+retry.
+ */
 async function fetchHistory(): Promise<Fetched<ModelGateResult[]>> {
   const res = await getModelGateHistory();
-  const rows = res.data?.history ?? [];
-  if (res.source === "live") return { data: rows, source: "live" };
-  return { data: rows.length > 0 ? rows : FIXTURE_HISTORY, source: "demo" };
+  return { data: res.data?.history ?? [], source: "live" };
 }
 
 /** ModelGateResult re-mapped so it satisfies DataTable's Record constraint. */
@@ -72,7 +69,7 @@ export default function ModelGatePage() {
   const [reloadKey, setReloadKey] = useState(0);
   const state = useFetch(fetchHistory, [reloadKey]);
   const loading = state.status === "loading";
-  const history = state.status === "live" || state.status === "demo" ? state.data : null;
+  const history = state.status === "live" ? state.data : null;
   const reduced = useReducedMotion();
   const role = useRole();
   const isAdmin = ADMIN_ROLES.includes(role);

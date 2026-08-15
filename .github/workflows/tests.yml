@@ -85,6 +85,15 @@ jobs:
               tests/test_auth_cache.py \
               tests/test_config_guardrail.py
 
+      # The benchmark grader is deterministic logic (negation handling, Wilson intervals, the
+      # run-validity verdict) and needs no stack, no secrets and no network — so it belongs in
+      # tier 1. It is worth gating because it can rot silently: a broken negation guard would
+      # not fail any test, it would just quietly inflate the published answer-quality figure.
+      - name: Benchmark grader selftest
+        run: |
+          docker compose run --rm --no-deps \
+            kairos-backend-api python benchmark/run_benchmark.py --selftest
+
   # ===========================================================================
   # Tier 2 — full integration suite against LOCAL stores.
   #
@@ -181,6 +190,35 @@ jobs:
       - name: Run test suite
         if: steps.gate.outputs.ready == 'true'
         run: docker compose exec -T kairos-backend-api python -m pytest tests/ -q --timeout=120
+
+      # ---------------------------------------------------------------------
+      # Metric regression gates — DETERMINISTIC HARNESSES ONLY.
+      #
+      # What is gated: layer reachability (13 cheap GETs) and compliance gap-detection
+      # accuracy (pure Cypher against the seeded graph). Both are reproducible: compliance
+      # returned precision 1.000 / recall 0.973 / F1 0.986 identically on 2026-07-25 and
+      # 2026-08-15, so a change here is a real regression, not noise.
+      #
+      # What is NOT gated, deliberately:
+      #   * answer quality — depends on a shared NIM endpoint whose latency and availability
+      #     vary hour to hour; a red build would usually mean "NVIDIA is busy", not "we broke
+      #     something". The harness already refuses to publish such runs (VALID/SUSPECT/INVALID).
+      #   * retrieval-only — looks free, but /search embeds every query via Jina, so gating it
+      #     would spend provider quota on each push.
+      #   * NER F1 — a 13-entity corpus where one miss swings a per-type rate.
+      #
+      # --max-false-negatives 1 pins the ONE known ground-truth artefact (4.1.2/EQ-103,
+      # documented in the harness). False positives still fail at any setting.
+      # ---------------------------------------------------------------------
+      - name: Gate — layer reachability
+        if: steps.gate.outputs.ready == 'true'
+        run: docker compose exec -T kairos-backend-api python benchmark/verify_layers.py
+
+      - name: Gate — compliance gap-detection accuracy
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          docker compose exec -T kairos-backend-api \
+            python benchmark/run_compliance_eval.py --max-false-negatives 1
 
       - name: Dump logs on failure
         if: failure() && steps.gate.outputs.ready == 'true'

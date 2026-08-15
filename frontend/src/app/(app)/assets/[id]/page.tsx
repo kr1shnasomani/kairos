@@ -10,9 +10,7 @@ const VERIF_TONE = { verified: "verified", unverified: "caution", disputed: "dan
 
 export default async function AssetDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { data: a, source } = await getAssetDetail(id);
-  // Live-only: no fixture stand-in for a real asset.
-  if (source === "demo") throw new Error("Asset detail: live data unavailable");
+  const { data: a } = await getAssetDetail(id);
   if (!a) notFound();
 
   const stats = [

@@ -28,10 +28,10 @@ export default function MocDetailPage() {
 
   useEffect(() => {
     let alive = true;
-    getMoc(id).then(({ data, source }) => {
+    getMoc(id).then(({ data }) => {
       if (!alive) return;
       // Live-only: no fixture stand-in for a real MoC case.
-      if (!data || source === "demo") { setLoadFailed(true); return; }
+      if (!data) { setLoadFailed(true); return; }
       setLoadFailed(false);
       setMoc(data);
     }).catch(() => { if (alive) setLoadFailed(true); });

@@ -14,14 +14,9 @@ describe("useFetch state transitions", () => {
     expect(result.current.data).toBe(42);
   });
 
-  it("maps a demo (fixture-fallback) source to 'error' — live-only never renders fixtures", async () => {
-    const fn = () => Promise.resolve<Fetched<string>>({ data: "fixture", source: "demo" });
-    const { result } = renderHook(() => useFetch(fn));
-
-    await waitFor(() => expect(result.current.status).toBe("error"));
-    if (result.current.status !== "error") throw new Error("unreachable");
-    expect(result.current.error).toBeInstanceOf(Error);
-  });
+  // The old "maps a demo source to error" test is gone with the thing it described: fetchers
+  // no longer return fixtures on failure, they throw, and `DataSource` has a single member so
+  // a fallback cannot be reintroduced without a type error. The throw path is covered below.
 
   it("catches a throw as 'error'; retry re-runs the fetcher", async () => {
     let calls = 0;

@@ -4,7 +4,6 @@ Pydantic models — Events (Layer 8: Operational Event Subscription)
 
 import uuid
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -26,10 +25,10 @@ class WorkOrderEvent(BaseEvent):
     asset_id: str
     failure_code: str
     description: str
-    assigned_technician_id: Optional[str] = None
+    assigned_technician_id: str | None = None
     priority: str = Field(default="normal", description="critical, high, normal, low")
-    planned_start: Optional[datetime] = None
-    close_notes: Optional[str] = None  # CMMS work order closeout notes — used by attribution worker
+    planned_start: datetime | None = None
+    close_notes: str | None = None  # CMMS work order closeout notes — used by attribution worker
     event_type: str = "work_order_created"
 
 
@@ -63,34 +62,34 @@ class EventAck(BaseModel):
     user_id: str
     role: str
     acknowledged_at: datetime = Field(default_factory=datetime.utcnow)
-    signature: Optional[str] = None  # Cryptographic signature for audit trail
-    notes: Optional[str] = None
+    signature: str | None = None  # Cryptographic signature for audit trail
+    notes: str | None = None
 
 
 class DeviationFlagEvent(BaseModel):
     asset_id: str
     description: str
-    reported_by: Optional[str] = None
-    affected_topology_path: Optional[str] = None
+    reported_by: str | None = None
+    affected_topology_path: str | None = None
 
 
 class DeviationFlagResolveRequest(BaseModel):
     resolution: str = Field(..., description="'promoted' or 'disputed'")
     moc_warranted: bool = False
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class PlantStateEvent(BaseModel):
     site_id: str
     state: str = Field(..., description="normal, turnaround, shutdown, emergency")
-    expires_at: Optional[datetime] = None
+    expires_at: datetime | None = None
 
 
 class TagOutEvent(BaseEvent):
     asset_id: str
     tag_out_reason: str
     performed_by: str
-    expected_return_date: Optional[datetime] = None
+    expected_return_date: datetime | None = None
     event_type: str = "equipment_tag_out"
 
 
@@ -100,6 +99,6 @@ class InspectionCompleteEvent(BaseEvent):
     result: str = Field(..., description="passed, failed, conditional")
     performed_by: str
     findings: str = ""
-    document_id: Optional[str] = None
+    document_id: str | None = None
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     event_type: str = "inspection_complete"

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getConflicts, resolveConflict } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
-import { Button, DataTable, DemoChip, EmptyState, FilterTabs, PageHeader } from "@/components/ui";
+import { Button, DataTable, EmptyState, FilterTabs, PageHeader } from "@/components/ui";
 import { StatPills } from "@/components/stat-pills";
 import { buildColumns, type ConflictRow } from "./_components/columns";
 
@@ -16,7 +16,7 @@ export default function ConflictsPage() {
   // Spec §5: params unchanged — same zero-arg getConflicts() call as before.
   const state = useFetch(() => getConflicts(), []);
   const loading = state.status === "loading";
-  const hasData = state.status === "live" || state.status === "demo";
+  const hasData = state.status === "live";
 
   const [resolved, setResolved] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
@@ -85,7 +85,6 @@ export default function ConflictsPage() {
         eyebrow="Layer 7 · Dual-track governance"
         title="Conflicts"
         lede="Contradictions between sources, split by track. Administrative conflicts resolve here; engineering conflicts are safety-critical and route through Management of Change."
-        actions={state.status === "demo" ? <DemoChip /> : undefined}
       />
 
       <section data-testid="conflicts-summary" className="mt-5">

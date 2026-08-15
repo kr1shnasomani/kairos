@@ -7,8 +7,8 @@ All three checks must confirm a genuine failure before any action is taken.
 
 import os
 import statistics
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 import structlog
@@ -27,7 +27,7 @@ def _supabase():
 
 
 @celery_app.task(queue="attribution", name="workers.attribution.evaluate_outcome")
-def evaluate_outcome(event_id: str, asset_id: str) -> Dict[str, Any]:
+def evaluate_outcome(event_id: str, asset_id: str) -> dict[str, Any]:
     """
     Triggered when a second work order for the same asset arrives within 30 days.
     All three checks must confirm genuine failure before flagging for review.
@@ -74,7 +74,7 @@ def evaluate_outcome(event_id: str, asset_id: str) -> Dict[str, Any]:
     return result
 
 
-def _check_telemetry_baseline(asset_id: str, event_id: str) -> Dict[str, Any]:
+def _check_telemetry_baseline(asset_id: str, event_id: str) -> dict[str, Any]:
     """
     Queries historian via Go connector for post-maintenance telemetry.
     If coverage_percent == 0, asset is not instrumented — check skipped (primary_check=False).
@@ -97,7 +97,7 @@ def _check_telemetry_baseline(asset_id: str, event_id: str) -> Dict[str, Any]:
         row = sb.table("operational_events").select("occurred_at").eq("event_id", event_id).single().execute()
         maint_date = datetime.fromisoformat(row.data["occurred_at"].replace("Z", "+00:00"))
     except Exception:
-        maint_date = datetime.now(timezone.utc) - timedelta(days=1)
+        maint_date = datetime.now(UTC) - timedelta(days=1)
 
     query_from = maint_date.isoformat()
     query_to = (maint_date + timedelta(days=30)).isoformat()
@@ -136,14 +136,14 @@ def _check_telemetry_baseline(asset_id: str, event_id: str) -> Dict[str, Any]:
     }
 
 
-def _check_failure_code_match(asset_id: str, event_id: str) -> Dict[str, Any]:
+def _check_failure_code_match(asset_id: str, event_id: str) -> dict[str, Any]:
     """
     Compares failure code families of the current WO and the prior WO for this asset.
     Same family = genuine recurrence pattern.
     """
     try:
         sb = _supabase()
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(days=30)).isoformat()
         rows = (
             sb.table("operational_events")
             .select("event_id, payload")
@@ -180,7 +180,7 @@ def _check_failure_code_match(asset_id: str, event_id: str) -> Dict[str, Any]:
     }
 
 
-def _check_execution_compliance(event_id: str) -> Dict[str, Any]:
+def _check_execution_compliance(event_id: str) -> dict[str, Any]:
     """
     Checks if the recommended action was documented in the work order close notes.
     compliant=True means the action WAS performed (not a deviation).

@@ -4,7 +4,6 @@ All settings are read from environment variables (via .env file in development).
 """
 
 from functools import lru_cache
-from typing import List
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,7 +24,7 @@ class Settings(BaseSettings):
     APP_DEBUG: bool = True
     APP_VERSION: str = "0.1.0"
     APP_SECRET_KEY: str = "CHANGE_ME_IN_PRODUCTION"
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
 
     # Abuse guards for the public API
     MAX_UPLOAD_MB: int = 25                 # reject document uploads larger than this
@@ -90,9 +89,31 @@ class Settings(BaseSettings):
     NVIDIA_NIM_MODEL: str = "meta/llama-3.1-70b-instruct"  # 3.3-70b currently 400s/hangs on NIM; 3.1-70b responds in ~0.4s
     NVIDIA_NIM_MAX_TOKENS: int = 4096
     NVIDIA_NIM_TEMPERATURE: float = 0.1
-    NVIDIA_NIM_TIMEOUT: float = 90.0  # per-call cap; on timeout the cascade falls through to Gemini
+    # Per-call cap; on timeout the cascade falls through to Gemini. MUST leave headroom under the
+    # frontend's 90 s budget for POST /search/synthesize (frontend/src/lib/api.ts), because a
+    # fallthrough costs cap + Gemini (observed up to +11.6 s): at a 90 s cap the fallbacks landed at
+    # 92-102 s and aborted in the browser. Measured over 23 NIM calls: 60 s keeps 86% of answers on
+    # NIM with a worst-case fallthrough of ~72 s. Raise the frontend budget first if you raise this.
+    NVIDIA_NIM_TIMEOUT: float = 60.0
     # Vision-language model for P&ID topology extraction (Layer 3, Path B)
     NVIDIA_NIM_VISION_MODEL: str = "meta/llama-3.2-11b-vision-instruct"
+
+    # -------------------------------------------------------------------------
+    # OpenRouter — tier 2, ahead of Gemini ON PURPOSE.
+    #
+    # It serves the SAME model as tier 1 (meta-llama/llama-3.1-70b-instruct), so a fallback here
+    # does not change what is being measured. Gemini is a different model family, which is why a
+    # Gemini-heavy run has to be flagged as a confound in benchmark/RESULTS.md. Preferring a
+    # same-model provider means NVIDIA's outages cost latency rather than comparability.
+    # Empty key = tier skipped.
+    # -------------------------------------------------------------------------
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str = "meta-llama/llama-3.1-70b-instruct"
+    # Its own cap rather than reusing NVIDIA_NIM_TIMEOUT: that setting is named for, and tuned to,
+    # NVIDIA's latency tail, and sharing it means tuning one provider silently retimes the other.
+    # Measured ~1.4 s here, so this is generous headroom, not a target.
+    OPENROUTER_TIMEOUT: float = 60.0
 
     # -------------------------------------------------------------------------
     # Gemini — optional LLM fallback via Google's OpenAI-compatible endpoint.
@@ -170,6 +191,14 @@ class Settings(BaseSettings):
     # disable (verify every request — strictest, slowest).
     AUTH_CACHE_TTL_SECONDS: int = 60
 
+    # HMAC-SHA256 shared secret for the inbound MoC resolution webhook
+    # (POST /governance/moc/webhook). ARCHITECTURE.md requires the plant's MoC system to sign
+    # resolutions before KAIROS updates the canonical graph. `routers/governance.py` read this via
+    # getattr() long before the field existed, so the check silently never ran whatever .env said.
+    # None = unsigned webhooks accepted (dev default). Once set, requests MUST carry a valid
+    # X-Webhook-Signature — a missing header is rejected, not waved through.
+    MOC_WEBHOOK_SECRET: str | None = None
+
     # -------------------------------------------------------------------------
     # Groq — Voice Transcription (Whisper-large-v3 via API)
     # -------------------------------------------------------------------------
@@ -194,7 +223,7 @@ class Settings(BaseSettings):
         INTERNAL_API_KEY is the critical one — its default is an admin auth-bypass (dependencies.py)."""
         if self.APP_ENV != "production":
             return self
-        bad: List[str] = []
+        bad: list[str] = []
         if self.INTERNAL_API_KEY == "kairos-internal-dev-key":
             bad.append("INTERNAL_API_KEY (default grants admin — critical)")
         if self.APP_SECRET_KEY == "CHANGE_ME_IN_PRODUCTION":

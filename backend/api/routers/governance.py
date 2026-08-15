@@ -6,8 +6,7 @@ Manages knowledge conflicts, MoC items, quarantine review, and blast-radius repo
 import asyncio
 import hashlib
 import hmac
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
@@ -30,9 +29,9 @@ router = APIRouter()
 async def list_conflicts(
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
-    track: Optional[str] = Query(None, description="'administrative' or 'engineering'"),
-    asset_id: Optional[str] = Query(None),
-    conflict_status: Optional[str] = Query(None, alias="status", description="open, pending_moc, resolved"),
+    track: str | None = Query(None, description="'administrative' or 'engineering'"),
+    asset_id: str | None = Query(None),
+    conflict_status: str | None = Query(None, alias="status", description="open, pending_moc, resolved"),
     limit: int = Query(50, le=200),
     offset: int = Query(0),
 ) -> dict:
@@ -43,7 +42,7 @@ async def list_conflicts(
     """
     await SLAService.check_and_escalate(supabase)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     query = supabase.table("knowledge_conflicts").select(
         "conflict_id, track, asset_id, parameter, source_a, source_b, authority_a, authority_b, severity, status, sla_deadline, escalated_at, created_at",
         count="exact",
@@ -120,7 +119,7 @@ async def resolve_conflict(
             detail="Engineering-track conflicts must be resolved via MoC webhook (POST /governance/moc/webhook).",
         )
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     await asyncio.to_thread(
         lambda: supabase.table("knowledge_conflicts").update({
             "status": "resolved",
@@ -149,9 +148,9 @@ async def resolve_conflict(
 async def list_quarantine(
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
-    asset_id: Optional[str] = Query(None),
-    reviewer_id: Optional[str] = Query(None),
-    review_status: Optional[str] = Query(None, description="pending, promoted, disputed, archived"),
+    asset_id: str | None = Query(None),
+    reviewer_id: str | None = Query(None),
+    review_status: str | None = Query(None, description="pending, promoted, disputed, archived"),
     limit: int = Query(50, le=200),
     offset: int = Query(0),
 ) -> dict:
@@ -162,7 +161,7 @@ async def list_quarantine(
     """
     await SLAService.check_and_escalate(supabase)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     query = supabase.table("quarantine_items").select(
         "item_id, asset_id, content, input_type, submitted_by, submitted_at, reviewer_id, review_status, work_order_id, session_context, sla_due_at, escalated_at",
         count="exact",
@@ -228,7 +227,7 @@ async def promote_quarantine_item(
 
     ctx = item.get("session_context") or {}
     document_id = ctx.get("document_id") or f"PROMOTED-{item_id}"
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     graph = GraphService(driver)
     # Ensure Document node exists
@@ -349,7 +348,7 @@ async def dispute_quarantine_item(
             detail=f"Item is already '{item['review_status']}', cannot dispute.",
         )
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     await asyncio.to_thread(
         lambda: supabase.table("quarantine_items").update({
             "review_status": "disputed",
@@ -439,7 +438,7 @@ async def get_sla_report(
     """
     escalation_result = await SLAService.check_and_escalate(supabase)
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     overdue_conflicts = await asyncio.to_thread(
         lambda: supabase.table("knowledge_conflicts")
@@ -500,7 +499,7 @@ async def get_circuit_breaker_status(
 async def list_moc(
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
-    moc_status: Optional[str] = Query(None, alias="status", description="draft, pending_approval, approved, rejected"),
+    moc_status: str | None = Query(None, alias="status", description="draft, pending_approval, approved, rejected"),
 ) -> dict:
     """Returns Management of Change items, optionally filtered by status."""
     query = supabase.table("moc_items").select(
@@ -549,18 +548,29 @@ async def receive_moc_webhook(
     supabase: SupabaseDep,
     driver: Neo4jDep,
     payload: dict = Body(...),
-    x_webhook_signature: Optional[str] = Header(None),
+    x_webhook_signature: str | None = Header(None),
 ) -> dict:
     """
     Receives MoC resolution from the plant's EAM/SAP MoC system.
     On approval: closes old validity window, promotes new fact to canonical, clears conflict.
     On rejection: logs outcome, keeps conflict open.
     """
-    # Signature check when secret is configured
+    # Signature check when secret is configured.
+    #
+    # Configuring the secret is what turns verification on; once on, an unsigned request is
+    # REJECTED rather than accepted. The previous condition (`moc_secret and x_webhook_signature`)
+    # made the check opt-in *by the caller* — anyone could skip verification by omitting the
+    # header, which is the one party you cannot trust to choose. Combined with the missing
+    # Settings field (getattr always returned None) no MoC webhook was ever verified.
     from api.config import get_settings
     settings = get_settings()
-    moc_secret = getattr(settings, "MOC_WEBHOOK_SECRET", None)
-    if moc_secret and x_webhook_signature:
+    moc_secret = settings.MOC_WEBHOOK_SECRET
+    if moc_secret:
+        if not x_webhook_signature:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing X-Webhook-Signature header",
+            )
         import json
         expected = hmac.new(
             moc_secret.encode(),
@@ -585,7 +595,7 @@ async def receive_moc_webhook(
 
     moc = moc_result.data[0]
     conflict_id = moc.get("conflict_id")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     now_iso = now.isoformat()
 
     await asyncio.to_thread(
@@ -694,7 +704,7 @@ async def approve_moc_item(
     if moc.get("status") == "approved":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="MoC already approved.")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     now_iso = now.isoformat()
     await asyncio.to_thread(
         lambda: supabase.table("moc_items").update({

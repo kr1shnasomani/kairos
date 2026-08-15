@@ -32,21 +32,28 @@ describe("MocListPage", () => {
     expect(screen.getByText(/Showing 1–25 of 10000/)).toBeInTheDocument();
   });
 
-  it("falls back to the fixture with a demo chip and routes row clicks to the case file", async () => {
+  it("renders an honest empty state for an empty live list — never fabricated rows", async () => {
+    // Inverted deliberately. This used to assert the opposite: an empty *successful* response
+    // rendered buildFixture() — MOC-2024-001 and friends, invented ids and document refs —
+    // behind a "Demo data" chip. Fabricating records on a successful request is precisely what
+    // the live-only policy forbids, so the page now shows its empty state.
     mocks.getMocList.mockResolvedValue({ data: { items: [], total: 0 }, source: "live" });
 
     render(<MocListPage />);
 
-    await waitFor(() => expect(screen.getByText("MOC-2024-001")).toBeInTheDocument());
-    expect(screen.getByTestId("moc-summary")).toBeInTheDocument();
-    expect(screen.getByText("Demo data")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("No changes under review")).toBeInTheDocument());
+    expect(screen.queryByText("MOC-2024-001")).not.toBeInTheDocument();
+    expect(screen.queryByText("Demo data")).not.toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByText("MOC-2024-001").closest("tr")!);
-    expect(mocks.push).toHaveBeenCalledWith("/governance/moc/MOC-2024-001");
+  it("routes a row click to the case file", async () => {
+    mocks.getMocList.mockResolvedValue({ data: { items: [item(1)], total: 1 }, source: "live" });
 
-    // Fixture has no rejected items → tailored empty state.
-    fireEvent.click(screen.getByRole("button", { name: "Rejected" }));
-    expect(screen.getByText("No changes under review")).toBeInTheDocument();
+    render(<MocListPage />);
+
+    const row = await screen.findByText("MOC-1");
+    fireEvent.click(row.closest("tr")!);
+    expect(mocks.push).toHaveBeenCalledWith("/governance/moc/MOC-1");
   });
 
   it("shows an error surface with retry when the fetch rejects", async () => {

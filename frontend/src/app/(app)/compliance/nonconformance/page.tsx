@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { getConflicts, getQuarantine, getEvents } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { relativeTime } from "@/lib/utils";
-import { Button, DataTable, DemoChip, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import { Button, DataTable, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
 import { StatPills } from "@/components/stat-pills";
 
 type NcSource = "conflict" | "inspection" | "dispute";
@@ -77,11 +77,11 @@ export default function NonConformancePage() {
     const [c, q, e] = await Promise.all([getConflicts(), getQuarantine(), getEvents({ limit: 50 })]);
     return {
       data: { conflicts: c.data.items ?? [], quarantine: q.data.items ?? [], events: e.data.items ?? [] },
-      source: [c, q, e].some((r) => r.source === "demo") ? ("demo" as const) : ("live" as const),
+      source: "live" as const,
     };
   }, []);
   const loading = state.status === "loading";
-  const hasData = state.status === "live" || state.status === "demo";
+  const hasData = state.status === "live";
 
   const items = useMemo<Nc[]>(() => {
     if (!hasData) return [];
@@ -143,7 +143,6 @@ export default function NonConformancePage() {
         eyebrow="Layer 7 · Quality"
         title="Non-conformance tracking"
         lede="Open non-conformances composed from unresolved conflicts, failed inspections, and disputed field inputs. Each links to its root-cause workspace and originating record."
-        actions={state.status === "demo" ? <DemoChip /> : undefined}
       />
 
       <section data-testid="nonconformance-summary" className="mt-5">

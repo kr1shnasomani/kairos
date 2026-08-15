@@ -5,7 +5,7 @@ Falls back gracefully when GROQ_API_KEY is not configured.
 """
 
 import os
-from typing import Any, Dict
+from typing import Any
 
 import httpx
 import structlog
@@ -25,7 +25,7 @@ class WhisperService:
         self.api_key = os.getenv("GROQ_API_KEY", "")
         self.model = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3")
 
-    def transcribe(self, audio_bytes: bytes, filename: str = "audio.wav") -> Dict[str, Any]:
+    def transcribe(self, audio_bytes: bytes, filename: str = "audio.wav") -> dict[str, Any]:
         """
         Transcribe audio bytes via Groq API.
         Returns {text, language, confidence, segments}.

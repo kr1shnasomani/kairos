@@ -214,15 +214,6 @@ export function PhaseBadge() {
 }
 
 /** Honest data-source chip — shown when a page is rendering fixture/demo data. */
-export function DemoChip({ detail }: { detail?: string } = {}) {
-  return (
-    <span className="inline-flex h-[20px] items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--caution)_14%,transparent)] px-2 text-micro font-semibold text-caution">
-      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-      {detail ? `Demo data — ${detail}` : "Demo data"}
-    </span>
-  );
-}
-
 // ─── TrendDelta ──────────────────────────────────────────────────────────────
 
 /** Signed percent-change chip. `invert` for metrics where up is bad (gaps, overdue). */

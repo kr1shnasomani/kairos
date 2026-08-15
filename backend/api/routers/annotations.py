@@ -7,8 +7,7 @@ Every correction feeds the facility-specific NER training corpus.
 import asyncio
 import json
 from collections import Counter
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from fastapi import APIRouter, Query, status
@@ -24,10 +23,10 @@ class AnnotationRequest(BaseModel):
     document_id: str
     entity_text: str
     entity_type: str
-    corrected_type: Optional[str] = None
+    corrected_type: str | None = None
     is_correct: bool
-    span_start: Optional[int] = None
-    span_end: Optional[int] = None
+    span_start: int | None = None
+    span_end: int | None = None
 
 
 # =============================================================================
@@ -195,7 +194,7 @@ async def annotation_stats(
     Returns aggregate annotation counts for the model health dashboard.
     top_corrected_entity_types shows which entity types operators correct most often.
     """
-    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    week_ago = (datetime.now(UTC) - timedelta(days=7)).isoformat()
 
     total_result, week_result, incorrect_result = await asyncio.gather(
         asyncio.to_thread(

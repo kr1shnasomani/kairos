@@ -4,8 +4,7 @@ Manages canonical asset identities, alias resolution, and the asset hierarchy.
 """
 
 import asyncio
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import shortuuid
 import structlog
@@ -19,7 +18,7 @@ log = structlog.get_logger(__name__)
 router = APIRouter()
 
 
-async def resolve_canonical_asset_id(asset_id: str, graph: GraphService, supabase) -> Optional[str]:
+async def resolve_canonical_asset_id(asset_id: str, graph: GraphService, supabase) -> str | None:
     """Resolve a tag to its canonical asset_id.
 
     Returns `asset_id` unchanged if it's already a canonical graph node; if it's a
@@ -56,7 +55,7 @@ async def create_asset(
     Uses MERGE in Neo4j so duplicate registrations are idempotent.
     """
     asset_id = payload.asset_id or f"ASSET-{shortuuid.uuid()[:8].upper()}"
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     graph = GraphService(driver)
     await graph.create_asset_node({
@@ -127,8 +126,8 @@ async def create_asset(
 async def list_assets(
     current_user: CurrentUserDep,
     driver: Neo4jDep,
-    site_id: Optional[str] = Query(None),
-    equipment_class: Optional[str] = Query(None),
+    site_id: str | None = Query(None),
+    equipment_class: str | None = Query(None),
     limit: int = Query(50, le=500),
     offset: int = Query(0),
 ) -> dict:
@@ -224,7 +223,7 @@ async def get_asset_knowledge(
     current_user: CurrentUserDep,
     driver: Neo4jDep,
     supabase: SupabaseDep,
-    as_of: Optional[str] = Query(None, description="ISO8601 timestamp for time-travel query"),
+    as_of: str | None = Query(None, description="ISO8601 timestamp for time-travel query"),
 ) -> dict:
     """
     Returns all temporal graph edges (facts) for this asset.
@@ -236,7 +235,7 @@ async def get_asset_knowledge(
     if not canonical:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Asset '{asset_id}' not found")
 
-    as_of_dt: Optional[datetime] = None
+    as_of_dt: datetime | None = None
     if as_of:
         try:
             as_of_dt = datetime.fromisoformat(as_of)

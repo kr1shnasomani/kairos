@@ -34,8 +34,17 @@ def _parse_otlp_headers(raw: str) -> dict[str, str]:
     return headers
 
 
-def setup_telemetry(app: FastAPI) -> None:
-    """Configure OpenTelemetry tracing and metrics. No-op if OTEL endpoint is unreachable."""
+def setup_telemetry(app: FastAPI | None = None) -> None:
+    """
+    Configure OpenTelemetry tracing and metrics. No-op if the OTEL endpoint is unreachable.
+
+    `app` is optional so non-HTTP processes can call this too. That matters: the Celery worker
+    never called it, so it had no MeterProvider, and every custom instrument recorded there was a
+    permanent no-op — `briefs_delivered` (services/brief_engine.py) and `governor_suppressed`
+    (services/event_bus.py) both fire in the worker, so they could never reach Grafana no matter
+    how much real traffic ran. Confirmed 2026-08-15: a brief was genuinely delivered and
+    `kairos_briefs_delivered_total` still did not exist in Grafana Cloud.
+    """
     try:
         import os
 
@@ -77,7 +86,9 @@ def setup_telemetry(app: FastAPI) -> None:
         metrics.set_meter_provider(meter_provider)
 
         # --- Auto-instrumentors ---
-        FastAPIInstrumentor.instrument_app(app, tracer_provider=tracer_provider)
+        # FastAPI instrumentation only applies to the API process; the worker has no app.
+        if app is not None:
+            FastAPIInstrumentor.instrument_app(app, tracer_provider=tracer_provider)
         RedisInstrumentor().instrument(tracer_provider=tracer_provider)
         HTTPXClientInstrumentor().instrument(tracer_provider=tracer_provider)
 

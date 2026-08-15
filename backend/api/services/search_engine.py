@@ -3,7 +3,7 @@ Search engine service — Elasticsearch exact search (Layer 11).
 Handles tag number, part number, document ID, and regulatory clause lookup.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
 from elasticsearch import AsyncElasticsearch
@@ -43,16 +43,16 @@ class SearchEngineService:
     async def search(
         self,
         query: str,
-        index: Optional[str] = None,
-        asset_id: Optional[str] = None,
+        index: str | None = None,
+        asset_id: str | None = None,
         limit: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Exact and full-text search. Prioritizes exact tag number matches.
         """
         indices = index or f"{self.settings.ELASTICSEARCH_INDEX_DOCUMENTS},{self.settings.ELASTICSEARCH_INDEX_ASSETS}"
 
-        must_clauses: List[Any] = [
+        must_clauses: list[Any] = [
             {
                 "multi_match": {
                     "query": query,
@@ -97,7 +97,7 @@ class SearchEngineService:
             log.error("elasticsearch.search_failed", error=str(e))
             return []
 
-    def _asset_mapping(self) -> Dict:
+    def _asset_mapping(self) -> dict:
         return {
             "mappings": {
                 "properties": {
@@ -110,7 +110,7 @@ class SearchEngineService:
             }
         }
 
-    def _document_mapping(self) -> Dict:
+    def _document_mapping(self) -> dict:
         return {
             "mappings": {
                 "properties": {
@@ -126,7 +126,7 @@ class SearchEngineService:
             }
         }
 
-    def _event_mapping(self) -> Dict:
+    def _event_mapping(self) -> dict:
         return {
             "mappings": {
                 "properties": {
