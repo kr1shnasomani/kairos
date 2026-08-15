@@ -314,6 +314,64 @@ now pinned: an empty live list must render an empty state, and an unavailable ba
 
 ---
 
+## Dependency security — what was taken, and what was refused (2026-08-15)
+
+GitHub reported **57 open Dependabot alerts** (1 critical, 11 high, 26 medium, 19 low) across
+`backend/requirements.txt` (46), `frontend/package-lock.json` (9) and `backend/connectors/go.mod` (2).
+
+**Applied — only the packages that actually carry alerts:**
+
+| Package | From → To | Alerts |
+|---|---|---|
+| `aiohttp` | 3.9.5 → 3.14.3 | 34 |
+| `python-multipart` | 0.0.9 → 0.0.32 | 8 |
+| `python-jose[cryptography]` | 3.3.0 → 3.5.0 | 2 (incl. the **critical**) |
+| `python-dotenv` | 1.0.1 → 1.2.2 | 1 |
+| `pytest` (+asyncio, +timeout) | 8.2.2 → 9.1.1 | 1 |
+| `github.com/redis/go-redis/v9` | 9.5.3 → 9.21.0 | 1 |
+| `golang.org/x/net` | 0.54.0 → 0.55.0 | 1 |
+
+npm (`undici`, `brace-expansion`, `js-yaml`) was already cleared earlier by `npm audit fix`;
+`npm audit` reports 0. Those 9 alerts persist only because Dependabot scans `main`.
+
+### ⚠️ PR #22 was NOT merged, and should not be
+
+It is presented as a security update but is a wholesale stack modernisation — 41 packages,
+including **elasticsearch 8.13.1 → 9.4.1**. The ES server here is **8.13.4**, and the Elasticsearch
+Python client enforces major-version compatibility: a 9.x client refuses an 8.x cluster. Merging it
+would have broken search, ingestion, the validation corpus and the model gate. It also carries
+`neo4j 5.21 → 6.2`, `pandas 2.2 → 3.0`, `numpy 1.26 → 2.5` and `fastapi 0.111 → 0.140`, none of
+which any alert requires. The five pip bumps above achieve the same security outcome in 7 lines.
+
+**#31 (actions) and #29 (docker) were also skipped**: they are major CI/base-image bumps
+(`checkout` v4→v7 etc.) that close **zero** alerts, and CI behaviour cannot be fully verified locally.
+
+**No PRs were closed** — they close themselves when this branch merges to `main`.
+
+### On the one critical
+
+`python-jose` CVE-2024-33663 is algorithm confusion via OpenSSH ECDSA keys. It was **not exploitable
+here**: `middleware/opa.py` decodes with an explicit `algorithms=["HS256"]` allowlist, which is the
+documented mitigation. Bumped regardless.
+
+### Verification (each package against the path it actually serves)
+
+- `python-dotenv` → settings load · `aiohttp` → `AsyncElasticsearch` transport: `/search` 200 with hits,
+  `/health/detailed` all five datastores ok
+- `python-jose` → login 200; an unauthenticated write still 403s
+- `python-multipart` → a multipart upload with a deliberately invalid `authority_level` returns 422,
+  proving the parser read both file and form parts. **Nothing persisted** — documents stayed at 23.
+- Go connector rebuilt: `go build`, `go vet`, `/ot/query` 200, `/ot/coverage/EQ-101` 200
+- 13/13 layers · compliance F1 0.986 unchanged · 65 backend tests · ruff 0.16.0 clean
+
+> Two notes. The service-free tier went 64 passed/1 skipped → **65 passed**: `openpyxl` was already
+> in `requirements.txt`, but the running image predated it, so the spreadsheet-ingestion test had
+> been **silently skipping locally**. The rebuild fixed that — it was not caused by these bumps.
+> Separately, starlette now emits `PendingDeprecationWarning: Please use import python_multipart`
+> against 0.0.32; harmless today, but it becomes an error when starlette drops the old import name.
+
+---
+
 ## Benchmark caveats & measurement notes (2026-08-15)
 
 ### OpenRouter added as tier 2 (2026-08-15) — same model, ahead of Gemini
