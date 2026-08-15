@@ -28,13 +28,15 @@ Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · Docker
 frontend/
 ├── public/
 │   ├── logo.png                    # Brand logo — served at /logo.png; favicon source
+│   ├── shots/                       # Landing-page product screenshots (real captures of the app)
 │   └── sw.js                        # Service worker (PWA offline shell) — registered PROD-ONLY
 ├── src/
 │   ├── app/
 │   │   ├── icon.jpeg                # Auto-favicon (Next.js App Router convention)
 │   │   ├── layout.tsx               # Root layout — globals, font, theme, favicon metadata
-│   │   ├── page.tsx                 # Root redirect → /briefs
-│   │   ├── globals.css              # Design tokens (CSS vars: --accent, --ink, --muted, etc.)
+│   │   ├── page.tsx                 # PUBLIC LANDING PAGE (marketing surface, no auth)
+│   │   ├── landing-fonts.ts         # Instrument Sans + DM Sans, landing-only (next/font)
+│   │   ├── globals.css              # Design tokens (app: --accent/--ink/…; landing: --lp-* scoped)
 │   │   ├── not-found.tsx            # On-theme 404 page
 │   │   ├── login/page.tsx           # Login screen (real auth → POST /auth/login)
 │   │   └── (app)/                   # Authenticated route group — wrapped in <AppShell>
@@ -81,7 +83,7 @@ frontend/
 
 | Route | Page | Status |
 |-------|------|--------|
-| `/` | Redirect to `/briefs` | Live |
+| `/` | Public landing page (no auth) | Live |
 | `/login` | Email + password login | Live (real auth) |
 | `/briefs` | Brief inbox | Live |
 | `/briefs/[id]` | Brief detail + ack + feedback | Live |
@@ -433,6 +435,48 @@ Defined in `globals.css` as CSS custom properties, available to all Tailwind uti
 | `--danger` | Red (refused / critical) |
 
 Light and dark values are set via `[data-theme=light]` / `[data-theme=dark]` on `<html>`. Theme is persisted in `localStorage` under `kairos-theme`.
+
+### Landing page tokens — a separate, scoped set
+
+The public landing page (`app/page.tsx`) is a marketing surface with its own visual
+language and does **not** use the app tokens above. Its tokens are namespaced
+`--lp-*` and scoped to `.landing`, so nothing leaks into the app.
+
+| Token | Value | Role |
+|---|---|---|
+| `--lp-bg` / `--lp-band` | `#ffffff` / `#f8f8f8` | page ground / alternating band |
+| `--lp-ink` / `--lp-muted` | `#0b1015` / `#3f3f3f` | headings / body |
+| `--lp-line` | `#e5e3df` | hairline, used for the frame rails |
+| `--lp-accent` | `#ff3c00` | display type ≥24px, fills, rules, corner marks |
+| `--lp-accent-strong` | `#d93400` | any fill carrying small white text |
+| `--lp-accent-text` | `#cc3100` | small accent text on light |
+| `--lp-dark` / `--lp-dark-2` | `#0a0a0a` / `#232323` | dark bands |
+
+Three accents exist because `#ff3c00` only reaches **3.35:1** on the light ground.
+It is therefore confined to jobs where 3:1 is conformant (large display type,
+fills, decoration); anything smaller uses one of the accessible variants. The
+landing is deliberately **light-only** — its dark bands are part of the
+composition, not a theme — so it carries no `[data-theme]` pairs.
+
+Typography is `Instrument Sans` (display) + `DM Sans` (body) via `next/font`,
+declared in `app/landing-fonts.ts` so the root layout and the app keep Geist.
+
+**Three things to know before editing it:**
+
+1. `globals.css` has an **unlayered** `* { border-color: var(--line) }`. Unlayered
+   declarations outrank everything in `@layer utilities` regardless of
+   specificity, so that rule silently beats every Tailwind `border-*` colour
+   utility. The landing is excluded from it via `*:not(.landing, .landing *)`;
+   without that exclusion, `border-(--lp-accent)` renders as the hairline colour.
+2. `.landing` sets `overflow-x: clip` because the corner ticks are centred *on*
+   the frame edge and hang 5px outside it. Use `clip`, not `hidden` — `hidden`
+   makes it a scroll container and breaks the sticky header.
+3. Tailwind v4 leaves `<button>` at `cursor: default`. `.landing button` restores
+   `cursor: pointer` once, rather than per-button.
+
+Product screenshots in `public/shots/` are real captures of the running app,
+produced by a local-only script (git-ignored; see `.gitignore`). Re-run it after
+UI changes so the marketing page does not drift from the product.
 
 ---
 
