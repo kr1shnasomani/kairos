@@ -378,6 +378,7 @@ would reward per hour spent.
 - [ ] **Verify the safety-critical RefusalCard** live in the UI.
 
 ### Housekeeping (optional)
+- [ ] **CodeQL fails on every PR while the repo is private — expected, not a defect.** `codeql.yml` analyses everything fine (115/115 Python files, all four languages) and then fails on the *upload* step with `Code scanning is not enabled for this repository`. Code scanning on a **private** repo needs GitHub Advanced Security; the API confirms `visibility: private`, `security_and_analysis: null`. The one green CodeQL run (2026-08-10) was a *scheduled* run on `main`, which does not hit the PR upload path. **On making the repo public again:** Settings → Code security → Code scanning → Set up → **Advanced** (not Default — Default replaces the existing `codeql.yml`), then re-run the job. Nothing in the workflow or the code needs changing.
 - [ ] **Import the 2 Grafana dashboard JSONs** (`infra/grafana/provisioning/dashboards/*.json`) into Grafana Cloud so hosted dashboards match what was built.
 - [ ] **Decide on the 4 dead infra configs** (`infra/otel`, `infra/tempo`, grafana datasources/provisioning) — delete for a clean tree or keep as a record (labeled in INFRA.md §8 either way).
 - [ ] **CI gating** (fail a PR on retrieval/provenance/layer regression) — deferred; only the deterministic metrics are safe to gate.
