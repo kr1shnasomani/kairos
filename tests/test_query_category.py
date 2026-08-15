@@ -107,6 +107,7 @@ async def test_all_providers_rate_limited_reports_the_reason(monkeypatch):
 
     llm = LLMService(settings)
     monkeypatch.setattr(LLMService, "nim_available", property(lambda self: True))
+    monkeypatch.setattr(LLMService, "openrouter_available", property(lambda self: True))
     monkeypatch.setattr(LLMService, "gemini_available", property(lambda self: True))
     monkeypatch.setattr(LLMService, "ollama_available", property(lambda self: False))
 
@@ -117,6 +118,11 @@ async def test_all_providers_rate_limited_reports_the_reason(monkeypatch):
         return _fn
 
     monkeypatch.setattr(llm, "_synthesize_nim", limited("nim"))
+    # Every configured tier must be stubbed. When OpenRouter was added this test still passed a
+    # real key through `openrouter_available`, so the cascade made a live call and got an answer —
+    # failing the assertion *and* putting a network round-trip inside the service-free suite, which
+    # is specified to run with no secrets and no network. Add a stub here for any new tier.
+    monkeypatch.setattr(llm, "_synthesize_openrouter", limited("openrouter"))
     monkeypatch.setattr(llm, "_synthesize_gemini", limited("gemini"))
 
     result = await llm.synthesize(query="seal part number for EQ-101", retrieved_context=[
@@ -126,7 +132,7 @@ async def test_all_providers_rate_limited_reports_the_reason(monkeypatch):
     assert result["answer"] is None
     assert result["rate_limited"] is True
     assert "quota exhausted" in result["message"]
-    assert "nim" in result["message"] and "gemini" in result["message"]
+    assert all(p in result["message"] for p in ("nim", "openrouter", "gemini"))
     assert "not a knowledge gap" in result["message"]
 
 
@@ -136,6 +142,10 @@ async def test_ordinary_failure_is_not_reported_as_rate_limited(monkeypatch):
 
     llm = LLMService(settings)
     monkeypatch.setattr(LLMService, "nim_available", property(lambda self: True))
+    # Disabled explicitly: a real OPENROUTER_API_KEY in the environment would otherwise make this
+    # reach the network. It would still pass (an answer sets neither flag), which is worse — a
+    # silently network-dependent test in the suite that is meant to have none.
+    monkeypatch.setattr(LLMService, "openrouter_available", property(lambda self: False))
     monkeypatch.setattr(LLMService, "gemini_available", property(lambda self: False))
     monkeypatch.setattr(LLMService, "ollama_available", property(lambda self: False))
 

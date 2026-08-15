@@ -7,7 +7,7 @@ Fallback: Ollama llama3.1:8b (local).
 import json
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any
 
 import structlog
 
@@ -40,7 +40,7 @@ Text: {text}"""
 
 
 class NERService:
-    def __init__(self, model: Optional[str] = None):
+    def __init__(self, model: str | None = None):
         """
         `model` overrides NVIDIA_NIM_NER_MODEL for this instance.
 
@@ -54,13 +54,21 @@ class NERService:
         self._nim_model = model or os.getenv("NVIDIA_NIM_NER_MODEL", "meta/llama-3.2-11b-vision-instruct")
         self._ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         self._ollama_ner_model = os.getenv("OLLAMA_NER_MODEL", "llama3.1:8b")
+        # Same cap the synthesis path uses (config.py NVIDIA_NIM_TIMEOUT) rather than a second
+        # hardcoded number. This was 30 s, which is under NIM's normal latency spread: extraction
+        # calls timed out at exactly 30 s and fell through to `_regex_fallback`, which only matches
+        # ASSET_TAG — so those documents scored regex output under the model's name and dragged the
+        # Layer-0 F1 with them (measured: 2 of 5 extractions, 2026-08-15). Every caller is async
+        # (document_pipeline, voice_transcription, model_validation) and the one request-path caller,
+        # GET /documents/{id}/redacted, has no frontend consumer, so there is no UI budget here.
+        self._timeout = float(os.getenv("NVIDIA_NIM_TIMEOUT", "60"))
 
     async def extract_entities(
         self,
         text: str,
-        language_hint: Optional[str] = None,
+        language_hint: str | None = None,
         confidence_threshold: float = 0.5,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if self._nim_key:
             result = await self._extract_via_nim(text)
             if result is not None:
@@ -72,9 +80,9 @@ class NERService:
 
         return self._regex_fallback(text)
 
-    async def _extract_via_nim(self, text: str) -> Optional[Dict[str, Any]]:
+    async def _extract_via_nim(self, text: str) -> dict[str, Any] | None:
         try:
-            client = shared_client(30.0)
+            client = shared_client(self._timeout)
             resp = await client.post(
                 _NIM_URL,
                 headers={"Authorization": f"Bearer {self._nim_key}"},
@@ -84,18 +92,20 @@ class NERService:
                     "max_tokens": 1024,
                     "temperature": 0.0,
                 },
-                timeout=30.0,
+                timeout=self._timeout,
             )
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"].strip()
             return self._parse_response(content, source="nim")
         except Exception as exc:
-            log.warning("ner.nim_failed", error=str(exc))
+            # exc_type matters: httpx timeout exceptions stringify to "", so this logged a bare
+            # `ner.nim_failed error=` and the 30 s cap above went undiagnosed for weeks.
+            log.warning("ner.nim_failed", error=str(exc), exc_type=type(exc).__name__)
             return None
 
-    async def _extract_via_ollama(self, text: str) -> Optional[Dict[str, Any]]:
+    async def _extract_via_ollama(self, text: str) -> dict[str, Any] | None:
         try:
-            client = shared_client(30.0)
+            client = shared_client(self._timeout)
             resp = await client.post(
                 f"{self._ollama_url}/api/chat",
                 json={
@@ -104,16 +114,16 @@ class NERService:
                     "stream": False,
                     "options": {"temperature": 0.0},
                 },
-                timeout=30.0,
+                timeout=self._timeout,
             )
             resp.raise_for_status()
             content = resp.json()["message"]["content"].strip()
             return self._parse_response(content, source="ollama")
         except Exception as exc:
-            log.warning("ner.ollama_failed", error=str(exc))
+            log.warning("ner.ollama_failed", error=str(exc), exc_type=type(exc).__name__)
             return None
 
-    def _parse_response(self, content: str, source: str) -> Optional[Dict[str, Any]]:
+    def _parse_response(self, content: str, source: str) -> dict[str, Any] | None:
         try:
             # Strip markdown code fences if present
             content = re.sub(r"```(?:json)?|```", "", content).strip()
@@ -152,7 +162,7 @@ class NERService:
             return None
 
     @staticmethod
-    def _with_spans(result: Dict[str, Any], text: str) -> Dict[str, Any]:
+    def _with_spans(result: dict[str, Any], text: str) -> dict[str, Any]:
         """
         Recovers character offsets for LLM-extracted entities.
 
@@ -167,7 +177,7 @@ class NERService:
         A per-value cursor means a repeated entity gets successive positions rather than
         every mention collapsing onto the first.
         """
-        cursors: Dict[str, int] = {}
+        cursors: dict[str, int] = {}
         lowered = text.lower()
 
         for entity in result.get("entities", []):
@@ -190,7 +200,7 @@ class NERService:
 
         return result
 
-    def _regex_fallback(self, text: str) -> Dict[str, Any]:
+    def _regex_fallback(self, text: str) -> dict[str, Any]:
         entities = []
         for match in _ASSET_TAG_RE.finditer(text.upper()):
             entities.append({
@@ -210,6 +220,6 @@ class NERService:
             "model": "regex",
         }
 
-    def resolve_asset_tag(self, raw_tag: str, alias_map: Dict[str, str]) -> Optional[str]:
+    def resolve_asset_tag(self, raw_tag: str, alias_map: dict[str, str]) -> str | None:
         normalized = raw_tag.strip().upper().replace(" ", "")
         return alias_map.get(normalized) or alias_map.get(raw_tag.strip())
