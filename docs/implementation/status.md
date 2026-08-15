@@ -288,6 +288,237 @@ None of these block the platform; it is fully functional without them.
 
 ---
 
+## Live-only cleanup — three fabrication paths were still reachable (2026-08-15)
+
+Removing the "dead" fixture modules turned up three places that were **not** dead. The audit had
+assumed every fixture sat behind `source: "demo"`, which `useFetch` mapped to an error. These three
+bypassed that and rendered fabricated data on a **successful** request:
+
+| Where | What it fabricated |
+|---|---|
+| `getEvents` (`api.ts`) | `if (data.items.length === 0) return demoEvents(params)` — a 200 with an empty list was replaced by fixture events. Same defect as the briefs fetcher, which was fixed in July; this instance was missed. |
+| `governance/moc/page.tsx` | `buildFixture()` — invented `MOC-2024-001` rows with fake asset ids and document refs, rendered whenever the live MoC list came back empty. |
+| `governance/model-gate/page.tsx` | `FIXTURE_HISTORY` — invented model-gate runs with made-up F1 values (0.825, 0.775), served on fetch failure. On the page whose entire purpose is *measured* model evidence. |
+
+Also removed: `blast-radius-panel.tsx` fell back to `fixtureReport()` — fabricated blast-radius
+items including a "Design pressure rating 15 bar" fact — whenever the report was null. Fabricated
+safety-relevant impact analysis presented as real.
+
+**Kept deliberately:** `documents/[id]/topology` still checks `data.topology_source === "demo_fixture"`.
+That is the **backend** fixture disclosure the non-negotiables require; only the frontend `source`
+check was removed. `lib/copilot.ts` and `lib/rca.ts` also stay — they export live types and real
+constants (`SUGGESTIONS`, `RCA_PRESETS`) plus the test-only `rcaFor`.
+
+Test suites that asserted the old behaviour were inverted rather than deleted, so the guarantee is
+now pinned: an empty live list must render an empty state, and an unavailable backend must reject.
+
+---
+
+## Benchmark caveats & measurement notes (2026-08-15)
+
+### OpenRouter added as tier 2 (2026-08-15) — same model, ahead of Gemini
+
+Cascade is now **NIM → OpenRouter → Gemini → Ollama**. OpenRouter serves the *same*
+`meta-llama/llama-3.1-70b-instruct` as tier 1, so a fallthrough no longer changes which model
+answered — that was the entire reason a Gemini-heavy run had to be flagged as a confound. The
+benchmark's validity verdict counts `openrouter` as production-equivalent alongside `nim`; only
+`gemini` (a different model family) still triggers SUSPECT.
+
+Verified: direct probe 200 in 1.4 s serving the exact model; forced tier-1 failure fell through to
+OpenRouter in 1.2 s with a correct answer. It has its own `OPENROUTER_TIMEOUT` rather than reusing
+`NVIDIA_NIM_TIMEOUT`, so tuning NVIDIA's cap cannot silently retime a different vendor.
+
+> **Note it is also ~30× faster than NIM** on the same model (1.4 s vs 9–90 s). Making OpenRouter
+> tier 1 would largely dissolve the latency problem that motivates SSE streaming. Left as NIM-first
+> deliberately — that is a positioning decision (NVIDIA NIM is the stated stack), not a technical
+> one. Worth a conscious choice rather than drift.
+
+> Adding a tier broke `tests/test_query_category.py` in a useful way: it stubbed NIM and Gemini but
+> not OpenRouter, so with a real key present the "all providers rate limited" test made a **live
+> network call** inside the suite specified to run with no secrets and no network. Both cascade
+> tests now stub or disable every tier explicitly; verified passing with all provider keys blanked.
+
+### Open: the 60 s config is not yet confirmed by a valid run
+
+The published **24/25 was measured at `NVIDIA_NIM_TIMEOUT=90`**. The shipping value is now 60. The
+confirmation run at 60 s returned **INVALID**: Google's free tier hit 429 partway through, 7 of 25
+questions got no answer from any provider, and the run scored **17/25 — quota, not quality. Do not
+quote 17/25.** Re-run once the Gemini quota resets; expect ~24/25, since the score held at 24/25
+across both 45 s and 90 s caps, but that is an expectation, not a measurement.
+
+Two defects were found by that failed run, both now fixed:
+
+- **The API dropped `rate_limited`.** `LLMService` has always set the flag when every provider
+  returns 429, but `SynthesizeResponse` did not carry it, so no caller could distinguish an
+  exhausted quota from a model with nothing to say — they are identical on the wire (`answer:
+  null`). Added to the response model and passed through in `routers/search.py`. This is why the
+  harness recorded those rows as `-` instead of `429` and never triggered its 429 abort.
+- **The validity verdict had a blind spot.** It checked for 429s, Gemini share and client timeouts
+  but not for rows where *nothing* answered, so a run with 7 no-answer questions still printed
+  "SUSPECT — 3 from Gemini", naming the smaller problem. `-` rows now return INVALID and outrank
+  the Gemini check. Pinned in `_selftest`.
+
+### The NER timeout fix is applied but unvalidated
+
+`services/ner.py` no longer hardcodes 30 s (see below). Correctness of the change is verified — a
+direct probe of the NER model returned 200 in **42.7 s**, a call the old 30 s cap would have cut off
+— but the improvement could not be measured end-to-end, because NVIDIA's
+`llama-3.2-11b-vision-instruct` endpoint spent the session returning **HTTP 500** on most calls (a
+failure mode no timeout value affects; a 500 returns instantly). Gate runs during the outage scored
+3/5 and 5/5 fallbacks and were correctly marked SUSPECT. Re-run when the endpoint recovers.
+
+> One `audit_log` row from that outage (5/5 regex, F1 0.8182, `validity: SUSPECT`) was persisted
+> before the outage was understood. It is honest data and append-only, but `/system-benchmarks`
+> does not currently render the `validity` field, so the trend shows it as a plain score. Either
+> surface `validity` on that page or delete the row — a judgement call, left open.
+
+
+> `benchmark/RESULTS.md` holds **numbers only**. Every warning, confound and "what this does not
+> prove" lives here. Read this before quoting any figure from that file.
+
+### ⚠️ Synthesis latency is bounded by NVIDIA's endpoint, not by KAIROS
+
+Direct probing of `integrate.api.nvidia.com` with one identical 73-token synthesis payload, no KAIROS
+code in the path:
+
+```
+back-to-back  : 30.2s · TIMEOUT(78s) · 47.4s · 14.2s
+after 90s idle: 14.5s · 12.2s · 42.6s
+paced 20s     :  8.6s · 10.6s · 16.2s
+```
+
+No `x-ratelimit` headers are returned at any point — the shared endpoint simply queues. The spread is
+8.6 s to >90 s **for identical work**, it worsens under back-to-back load, and it has no upper bound.
+It is not a cold start (a cold start is slow-then-fast; burst A went 30 s → timeout → 47 s → 14 s).
+
+**Do not lower `NVIDIA_NIM_TIMEOUT`.** Capping a timeout cannot make inference faster; it truncates
+the number and moves the work to the free Gemini tier. The "20.9 s p95 (−56%)" recorded in earlier
+versions of RESULTS.md was the cap being lower, not the system being quicker. Measured provider mix
+at each cap, same 25 questions:
+
+| `NVIDIA_NIM_TIMEOUT` | nim | gemini | refused | Answer quality |
+|---|---|---|---|---|
+| 45 s | 10 | **12** | 3 | 24/25 |
+| 90 s | 18 | **4** | 3 | 24/25 |
+
+At the 45 s cap every Gemini row landed at 47.1–48.3 s (the cap plus Gemini's ~2 s) while every
+successful NIM row landed at 9–38 s, with nothing in between — those fallbacks were NIM calls cut off
+mid-flight, not NIM failures. At 90 s they were recovered (Q08 82.8 s, Q21 81.7 s, Q06 68.9 s). p95
+rises as a result: **a higher p95 that measures the production model beats a lower p95 that measures
+the fallback.** `.env` now pins 90 s, matching `config.py`'s own default.
+
+### ⚠️ Provider-quota confound — the historical record, corrected
+
+The synthesis cascade is NIM → Gemini → Ollama (Ollama unconfigured). Repeated runs in one session on
+2026-07-25 exhausted the Gemini free tier, after which every NIM timeout became a *no answer*:
+
+| Run | `NVIDIA_NIM_TIMEOUT` | Answer quality | Gemini state |
+|---|---|---|---|
+| 1–3 | 45 s | 23, 24, 22 / 25 | quota available |
+| 4 | 20 s | 13/25 | quota exhausted (429) |
+| 5 | 45 s | 18/25 | quota exhausted (429) |
+
+Two corrections from the 2026-08-15 re-measurement:
+
+1. **Run 4's 20 s cap did not coincide with exhaustion — it caused it.** A lower cap multiplies
+   fallthrough, which is what drained the quota.
+2. **Gemini answering is not what degraded quality — 429 was.** Both 2026-08-15 mixes scored 24/25, so
+   a fallback answer is roughly as good; 13/25 and 18/25 were *no answer at all*. The fragility is
+   availability, not fallback quality.
+
+`run_benchmark.py` now reports the provider mix, prints a **Run validity** verdict
+(`VALID`/`SUSPECT`/`INVALID`), and aborts after two consecutive 429s. `--delay` (default 15 s) paces
+calls; `--limit N` runs a cheap calibration pass before committing to a full sweep.
+
+**The published 24/25 run is flagged `SUSPECT`** (4/25 from the fallback, threshold is 2). The verdict
+was left standing rather than tuning the threshold to pass. Preflight Gemini before any run — a 429
+invalidates it.
+
+### ⚠️ Entity-extraction F1 is partly a regex score — now measured, and the cause is found
+
+`run_model_validation.py` now counts extraction paths and emits a `validity` verdict. The
+2026-08-15 run: **`{"nim": 3, "regex": 2}` — 2 of 5 extractions fell back**, so the run is
+`SUSPECT` and **0.917 is a ceiling, not a measurement.** That is also why `ASSET_TAG` scores 1.0
+while `ORGANIZATION` scores 0.0: the regex last resort only matches ASSET_TAG, so a fallen-back
+document can only ever produce asset tags.
+
+**Root cause identified (not yet fixed): `services/ner.py` hardcodes a 30 s timeout** at both call
+sites (lines 77/87 and 107) and ignores `NVIDIA_NIM_TIMEOUT` entirely. The two failures in the run
+took exactly 30 s each and logged `ner.nim_failed` with an empty error — a timeout. This is the same
+bug class as the synthesis cap: a hardcoded ceiling too tight for NIM's tail, silently degrading to
+a worse path instead of failing honestly.
+
+**The fix is safe but was left for a decision.** Every caller is asynchronous —
+`workflows/document_pipeline.py`, `workers/voice_transcription.py`, `workers/model_validation.py` —
+and the one request-path caller (`GET /documents/{id}/redacted`) has **no frontend caller at all**,
+so unlike synthesis there is no UI budget to breach. Point both call sites at
+`settings.NVIDIA_NIM_TIMEOUT` (one source of truth, per the root-cause rule) rather than raising a
+second hardcoded number. Expected effect: fewer regex fallbacks and the first F1 that is actually
+attributable to the model.
+
+Note `ner.ollama_failed` also fires on every fallback (`Request URL is missing an 'http://'
+prefix`) — that is the unconfigured `OLLAMA_BASE_URL` being called anyway, harmless but noisy, and
+the same missing-third-tier issue as backlog #3.
+
+Two runs of the same model on the same corpus giving 0.857 and 0.917, with `ORGANIZATION` flipping
+0.667 → 0.0, is the visible symptom — n=13 with `ORGANIZATION` at n=2 cannot support four decimals.
+
+### Historical: two defects the gate itself had
+
+- **The configured NER model was dead.** `mistralai/ministral-14b-instruct-2512` was deprecated by
+  NVIDIA; the endpoint accepted requests then hung until timeout (confirmed at 30 s, 60 s, 90 s, fresh
+  client and pooled). `NERService` degraded to regex, producing an F1 of 0.8182 that looked like a
+  model score. Replaced with `meta/llama-3.2-11b-vision-instruct` — PERSON recall 0.0 → 1.0.
+- **The gate could not select a model.** `NERService()` took no model argument, so `--model-name` only
+  *labelled* the result while the call used `NVIDIA_NIM_NER_MODEL`. Fixed, pinned by
+  `tests/test_model_validation.py`.
+
+### Compliance — the single false negative is a ground-truth artefact
+
+`4.1.2 / EQ-103` is declared with no documents in the loader's mapping, but the graph correctly links
+EQ-103 to an `oem_manual` and an `inspection_report` that extraction found by asset tag. So
+`unverified_evidence` was the right answer and the truth table was wrong. **The truth table was
+deliberately not amended** — copying the system's output into its own ground truth would destroy the
+independence that makes the measurement worth anything.
+
+Before `seed_regulations.py` runs, this harness scores precision 0.000 / recall 0.000, because the
+backwards-compatibility fallback (`NULL` = any document type counts) makes every pair report
+`unverified_evidence`. That is what an independently-derived ground truth is for.
+
+### Time-to-answer — read 25.6% as a floor set by corpus size
+
+KAIROS **loses the machine-time comparison by three orders of magnitude** (15.6 ms vs 15.7 s) and the
+harness reports that unweighted; the claim is about time to a *trusted, cited* answer. BM25 finds the
+answer-bearing document at mean rank 1.52 across ~20 documents — on a corpus this small keyword search
+is already good, so there is little room to improve on it. The problem statement's premise is 7–12
+disconnected systems with thousands of documents, where rank degrades and the gap widens. Do not
+extrapolate from 20 documents to a real plant.
+
+### Load test — methodology fixes and what it does not cover
+
+Two bugs had to be fixed before these numbers meant anything:
+
+- An earlier pass counted **307 redirects as success** (`status < 400`), measuring redirect latency
+  instead of endpoint work. Now requires 2xx and follows redirects.
+- The knee detector fired on a **single noisy sample**: with 6 requests per level it reported "no
+  degradation through 25 VU" and "bottleneck at 5 VU" on consecutive runs of the same system. A knee
+  must now be *sustained* across all higher levels, and the harness warns below a 20-request baseline.
+
+The superseded 2026-07-25 sweep tripped exactly that warning — a 10-request baseline produced the
+implausible sub-1.0 ratios at 5 and 10 VU. At `--requests 25` the baseline is stable and the curve
+monotonic. Still a load test, not a soak: nothing here speaks to memory growth or connection leakage
+over hours, and 50 VU against a demo-scale dataset is not evidence for 10k assets.
+
+### Safety gate — one false refusal was found and fixed by these runs
+
+Q06 (*"When was isolation valve XV-203 last inspected?"*) was refused because the bare keyword
+`isolation` matched the *equipment name* in a date-lookup question. Refusing a fact the vault holds is
+as wrong as guessing a parameter, so the patterns now require intent (`isolation boundary`, `safety
+isolation`, `isolate`, `lockout`, …). Q06 answers correctly; the three genuine refusals are
+unaffected. Pinned by `tests/test_query_category.py`.
+
+---
+
 ## Improvement backlog — ranked by judged value (2026-07-25)
 
 Everything below is **actionable and within our control**. The corpus/plant-connectivity
@@ -298,18 +529,19 @@ would reward per hour spent.
 
 | # | Improvement | Why it matters | Est. |
 |---|---|---|---|
-| 1 | **Streaming synthesis (SSE)** | p95 is ~46 s with no progressive render. A reviewer clicking the copilot waits 46 seconds; this is the single most visible weakness in a live demo, and it costs both UX and Business Impact. **Not attempted deliberately:** `ANSWER:/CONFIDENCE:/UNCERTAINTY:/SOURCES_USED:` is a parse contract with two consumers (`routers/search.py`, `workflows/elicitation_workflow.py`) and a measured answer-quality figure attached, so it needs a live NIM run to validate against regression. | 1–2 d |
-| 2 | **Re-test `NVIDIA_NIM_TIMEOUT=20`** | Cuts p95 46 s → 20.9 s (−56%). The tail is almost entirely a hanging NIM call burning the full 45 s cap before Gemini answers in ~2 s. The trial ran under an exhausted Gemini quota so its quality reading was uninterpretable; reverted to 45 s pending a clean re-test. **One-line change with a large payoff.** | 30 m |
-| 3 | **Fix the cascade's free-tier dependency** | NIM → Gemini → Ollama with Ollama unconfigured means tier 2 is a free-tier key. Under sustained load answer quality degrades toward zero while retrieval keeps working. Now at least *labelled* (`rate_limited`), but the fix is to configure Ollama as a real third tier, move Gemini to paid, or drop the cascade so a NIM failure surfaces as an honest error. | 2–4 h |
+| 1 | **Streaming synthesis (SSE)** | p95 is **~96 s** with no progressive render (p50 ~40 s), and the 2026-08-15 measurement showed the tail is NVIDIA's shared endpoint, which we cannot tune away — see §Benchmark caveats. That makes progressive render the *only* remaining lever on perceived latency, so this is now clearly the highest-value Tier-1 item. A reviewer clicking the copilot waits a minute and a half; it costs both UX and Business Impact. **Not attempted deliberately:** `ANSWER:/CONFIDENCE:/UNCERTAINTY:/SOURCES_USED:` is a parse contract with two consumers (`routers/search.py`, `workflows/elicitation_workflow.py`) and a measured answer-quality figure attached, so it needs a live NIM run to validate against regression. | 1–2 d |
+| 2 | ~~Re-test `NVIDIA_NIM_TIMEOUT=20`~~ — **DONE 2026-08-15, conclusion reversed** | Tested and **rejected**. Lowering the cap cannot speed up inference; it truncates the number and moves the work to the free Gemini tier. Direct probing of NVIDIA's endpoint (identical payload) returned 8.6 s–>90 s with no rate-limit headers, worsening under back-to-back load. At 45 s the run went 12/25 to Gemini; at **90 s it went 4/25**, with answer quality 24/25 either way. `.env` now pins **90 s** (matching `config.py`'s own default). Anyone reading the old "−56% p95" should read `benchmark/RESULTS.md` §2 first. | done |
+| 3 | **Fix the cascade's free-tier dependency** | NIM → Gemini → Ollama with Ollama unconfigured means tier 2 is a free-tier key. **Partly mitigated 2026-08-15** — the 90 s cap cut fallbacks 12 → 4 per run, and the benchmark now reports its provider mix and refuses to present a fallback-heavy run as clean. Not closed: NIM's tail is unbounded and 4 calls still exceeded 90 s. Real fix unchanged — configure Ollama as a genuine third tier, move Gemini to paid, or drop the cascade so a NIM failure surfaces as an honest error. Note the re-measurement also found the *quality* story was wrong: Gemini answers scored the same 24/25; what produced 13/25 and 18/25 was 429 (no answer at all). | 2–4 h |
 
 ### Tier 2 — strengthens the numbers we already publish
 
 | # | Improvement | Why it matters | Est. |
 |---|---|---|---|
-| 4 | **Widen the benchmark question set** | Answer quality swings **±2 of 25** between runs on identical code, so a single headline figure is over-precise and a reviewer re-running it may see a different number. More questions authored from the existing canon tighten the interval. No new data needed. | 3–4 h |
-| 5 | **Grow `validation_corpus`** | Layer-0 F1 rests on **13 entities**, with `ORGANIZATION` at n=2 — one miss swings a per-type rate. More labels can be authored from the canon. Until then, stop quoting F1 to four decimals. | 2–3 h |
-| 6 | **Persist CLI model-gate runs** | `scripts/run_model_validation.py` prints without writing `audit_log`, so its results never reach `/system-benchmarks` — the page shows only Celery-triggered runs. Small change, closes a confusing gap. | 30 m |
-| 7 | **Soak test** | The load sweep is 840 requests over minutes. Nothing yet speaks to memory growth or connection leakage over hours, and the pooled HTTP client + LRU cache are exactly the components a soak would stress. | 2–3 h |
+| 4 | **Widen the benchmark question set** | 25 questions across **15 categories**, 8 of them at n=1 — a single flip moves a whole category from 100% to 0%. The old "±2 of 25" was partly a provider artefact (see #2): the 2026-08-15 re-runs both scored 24/25 under different provider mixes, so genuine run-to-run variance is smaller than believed, but n=1 categories remain uninformative. More questions authored from the existing canon tighten the interval. No new data needed. | 3–4 h |
+| 5 | **Grow `validation_corpus`** | Layer-0 F1 rests on **13 entities**, with `ORGANIZATION` at n=2 — one miss swings a per-type rate. Confirmed 2026-08-15: still 13 rows / 3 entity types, and two runs of the same model on the same corpus gave **0.857 and 0.917** (`ORGANIZATION` flipping 0.667 → 0.0). More labels can be authored from the canon. Until then, stop quoting F1 to four decimals. | 2–3 h |
+| 5b | ~~Surface NER fallback invocations in the model gate~~ — **DONE 2026-08-15** | `run_model_validation.py` wraps `NERService` in a counting proxy (harness-only — `evaluate()` types its `ner` arg as `Any` and calls only `extract_entities`, and the result dict already self-reports its path as `model`), then prints `extraction_paths`, `fallback_extractions` and a `validity` verdict. First run came back `{"nim": 3, "regex": 2}` → **SUSPECT**, confirming 0.917 is a ceiling. Root cause now identified too — see §Benchmark caveats. | done |
+| 6 | ~~Persist CLI model-gate runs~~ — **DONE 2026-08-15** | `run_model_validation.py` writes `audit_log` in the same row shape the Celery gate uses (`performed_by: "cli"` distinguishes them), with `--no-persist` for dry runs. Write failures warn instead of raising, so a bad insert cannot discard a good measurement. Verified: row 422 landed with `validity: SUSPECT`, and `/system-benchmarks` now has a row for the **current** NER model for the first time — it previously plotted only retired ones. | done |
+| 7 | **Soak test** | The load sweep is 2275 requests over minutes (re-run 2026-08-15). Nothing yet speaks to memory growth or connection leakage over hours, and the pooled HTTP client + LRU cache are exactly the components a soak would stress. | 2–3 h |
 
 ### Tier 3 — architectural ceilings
 
@@ -324,9 +556,9 @@ would reward per hour spent.
 
 | # | Improvement | Why it matters | Est. |
 |---|---|---|---|
-| 12 | **Adopt PEP 585 annotations** | `backend/ruff.toml` deliberately does not select `UP006`/`UP035`; adopting `dict`/`list` would rewrite ~280 annotations across every service and worker. Do it as its own reviewed change, then add `"UP"` to the rule set. | 2–3 h |
-| 13 | **eslint 10** | The 9 remaining dev-only HIGH advisories all trace to `brace-expansion` 1.x under `minimatch` in eslint's plugin tree. Only `eslint@10` (semver major) fixes it. Overriding brace-expansion to 5.x **breaks ESLint** — `minimatch@3` imports the 1.x CommonJS export. | 2–4 h |
-| 14 | **Remove dead frontend fixture modules** | `lib/*.ts` fixtures + `DemoChip` are no longer rendered post live-only. Copilot fixtures are already deleted; `rcaFor` must stay (test fixture). | 1 h |
+| 12 | ~~Adopt PEP 585 annotations~~ — **DONE 2026-08-15** | Applied entirely by `ruff --fix`, no hand edits: **283** `typing.Dict`/`List` → PEP 585 builtins (UP006), **48** dead `typing` imports dropped (UP035), **136** `Optional[X]` → `X \| None` (UP045), **49** `timezone.utc` → `datetime.UTC` (UP017), then an F401/I001 pass for imports the rewrite orphaned. `"UP"` is now selected in `backend/ruff.toml`, so the old spelling cannot creep back. Verified against the **CI-pinned ruff 0.16.0** (not just the local 0.15.0): all checks pass; service-free suite 64 passed / 1 skipped; API boots and `/health/detailed` returns all five datastores ok — the Pydantic response models were rewritten, so that runtime check mattered. | done |
+| 13 | ~~eslint 10~~ — **DONE 2026-08-15, and it never needed eslint 10** | The claim that only `eslint@10` could fix this went stale: upstream shipped semver-compatible patches, so a plain **`npm audit fix`** cleared all of it. `npm audit` now reports **0 vulnerabilities**, eslint stays on **v9.39.4**, and `package.json` is untouched — only 4 transitive dev packages moved in the lockfile (`brace-expansion`, `js-yaml`, `undici`, `minimatch/brace-expansion`; 12 insertions / 13 deletions). Verified after a container rebuild: `tsc` clean, `eslint` 0 errors (3 pre-existing warnings), **vitest 135/135**. Worth noting the advisories were dev-only throughout — `npm audit --omit=dev` reported 0 even before the fix, so nothing shipped was ever affected. | done |
+| 14 | ~~Remove dead frontend fixture modules~~ — **DONE 2026-08-15** | Deleted `lib/{fixtures,assets,governance,documents,events,compliance}.ts`, the `DemoChip` component and all 10 render sites. `DataSource` is now a single member (`"live"`), so a fallback cannot return without a type error, and `FetchState` lost its `demo` case. All 32 fixture-returning `catch` blocks in `api.ts` now rethrow. **Three fabrication paths were live, not dead** — see below. Verified: `tsc` clean, `eslint` 0 errors, **vitest 135/135**. | done |
 | 15 | **Cross-site control plane** | `/management/cross-site` is fixture-only, and `ARCHITECTURE.md` describes PII redaction as gating cross-site knowledge promotion. No cross-site endpoint exists, so the redaction pipeline is real but that wiring is not. Either build the endpoint or reword the doc. | 1–2 d |
 
 ---
@@ -337,21 +569,34 @@ would reward per hour spent.
 > remain to get a public demo live and hardened — not product-completeness gaps. Tracked here so nothing
 > is lost.
 
-### Deployment (critical path — nothing is publicly live yet)
-- [ ] **Deploy the backend** to an EC2 box: `docker compose -f docker-compose.yml --profile prod up` with **Caddy** for HTTPS. *(The Vercel-hosted frontend is non-functional until this exists.)*
-- [ ] **Set prod env** on the box: `APP_ENV=production` (activates the fail-closed secret guardrail) + real `INTERNAL_API_KEY`, `NEO4J_PASSWORD`, `APP_SECRET_KEY` in `.env`.
-- [ ] **Wire the frontend → backend:** set `NEXT_PUBLIC_API_URL` (Vercel or the box) + add that origin to backend `CORS_ORIGINS`. *(Alternative: serve the frontend from the same EC2 box via Caddy — same-origin, no CORS.)*
-- [ ] **Neo4j Aura keep-alive:** cron-job.org (daily) → `/health/detailed`, so Aura doesn't pause after 3 days idle.
-- [ ] **AWS billing alarm (~$30)** so the $120 credit isn't overrun.
+### Deployment — OUT OF SCOPE (user decision, 2026-08-15)
+
+> The project will not be deployed for now. These stay recorded so nothing is lost if that
+> changes, but they are **not open work** and should not be counted as pending. The Aura
+> keep-alive that used to sit here is done and independent of deployment (`uptime.yml`).
+- [~] **Deploy the backend** to an EC2 box: `docker compose -f docker-compose.yml --profile prod up` with **Caddy** for HTTPS. *(The Vercel-hosted frontend is non-functional until this exists.)*
+- [~] **Set prod env** on the box: `APP_ENV=production` (activates the fail-closed secret guardrail) + real `INTERNAL_API_KEY`, `NEO4J_PASSWORD`, `APP_SECRET_KEY` in `.env`.
+- [~] **Wire the frontend → backend:** set `NEXT_PUBLIC_API_URL` (Vercel or the box) + add that origin to backend `CORS_ORIGINS`. *(Alternative: serve the frontend from the same EC2 box via Caddy — same-origin, no CORS.)*
+- [x] **Neo4j Aura keep-alive — done** via `.github/workflows/uptime.yml` (daily 03:17 UTC). It runs a
+  trivial Cypher query against Aura *directly* with the Neo4j driver, so it works whether or not a
+  backend is deployed — better than the originally-planned cron-job.org → `/health/detailed` ping,
+  which would have required the API to be publicly reachable. Needs repo secrets `NEO4J_URI` /
+  `NEO4J_USERNAME` / `NEO4J_PASSWORD` / `NEO4J_DATABASE`. Caveat: GitHub disables scheduled workflows
+  after 60 days of repo inactivity — re-enable from the Actions tab if the repo goes quiet.
+- [~] **AWS billing alarm (~$30)** so the $120 credit isn't overrun.
 
 ### Known bugs (found in conformance audit, 2026-07-21)
-- [ ] **MoC webhook signature verification is dead code** — `routers/governance.py:562` does
-  `getattr(settings, "MOC_WEBHOOK_SECRET", None)`, but `Settings` (`api/config.py`) never declares that
-  field, so it's always `None` and the HMAC-check branch never runs. **No inbound MoC webhook request is
-  signature-verified today**, regardless of `.env`. The rest of the MoC flow (auto-draft, blast-radius,
-  warning banners, graph update on resolution) is unaffected and fully functional. Fix: add
-  `MOC_WEBHOOK_SECRET: str | None = None` to `Settings` and set it in `.env`. See the
-  [Conformance](#architecture--implementation-conformance) section below (L7) for detail. Not yet fixed.
+- [x] **MoC webhook signature verification — FIXED 2026-08-15.** `Settings` now declares
+  `MOC_WEBHOOK_SECRET: Optional[str] = None`, so `routers/governance.py` reads a real field instead of
+  a `getattr` that always returned `None`.
+  **The originally-planned one-line fix would not have closed the hole.** The guard was
+  `if moc_secret and x_webhook_signature:` — verification was opt-in *by the caller*, so any client
+  could skip it by omitting the header, which is exactly the party you cannot trust to choose. It now
+  reads `if moc_secret:` and a missing `X-Webhook-Signature` is rejected with 401. Configuring the
+  secret is what turns verification on; once on, unsigned requests are refused.
+  Default stays `None`, so behaviour is unchanged until the secret is set — verified against the
+  running container (`MOC_WEBHOOK_SECRET field exists: True | value: None`) and the 65-test
+  service-free tier (64 passed, 1 skipped).
 
 ### Documentation sync (audit 2026-07-21)
 
@@ -369,33 +614,113 @@ would reward per hour spent.
   Neovis-as-alternative (React Flow chosen), the Ollama fallback tier.
 - [x] **This file's "Verification snapshot" reconciled** (2026-07-21) — the stale "vitest ~107 passed / ~17
   failing … in progress" line now reads **124/124 green**, matching the resolved 2026-07-19 entries above.
-- [ ] Minor: "Neo4j 5.20" (`ARCHITECTURE.md §6` + `DATABASE.md`) — Aura runs 2025.x; low priority, both docs
-  agree so it's not a sync break, just a version-accuracy nit.
+- [x] Minor: "Neo4j 5.20" in `DATABASE.md` — **fixed 2026-08-15** to "Neo4j (Aura 2025.x)", noting
+  the local `--profile local-stores` image is still pinned to 5.x. **`ARCHITECTURE.md` intentionally
+  left alone**: it describes the design as intended, not the deployed estate.
 
 ### Frontend polish (optional)
-- [ ] **Revisit mobile navigation layout** — the mobile bottom tabs (`FieldBottomTabs`) were temporarily removed in favor of the hamburger sidebar. Need to revisit this UX decision later.
+- [ ] **Revisit mobile navigation layout** — confirmed accurate 2026-08-15. The component is
+  `BottomTabs` in `app-shell.tsx` (~line 239, not a separate `FieldBottomTabs` file); it still
+  exists but its render site (~line 626) is **commented out**, so mobile uses the hamburger sidebar.
+  Either restore it or delete the dead component — right now it is neither.
 - [ ] **Friendly copilot shell** — warm greeting + "what can you do?" handling + suggestion chips (keeps the governed-RAG core; only improves the conversational wrapper).
 - [ ] **Verify the safety-critical RefusalCard** live in the UI.
 
 ### Housekeeping (optional)
 - [ ] **CodeQL fails on every PR while the repo is private — expected, not a defect.** `codeql.yml` analyses everything fine (115/115 Python files, all four languages) and then fails on the *upload* step with `Code scanning is not enabled for this repository`. Code scanning on a **private** repo needs GitHub Advanced Security; the API confirms `visibility: private`, `security_and_analysis: null`. The one green CodeQL run (2026-08-10) was a *scheduled* run on `main`, which does not hit the PR upload path. **On making the repo public again:** Settings → Code security → Code scanning → Set up → **Advanced** (not Default — Default replaces the existing `codeql.yml`), then re-run the job. Nothing in the workflow or the code needs changing.
-- [ ] **Import the 2 Grafana dashboard JSONs** (`infra/grafana/provisioning/dashboards/*.json`) into Grafana Cloud so hosted dashboards match what was built.
-- [ ] **Decide on the 4 dead infra configs** (`infra/otel`, `infra/tempo`, grafana datasources/provisioning) — delete for a clean tree or keep as a record (labeled in INFRA.md §8 either way).
-- [ ] **CI gating** (fail a PR on retrieval/provenance/layer regression) — deferred; only the deterministic metrics are safe to gate.
-- [ ] **Remove dead frontend fixture modules** (`lib/*.ts` + `DemoChip`) — no longer rendered post live-only; optional cleanup. (Copilot fixtures already deleted; `rcaFor` retained as a test fixture.)
+- [ ] **Import the 2 Grafana dashboards into Grafana Cloud.** Import-ready copies prepared
+  2026-08-15 at **`infra/grafana/dashboards-import/`** — use those, not the originals.
+  The originals hardcode datasource UIDs (`grafana-prom-datasource`, `tempo`) that do not exist in
+  a Cloud stack, so importing them raw yields panels wired to a missing datasource. The copies
+  replace those with `__inputs` placeholders, which is what makes Grafana show a datasource picker
+  on the import screen; the stale numeric `id` is also stripped so Grafana does not try to
+  overwrite an unrelated dashboard by id. Originals left untouched as the record.
+  **Metric names were verified to line up:** instruments are dot-named (`kairos.briefs.delivered`)
+  and OTLP → Prometheus normalises them to exactly what the panels query
+  (`kairos_briefs_delivered_total`, `kairos_ingestion_duration_seconds_bucket`, `kairos_conflicts_open`).
+  Metrics export is wired (`middleware/telemetry.py` — MeterProvider + `OTLPMetricExporter`), so
+  data should be present for periods the backend was running.
+  Agent cannot do this step today: the only Grafana credential in `.env` is the **OTLP ingest**
+  token, which pushes telemetry and has no access to the dashboard API.
+  > **Deferred to a new session (2026-08-15).** A Grafana MCP was added mid-session but never
+  > reached this one. Verified three ways: a `+grafana` tool search returned *no matching deferred
+  > tools*; there is no `grafana` entry in `.claude/settings.local.json`, `~/.claude.json` or
+  > `~/.claude/settings.json`; and Grafana is absent from the session's MCP list entirely, including
+  > the "needs authorization" set. **Most likely cause: MCP servers are enumerated at session start,
+  > so a mid-session addition is invisible until a restart.**
+  > **Next session, in order:** (1) re-run a `+grafana` tool search — if tools appear, just do the
+  > import; (2) if not, the server probably landed in claude.ai connector settings rather than this
+  > CLI's scope — add it to a project-level `.mcp.json` instead (official server: `grafana/mcp-grafana`);
+  > (3) or skip MCP entirely by adding `GRAFANA_URL=https://ambermyrtle3065.grafana.net` and a
+  > `GRAFANA_SA_TOKEN` (scope `Dashboards:write`) to `.env` — that path needs no restart.
+  > Stack URL confirmed: `https://ambermyrtle3065.grafana.net`.
+- [x] **4 dead infra configs — DECIDED 2026-08-15: keep them.** `infra/otel`, `infra/tempo` and the
+  Grafana datasource/provisioning files stay as a record of what was built before observability
+  moved to Grafana Cloud. They are already labelled as inactive in INFRA.md §8. No further action.
+- [x] **CI gating — DONE 2026-08-15, deterministic metrics only.**
+  - *Tier 1 (free, every push):* `run_benchmark.py --selftest`. No stack, no secrets, no network.
+    Worth gating because the grader can rot **silently** — a broken negation guard fails no test,
+    it just quietly inflates the published answer-quality figure.
+  - *Tier 2 (only when `CI_SUPABASE_*` is set):* `verify_layers.py` (13 reachability checks) and
+    `run_compliance_eval.py --max-false-negatives 1`.
+  - **Not gated, deliberately:** answer quality (depends on a shared NIM endpoint whose
+    availability varies hourly — red would usually mean "NVIDIA is busy"); `--retrieval-only`
+    (looks free, but `/search` embeds each query via Jina, so gating it spends quota per push);
+    NER F1 (13-entity corpus, one miss swings a per-type rate).
+  - `run_compliance_eval.py` gained `--max-false-negatives` for this. It previously exited 1 on
+    *any* false negative, and there is a known one — the 4.1.2/EQ-103 truth-table artefact — so
+    gating it as-was would have been permanently red. **False positives still fail at any
+    setting**, since "0 false positives" is the claim the harness exists to defend.
+> **Dead frontend fixture modules** — tracked once, under [Decisions for you](#decisions-for-you-wont-do-unilaterally). A duplicate entry lived here and has been folded in.
 - [x] **`tests.yml` restructured into two tiers.** `unit` runs **65 service-free tests with no secrets and no network** — green on every push and fork PR. `integration` runs the full suite against `--profile local-stores` and **skips with exit 0** unless `CI_SUPABASE_*` is set. Previously the workflow pointed a write-heavy suite (`make init-all` + create/purge) at cloud credentials, which would have corrupted the golden dataset on every push; that is why the secrets are named `CI_SUPABASE_*` and must come from a throwaway project, set by hand with `gh secret set`.
 - [x] **All evaluation harnesses executed against the live stack** (2026-07-25) — `verify_layers` 13/13, `run_benchmark`, `run_model_validation`, `run_compliance_eval`, `run_time_to_answer`, `run_load_test`. Numbers in `benchmark/RESULTS.md`.
 - [x] **Re-ran `run_benchmark.py`** after the RRF ranking change; answer quality holds at 22–24/25.
-- [ ] **Streaming synthesis (SSE)** — p95 is 37 s with no progressive render. Not attempted: the `ANSWER:/CONFIDENCE:/UNCERTAINTY:/SOURCES_USED:` format is a parse contract with two consumers (`routers/search.py`, `workflows/elicitation_workflow.py`) and a measured 23/25 attached, so it needs a live NIM run to validate against regression.
+- [ ] **Streaming synthesis (SSE)** — p95 is ~96 s with no progressive render. Not attempted: the `ANSWER:/CONFIDENCE:/UNCERTAINTY:/SOURCES_USED:` format is a parse contract with two consumers (`routers/search.py`, `workflows/elicitation_workflow.py`) and a measured 24/25 attached, so it needs a live NIM run to validate against regression.
 - [ ] **Grow `validation_corpus`** — Layer-0 F1 is measured on **13 entities**, with `ORGANIZATION` at n=2. More labels can be authored from the existing canon (no real-plant data needed), or stop quoting F1 to four decimals. (Re-seeded 2026-07-25; it was empty, so the previously published F1 0.96 had no reproducible ground truth.)
-- [ ] **Re-measure answer quality once on a rested Gemini quota.** Repeated runs in one session exhausted the free tier; after that Gemini returned 429 and every NIM timeout became a no-answer, dragging the figure to 18/25 then 13/25. The trustworthy range is **22–24/25**, measured while quota was available. Confirm Gemini is not 429ing before trusting a run.
-- [ ] **Fix the cascade's free-tier dependency** (`services/llm.py`). NIM → Gemini → Ollama, with Ollama unconfigured, means the second tier is a free-tier key: under sustained load answer quality degrades toward zero while retrieval keeps working, and a miss is indistinguishable from a model being wrong. Either configure Ollama as a real third tier, move Gemini to a paid tier, or drop the cascade so a NIM failure surfaces as an honest error.
-- [ ] **Re-test `NVIDIA_NIM_TIMEOUT`.** p95 is ~46 s almost entirely because a hanging NIM call burns the full 45 s cap before Gemini answers in ~2 s; a 20 s cap cut p95 to **20.9 s (−56%)**. The trial ran under exhausted quota so its quality reading is uninterpretable — reverted to 45 s pending a clean re-test. Cheaper and lower-risk than SSE streaming.
-- [ ] **Widen the benchmark question set** — answer quality swings ±2 of 25 between runs, so a single headline figure is over-precise. More questions would tighten the interval.
+- [x] **Re-measured answer quality on a rested quota (2026-08-15) — 24/25, reproduced twice.** Gemini
+  was preflighted (HTTP 200) before the run. The old ±2 range was partly a provider artefact, not model
+  variance: both runs scored 24/25 despite very different provider mixes (12/25 vs 4/25 Gemini). The
+  harness now prints the mix and a `VALID`/`SUSPECT`/`INVALID` verdict, and aborts on two consecutive
+  429s, so a quota-starved run can no longer be mistaken for a model result. Also re-run: retrieval
+  25/25, provenance 25/25, compliance F1 0.986 (exact reproduction), `verify_layers` 13/13, load sweep
+  2275 requests / 0% errors / knee at 50 VU.
+- [x] **Cascade's free-tier dependency — largely fixed 2026-08-15 by adding OpenRouter as tier 2.**
+  It serves the same `llama-3.1-70b` as NIM, so a fallthrough no longer changes the model *or* land
+  on a daily-capped free key; Gemini drops to tier 3. Also fixed the two things that made a dead
+  quota look like poor answer quality: `rate_limited` now reaches the client (it was set by
+  `LLMService` but dropped by `SynthesizeResponse`), and the benchmark marks no-answer runs INVALID.
+  Residual: Gemini is still free-tier if the cascade gets that far, and Ollama remains unconfigured.
+- [x] **`NVIDIA_NIM_TIMEOUT` re-tested 2026-08-15 — settled at 60 s (raised from 45, not lowered).**
+  The "−56% p95" was a lower cap, not a faster system: capping a timeout truncates the number and
+  pushes work onto the free Gemini tier, which is what exhausted the quota in the first place.
+  Endpoint probing showed 8.6 s–>90 s for identical work with no rate-limit headers.
+  > **90 s was tried first and was wrong** — it broke the product. The frontend budget for
+  > `POST /search/synthesize` is **90 000 ms** (`frontend/src/lib/api.ts`), and a fallthrough costs
+  > cap + Gemini (observed up to +11.6 s), so at a 90 s cap the four fallbacks landed at 92–102 s and
+  > would have aborted in the browser. The benchmark used a 120 s client timeout and scored them as
+  > successes, so **the harness was hiding a regression the harness itself caused** — now fixed by
+  > pinning `BENCHMARK_SYNTH_TIMEOUT` to the frontend's 90 s.
+  >
+  > Measured over 23 NIM calls: 45 s keeps 65% on NIM · **60 s keeps 86%, worst fallthrough ~72 s** ·
+  > 70 s keeps 91% (~82 s, thin margin) · 90 s keeps 100% but breaches the UI budget. `config.py`'s
+  > default was also 90 and is now 60, so the bug is not inherited by anyone running without `.env`.
+- [ ] **Widen the benchmark question set** — 25 questions across 15 categories, 8 at n=1, so one flip moves a category from 100% to 0%. (The old "±2 of 25" was partly a provider artefact — see §Benchmark caveats; both 2026-08-15 runs scored 24/25.) More questions would tighten the interval.
 - [x] **`/system-benchmarks` admin page** — measured evidence visualised from **live sources only** (model-gate F1 trend across runs, per-entity-type F1, compliance gaps by severity, datastore health). Harness-only metrics (retrieval/answer/provenance, load sweep, time-to-answer) are **linked, not redrawn** — the system does not persist them, so charting a copy would present a static file as live data. The four system surfaces are now one tabbed section via `SystemTabs`.
 - [x] **NER model swapped** to `meta/llama-3.2-11b-vision-instruct` (`ministral-14b` deprecated by NVIDIA). `ARCHITECTURE.md` updated in the two places that named it — minimal edit, model name only.
-- [ ] **Deck/writeup corrections** (artifacts, not code): the tech-stack slide lists PyTorch / scikit-learn / LightGBM — there is no ML code, and `requirements.txt` explicitly states the CV stack is intentionally not installed; a "knowledge-coverage heatmap" is described but not built; deployment is listed as Docker + NVIDIA GPU + Ollama when it is Vercel + EC2 + cloud model APIs.
-- [ ] **`ARCHITECTURE.md` PII scope mismatch** — it describes redaction as gating **cross-site knowledge promotion** with `"Shift [REDACTED]"`-style tokens. No cross-site promotion endpoint exists, and the implementation uses stable pseudonyms (`[PERSON_1]`) to preserve cross-references. The pipeline is real; the cross-site wiring is not. Resolve by editing that doc or building the cross-site path.
+- [ ] **Deck/writeup vs as-built** (artifacts, not code). Clarified 2026-08-15 — **the ML stack and
+  the knowledge-coverage heatmap are in scope, not mistakes on the slide.** PyTorch / scikit-learn /
+  LightGBM were deliberately deferred to cut system-design complexity and because the corpus is too
+  small to train on; the heatmap is intended but unbuilt. So this is a *roadmap vs shipped* framing
+  question, not a correction: either mark those items as planned on the slide, or build them.
+  The deployment line on that slide is **moot** — deployment is out of scope (see § Deployment), so
+  there is nothing to reconcile it against. If the slide is ever revised, describe what actually
+  runs: local Docker + cloud model APIs (NIM / OpenRouter / Gemini / Jina / Groq) with cloud stores
+  (Aura, Qdrant Cloud, Supabase). No action while deployment stays out of scope.
+- [x] **`ARCHITECTURE.md` PII scope mismatch — refiled, not a docs task.** `ARCHITECTURE.md` states
+  the intended *design* and is deliberately not edited to match the build; that is what the
+  [Conformance](#architecture--implementation-conformance) section exists to record. So "redaction
+  gates cross-site knowledge promotion" is a design-vs-build gap, not a doc defect. The build side
+  (no cross-site endpoint) is already tracked as backlog #15. Nothing to fix here.
 
 ---
 
@@ -457,15 +782,44 @@ Page-by-page manual QA pass (field-worker → engineer → admin surfaces). Ship
 - [x] **Frontend tests (partial)** — reconciled the 3 files I own to live-only (`use-fetch` demo→error, `management` demo→live mocks, `model-gate` useRole+removed demo-chip test): 11/11 green. **~11 other page-test files remain red** — pre-existing live-only debt (demo-source mocks, admin-button `useRole` mocks, removed demo-chip assertions), heterogeneous, for pages not touched this session. Recipe: flip happy-path mocks `demo→live`, mock `useRole` for admin-gated buttons, delete "offline fixture fallback" tests.
 - [x] **Page spot-check** — circuit-breaker, documents/compare, system-information, SLA all render live data cleanly.
 
-### Needs you (blocked for the agent — cloud deletes are classifier-guarded)
+### Needs you — irreversible deletes (a judgement call, not a technical block)
+
+> Corrected 2026-08-15: the old heading said "blocked for the agent — cloud deletes are
+> classifier-guarded". That was inaccurate. The agent has SQL and Cypher access and uses it for reads
+> throughout. These are held back because **permanent deletion is irreversible and yours to
+> authorise**, not because anything prevents it.
+>
+> **Recommendation: do not run the two `audit_log` deletes.** Nothing is broken by those rows — their
+> only effect is that the `/system-benchmarks` F1 trend plots retired models alongside the current
+> one. Deleting audit history to tidy a chart contradicts this system's own governing rule (*Vault:
+> permanent. Never delete. Supersede by closing `valid_to`*), and it is the kind of thing a reviewer
+> is entitled to ask about. **Filter the chart instead** — show the current model only, or render the
+> `validity` field so SUSPECT runs are visibly marked. Reversible, and a better story.
+>
+> The Neo4j dedup is a different case: those are accidental duplicate relationships from re-ingest,
+> not history, so removing them destroys no record. Still optional — the read path already dedupes.
 - [ ] Stale-audit cleanup (mXLM-RoBERTa): `delete from audit_log where action='model_gate_result' and entity_id='mXLM-RoBERTa';`
-- [ ] Dedupe the 3 identical `ministral-14b` runs (ids 44,45,46 at 2026-07-19T08:03): `delete from audit_log a using audit_log b where a.action='model_gate_result' and b.action='model_gate_result' and a.entity_id=b.entity_id and a.entity_id='meta/llama-3.2-11b-vision-instruct' and a.timestamp < b.timestamp;`
-- [ ] **Neo4j edge dedup (87 duplicate extras / 22 edge_ids; verified 0 divergent-state, safe)** — run in the Aura console:<br>`MATCH ()-[r:KNOWLEDGE_EDGE]->() WITH r.edge_id AS eid, collect(r) AS rels WHERE size(rels)>1 UNWIND rels[1..] AS x DELETE x;`  (read path already dedupes; this makes the graph physically canonical, 123→36 edges.)
+- [ ] Dedupe the 3 identical `ministral-14b` runs (ids 44,45,46 at 2026-07-19T08:03). **The SQL
+  previously printed here was a no-op** — it filtered `a.entity_id='meta/llama-3.2-11b-vision-instruct'`,
+  but those rows are `mistralai/ministral-14b-instruct-2512` (verified against Supabase 2026-08-15).
+  Corrected: `delete from audit_log a using audit_log b where a.action='model_gate_result' and b.action='model_gate_result' and a.entity_id=b.entity_id and a.entity_id='mistralai/ministral-14b-instruct-2512' and a.timestamp < b.timestamp;`
+  > Related: `audit_log` held only **4** `model_gate_result` rows — id 34 (`mXLM-RoBERTa`) and
+  > 44/45/46 (`ministral-14b`) — with **no row for the current NER model at all**. Backlog #6 closed
+  > that on 2026-08-15: row 422 (`meta/llama-3.2-11b-vision-instruct`, `performed_by: "cli"`) is now
+  > the newest entry. The cleanup below is still worth doing so the trend shows only models in use.
+- [ ] **Neo4j edge dedup** — re-counted 2026-08-15: **130 relationships / 43 distinct `edge_id` / 87
+  duplicate extras across 22 ids** (was "123→36"; the graph has grown, the defect is unchanged). Run in
+  the Aura console:<br>`MATCH ()-[r:KNOWLEDGE_EDGE]->() WITH r.edge_id AS eid, collect(r) AS rels WHERE size(rels)>1 UNWIND rels[1..] AS x DELETE x;`  (read path already dedupes; this makes the graph physically canonical, 130→43 edges.)
 
 ### Decisions for you (won't do unilaterally)
 - [ ] **Compliance role** is backend-OPA-only — not in the frontend `Role` type, not seeded, not in route access (a compliance user would redirect-loop). Wire it up (Role type + `/compliance`+`/audit` route access + `roleHome` + seed a user) only if a compliance persona is wanted in the demo.
 - [ ] **Reliability** gating is correct (STAFF_ONLY + PROMOTE_ROLES) but **no reliability user is seeded** — seed one to walk it live.
-- [ ] **Dead frontend fixture modules** (`lib/*.ts` + `DemoChip`) — *not* a safe delete: api.ts imports all of them in catch branches, and `copilot.ts`/`rca.ts` also export live types + real constants (`SUGGESTIONS`, `RCA_PRESETS`); removal is a real refactor of every fetcher's error path + 11 `DemoChip` sites + fixture-using tests, with zero user-facing benefit. Recommend a dedicated cleanup task.
+- [x] **Dead frontend fixture modules — DONE 2026-08-15.** It was correctly called a real refactor
+  rather than a delete, and it was done as one: 6 modules removed, 32 `catch` branches rewritten to
+  rethrow, `DemoChip` + 10 sites gone, `DataSource` narrowed to a single member. The "zero
+  user-facing benefit" assessment turned out to be wrong — three fabrication paths were still
+  reachable and rendering invented data (see § Live-only cleanup). `copilot.ts`/`rca.ts` were kept
+  for their live types and real constants, exactly as this entry advised.
 
 ### Resolved (2026-07-19 — green suite + build fix + CI)
 - [x] **Frontend test suite reconciled to live-only — 124/124 green** (was 104 pass / 20 fail). Fixes: `demo→live` in happy-path mocks (compliance, governance, sla, circuit-breaker, audit-pack, nonconformance, management); `useRole` mocked for admin-gated buttons (model-gate); removed-behavior tests rewritten (`use-fetch` demo→error, model-gate/audit empty-state, cross-site honest-empty, rca/graph EQ-101 defaults, copilot full-height layout).
@@ -478,17 +832,26 @@ Page-by-page manual QA pass (field-worker → engineer → admin surfaces). Ship
 - [ ] Pages not yet eyeballed: `/copilot`, `/documents/compare`, `/documents/[id]/topology`, `/governance/sla` · `/circuit-breaker`, `/system-information`, `/settings`, field `elicitation`/`voice` flows. *(Admin walkthrough, plant-state, model-gate, bootstrap, asset detail, /management, 404 — done this pass.)*
 
 ### Known non-blocking gaps
-- [ ] **Alias resolution** — `/assets/{id}/knowledge` 404s for tag aliases (`P-101`→`EQ-101`); graph/RCA now default to canonical ids, but aliases don't resolve server-side. Backend change if wanted.
-- [ ] **Underlying duplicate KNOWLEDGE_EDGE relationships** — the read path now dedupes by `edge_id`, but the graph still physically holds the duplicates (from ingestion). Optional Neo4j cleanup (guarded write) if a canonical single-edge graph is wanted.
-- [ ] **Model-gate "Run" button** for non-admins is already hidden; no remaining FE gap there.
+- [x] ~~Alias resolution~~ — **already fixed**; this entry contradicted the resolved item above and was stale (confirmed 2026-08-15). `routers/assets.py:22` defines `resolve_canonical_asset_id`, used at line 235, and the response carries `resolved_from_alias` (line 250).
+> **Duplicate KNOWLEDGE_EDGE relationships** — tracked once, under [Needs you](#needs-you--irreversible-deletes-a-judgement-call-not-a-technical-block) with the current counts (130 rels / 43 distinct / 87 extras). A duplicate entry lived here and has been folded in.
+- [x] **Model-gate "Run" button** for non-admins is already hidden; no remaining FE gap there. (Was filed as an open box while its own text said there was nothing to do.)
 
 ---
 
 ## Verification snapshot (2026-07-18, test counts updated 2026-07-19)
 
 - Backend test suite: **~175 passed · 3 skipped** (1 transient flake; passes in isolation) — **not re-run this session** (write-heavy; must run against `--profile local-stores`, never cloud). This session's backend changes (alias resolve, brief recipient scoping, MoC endpoints, promote gating, model-gate default) are low-risk and don't touch the asserted paths (`test_promote_quarantine_item` uses `admin_client`).
-- Frontend suite: **124/124 green** — reconciled to live-only on 2026-07-19 (was ~107 passed / ~17 failing mid-sweep; see the resolved "green suite + build fix + CI" entry above). `tsc` + `eslint` + `next build` clean. vitest is not gated in CI (the dev container OOMs at 2 GB, masking the exit code) — run it locally.
-- Benchmark (cloud stores): retrieval **25/25**, answer **23/25**, provenance **25/25**, entity-F1 **~0.96**.
+- Frontend suite: **135/135 green across 55 files** (re-run in-container 2026-08-15 after the
+  `npm audit fix` lockfile change; was 124/124 on 2026-07-19). `tsc` clean, `eslint` 0 errors / 3
+  pre-existing unused-var warnings. vitest is not gated in CI (the dev container OOMs at 2 GB,
+  masking the exit code) — run it in Docker, never on the host.
+  > Pre-existing and **unrelated to any change here**: vitest reports 3 unhandled rejections —
+  > `No "getToken" export is defined on the "@/lib/api" mock`, raised from `lib/auth.ts:33` `getMe()`
+  > while `assets/page.test.tsx` runs. An incomplete `vi.mock`, not a product defect; all 135 tests
+  > still pass. Fix by adding `getToken` to those mocks (or using `importOriginal`).
+- Benchmark (cloud stores, re-measured 2026-08-15): retrieval **25/25**, answer **24/25**, provenance
+  **25/25**, entity-F1 **0.917** (ceiling — see §Benchmark caveats), compliance F1 **0.986**, load
+  **2275 req / 0% errors / knee at 50 VU**. Full output in `benchmark/RESULTS.md`.
 - P&ID Path B: live-validated on `dataset/02_Document_Corpus/pid_line3_isolation_boundary.png`.
 - **Cloud stores:** Neo4j Aura + Qdrant Cloud + Supabase + Grafana Cloud (observability). Default local stack ≈ 13 containers (neo4j/qdrant/grafana/tempo/otel offloaded); ~2–3 GB idle RAM.
 - Auth verified-token cache: ~577 ms/request saved (revocation preserved, ≤ TTL staleness).
