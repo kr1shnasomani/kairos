@@ -109,6 +109,51 @@ _CATEGORY_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
 # the case the refusal gate exists for.
 AUTHORITATIVE_LEVEL = 3
 
+# How many of the most-relevant context items may vouch for a safety-critical answer.
+_AUTHORITY_TOP_K = 3
+
+
+def _authority_candidates(context: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    The context items permitted to clear the safety gate.
+
+    The gate used to take `min(authority_level)` over the **whole** retrieved context, making it a
+    property of the context *set* rather than of the evidence supporting the answer: one unrelated
+    authoritative document anywhere in the context cleared it, and in the live copilot that was the
+    normal case, so the gate almost never fired.
+
+    Two filters, both derived from measured behaviour on the real corpus
+    (query: "Which valves make up the isolation boundary for V-247?"):
+
+      1. **Most relevant only.** Ranked by `relevance_score` (the RRF fusion score), NOT by
+         position — `SearchService` sorts by `(authority_level, -rrf)`, so the most authoritative
+         document is always first and a top-K-by-position filter would be a no-op. This drops the
+         generic L1 "Applicable Standards and Statutory Provisions" list, which measured as the
+         *least* relevant hit (rrf 0.0156) yet was clearing every safety refusal.
+
+      2. **Same asset as the best evidence.** Relevance alone was not enough: two Fischer OEM
+         bulletins (L3, rrf ~0.031) about `EQ-101` centrifugal-pump seals still ranked inside the
+         top 3 for a question about a `V-247` valve, and an OEM bulletin for different equipment
+         cannot vouch for this one. The target asset is taken from the highest-relevance item.
+
+    Deliberately conservative in both directions: a document with no `asset_id` never vouches when
+    a target asset is known, and when nothing carries a `relevance_score` the whole context is
+    returned — i.e. previous behaviour — because callers that assemble context by hand (graph
+    facts, elicitation) never knew to send these fields, and silently re-scoping their refusals
+    would change safety behaviour based on a field they do not set.
+    """
+    scored = [r for r in context if r.get("relevance_score") is not None]
+    if not scored:
+        return list(context)
+
+    ranked = sorted(scored, key=lambda r: r.get("relevance_score") or 0.0, reverse=True)
+    top = ranked[:_AUTHORITY_TOP_K]
+
+    target_asset = ranked[0].get("asset_id")
+    if not target_asset:
+        return top
+    return [r for r in top if r.get("asset_id") == target_asset] or [ranked[0]]
+
 
 class LLMService:
     """
@@ -173,7 +218,8 @@ class LLMService:
         # otherwise read as confidence 0.0 and refuse every safety query.
         if query_category in SAFETY_CRITICAL_CATEGORIES:
             max_confidence = max((r.get("confidence") or 0.0 for r in retrieved_context), default=0.0)
-            best_authority = min((r.get("authority_level") or 5 for r in retrieved_context), default=5)
+            gate_context = _authority_candidates(retrieved_context)
+            best_authority = min((r.get("authority_level") or 5 for r in gate_context), default=5)
             if max_confidence < confidence_threshold and best_authority > AUTHORITATIVE_LEVEL:
                 log.info(
                     "synthesis.safety_critical_refusal",

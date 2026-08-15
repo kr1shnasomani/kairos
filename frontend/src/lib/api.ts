@@ -417,7 +417,7 @@ export async function synthesize(query: string, asOf?: string): Promise<CopilotA
     // search first (exactly what the benchmark does). Without this the answer is always empty.
     const qs = new URLSearchParams({ q: query, limit: "6" });
     if (asOf) qs.set("as_of", asOf);
-    const search = await getJson<{ results: Array<{ document_id: string; snippet?: string; title?: string; authority_level?: number; asset_id?: string | null }> }>(
+    const search = await getJson<{ results: Array<{ document_id: string; snippet?: string; title?: string; authority_level?: number; asset_id?: string | null; relevance_score?: number }> }>(
       `/search?${qs.toString()}`, 12000,
     );
     const results = search.results ?? [];
@@ -432,6 +432,10 @@ export async function synthesize(query: string, asOf?: string): Promise<CopilotA
       document_id: r.document_id,
       title: r.title ?? r.document_id,
       authority_level: r.authority_level ?? 5,
+      // Required by the safety gate. It clears only if one of the most RELEVANT sources is
+      // authoritative; without a score it falls back to considering every source, which let a
+      // single unrelated regulation in the context clear a safety-critical refusal.
+      relevance_score: r.relevance_score,
       asset_id: r.asset_id ?? null,
     }));
 

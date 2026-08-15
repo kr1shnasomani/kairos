@@ -159,3 +159,69 @@ async def test_ordinary_failure_is_not_reported_as_rate_limited(monkeypatch):
     ])
     assert not result.get("rate_limited")
     assert not result.get("message")
+
+
+# --- Safety gate: authority must come from RELEVANT evidence -------------------------
+# Found by manual QA 2026-08-15. The gate took min(authority_level) over the whole retrieved
+# context, so one unrelated authoritative document anywhere in it cleared a safety-critical
+# refusal. In the live copilot that was the normal case (top-6 hybrid hits nearly always include
+# an L1 regulation), so the gate almost never fired.
+
+async def _synth(llm, query, context):
+    return await llm.synthesize(query=query, retrieved_context=context,
+                                query_category="isolation_interlock_sequence")
+
+
+async def test_offtopic_authoritative_source_no_longer_clears_the_gate(monkeypatch):
+    """An OEM bulletin for a DIFFERENT asset must not vouch for this one.
+
+    Measured on the real corpus: asking for V-247's isolation boundary retrieved two Fischer
+    L3 bulletins about EQ-101 pump seals, ranked 3rd/4th by relevance. They cleared the gate.
+    """
+    from api.config import settings
+
+    llm = LLMService(settings)
+    monkeypatch.setattr(llm, "_synthesize_cascade", lambda prompt, ctx: _answer({"answer": "x", "sources": ctx}))
+
+    ctx = [
+        {"document_id": "DOC-PTW", "text": "permit to work V-247", "authority_level": 4,
+         "relevance_score": 0.0325, "asset_id": "V-247"},
+        {"document_id": "DOC-FISCHER", "text": "EQ-1xx seal bulletin", "authority_level": 3,
+         "relevance_score": 0.0313, "asset_id": "EQ-101"},
+        {"document_id": "DOC-REGREF", "text": "standards index", "authority_level": 1,
+         "relevance_score": 0.0156, "asset_id": None},
+    ]
+    result = await _synth(llm, "isolation boundary for V-247", ctx)
+    assert result.get("refused") is True
+
+
+async def test_on_topic_authoritative_source_still_clears_the_gate(monkeypatch):
+    """The gate must not become a blanket refusal — that is why the authority arm exists.
+    An OEM bulletin for the SAME asset is exactly the evidence it should accept."""
+    from api.config import settings
+
+    llm = LLMService(settings)
+    monkeypatch.setattr(llm, "_synthesize_cascade", lambda prompt, ctx: _answer({"answer": "x", "sources": ctx}))
+
+    ctx = [
+        {"document_id": "DOC-OEM", "text": "HE-3xx max operating pressure 16.2 bar", "authority_level": 3,
+         "relevance_score": 0.033, "asset_id": "HE-301"},
+        {"document_id": "DOC-SOP", "text": "site procedure", "authority_level": 4,
+         "relevance_score": 0.031, "asset_id": "HE-301"},
+    ]
+    result = await _synth(llm, "maximum allowable pressure for HE-301", ctx)
+    assert not result.get("refused")
+
+
+async def test_context_without_relevance_scores_keeps_previous_behaviour(monkeypatch):
+    """Hand-assembled context (graph facts, elicitation) carries no scores; do not silently
+    change refusal behaviour for callers that never knew to send them."""
+    from api.config import settings
+
+    llm = LLMService(settings)
+    monkeypatch.setattr(llm, "_synthesize_cascade", lambda prompt, ctx: _answer({"answer": "x", "sources": ctx}))
+
+    ctx = [{"document_id": "DOC-SOP", "text": "site procedure", "authority_level": 4},
+           {"document_id": "DOC-REG", "text": "regulation", "authority_level": 1}]
+    result = await _synth(llm, "isolation boundary for V-247", ctx)
+    assert not result.get("refused")

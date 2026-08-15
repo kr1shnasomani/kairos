@@ -372,50 +372,56 @@ documented mitigation. Bumped regardless.
 
 ---
 
-## ⚠️ Manual QA finding — the safety refusal gate rarely fires in the real UI (2026-08-15)
+## Manual QA — safety refusal gate: found broken, fixed, verified live (2026-08-15)
 
-**Verified live in the browser, logged in as admin.** Asked the copilot two safety-critical
-questions — "Maximum allowable pressure for the HE-3xx series?" (its own suggestion chip) and
-"Which valves make up the isolation boundary for V-247?". **Both were answered. Neither refused.**
+**Found.** Asked the copilot two safety-critical questions in the browser, including its own
+suggestion chip. **Both were answered; neither refused.** Not a rendering bug — the gate cleared on
+`min(authority_level)` over the *whole* retrieved context, making it a property of the context set
+rather than of the evidence supporting the answer. One unrelated authoritative document anywhere in
+the context defeated it, which in the live copilot was the normal case.
 
-This is not a rendering bug — `RefusalCard` and the copilot's refusal block are wired correctly, and
-the gate does fire on weak evidence. The problem is what clears it.
+**The obvious fix would have been a no-op.** "Judge the top-ranked items" fails because
+`SearchService` sorts by `(authority_level, -rrf)` — the most authoritative document is always
+*first*, so a top-K-by-position filter selects exactly the items guaranteed to be authoritative.
+Ranking had to be by `relevance_score` (the RRF value), which meant plumbing it through from the
+frontend, where the copilot's context map was dropping it.
 
-`services/llm.py` clears the gate when `max_confidence >= 0.7` **OR** `best_authority <= 3`, where
-`best_authority = min(authority_level)` **across the entire retrieved context**. Hybrid results carry
-no `confidence`, so in practice the authority arm decides everything — and it is a property of the
-*context set*, not of the evidence that actually supports the answer.
+**Relevance alone was still not enough.** Measured on the real corpus for "Which valves make up the
+isolation boundary for V-247?":
 
-Controlled proof (same query, gate fires before any model call, so this is free to reproduce):
+| rank by relevance | rrf | authority | asset |
+|---|---|---|---|
+| 1 | 0.0325 | L4 | **V-247** (the PTW — the actual evidence) |
+| 2 | 0.0325 | L4 | XV-203 |
+| 3 | 0.0313 | **L3** | **EQ-101** — Fischer *pump seal* bulletin |
+| 4 | 0.0308 | **L3** | **EQ-101** |
+| 6 | 0.0156 | L1 | none — the generic standards list |
 
-| Context | Result |
+Top-K by relevance correctly drops the L1 (least relevant of all), but two OEM bulletins about
+**a different asset** still ranked 3rd/4th and cleared the gate. An EQ-101 pump-seal bulletin
+cannot vouch for a V-247 valve isolation answer.
+
+**Fix (`_authority_candidates` in `services/llm.py`):** an authoritative source may vouch only if it
+is among the most relevant **and** shares the asset of the best-matching evidence. Context without
+`relevance_score` keeps the previous behaviour, so hand-assembled callers (graph facts, elicitation)
+are unaffected rather than silently re-scoped.
+
+**Verified end-to-end on the live corpus** — and checked in both directions, because a gate that
+refuses everything is its own failure:
+
+| Query | Result |
 |---|---|
-| weak evidence only (one L4 site SOP) | **refused** ✓ |
-| the same L4 doc **+ one unrelated L1** ("Applicable Standards and Statutory Provisions", a compiled reference list saying nothing about V-247) | **answered** |
+| Isolation boundary for V-247 | **REFUSED** — its L3s are EQ-101, wrong asset |
+| Maximum allowable pressure for HE-3xx | **answered** — its L3 Meridian bulletin *is* HE-3xx |
+| Which OEM manufactures the feed pumps | answered (not safety-critical) |
 
-One irrelevant high-authority document anywhere in the context defeats the gate. In the live UI this
-is the normal case: `synthesize()` sends the top 6 hybrid hits, and this corpus almost always
-surfaces an L1 regulation or L3 OEM bulletin among them.
+Confirmed in the browser: the refusal card renders with the reason, the sources under
+"SOURCES — VERIFY DIRECTLY", and the escalation line. **This is the first time the refusal has been
+seen live in the UI.** Pinned by three tests built from the measured data above.
 
-**Why the benchmark disagrees.** It reports 3 refusals (Q07/Q19/Q25) because it passes a narrow,
-per-question routed context that often excludes those documents. So the benchmark measures the gate
-under conditions the product does not reproduce — the 3 refusals are real, but they overstate how
-often the gate protects a user.
-
-**Impact.** The shipped promise — *"On safety-critical parameters, it refuses rather than guess"*,
-printed on the copilot's own empty state — is materially weaker in the product than the benchmark
-implies. The answers given were factually correct here, so nothing is currently wrong on screen;
-the defect is that the guard is not doing the work it is credited with.
-
-**Not fixed — this is a deliberate design decision, not a typo.** Tightening it wrongly is its own
-failure: a gate that refuses everything makes the copilot useless (which is exactly why the
-authority arm was added — a confidence-only gate refused every safety query). Options, cheapest first:
-1. Judge authority over the **top-ranked** context items only, not the whole set — the best-matching
-   document is the one plausibly supporting the answer; a reference list ranked 6th is not.
-2. Require the authoritative document to be **cited in the answer** (`sources_used`) before clearing.
-3. Require both a relevance floor and authority ≤ 3.
-
-Option 1 is the smallest change with most of the benefit.
+> The benchmark's 3 refusals (Q07/Q19/Q25) came from a narrow routed context that excluded those
+> documents, so it was measuring the gate under conditions the product did not reproduce. Answer
+> quality should be re-run: refusal counts may shift now that the gate reflects real retrieval.
 
 ---
 
