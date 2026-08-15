@@ -163,6 +163,26 @@ server-side by `generateMetadata` in `(app)/layout.tsx`, which reads an `x-pathn
 **`src/proxy.ts`** (Next 16's renamed middleware — it must set the header on the *request*, not the
 response, or `headers()` can't read it, which is why refresh used to fall back to bare "Kairos").
 
+### Knowledge coverage (`/management/coverage`)
+
+Per-asset coverage matrix — facts held, how many are authoritative (level 1-3), how many are
+human-verified, linked documents, pending quarantine. Backed by `GET /assets/coverage`
+(`services/coverage.py`), which is **read-only and model-free**, so refreshing it costs no provider
+quota.
+
+Two deliberate choices worth keeping:
+- **Sorted weakest-first.** The page exists to show gaps, so the thinnest asset leads rather than
+  being buried alphabetically.
+- **Shading is relative to the best-covered asset**, not an absolute scale. "How thin is this
+  compared with the best equipment we have" is the question a reliability engineer asks; an
+  absolute scale would paint a small corpus uniformly empty and say nothing.
+
+The **Verified** column reads zero across the estate and is kept visible on purpose — promotion
+through the quarantine gate is human-only and nothing has been promoted, so the zero *is* the
+finding. Hiding the column would read as "not measured".
+
+---
+
 > **There is no mobile bottom tab bar.** `BottomTabs` (never `FieldBottomTabs` — that name is from an
 > older revision) was **deleted** from `app-shell.tsx` on 2026-08-15: it had been commented out since the
 > mobile UX was deferred, so it was neither shipped nor removed, and it left `isField` orphaned. Mobile

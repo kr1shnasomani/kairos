@@ -321,6 +321,7 @@ Get the parent–child asset hierarchy (up to 10 levels deep via Neo4j `PARENT_O
 
 ---
 
+| `GET` | `/assets/coverage` | Knowledge-coverage matrix across all assets — facts, authoritative facts, verified facts, linked documents, pending quarantine. Read-only and model-free (spends no provider quota). Declared **above** `/{asset_id}` so the literal path is not swallowed by the path parameter. |
 ### `GET /assets/{asset_id}/knowledge`
 
 Get all temporal graph facts linked to this asset from Neo4j. Accepts a **canonical id or a confirmed tag alias** — `P-101` resolves to `EQ-101` via `asset_alias_map` (`resolve_canonical_asset_id`); the response echoes `requested_id` and `resolved_from_alias`. Facts are **deduped by `edge_id`** (the graph can hold physical duplicate relationships).

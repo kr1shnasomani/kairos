@@ -687,3 +687,18 @@ export interface KnowledgeGraphData {
   nodes: GraphNodeData[];
   edges: GraphEdgeData[];
 }
+
+
+/** One row of the knowledge-coverage matrix (`GET /assets/coverage`). Counts are DISTINCT by
+ *  `edge_id` server-side, so a re-ingested asset does not look better covered than it is. */
+export interface AssetCoverage {
+  asset_id: string;
+  name: string;
+  equipment_class: string;
+  criticality: string;
+  facts: number;
+  authoritative_facts: number;
+  verified_facts: number;
+  documents: number;
+  pending_quarantine: number;
+}

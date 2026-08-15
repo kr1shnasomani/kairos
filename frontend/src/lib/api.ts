@@ -46,6 +46,7 @@ import type {
   GraphNodeData,
   GraphEdgeData,
   KnowledgeGraphData,
+  AssetCoverage,
 } from "./types";
 import { type CopilotAnswer } from "./copilot";
 import { criticalityMeta } from "./utils";
@@ -1321,4 +1322,17 @@ export async function getKnowledgeGraph(
     // (useFetch / a server component) turns this into an error+retry state.
     throw e instanceof Error ? e : new Error(String(e));
   }
+}
+
+
+// --- Knowledge coverage (GET /assets/coverage) ---
+/** Per-asset coverage for the heatmap. Read-only and model-free server-side, so this is cheap to
+ *  refresh — no provider quota is spent. Sorted weakest-first: the point of the page is the gaps,
+ *  so the thinnest coverage should be the first thing on screen, not buried alphabetically. */
+export async function getAssetCoverage(): Promise<Fetched<AssetCoverage[]>> {
+  const data = await getJson<{ items: AssetCoverage[] }>("/assets/coverage", 8000);
+  const items = [...(data.items ?? [])].sort(
+    (a, b) => a.facts - b.facts || a.documents - b.documents || a.asset_id.localeCompare(b.asset_id),
+  );
+  return { data: items, source: "live" };
 }

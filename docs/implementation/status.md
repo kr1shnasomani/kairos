@@ -804,7 +804,10 @@ would reward per hour spent.
 - [x] **`/system-benchmarks` admin page** — measured evidence visualised from **live sources only** (model-gate F1 trend across runs, per-entity-type F1, compliance gaps by severity, datastore health). Harness-only metrics (retrieval/answer/provenance, load sweep, time-to-answer) are **linked, not redrawn** — the system does not persist them, so charting a copy would present a static file as live data. The four system surfaces are now one tabbed section via `SystemTabs`.
 - [x] **NER model swapped** to `meta/llama-3.2-11b-vision-instruct` (`ministral-14b` deprecated by NVIDIA). `ARCHITECTURE.md` updated in the two places that named it — minimal edit, model name only.
 - [ ] **Deck/writeup vs as-built** (artifacts, not code). Clarified 2026-08-15 — **the ML stack and
-  the knowledge-coverage heatmap are in scope, not mistakes on the slide.** PyTorch / scikit-learn /
+  the knowledge-coverage heatmap are in scope, not mistakes on the slide.**
+  > **The heatmap is now BUILT** (2026-08-15): `GET /assets/coverage` + `/management/coverage`.
+  > That half of the slide is true. The ML stack (PyTorch / scikit-learn / LightGBM) remains
+  > deliberately deferred. PyTorch / scikit-learn /
   LightGBM were deliberately deferred to cut system-design complexity and because the corpus is too
   small to train on; the heatmap is intended but unbuilt. So this is a *roadmap vs shipped* framing
   question, not a correction: either mark those items as planned on the slide, or build them.

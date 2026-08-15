@@ -10,8 +10,9 @@ import shortuuid
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, SupabaseDep, require_role
+from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, SettingsDep, SupabaseDep, require_role
 from api.models.asset import AssetCreate
+from api.services.coverage import CoverageService
 from api.services.graph import GraphService
 
 log = structlog.get_logger(__name__)
@@ -140,6 +141,27 @@ async def list_assets(
         limit=limit,
     )
     return {"items": result["assets"], "total": result["total"], "limit": limit, "offset": offset}
+
+
+# NOTE: must stay ABOVE "/{asset_id}" — FastAPI matches in declaration order, so a later
+# literal path is swallowed by the earlier path parameter and "coverage" would be looked up
+# as an asset id.
+@router.get("/coverage", summary="Knowledge-coverage matrix across all assets")
+async def asset_coverage(
+    current_user: CurrentUserDep,
+    driver: Neo4jDep,
+    supabase: SupabaseDep,
+    settings: SettingsDep,
+) -> dict:
+    """
+    Per-asset knowledge coverage: facts held, how many are authoritative, how many are
+    human-verified, linked documents, and pending quarantine.
+
+    Read-only and model-free — no OCR/NER/embedding call, so it spends no provider quota.
+    """
+    svc = CoverageService(driver, settings.NEO4J_DATABASE, supabase)
+    items = await svc.asset_coverage()
+    return {"items": items, "total": len(items)}
 
 
 @router.get("/{asset_id}", summary="Get asset by canonical ID")

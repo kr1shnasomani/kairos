@@ -86,6 +86,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/rca", label: "RCA", icon: "rca", roles: STAFF },
       { href: "/graph", label: "Graph", icon: "graph", roles: STAFF },
+      { href: "/management/coverage", label: "Coverage", icon: "chart", roles: STAFF },
     ],
   },
   {
