@@ -697,53 +697,29 @@ would reward per hour spent.
 
 ### Housekeeping (optional)
 - [ ] **CodeQL fails on every PR while the repo is private — expected, not a defect.** `codeql.yml` analyses everything fine (115/115 Python files, all four languages) and then fails on the *upload* step with `Code scanning is not enabled for this repository`. Code scanning on a **private** repo needs GitHub Advanced Security; the API confirms `visibility: private`, `security_and_analysis: null`. The one green CodeQL run (2026-08-10) was a *scheduled* run on `main`, which does not hit the PR upload path. **On making the repo public again:** Settings → Code security → Code scanning → Set up → **Advanced** (not Default — Default replaces the existing `codeql.yml`), then re-run the job. Nothing in the workflow or the code needs changing.
-- [ ] **Import the 2 Grafana dashboards into Grafana Cloud.** Import-ready copies prepared
-  2026-08-15 at **`infra/grafana/dashboards-import/`** — use those, not the originals.
-  The originals hardcode datasource UIDs (`grafana-prom-datasource`, `tempo`) that do not exist in
-  a Cloud stack, so importing them raw yields panels wired to a missing datasource. The copies
-  replace those with `__inputs` placeholders, which is what makes Grafana show a datasource picker
-  on the import screen; the stale numeric `id` is also stripped so Grafana does not try to
-  overwrite an unrelated dashboard by id. Originals left untouched as the record.
-  **Metric names were verified to line up:** instruments are dot-named (`kairos.briefs.delivered`)
-  and OTLP → Prometheus normalises them to exactly what the panels query
-  (`kairos_briefs_delivered_total`, `kairos_ingestion_duration_seconds_bucket`, `kairos_conflicts_open`).
-  Metrics export is wired (`middleware/telemetry.py` — MeterProvider + `OTLPMetricExporter`), so
-  data should be present for periods the backend was running.
-  Agent cannot do this step today: the only Grafana credential in `.env` is the **OTLP ingest**
-  token, which pushes telemetry and has no access to the dashboard API.
-  > **Deferred to a new session (2026-08-15).** A Grafana MCP was added mid-session but never
-  > reached this one. Verified three ways: a `+grafana` tool search returned *no matching deferred
-  > tools*; there is no `grafana` entry in `.claude/settings.local.json`, `~/.claude.json` or
-  > `~/.claude/settings.json`; and Grafana is absent from the session's MCP list entirely, including
-  > the "needs authorization" set. **Most likely cause: MCP servers are enumerated at session start,
-  > so a mid-session addition is invisible until a restart.**
-  > **Next session, in order:** (1) re-run a `+grafana` tool search — if tools appear, just do the
-  > import; (2) if not, the server probably landed in claude.ai connector settings rather than this
-  > CLI's scope — add it to a project-level `.mcp.json` instead (official server: `grafana/mcp-grafana`);
-  > (3) or skip MCP entirely by adding `GRAFANA_URL=https://ambermyrtle3065.grafana.net` and a
-  > `GRAFANA_SA_TOKEN` (scope `Dashboards:write`) to `.env` — that path needs no restart.
-  > Stack URL confirmed: `https://ambermyrtle3065.grafana.net`.
-- [x] **4 dead infra configs — DECIDED 2026-08-15: keep them.** `infra/otel`, `infra/tempo` and the
-  Grafana datasource/provisioning files stay as a record of what was built before observability
-  moved to Grafana Cloud. They are already labelled as inactive in INFRA.md §8. No further action.
-- [x] **CI gating — DONE 2026-08-15, deterministic metrics only.**
-  - *Tier 1 (free, every push):* `run_benchmark.py --selftest`. No stack, no secrets, no network.
-    Worth gating because the grader can rot **silently** — a broken negation guard fails no test,
-    it just quietly inflates the published answer-quality figure.
-  - *Tier 2 (only when `CI_SUPABASE_*` is set):* `verify_layers.py` (13 reachability checks) and
-    `run_compliance_eval.py --max-false-negatives 1`.
-  - **Not gated, deliberately:** answer quality (depends on a shared NIM endpoint whose
-    availability varies hourly — red would usually mean "NVIDIA is busy"); `--retrieval-only`
-    (looks free, but `/search` embeds each query via Jina, so gating it spends quota per push);
-    NER F1 (13-entity corpus, one miss swings a per-type rate).
-  - `run_compliance_eval.py` gained `--max-false-negatives` for this. It previously exited 1 on
-    *any* false negative, and there is a known one — the 4.1.2/EQ-103 truth-table artefact — so
-    gating it as-was would have been permanently red. **False positives still fail at any
-    setting**, since "0 false positives" is the claim the harness exists to defend.
-> **Dead frontend fixture modules** — tracked once, under [Decisions for you](#decisions-for-you-wont-do-unilaterally). A duplicate entry lived here and has been folded in.
-- [x] **`tests.yml` restructured into two tiers.** `unit` runs **65 service-free tests with no secrets and no network** — green on every push and fork PR. `integration` runs the full suite against `--profile local-stores` and **skips with exit 0** unless `CI_SUPABASE_*` is set. Previously the workflow pointed a write-heavy suite (`make init-all` + create/purge) at cloud credentials, which would have corrupted the golden dataset on every push; that is why the secrets are named `CI_SUPABASE_*` and must come from a throwaway project, set by hand with `gh secret set`.
-- [x] **All evaluation harnesses executed against the live stack** (2026-07-25) — `verify_layers` 13/13, `run_benchmark`, `run_model_validation`, `run_compliance_eval`, `run_time_to_answer`, `run_load_test`. Numbers in `benchmark/RESULTS.md`.
-- [x] **Re-ran `run_benchmark.py`** after the RRF ranking change; answer quality holds at 22–24/25.
+- [x] **Grafana dashboards — IMPORTED 2026-08-15.** Both live in Grafana Cloud:
+  `/d/kairos-ingestion` (6 panels) and `/d/kairos-operational` (9 panels), datasources resolved to
+  the real stack uids (`grafanacloud-prom`, `grafanacloud-traces`), no unresolved placeholders.
+  Done via the Grafana HTTP API using the service-account token from the MCP config — the Grafana
+  MCP itself is registered correctly in `~/.claude.json` but **MCP servers are enumerated at
+  session start**, so its tools are not reachable until a restart. Nothing else was needed.
+  > **The panels will read empty, and that is not an import problem.** Grafana Cloud holds only 11
+  > metric names, all `http_server_*` from OTEL FastAPI auto-instrumentation. **Zero `kairos_*`
+  > metrics have ever arrived.** The instruments are correctly wired — `ingestion_duration` in
+  > `routers/documents.py:205`, `conflicts_open` in `routers/governance.py:317`,
+  > `briefs_delivered` in `services/brief_engine.py:578`, `governor_suppressed` in
+  > `services/event_bus.py:95` — so this is not dead code either.
+  >
+  > The import-order worry was checked and **dismissed by experiment**: `services/metrics.py`
+  > calls `get_meter()` at module import (main.py line 18) while `setup_telemetry()` runs at line
+  > 112, but OTel returns a `_ProxyMeter`/`_ProxyCounter` that forwards once the real provider is
+  > installed — verified in-container by recording through an early instrument and seeing it land.
+  >
+  > So the only remaining explanation is that **the business events have not happened**: no
+  > document ingested, brief delivered, conflict raised or governor suppression since telemetry
+  > was configured. The dashboards populate on real use. To prove it, ingest a document and watch
+  > `kairos_ingestion_duration_seconds_count`.
+
 - [ ] **Streaming synthesis (SSE)** — p95 is ~96 s with no progressive render. Not attempted: the `ANSWER:/CONFIDENCE:/UNCERTAINTY:/SOURCES_USED:` format is a parse contract with two consumers (`routers/search.py`, `workflows/elicitation_workflow.py`) and a measured 24/25 attached, so it needs a live NIM run to validate against regression.
 - [ ] **Grow `validation_corpus`** — Layer-0 F1 is measured on **13 entities**, with `ORGANIZATION` at n=2. More labels can be authored from the existing canon (no real-plant data needed), or stop quoting F1 to four decimals. (Re-seeded 2026-07-25; it was empty, so the previously published F1 0.96 had no reproducible ground truth.)
 - [x] **Re-measured answer quality on a rested quota (2026-08-15) — 24/25, reproduced twice.** Gemini
