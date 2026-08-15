@@ -750,28 +750,26 @@ would reward per hour spent.
 
 ### Housekeeping (optional)
 - [ ] **CodeQL fails on every PR while the repo is private — expected, not a defect.** `codeql.yml` analyses everything fine (115/115 Python files, all four languages) and then fails on the *upload* step with `Code scanning is not enabled for this repository`. Code scanning on a **private** repo needs GitHub Advanced Security; the API confirms `visibility: private`, `security_and_analysis: null`. The one green CodeQL run (2026-08-10) was a *scheduled* run on `main`, which does not hit the PR upload path. **On making the repo public again:** Settings → Code security → Code scanning → Set up → **Advanced** (not Default — Default replaces the existing `codeql.yml`), then re-run the job. Nothing in the workflow or the code needs changing.
-- [x] **Grafana dashboards — IMPORTED 2026-08-15.** Both live in Grafana Cloud:
+- [x] **Grafana dashboards — IMPORTED AND POPULATING 2026-08-15.** Both live at
   `/d/kairos-ingestion` (6 panels) and `/d/kairos-operational` (9 panels), datasources resolved to
-  the real stack uids (`grafanacloud-prom`, `grafanacloud-traces`), no unresolved placeholders.
-  Done via the Grafana HTTP API using the service-account token from the MCP config — the Grafana
-  MCP itself is registered correctly in `~/.claude.json` but **MCP servers are enumerated at
-  session start**, so its tools are not reachable until a restart. Nothing else was needed.
-  > **The panels will read empty, and that is not an import problem.** Grafana Cloud holds only 11
-  > metric names, all `http_server_*` from OTEL FastAPI auto-instrumentation. **Zero `kairos_*`
-  > metrics have ever arrived.** The instruments are correctly wired — `ingestion_duration` in
-  > `routers/documents.py:205`, `conflicts_open` in `routers/governance.py:317`,
-  > `briefs_delivered` in `services/brief_engine.py:578`, `governor_suppressed` in
-  > `services/event_bus.py:95` — so this is not dead code either.
-  >
-  > The import-order worry was checked and **dismissed by experiment**: `services/metrics.py`
-  > calls `get_meter()` at module import (main.py line 18) while `setup_telemetry()` runs at line
-  > 112, but OTel returns a `_ProxyMeter`/`_ProxyCounter` that forwards once the real provider is
-  > installed — verified in-container by recording through an early instrument and seeing it land.
-  >
-  > So the only remaining explanation is that **the business events have not happened**: no
-  > document ingested, brief delivered, conflict raised or governor suppression since telemetry
-  > was configured. The dashboards populate on real use. To prove it, ingest a document and watch
-  > `kairos_ingestion_duration_seconds_count`.
+  `grafanacloud-prom` / `grafanacloud-traces`, no unresolved placeholders. Imported via the Grafana
+  HTTP API using the service-account token from the MCP config — the Grafana MCP is registered
+  correctly in `~/.claude.json` but **MCP servers are enumerated at session start**, so its tools
+  need a restart to become reachable. Import from `infra/grafana/dashboards-import/`, never the
+  `provisioning/` copies (those hardcode uids that do not exist in a Cloud stack).
+  > **A real defect was found and fixed here, and an earlier note in this file was wrong.**
+  > No `kairos_*` metric had ever reached Grafana — only 11 metric names existed, all
+  > `http_server_*` from FastAPI auto-instrumentation. This file previously concluded the cause was
+  > "the business events have not happened". That was incorrect: **the Celery worker never called
+  > `setup_telemetry()`**, so it had no MeterProvider, and `briefs_delivered` /
+  > `governor_suppressed` — both recorded inside Celery tasks — were permanent no-ops that could
+  > not export under any amount of real traffic.
+  > Proven by emitting a real work order: the brief was delivered and
+  > `kairos_briefs_delivered_total` was still absent. Fixed in `workers/celery_app.py` via
+  > `worker_process_init` (per forked child — an exporter thread does not survive a fork), with
+  > `setup_telemetry(app=None)` skipping the FastAPI-only instrumentation. Re-tested with a second
+  > work order: **`kairos_briefs_delivered_total` now appears in Grafana Cloud.**
+  > `ingestion_duration` and `conflicts_open` fire in the API process and were always fine.
 
 - [ ] **Streaming synthesis (SSE)** — p95 is ~96 s with no progressive render. Not attempted: the `ANSWER:/CONFIDENCE:/UNCERTAINTY:/SOURCES_USED:` format is a parse contract with two consumers (`routers/search.py`, `workflows/elicitation_workflow.py`) and a measured 24/25 attached, so it needs a live NIM run to validate against regression.
 - [ ] **Grow `validation_corpus`** — Layer-0 F1 is measured on **13 entities**, with `ORGANIZATION` at n=2. More labels can be authored from the existing canon (no real-plant data needed), or stop quoting F1 to four decimals. (Re-seeded 2026-07-25; it was empty, so the previously published F1 0.96 had no reproducible ground truth.)
@@ -937,7 +935,17 @@ Page-by-page manual QA pass (field-worker → engineer → admin surfaces). Ship
 - [x] **Frontend test suite reconciled to live-only — 124/124 green** (was 104 pass / 20 fail). Fixes: `demo→live` in happy-path mocks (compliance, governance, sla, circuit-breaker, audit-pack, nonconformance, management); `useRole` mocked for admin-gated buttons (model-gate); removed-behavior tests rewritten (`use-fetch` demo→error, model-gate/audit empty-state, cross-site honest-empty, rca/graph EQ-101 defaults, copilot full-height layout).
 - [x] **Pre-existing `next build` blocker fixed** — Next 16.2.10's *default* `_global-error` page failed to prerender (`useContext` null), breaking the build (confirmed on HEAD, independent of this session's changes). Added a self-contained `src/app/global-error.tsx` (client, own `<html>/<body>`, inline styles). Build now compiles + prerenders clean; the local dev container OOMs (137) only because it's capped at **2 GB** — CI (ubuntu-latest ~7 GB) and the published image build on the runner, not this container.
 - [x] **Frontend tests green in the container (124/124)**; CI (`frontend.yml`) stays tsc → lint → build → audit. vitest is not gated in CI (the dev container OOMs at 2 GB, masking the exit code) — run it in Docker, **never on the host**: host package resolution differs from the pinned image and makes `auth.test.ts` / `api.test.ts` fail spuriously. `frontend.yml`'s **audit step currently fails** on transitive `next`/`sharp` advisories with no non-breaking upstream fix; tsc/eslint/build pass.
-- [ ] Emit a fresh **work order** → confirm the new operator-readable brief format live (code path already verified; the persisted EQ-102 brief keeps the old raw text). Optional end-to-end check (writes to cloud).
+- [x] **Work order emitted and brief verified live (2026-08-15).** `POST /events/work-order` on
+  EQ-101 → 202, brief assembled by Celery after the deliberate 5-minute delivery delay (4.4 s of
+  actual work). The format is confirmed operator prose, not a raw graph dump:
+  > *"EQ-101: 21 unverified field observation(s) on file — review before work"* / *"Work order
+  > WO-QA-… on EQ-101, failure code MECH-SEAL-FAIL. 5 knowledge record(s) on file — 5× document
+  > link… ⚠ 21 unverified field observation(s) linked to this asset — not yet reviewed by
+  > engineering."*
+  >
+  > **Residual, not fixed:** the body is humanised but each entry in `sources[]` still carries
+  > `relevant_excerpt: "DOCUMENTED_BY"` (the raw relationship type) and `document_type: "unknown"`.
+  > The prose reads well; the source list under it still shows graph internals.
 
 ### Manual QA still to walk (role × page)
 - [ ] **Reliability** + **compliance** role passes — reliability promotes quarantine; compliance cockpit read access.

@@ -169,8 +169,23 @@ Grafana Cloud instance. (Pre-cloud, dashboards ran in a local `kairos-grafana` c
 | KAIROS — Ingestion Pipeline | `kairos-ingestion` | 6 panels: docs/hr, p50/p95 duration, ingest rate, type breakdown, request rate, error rate |
 | KAIROS — Operational Intelligence | `kairos-operational` | 9 panels: briefs/hr, governor suppression, open conflicts, suppression rate, briefs over time, briefs by priority, conflicts by track, governor per-user, traces explorer |
 
-The two dashboard JSONs (`infra/grafana/provisioning/dashboards/*.json`) are portable — **import them
-into Grafana Cloud** to recreate these dashboards there.
+**Both dashboards are imported and live** (2026-08-15) at `/d/kairos-ingestion` and
+`/d/kairos-operational`, wired to `grafanacloud-prom` and `grafanacloud-traces`.
+
+Import from **`infra/grafana/dashboards-import/`**, not the `provisioning/` copies. The
+provisioning JSONs hardcode datasource uids (`grafana-prom-datasource`, `tempo`) that do not exist
+in a Cloud stack, so importing them raw wires every panel to a missing datasource; the
+`dashboards-import/` versions use `__inputs` placeholders, which is what makes Grafana show a
+datasource picker on the import screen.
+
+> **Custom metrics require telemetry in *every* process that records them.** `services/metrics.py`
+> instruments are no-ops without a MeterProvider, and the Celery worker never called
+> `setup_telemetry()` — so `kairos_briefs_delivered_total` and `kairos_governor_suppressed_total`,
+> which are recorded inside Celery tasks (`brief_engine`, `event_bus`), could never reach Grafana
+> no matter how much real traffic ran. Fixed 2026-08-15: `celery_app.py` calls `setup_telemetry()`
+> on `worker_process_init` (per forked child — an exporter thread does not survive a fork), and
+> `setup_telemetry(app=None)` skips the FastAPI-only instrumentation. Verified by delivering a real
+> brief and watching `kairos_briefs_delivered_total` appear in Grafana Cloud.
 
 ---
 

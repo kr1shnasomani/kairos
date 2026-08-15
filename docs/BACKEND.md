@@ -454,7 +454,19 @@ Covered by `tests/test_http_pool.py`, including the loop-rebinding case.
 
 ### `metrics` (`services/metrics.py`)
 
-OTEL custom metric instruments. All no-ops when `MeterProvider` is not configured.
+OTEL custom metric instruments. All no-ops when `MeterProvider` is not configured — **which means
+every process that records one must call `setup_telemetry()`, not just the API.**
+
+`briefs.delivered` and `governor.suppressed` are recorded inside Celery tasks (`brief_engine`,
+`event_bus`). The worker never configured telemetry, so both were permanent no-ops and could not
+reach Grafana under any amount of real traffic (confirmed 2026-08-15 by delivering a real brief and
+finding `kairos_briefs_delivered_total` absent). `workers/celery_app.py` now calls
+`setup_telemetry()` on `worker_process_init` — per forked child, since an exporter's background
+thread does not survive a fork.
+
+Exported names are the OTLP → Prometheus normalisation of the dotted instrument names, e.g.
+`kairos.briefs.delivered` → `kairos_briefs_delivered_total`,
+`kairos.ingestion.duration` → `kairos_ingestion_duration_seconds_{bucket,count,sum}`.
 
 | Instrument | Type | Labels |
 |-----------|------|--------|
