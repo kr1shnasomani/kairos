@@ -17,6 +17,11 @@ from api.services.vector_store import VectorStoreService
 
 log = structlog.get_logger(__name__)
 
+# Reciprocal Rank Fusion constant. 60 is the value from the original Cormack et al.
+# paper and the de-facto default; it damps the gap between rank 1 and rank 2 so a
+# single source cannot dominate the fused ordering on its own.
+_RRF_K = 60
+
 
 class SearchService:
     def __init__(
@@ -81,29 +86,74 @@ class SearchService:
         if isinstance(gathered[1], Exception):
             log.error("search.qdrant_failed", error=str(gathered[1]))
 
-        merged: Dict[str, SearchResult] = {}
-        for r in (
-            self._normalize_es(es_raw)
-            + self._normalize_qdrant(qdrant_raw, is_quarantine=False)
-            + self._normalize_graph(graph_raw, asset_id)
-            + self._normalize_qdrant(quarantine_raw, is_quarantine=True)
-        ):
-            self._merge(merged, r)
+        return self._fuse(
+            [
+                self._normalize_es(es_raw),
+                self._normalize_qdrant(qdrant_raw, is_quarantine=False),
+                self._normalize_graph(graph_raw, asset_id),
+                self._normalize_qdrant(quarantine_raw, is_quarantine=True),
+            ],
+            limit,
+        )
 
-        ranked = sorted(merged.values(), key=lambda x: (x.authority_level, -x.relevance_score))
+    def _fuse(self, ranked_lists: List[List[SearchResult]], limit: int) -> List[SearchResult]:
+        """
+        Reciprocal Rank Fusion across the retrieval sources, then authority-first ordering.
+
+        RRF replaces a direct comparison of ES relevance against Qdrant cosine similarity:
+        those are different scales (BM25 is unbounded, cosine is 0–1), so comparing them
+        numerically ranked by whichever source happened to emit bigger numbers. RRF uses
+        each source's *rank*, which is scale-free, and rewards documents that more than one
+        source agrees on.
+
+        Authority stays the primary sort key — a regulatory source outranking a field
+        observation is a deliberate safety property, not a relevance artefact. RRF decides
+        order *within* an authority level, which is where the scale bug actually did damage.
+        """
+        fused: Dict[str, float] = {}
+        best: Dict[str, SearchResult] = {}
+
+        for results in ranked_lists:
+            for rank, r in enumerate(results, start=1):
+                if not r.document_id:
+                    continue
+                fused[r.document_id] = fused.get(r.document_id, 0.0) + 1.0 / (_RRF_K + rank)
+                best[r.document_id] = self._better(best.get(r.document_id), r)
+
+        ranked = sorted(
+            best.values(),
+            key=lambda x: (x.authority_level, -fused.get(x.document_id, 0.0)),
+        )
+        for r in ranked:
+            r.relevance_score = round(fused.get(r.document_id, 0.0), 6)
         return ranked[:limit]
 
-    def _merge(self, acc: Dict[str, SearchResult], r: SearchResult) -> None:
-        if not r.document_id:
-            return
-        existing = acc.get(r.document_id)
-        if not existing:
-            acc[r.document_id] = r
-            return
-        if r.authority_level < existing.authority_level or (
-            r.authority_level == existing.authority_level and r.relevance_score > existing.relevance_score
-        ):
-            acc[r.document_id] = r
+    @staticmethod
+    def _better(existing: Optional[SearchResult], candidate: SearchResult) -> SearchResult:
+        """
+        Picks the representative record for a document seen by several sources.
+
+        Lowest authority_level wins (most authoritative). Text is merged rather than
+        dropped: collapsing duplicates by document_id used to discard the losing record's
+        snippet, so a semantic chunk containing the answer could be replaced by an ES hit
+        with a shorter excerpt — and synthesis then never saw the fact.
+        """
+        if existing is None:
+            return candidate
+
+        winner, loser = (
+            (candidate, existing) if candidate.authority_level < existing.authority_level else (existing, candidate)
+        )
+        # Keep the longest available snippet and any title/vault_url either side resolved.
+        if len(loser.snippet or "") > len(winner.snippet or ""):
+            winner.snippet = loser.snippet
+        winner.title = winner.title or loser.title
+        winner.vault_url = winner.vault_url or loser.vault_url
+        # Surfaced by more than one method — record it rather than hiding one.
+        if loser.retrieval_method not in winner.retrieval_method:
+            winner.retrieval_method = f"{winner.retrieval_method}+{loser.retrieval_method}"
+        winner.is_quarantine = winner.is_quarantine and loser.is_quarantine
+        return winner
 
     def _normalize_es(self, hits: List[Dict]) -> List[SearchResult]:
         return [
@@ -147,14 +197,38 @@ class SearchService:
                 asset_id=asset_id,
                 document_type=target.get("document_type", "unknown"),
                 title=target.get("title") or "",
-                snippet="",
+                # A graph hit used to carry snippet="" — it entered the ranking but gave
+                # synthesis nothing to read, so a fact that existed only as an edge was
+                # invisible to the answer. Render the relationship as text instead.
+                snippet=self._edge_snippet(edge, target, asset_id),
                 authority_level=edge.get("authority_level", 5),
                 status="active",
                 relevance_score=float(edge.get("confidence") or 0.5),
                 retrieval_method="graph",
-                is_quarantine=False,
+                is_quarantine=edge.get("verification_status") != "verified",
             )
             for h in hits
             for edge in [h.get("edge", {})]
             for target in [h.get("target", {})]
         ]
+
+    @staticmethod
+    def _edge_snippet(edge: Dict[str, Any], target: Dict[str, Any], asset_id: Optional[str]) -> str:
+        """Renders a knowledge edge as a readable fact line for the synthesis context."""
+        relationship = str(edge.get("relationship_type") or "related to").replace("_", " ").lower()
+        label = (
+            target.get("title")
+            or target.get("label")
+            or target.get("tag_number")
+            or target.get("document_id")
+            or target.get("concept_id")
+            or "unnamed entity"
+        )
+        parts = [f"{asset_id or 'Asset'} {relationship} {label}."]
+        if edge.get("valid_from"):
+            parts.append(f"Valid from {edge['valid_from']}.")
+        if edge.get("verification_status"):
+            parts.append(f"Verification: {edge['verification_status']}.")
+        if edge.get("confidence") is not None:
+            parts.append(f"Confidence {edge['confidence']}.")
+        return " ".join(parts)

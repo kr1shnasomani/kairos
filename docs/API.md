@@ -486,7 +486,7 @@ Get full NER extraction results.
 ```json
 {
   "document_id": "doc-uuid",
-  "extraction_model": "mistralai/ministral-14b-instruct-2512",
+  "extraction_model": "meta/llama-3.2-11b-vision-instruct",
   "entities": [
     {
       "entity_type": "process_parameter",
@@ -583,6 +583,47 @@ Only available for documents with `document_type = "pid_drawing"` — all other 
 > edges from `primary_isolations` + `bleed_vents`.
 
 **`404`** for any non-`pid_drawing` document, or if topology not yet extracted.
+
+---
+
+### `GET /documents/{document_id}/redacted`
+
+Export the document's extracted text with personal identifiers masked — the DPDP Act 2023
+export boundary.
+
+**Auth required:** Yes
+
+Redaction runs at **export only, never at ingestion**. Operational knowledge legitimately
+contains personnel names ("which technician signed off the EQ-101 seal repair" is a real
+maintenance question the vault must answer), so stripping names on the way in would destroy
+retrieval. The vault copy is never modified.
+
+PERSON names come from `NERService`; structured identifiers (email, phone, Aadhaar, PAN,
+employee ID, shift ID) are matched by pattern in `services/pii.py`. Masks are **stable
+pseudonyms** within a document — the same name is always `[PERSON_1]` — so cross-references
+in the text survive redaction, which a blanket `[REDACTED]` would destroy.
+
+Every call writes a `pii_redacted_export` row to `audit_log` with PII **type counts only**,
+never the matched values.
+
+**Response `200`:**
+```json
+{
+  "document_id": "DOC-TS4FXYKHCQEF",
+  "document_type": "shift_log",
+  "redacted_text": "Shift handover. [PERSON_1] reported abnormal vibration on EQ-101. Contact [EMAIL_1].",
+  "pii_found": true,
+  "pii_counts": {"PERSON": 2, "EMAIL": 1, "SHIFT_ID": 1},
+  "pii_span_count": 4,
+  "note": "DPDP Act 2023 export boundary. Vault original is unmodified and retains full text."
+}
+```
+
+**`404`** if the document has no indexed text yet (still in extraction).
+
+> **Scope:** this is a per-document export boundary. `ARCHITECTURE.md` describes redaction as
+> gating cross-site knowledge promotion; there is no cross-site promotion endpoint in the
+> codebase, so that wiring does not exist yet. The redaction pipeline itself is real.
 
 ---
 
@@ -702,7 +743,30 @@ Search within a specific asset's knowledge. Same engines but asset pre-filtered.
 }
 ```
 
-`query_category` is optional. When set to a safety-critical category and evidence confidence < 0.7, synthesis is **refused** — sources returned directly without LLM answer.
+`query_category` is optional. **When omitted, the endpoint derives it** from the query text
+via `LLMService.classify_query_category` — a deterministic keyword classifier covering the six
+safety-critical categories. Classifying server-side means the safety gate applies to every
+caller (frontend, benchmark, anything added later) rather than only to callers that remember
+to set it; previously nothing in the system set it, so the gate never fired.
+
+When **every** provider tier fails and any returned `HTTP 429`, the response carries
+`rate_limited: true` and a `message` naming the exhausted providers. An exhausted quota is an
+operational limit with a fix, not the model being wrong — unlabelled the two are
+indistinguishable, and a dead free tier reads as poor answer quality. (This is not
+hypothetical: repeated benchmark runs exhausted the Gemini free tier and dragged measured
+answer quality from 24/25 to 13/25 before the cause was visible.)
+
+The refusal gate clears on **either** of two signals, and refuses only when both fail:
+
+| Signal | Clears the gate when |
+|---|---|
+| Evidence confidence | any source has `confidence ≥ 0.7` |
+| Source authority | any source has `authority_level ≤ 3` (regulatory / engineering / OEM) |
+
+Both are needed because the hybrid-search and graph retrieval paths carry `authority_level`
+but no `confidence` — a confidence-only gate read those as `0.0` and would refuse every
+safety-critical query. On refusal the response carries `refused: true`, `answer: null`, and
+the retrieved sources for direct verification.
 
 **Safety-critical categories (refusal when confidence < 0.7):**
 `max_allowable_pressure` · `isolation_interlock_sequence` · `torque_specification` · `electrical_rating` · `pressure_relief_setting` · `safety_shutdown_setpoint`
@@ -1740,7 +1804,7 @@ Trigger NER model gate evaluation against the validation corpus.
 ```json
 {
   "task_id": "celery-task-uuid",
-  "model_name": "mistralai/ministral-14b-instruct-2512",
+  "model_name": "meta/llama-3.2-11b-vision-instruct",
   "status": "queued"
 }
 ```
@@ -1761,9 +1825,9 @@ Return the last 20 model gate run results.
   "items": [
     {
       "id": "uuid",
-      "entity_id": "mistralai/ministral-14b-instruct-2512",
+      "entity_id": "meta/llama-3.2-11b-vision-instruct",
       "details": {
-        "model_name": "mistralai/ministral-14b-instruct-2512",
+        "model_name": "meta/llama-3.2-11b-vision-instruct",
         "precision": 0.91,
         "recall": 0.88,
         "f1": 0.895,
@@ -1790,41 +1854,71 @@ Regulatory gap detection against 12 seeded frameworks (OISD-117, ISO 45001, and 
 
 ### `GET /compliance/gaps`
 
-List detected compliance gaps across all assets.
+Evaluates every applicable (clause × asset) pair and returns the ones that are not
+cleared. A clause is **covered** for an asset when the asset has an active, non-superseded
+edge to a Document of the evidence type that clause requires (`requires_document_type`,
+seeded per clause in `scripts/seed_regulations.py`).
+
+Two kinds of finding are returned:
+
+| `status` | Meaning |
+|---|---|
+| `gap` | No document of the required type is linked to the asset |
+| `unverified_evidence` | Such a document exists, but no human has verified the edge |
+
+Covered pairs are not returned. `severity` derives from the clause's `authority_level`:
+level 1 → `critical`, level 2 → `major`, everything else → `minor`.
 
 **Auth required:** Yes (`compliance` or `admin`)
 
-**Query params:** `asset_id`, `framework`, `severity` (`critical | high | medium | low`), `cleared` (bool), `limit`
+**Query params:** `asset_id`, `framework`, `severity` (`critical | major | minor`),
+`status` (`gap | unverified_evidence`), `limit` (≤500), `offset`
 
 **Response `200`:**
 ```json
 {
   "items": [
     {
-      "gap_id": "gap-uuid",
-      "asset_id": "P-101",
-      "framework": "OISD-117",
-      "clause_id": "6.4.2",
-      "requirement": "Maximum allowable pressure must be documented and tagged",
-      "gap_description": "No pressure documentation found in knowledge graph for P-101",
-      "severity": "critical",
-      "cleared": false,
-      "detected_at": "2024-01-01T00:00:00Z"
+      "concept_id": "OISD-117-4.1.1",
+      "framework": "OISD_117",
+      "clause_id": "4.1.1",
+      "requirement_text": "Rotating equipment (pumps) shall have documented maintenance procedures...",
+      "applies_to": "pump",
+      "requires_document_type": ["procedure"],
+      "authority_level": 1,
+      "asset_id": "EQ-103",
+      "tag_number": "EQ-103",
+      "equipment_class": "rotating_centrifugal_pump",
+      "site_id": "SITE-1",
+      "evidence_count": 0,
+      "verified_count": 0,
+      "status": "gap",
+      "severity": "critical"
     }
   ],
-  "total": 1,
-  "limit": 50,
+  "total": 52,
+  "gap_total": 37,
+  "unverified_total": 15,
+  "limit": 100,
   "offset": 0,
-  "framework": "OISD-117",
+  "framework": null,
   "last_scan": "realtime"
 }
 ```
+
+> Accuracy of this endpoint is measured by `benchmark/run_compliance_eval.py`, which scores
+> gap precision/recall against ground truth derived independently from the dataset manifest.
 
 ---
 
 ### `GET /compliance/dashboard`
 
-Compliance posture summary: gap counts by framework, severity, and clearance status.
+Compliance posture summary: counts by framework, severity and equipment class.
+
+`total_gaps` counts only true gaps (no evidence of the required type).
+`total_unverified_evidence` counts pairs where evidence exists but is unverified —
+conflating the two is what previously made every clause read as non-compliant.
+`by_framework` / `by_asset_class` break down gaps only.
 
 **Auth required:** Yes (`compliance` or `admin`)
 
@@ -1833,6 +1927,7 @@ Compliance posture summary: gap counts by framework, severity, and clearance sta
 {
   "site_id": null,
   "total_gaps": {"critical": 12, "major": 40, "minor": 0},
+  "total_unverified_evidence": {"critical": 3, "major": 12, "minor": 0},
   "by_framework": {
     "OISD_117": {"critical": 12, "major": 0, "minor": 0},
     "ISO_45001": {"critical": 0, "major": 40, "minor": 0}

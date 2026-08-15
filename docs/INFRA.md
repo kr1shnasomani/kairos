@@ -51,6 +51,14 @@ All services run as Docker containers. Start with `make dev` (or `docker compose
 > brings them back for offline dev / running the test suite without touching cloud data. Point
 > `NEO4J_URI` / `QDRANT_URL` at them to use them.
 >
+> **`NEO4J_LOCAL_PASSWORD` — why the local container has its own credential.** Neo4j rejects any
+> initial admin username other than literally `neo4j` (`Invalid admin username, it must be neo4j`),
+> so compose hardcodes the user and takes only the password from `NEO4J_LOCAL_PASSWORD`
+> (default `kairos_dev_password`). It previously interpolated `${NEO4J_USERNAME}`, which meant the
+> local container **crash-looped whenever `.env` pointed at Aura** — precisely when you want local
+> stores. To point the app at the local container, also set `NEO4J_USERNAME=neo4j` and
+> `NEO4J_PASSWORD=$NEO4J_LOCAL_PASSWORD` in `.env`.
+>
 > **Run modes & networks:** the stack is split into a production-safe base
 > (`docker-compose.yml`) + an auto-loaded dev override (`docker-compose.override.yml`).
 > Full build/run/AWS details: [`DOCKER.md`](./DOCKER.md).
@@ -206,8 +214,28 @@ docker exec kairos-backend-api python scripts/seed_users.py
 # Seed compliance regulations into Neo4j
 docker exec kairos-backend-api python scripts/seed_regulations.py
 
-# Run tests
+# NEVER run tests, pytest, npm or tsc on the host — host package resolution differs from the
+# pinned images and produces false failures (auth.test.ts / api.test.ts fail on host, pass in
+# the container). Everything below runs in Docker.
+
+# Run tests — full suite (needs the stack up; use local stores, never cloud)
 docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120
+
+# Run the service-free tests with NO stack running at all (65 tests, no secrets, no network).
+# This is what CI's tier-1 `unit` job runs.
+docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api \
+  pytest -q --timeout=120 tests/test_pii.py tests/test_query_category.py \
+  tests/test_search_fusion.py tests/test_ingestion_formats.py tests/test_http_pool.py \
+  tests/test_model_validation.py tests/test_pid.py tests/test_auth_cache.py \
+  tests/test_config_guardrail.py
+
+# Lint the backend exactly as CI does (pinned ruff + backend/ruff.toml)
+docker run --rm -v "$(pwd)/backend:/b" -w /b ghcr.io/astral-sh/ruff:0.16.0 check .
+
+# Validate the compliance Cypher against a local Neo4j (EXPLAIN + semantics)
+docker compose run --rm --no-deps -e NEO4J_URI=bolt://kairos-neo4j:7687 \
+  -e NEO4J_USERNAME=neo4j -e NEO4J_PASSWORD=kairos_dev_password -e NEO4J_DATABASE=neo4j \
+  kairos-backend-api python scripts/verify_compliance_cypher.py
 
 # AST parse check before waiting on Docker
 python3 -c "import ast; ast.parse(open('backend/api/routers/events.py').read())"

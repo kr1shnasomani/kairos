@@ -180,7 +180,7 @@ class Settings(BaseSettings):
     # NVIDIA NIM — OCR (Nemotron-OCR-v2)
     # -------------------------------------------------------------------------
     NVIDIA_NIM_OCR_MODEL: str = "nvidia/nemotron-ocr-v2"
-    NVIDIA_NIM_NER_MODEL: str = "mistralai/ministral-14b-instruct-2512"
+    NVIDIA_NIM_NER_MODEL: str = "meta/llama-3.2-11b-vision-instruct"
 
     # -------------------------------------------------------------------------
     # Ingestion pipeline

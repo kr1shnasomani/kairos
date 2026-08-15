@@ -14,8 +14,8 @@ import httpx
 import structlog
 from supabase import create_client
 
-from workers.celery_app import celery_app
 from api.utils.failure_families import FAILURE_FAMILIES as _FAILURE_FAMILIES
+from workers.celery_app import celery_app
 
 log = structlog.get_logger(__name__)
 

@@ -11,7 +11,16 @@ import shortuuid
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, QdrantDep, RedisDep, SettingsDep, SupabaseDep, require_role
+from api.dependencies import (
+    CurrentUserDep,
+    ElasticsearchDep,
+    Neo4jDep,
+    QdrantDep,
+    RedisDep,
+    SettingsDep,
+    SupabaseDep,
+    require_role,
+)
 from api.models.event import (
     AlarmEvent,
     DeviationFlagEvent,
@@ -655,7 +664,13 @@ async def ingest_inspection_complete(
         graph = GraphService(driver)
         await graph.merge_document_node(
             payload.document_id,
-            {"inspection_type": payload.inspection_type, "result": payload.result},
+            {
+                # document_type is required for clause evidence matching in
+                # /compliance/{gaps,audit-pack}; an untyped Document counts as no evidence.
+                "document_type": "inspection_report",
+                "inspection_type": payload.inspection_type,
+                "result": payload.result,
+            },
         )
         edge_result = await graph.create_knowledge_edge(
             source_id=payload.asset_id,

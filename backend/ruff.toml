@@ -1,0 +1,41 @@
+# Ruff configuration for the KAIROS backend.
+#
+# WHY THIS FILE EXISTS
+#   There was no ruff config, so CI ran `ruff check ./backend` with whatever rule set the
+#   latest release happened to enable. That makes linting non-reproducible: the Linting job
+#   went from green (2026-07-22) to 608 errors with no code change, purely because ruff
+#   0.16.0 shipped different defaults. A linter that can fail on an unchanged tree is a CI
+#   defect, not a code-quality signal.
+#
+#   The rule set below is the one this codebase actually conforms to. Pin the action version
+#   in .github/workflows/lint.yml alongside it.
+#
+# ON THE RULES NOT SELECTED
+#   UP006/UP035 (`typing.Dict` -> `dict`) would rewrite ~280 annotations across every
+#   service, worker and router. The codebase uses `Dict`/`List`/`Optional` consistently; a
+#   mass rewrite is a large unrelated diff, not a fix. Adopt it as its own deliberate change
+#   with its own review, then add "UP" here.
+
+target-version = "py312"
+line-length = 120
+
+exclude = [
+    "requirements-cv.txt",
+    "__pycache__",
+]
+
+[lint]
+# E/W pycodestyle · F pyflakes (real bugs: unused/undefined names) · I import order.
+select = ["E", "W", "F", "I"]
+
+# E501 line-length is reported by the formatter, not worth failing a build over; the
+# codebase has long Cypher strings and prompt literals that read worse wrapped.
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Tests and scripts import fixtures and modules for side effects.
+"tests/*" = ["F401", "F811"]
+"scripts/*" = ["E402"]  # sys.path manipulation before imports is deliberate in the seeders
+
+[lint.isort]
+known-first-party = ["api", "workers", "workflows", "scripts"]

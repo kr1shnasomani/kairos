@@ -13,9 +13,17 @@ Self-contained evaluation harness + evidence, in `benchmark/` (mounted into the 
 |------|------|
 | `run_benchmark.py` | Retrieval · answer quality · provenance · per-category · latency percentiles · 95% CIs · KG-linkage |
 | `verify_layers.py` | Per-layer smoke + latency (PASS/FAIL table) |
+| `run_compliance_eval.py` | **Compliance gap-detection precision / recall / F1** vs ground truth derived from the dataset manifest |
+| `run_time_to_answer.py` | **Time-to-answer vs BM25-only keyword search** — machine time, documents opened, modelled human time |
+| `run_load_test.py` | **Concurrency sweep** — p50/p95/p99, throughput, error rate, first-bottleneck detection |
 | `questions.json` | 25 domain-expert Q&A across 15 categories, grounded in `dataset/00_Reference/00_KAIROS_CANON.md` |
-| `RESULTS.md` | Raw output of the three scripts (results only — this file holds the interpretation) |
+| `RESULTS.md` | Raw output of the scripts (results only — this file holds the interpretation) |
 | `scripts/seed_validation_corpus.py` | Seeds the Layer-0 NER ground-truth set (`validation_corpus`) that `scripts/run_model_validation.py` scores |
+
+The last three harnesses cover evaluation criteria that previously had **no number attached** —
+compliance gap accuracy and time-to-answer are named in the problem statement, and scalability
+had only single-user sequential figures behind it. They are written and import-verified but
+**have not yet been run against a loaded stack**; nothing in `RESULTS.md` comes from them.
 
 ## Methodology (fully deterministic — no LLM-as-judge)
 
@@ -86,10 +94,49 @@ Measured 2026-07-14 (raw output → [`../benchmark/RESULTS.md`](../benchmark/RES
 Per-category breakdown (15 categories) and per-question output: [`../benchmark/RESULTS.md`](../benchmark/RESULTS.md).
 
 ### Time-to-answer vs "traditional search"
-KAIROS answers a **cross-document, source-cited** question with retrieval in **~1.4 s** (full synthesis in
-seconds). The status quo the PS documents: professionals lose **35% of their time** searching across **7–12
-disconnected systems** (McKinsey/NASSCOM-EY, cited in the PS) — minutes-to-hours per lookup, no citation.
-That is the comparison: seconds-with-provenance vs. minutes-across-silos.
+
+> **This was previously an argument, not a measurement.** The paragraph below cited the problem
+> statement's own industry figures against KAIROS's retrieval latency — which compares a measured
+> number to a survey statistic, not a baseline on the same corpus. `run_time_to_answer.py` now
+> measures both halves on the same 25 questions. Run it before quoting any reduction figure.
+
+Why a naive latency comparison would be dishonest: BM25 returns a document list in ~50 ms while
+KAIROS returns a cited answer in ~8 s. On machine time alone, keyword search wins — the real cost
+of keyword search is the human reading the list it hands back. So the harness reports three things
+separately and never hides the one KAIROS loses:
+
+| Measure | What it captures |
+|---|---|
+| **Machine time** | BM25-only ES latency vs KAIROS retrieval + synthesis. KAIROS is slower. |
+| **Documents opened** | Rank of the first answer-bearing document in a BM25-only ranking — how many documents an engineer opens before finding the fact. KAIROS cites the source, so this is 1. |
+| **Modelled human time** | `documents_opened × SECONDS_PER_DOCUMENT + machine time` |
+
+`SECONDS_PER_DOCUMENT` (default 120 s, overridable) is an **explicit assumption, not a
+measurement** — change it and the conclusion changes. Answer-bearing ground truth reuses the same
+`expect_any` keyword sets `run_benchmark.py` already grades retrieval with, so no new labelling
+judgement enters.
+
+### Compliance gap-detection accuracy
+
+`run_compliance_eval.py` scores the `gap` classification against ground truth built from the golden
+dataset manifest (which document types are linked to which asset) crossed with each clause's
+declared `requires_document_type`. That truth table is constructed **independently of the Cypher
+under test**, so a disagreement means real breakage in ingestion → asset linking → equipment-class
+applicability → the gap query. Verified to derive **52 applicable (clause × asset) pairs: 37
+expected gaps, 15 with evidence** — a discriminating target, not an all-gaps one.
+
+Two honest caveats: it scores whether the system finds the evidence it was *told* to look for, not
+whether the clause → document-type mapping is the right reading of each regulation (that mapping is
+a human judgement in the seed). And **vessel and compressor clauses apply to zero assets** in the
+current dataset, so 4 of 12 clauses are never exercised.
+
+### Scalability
+
+`run_load_test.py` sweeps concurrency (default 1→50) over cheap read endpoints and flags the level
+at which p95 exceeds 3× the single-user baseline — that number, not the single-user latency, is the
+one to quote. Model-backed endpoints are **excluded by default** so a sweep cannot burn NIM/Jina
+quota; `--include-models` opts in. It is a load test, not a soak test: it says nothing about memory
+growth or connection leakage over hours.
 
 ---
 

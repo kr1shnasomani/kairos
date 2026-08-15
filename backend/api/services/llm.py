@@ -5,14 +5,58 @@ and explicit refusal for safety-critical parameter queries.
 """
 
 import re
-from typing import Any, Dict, List, Optional
+from collections import OrderedDict
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import structlog
 
 from api.config import Settings
+from api.services.http import shared_client
 
 log = structlog.get_logger(__name__)
+
+
+class _LRU:
+    """
+    Bounded in-process LRU for query embeddings.
+
+    Every search embeds its query text before touching Qdrant, so a repeated or polled
+    query paid a Jina round-trip each time — the copilot, the benchmark and the graph page
+    all re-issue identical queries. Embeddings are deterministic per (task, text) for a
+    fixed model, so caching is safe.
+
+    ponytail: process-local and lost on restart, which is fine for a read cache. Move to
+    Redis if hit rate across replicas starts mattering — the interface is the same.
+    """
+
+    def __init__(self, maxsize: int = 512) -> None:
+        self._data: "OrderedDict[Tuple[str, str], List[float]]" = OrderedDict()
+        self._maxsize = maxsize
+        self.hits = 0
+        self.misses = 0
+
+    def get(self, key: Tuple[str, str]) -> Optional[List[float]]:
+        if key in self._data:
+            self._data.move_to_end(key)
+            self.hits += 1
+            return self._data[key]
+        self.misses += 1
+        return None
+
+    def put(self, key: Tuple[str, str], value: List[float]) -> None:
+        if not value:
+            return  # never cache a failed embedding
+        self._data[key] = value
+        self._data.move_to_end(key)
+        while len(self._data) > self._maxsize:
+            self._data.popitem(last=False)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+
+_EMBED_CACHE = _LRU()
 
 # Safety-critical query categories that trigger explicit refusal behavior
 SAFETY_CRITICAL_CATEGORIES = {
@@ -23,6 +67,47 @@ SAFETY_CRITICAL_CATEGORIES = {
     "pressure_relief_setting",
     "safety_shutdown_setpoint",
 }
+
+# Query → safety-critical category patterns, most specific first. Order matters:
+# "pressure relief setting" must not be swallowed by the generic pressure rule.
+# ponytail: keyword classifier, deterministic and testable. Swap for an LLM
+# classifier only if real queries start missing — every miss here silently
+# disables the safety gate, so a miss must be cheap to reproduce in a test.
+_CATEGORY_PATTERNS: List[tuple[str, tuple[str, ...]]] = [
+    ("pressure_relief_setting", (
+        "relief valve", "relief setting", "relief set", "psv", " prv", "rupture disc",
+        "safety valve", "set pressure", "popping pressure",
+    )),
+    ("safety_shutdown_setpoint", (
+        "shutdown setpoint", "shutdown set point", "trip setpoint", "trip set point",
+        "trip point", "emergency shutdown", "esd setpoint", "sis setpoint", "safety setpoint",
+    )),
+    # NOTE: bare "isolation" is deliberately absent. It matches the *equipment name* in
+    # questions like "when was isolation valve XV-203 last inspected?", which is a date
+    # lookup, not a safety-parameter query — refusing it is a false positive that hides a
+    # fact the vault holds. Patterns must express isolation *intent*, not just the word.
+    ("isolation_interlock_sequence", (
+        "isolation boundary", "isolation point", "isolation sequence", "isolation procedure",
+        "isolation requirement", "safety isolation", "isolate", "interlock", "lockout",
+        "lock out", "tag-out", "tagout", "tag out", "double block", "blind list",
+        "permit to work sequence",
+    )),
+    ("torque_specification", ("torque", "tightening spec", "bolt load", "preload")),
+    ("electrical_rating", (
+        "electrical rating", "voltage rating", "insulation class", "insulation rating",
+        "amperage", "current rating", "kv rating", "motor rating", "hazardous area classification",
+    )),
+    ("max_allowable_pressure", (
+        "max allowable pressure", "maximum allowable pressure", "mawp", "max working pressure",
+        "maximum working pressure", "max operating pressure", "maximum operating pressure",
+        "design pressure", "pressure limit", "pressure rating", "max pressure", "maximum pressure",
+    )),
+]
+
+# Authority levels 1–3 are regulatory / engineering / OEM sources. A safety-critical
+# parameter answered only from level 4–5 (site procedure, field observation) is exactly
+# the case the refusal gate exists for.
+AUTHORITATIVE_LEVEL = 3
 
 
 class LLMService:
@@ -35,6 +120,21 @@ class LLMService:
         self.settings = settings
         self._nim_client: Optional[httpx.AsyncClient] = None
         self._ollama_client: Optional[httpx.AsyncClient] = None
+
+    @staticmethod
+    def classify_query_category(query: str) -> Optional[str]:
+        """
+        Maps a free-text query onto a safety-critical category key, or None.
+
+        Callers may pass an explicit query_category; when they don't, the synthesis
+        endpoint derives it here. Without this the safety-critical refusal gate is
+        unreachable — no caller in the system was ever setting the category.
+        """
+        q = f" {query.lower()} "
+        for category, patterns in _CATEGORY_PATTERNS:
+            if any(p in q for p in patterns):
+                return category
+        return None
 
     @property
     def nim_available(self) -> bool:
@@ -62,22 +162,30 @@ class LLMService:
         evidence confidence is below threshold — returns source documents directly
         rather than a hedged partial answer.
         """
-        # Safety-critical refusal check
+        # Safety-critical refusal check. Two independent ways to clear the gate:
+        # an explicit per-source confidence at/above threshold, OR at least one
+        # regulatory/engineering/OEM-authority source. Retrieval paths that carry
+        # authority_level but no confidence (hybrid search, graph facts) would
+        # otherwise read as confidence 0.0 and refuse every safety query.
         if query_category in SAFETY_CRITICAL_CATEGORIES:
-            max_confidence = max((r.get("confidence", 0) for r in retrieved_context), default=0)
-            if max_confidence < confidence_threshold:
+            max_confidence = max((r.get("confidence") or 0.0 for r in retrieved_context), default=0.0)
+            best_authority = min((r.get("authority_level") or 5 for r in retrieved_context), default=5)
+            if max_confidence < confidence_threshold and best_authority > AUTHORITATIVE_LEVEL:
                 log.info(
                     "synthesis.safety_critical_refusal",
                     query_category=query_category,
                     max_confidence=max_confidence,
+                    best_authority=best_authority,
                 )
                 return {
                     "answer": None,
                     "refused": True,
                     "refusal_reason": (
-                        f"Safety-critical parameter query for '{query_category}' — "
-                        f"evidence confidence ({max_confidence:.2f}) is below threshold ({confidence_threshold}). "
-                        "Please verify directly with source documents and consult the appropriate engineering authority."
+                        f"Safety-critical parameter query for '{query_category}' — the retrieved evidence is "
+                        f"neither high-confidence (best {max_confidence:.2f}, threshold {confidence_threshold}) "
+                        f"nor from an authoritative source (best authority level {best_authority}; "
+                        f"level {AUTHORITATIVE_LEVEL} or better required). "
+                        "Verify directly against the source documents and consult the responsible engineering authority."
                     ),
                     "sources": retrieved_context,
                     "confidence": max_confidence,
@@ -131,54 +239,62 @@ SOURCES_USED: [comma-separated source numbers]"""
     async def _synthesize_nim(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Calls NVIDIA NIM (OpenAI-compatible API)."""
         try:
-            async with httpx.AsyncClient(timeout=self.settings.NVIDIA_NIM_TIMEOUT) as client:
-                response = await client.post(
-                    f"{self.settings.NVIDIA_NIM_BASE_URL}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.settings.NVIDIA_NIM_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.settings.NVIDIA_NIM_MODEL,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": self.settings.NVIDIA_NIM_MAX_TOKENS,
-                        "temperature": self.settings.NVIDIA_NIM_TEMPERATURE,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                answer_text = data["choices"][0]["message"]["content"]
-                return {"answer": answer_text, "sources": context, "model": "nim", "raw": data}
+            client = shared_client(self.settings.NVIDIA_NIM_TIMEOUT)
+            response = await client.post(
+                f"{self.settings.NVIDIA_NIM_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.settings.NVIDIA_NIM_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.settings.NVIDIA_NIM_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": self.settings.NVIDIA_NIM_MAX_TOKENS,
+                    "temperature": self.settings.NVIDIA_NIM_TEMPERATURE,
+                },
+                timeout=self.settings.NVIDIA_NIM_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+            answer_text = data["choices"][0]["message"]["content"]
+            return {"answer": answer_text, "sources": context, "model": "nim", "raw": data}
         except Exception as e:
-            log.error("nim.synthesis_failed", error=str(e), exc_type=type(e).__name__)
-            return {"answer": None, "error": str(e), "sources": context}
+            rate_limited = isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429
+            log.error("nim.synthesis_failed", error=str(e), exc_type=type(e).__name__, rate_limited=rate_limited)
+            return {"answer": None, "error": str(e), "sources": context, "rate_limited": rate_limited, "failed_provider": "nim"}
 
     async def _synthesize_ollama(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Calls local Ollama (fallback for offline/air-gapped deployments)."""
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self.settings.OLLAMA_BASE_URL}/api/generate",
-                    json={"model": self.settings.OLLAMA_MODEL, "prompt": prompt, "stream": False},
-                )
-                response.raise_for_status()
-                data = response.json()
-                return {"answer": data.get("response"), "sources": context, "model": "ollama"}
+            client = shared_client(60.0)
+            response = await client.post(
+                f"{self.settings.OLLAMA_BASE_URL}/api/generate",
+                json={"model": self.settings.OLLAMA_MODEL, "prompt": prompt, "stream": False},
+                timeout=60.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return {"answer": data.get("response"), "sources": context, "model": "ollama"}
         except Exception as e:
-            log.error("ollama.synthesis_failed", error=str(e))
-            return {"answer": None, "error": str(e), "sources": context}
+            rate_limited = isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429
+            log.error("ollama.synthesis_failed", error=str(e), rate_limited=rate_limited)
+            return {"answer": None, "error": str(e), "sources": context, "rate_limited": rate_limited, "failed_provider": "ollama"}
 
     async def _synthesize_cascade(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Provider cascade: NIM → Gemini → Ollama. Each tier is tried only if
         configured; on failure (answer is None) it falls through to the next. With
         only NVIDIA_NIM_API_KEY set, this is NIM-only — same behaviour as before."""
         result: Optional[Dict[str, Any]] = None
+        attempts: Dict[str, Dict[str, Any]] = {}
         if self.nim_available:
             result = await self._synthesize_nim(prompt, context)
+            attempts["nim"] = result
         if (result is None or result.get("answer") is None) and self.gemini_available:
             result = await self._synthesize_gemini(prompt, context)
+            attempts["gemini"] = result
         if (result is None or result.get("answer") is None) and self.ollama_available:
             result = await self._synthesize_ollama(prompt, context)
+            attempts["ollama"] = result
         if result is None:
             return {
                 "answer": None,
@@ -186,32 +302,48 @@ SOURCES_USED: [comma-separated source numbers]"""
                 "confidence": None,
                 "message": "No LLM configured. Set NVIDIA_NIM_API_KEY, GEMINI_API_KEY, or OLLAMA_BASE_URL.",
             }
+
+        # Every tier failed. Say *why* — a provider that returned 429 is an exhausted quota,
+        # which is an operational problem with a fix, not the model being wrong. Left
+        # unlabelled these are indistinguishable: the benchmark scores both as a miss and the
+        # UI shows both as "no answer", so a dead free tier looks like poor answer quality.
+        if result.get("answer") is None:
+            limited = [p for p in ("nim", "gemini", "ollama") if attempts.get(p, {}).get("rate_limited")]
+            if limited:
+                result["rate_limited"] = True
+                result["message"] = (
+                    f"Synthesis provider quota exhausted ({', '.join(limited)} returned HTTP 429). "
+                    "This is a provider limit, not a knowledge gap — retry after the quota resets."
+                )
+                log.warning("synthesis.all_providers_rate_limited", providers=limited)
         return result
 
     async def _synthesize_gemini(self, prompt: str, context: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Calls Gemini via Google's OpenAI-compatible endpoint — fallback when NIM fails."""
         try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                response = await client.post(
-                    f"{self.settings.GEMINI_BASE_URL}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.settings.GEMINI_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.settings.GEMINI_MODEL,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": self.settings.NVIDIA_NIM_MAX_TOKENS,
-                        "temperature": self.settings.NVIDIA_NIM_TEMPERATURE,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                answer_text = data["choices"][0]["message"]["content"]
-                return {"answer": answer_text, "sources": context, "model": "gemini", "raw": data}
+            client = shared_client(90.0)
+            response = await client.post(
+                f"{self.settings.GEMINI_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.settings.GEMINI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.settings.GEMINI_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": self.settings.NVIDIA_NIM_MAX_TOKENS,
+                    "temperature": self.settings.NVIDIA_NIM_TEMPERATURE,
+                },
+                timeout=90.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            answer_text = data["choices"][0]["message"]["content"]
+            return {"answer": answer_text, "sources": context, "model": "gemini", "raw": data}
         except Exception as e:
-            log.error("gemini.synthesis_failed", error=str(e), exc_type=type(e).__name__)
-            return {"answer": None, "error": str(e), "sources": context}
+            rate_limited = isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429
+            log.error("gemini.synthesis_failed", error=str(e), exc_type=type(e).__name__, rate_limited=rate_limited)
+            return {"answer": None, "error": str(e), "sources": context, "rate_limited": rate_limited, "failed_provider": "gemini"}
 
     @staticmethod
     def parse_synthesis_response(text: str) -> Dict[str, Any]:
@@ -340,34 +472,44 @@ UNCERTAINTY: [what is not yet known or requires further investigation]"""
         return await self._embed_ollama(text)
 
     async def _embed_jina(self, text: str, task: str) -> List[float]:
+        cache_key = (task, text)
+        cached = _EMBED_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    self.settings.JINA_EMBED_URL,
-                    headers={"Authorization": f"Bearer {self.settings.JINA_API_KEY}"},
-                    json={
-                        "model": self.settings.JINA_EMBED_MODEL,
-                        "input": [text],
-                        "task": task,
-                        "dimensions": self.settings.EMBEDDING_DIMENSION,
-                        "embedding_type": "float",
-                    },
-                )
-                response.raise_for_status()
-                return response.json()["data"][0]["embedding"]
+            client = shared_client(30.0)
+            response = await client.post(
+                self.settings.JINA_EMBED_URL,
+                headers={"Authorization": f"Bearer {self.settings.JINA_API_KEY}"},
+                json={
+                "model": self.settings.JINA_EMBED_MODEL,
+                "input": [text],
+                "task": task,
+                "dimensions": self.settings.EMBEDDING_DIMENSION,
+                "embedding_type": "float",
+                },
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            vector = response.json()["data"][0]["embedding"]
         except Exception as e:
             log.error("embed.jina_failed", error=str(e))
             return await self._embed_ollama(text)
 
+        _EMBED_CACHE.put(cache_key, vector)
+        return vector
+
     async def _embed_ollama(self, text: str) -> List[float]:
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{self.settings.OLLAMA_BASE_URL}/api/embeddings",
-                    json={"model": self.settings.OLLAMA_EMBED_MODEL, "prompt": text},
-                )
-                response.raise_for_status()
-                return response.json()["embedding"]
+            client = shared_client(30.0)
+            response = await client.post(
+                f"{self.settings.OLLAMA_BASE_URL}/api/embeddings",
+                json={"model": self.settings.OLLAMA_EMBED_MODEL, "prompt": text},
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return response.json()["embedding"]
         except Exception as e:
             log.error("embed.ollama_failed", error=str(e))
             return []

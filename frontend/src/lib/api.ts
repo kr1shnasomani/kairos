@@ -53,8 +53,7 @@ import { assets as fixtureAssets, getAsset as getAssetFixture, type KnowledgeEdg
 import { conflictsFixture, quarantineFixture } from "./governance";
 import { documentsFixture, getDocumentFixture } from "./documents";
 import { eventFixtures, getEventFixture } from "./events";
-import { answerFor, type CopilotAnswer } from "./copilot";
-import { rcaFor } from "./rca";
+import { type CopilotAnswer } from "./copilot";
 import { criticalityMeta } from "./utils";
 
 // Live in dev mode: no Authorization header → backend treats the caller as
@@ -412,7 +411,11 @@ export async function synthesize(query: string, asOf?: string): Promise<CopilotA
       `/search?${qs.toString()}`, 12000,
     );
     const results = search.results ?? [];
-    if (results.length === 0) return answerFor(query);  // nothing governed to answer from
+    // Nothing governed to answer from. This is a real, honest outcome — an empty answer
+    // with no sources — never a fixture standing in for one.
+    if (results.length === 0) {
+      return { answer: null, sources: [], confidence: 0, refused: false, safety_critical: false };
+    }
 
     const context = results.map((r) => ({
       text: r.snippet ?? "",
@@ -460,8 +463,11 @@ export async function synthesize(query: string, asOf?: string): Promise<CopilotA
       safety_critical: !!live.safety_critical,
       model: live.model,
     };
-  } catch {
-    return answerFor(query);
+  } catch (e) {
+    // Live-only policy: the copilot must never render fabricated content. A failed
+    // retrieval or synthesis surfaces as an error the caller shows with a retry —
+    // returning a fixture here would present invented sources as governed evidence.
+    throw e instanceof Error ? e : new Error("Copilot synthesis failed");
   }
 }
 
@@ -490,8 +496,10 @@ export async function getRcaPack(
       refused: !!live.refused,
       synthesis_available: !!live.synthesis_available,
     };
-  } catch {
-    return rcaFor(assetId, failureCode);
+  } catch (e) {
+    // Same live-only policy as synthesize(): an RCA pack of invented hypotheses is worse
+    // than no pack. The RCA page already renders a retry on rejection.
+    throw e instanceof Error ? e : new Error("RCA pack generation failed");
   }
 }
 
@@ -594,7 +602,18 @@ export async function getCircuitBreaker(): Promise<Fetched<CircuitBreakerState |
 interface RawGateRow {
   id: number | string;
   entity_id?: string;
-  details?: { precision?: number; recall?: number; f1?: number; passed?: boolean; corpus_size?: number } | null;
+  details?: {
+    precision?: number;
+    recall?: number;
+    f1?: number;
+    passed?: boolean;
+    corpus_size?: number;
+    model_name?: string;
+    /** Per-entity-type scores. Written by workers/model_validation.py; previously dropped
+     *  by this adapter, which is why no surface could show which entity types the model
+     *  actually fails on. */
+    by_entity_type?: Record<string, { precision?: number; recall?: number; f1?: number; count?: number }>;
+  } | null;
   timestamp?: string;
 }
 
@@ -614,6 +633,9 @@ export async function getModelGateHistory(): Promise<Fetched<ModelGateHistory>> 
         passed: !!r.details!.passed,
         corpus_size: r.details!.corpus_size ?? 0,
         run_at: r.timestamp ?? "",
+        // entity_id is the model the gate was asked about; details.model_name agrees with it.
+        model_name: r.details!.model_name ?? r.entity_id ?? undefined,
+        by_entity_type: r.details!.by_entity_type ?? undefined,
       }));
     return { data: { history }, source: "live" };
   } catch {
@@ -898,6 +920,7 @@ export async function getDocumentTopology(documentId: string): Promise<Fetched<T
       document_id: string;
       verification_status?: string;
       extracted_at?: string;
+      topology_source?: string;
       topology?: {
         equipment_nodes?: Array<Record<string, unknown>>;
         isolation_valves?: Array<Record<string, unknown>>;
@@ -947,6 +970,10 @@ export async function getDocumentTopology(documentId: string): Promise<Fetched<T
       nodes,
       edges,
       generated_at: raw.extracted_at ?? new Date().toISOString(),
+      // Carried through so the page can say so when the vision model was unreachable and
+      // the pipeline fell back to the demo fixture. The backend already records this;
+      // nothing consumed it, so fixture topology rendered as if it were extracted.
+      topology_source: raw.topology_source === "vision_model" ? "vision_model" : "demo_fixture",
     };
     return { data, source: "live" };
   } catch {

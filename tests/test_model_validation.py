@@ -29,3 +29,38 @@ def test_short_token_does_not_spuriously_match():
 def test_no_overlap():
     assert not _span_match("XV-203", "eq-101")
     assert not _span_match("", "eq-101")              # empty prediction never matches
+
+
+# --- Model-gate wiring -------------------------------------------------------------
+# Regression: NERService() took no model argument, so run_model_validation.py's
+# --model-name (and the Celery gate's model_name) only *labelled* the result — the call
+# always used NVIDIA_NIM_NER_MODEL. The gate reported an authoritative-looking F1
+# attributed to a model it never invoked, and when the configured model was unreachable it
+# scored the regex fallback instead.
+
+def test_ner_service_honours_explicit_model():
+    from api.services.ner import NERService
+
+    svc = NERService(model="meta/llama-3.2-11b-vision-instruct")
+    assert svc._nim_model == "meta/llama-3.2-11b-vision-instruct"
+
+
+def test_ner_service_falls_back_to_env_model(monkeypatch):
+    from api.services.ner import NERService
+
+    monkeypatch.setenv("NVIDIA_NIM_NER_MODEL", "some/other-model")
+    assert NERService()._nim_model == "some/other-model"
+
+
+def test_model_gate_passes_its_model_to_the_ner_service():
+    """The gate must score the model it was asked about, not whatever the env holds."""
+    import inspect
+
+    from scripts import run_model_validation
+    from workers import model_validation
+
+    for module in (run_model_validation, model_validation):
+        src = inspect.getsource(module)
+        assert "NERService(model=model_name)" in src, (
+            f"{module.__name__} must construct NERService with the requested model"
+        )

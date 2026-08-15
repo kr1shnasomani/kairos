@@ -4,8 +4,8 @@ EEMUA 191 governor: ≤6 push events/operator/hour; PTW (critical) briefs always
 """
 
 import asyncio
-import structlog
 
+import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 
 from api.dependencies import CurrentUserDep, RedisDep, SettingsDep, SupabaseDep

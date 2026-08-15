@@ -5,6 +5,7 @@ Evaluates NER model accuracy against human-verified ground truth entities.
 
 import asyncio
 import sys
+
 sys.path.insert(0, "/app")
 
 from collections import defaultdict
@@ -29,10 +30,11 @@ def run_model_gate(model_name: str) -> Dict[str, Any]:
 
 
 async def _run_gate(model_name: str) -> Dict[str, Any]:
-    from api.config import Settings
-    from api.services.ner import NERService
     from elasticsearch import AsyncElasticsearch
     from supabase import create_client
+
+    from api.config import Settings
+    from api.services.ner import NERService
 
     settings = Settings()
     supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
@@ -42,7 +44,7 @@ async def _run_gate(model_name: str) -> Dict[str, Any]:
         es_kwargs["basic_auth"] = (settings.ELASTICSEARCH_USERNAME, settings.ELASTICSEARCH_PASSWORD)
     es = AsyncElasticsearch(**es_kwargs)
 
-    ner = NERService()
+    ner = NERService(model=model_name)  # the gate must score the model it was asked about
     try:
         corpus_result = await asyncio.to_thread(
             lambda: supabase.table("validation_corpus").select("*").execute()
