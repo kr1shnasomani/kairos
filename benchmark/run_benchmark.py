@@ -17,6 +17,25 @@ Streams per question. Requires the golden dataset loaded (`make load-dataset`).
 Run:
     docker exec kairos-backend-api python benchmark/run_benchmark.py                 # full (routing + synthesis + grading)
     docker exec kairos-backend-api python benchmark/run_benchmark.py --retrieval-only # fast, retrieval + KG only
+
+WHY THERE IS A --delay, AND WHY IT DEFAULTS TO NON-ZERO
+  The shared NVIDIA NIM endpoint has a heavy, random latency tail that worsens under
+  back-to-back load. Measured on one identical 73-token synthesis payload:
+
+      back-to-back : 30.2s · TIMEOUT(78s) · 47.4s · 14.2s
+      paced 20s    :  8.6s · 10.6s · 16.2s
+
+  No rate-limit headers are returned — the endpoint just queues. A NIM call that outlives
+  NVIDIA_NIM_TIMEOUT falls through to the Gemini tier, which is a *free-tier key*; enough
+  fallthrough in one run exhausts it, after which Gemini returns 429 and every subsequent
+  NIM timeout becomes a no-answer. That is measured as poor answer quality, which it is not.
+
+  So pacing is not politeness — it is what keeps the run on the model whose quality is being
+  measured. Note the corollary: LOWERING NVIDIA_NIM_TIMEOUT does not speed anything up, it
+  just caps the number and moves the work to Gemini, burning the free tier faster.
+
+  The run now reports which provider answered each question and refuses to present a
+  contaminated run as a clean measurement.
 """
 
 import argparse
@@ -25,13 +44,19 @@ import json
 import math
 import os
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import httpx
 
 API = os.getenv("VERIFY_API_URL", "http://localhost:8000")
 QUESTIONS = os.getenv("BENCHMARK_FILE", "/app/benchmark/questions.json")
-SYNTH_TIMEOUT = float(os.getenv("BENCHMARK_SYNTH_TIMEOUT", "120"))
+# Mirrors the frontend's budget for POST /search/synthesize (frontend/src/lib/api.ts) ON PURPOSE.
+# It used to be 120 s, which is how a real regression slipped through: with NVIDIA_NIM_TIMEOUT at
+# 90 s the Gemini fallbacks landed at 92-102 s, so the harness scored them as successes while the
+# browser aborted them. A benchmark that is more patient than the product cannot see the product's
+# failures. Keep these two numbers in step; a call that exceeds it is recorded as `timeout`, which
+# the validity verdict then flags.
+SYNTH_TIMEOUT = float(os.getenv("BENCHMARK_SYNTH_TIMEOUT", "90"))
 
 
 
@@ -143,15 +168,34 @@ def _selftest() -> None:
     assert 0.0 <= lo < 10 / 12 < hi <= 1.0          # CI brackets the point estimate
     assert _wilson(0, 0) == (0.0, 0.0)              # no divide-by-zero on empty
     assert _pct([1, 2, 3, 4], 50) == 3 and _pct([], 95) == 0.0
+    # validity verdict — the gate that stops a quota-starved run being quoted as a model result
+    assert _validity(Counter(nim=25), 25, 25, False).startswith("VALID")
+    assert _validity(Counter(nim=20, refused=5), 25, 25, False).startswith("VALID")
+    # openrouter is the same model as nim, so a run served entirely by it is still VALID
+    assert _validity(Counter(openrouter=25), 25, 25, False).startswith("VALID")
+    assert _validity(Counter(nim=13, openrouter=12), 25, 25, False).startswith("VALID")
+    assert _validity(Counter(nim=20, gemini=5), 25, 25, False).startswith("SUSPECT")   # 5 > 25//10
+    assert _validity(Counter(nim=23, gemini=2), 25, 25, False).startswith("VALID")     # 2 tolerated as noise
+    assert _validity(Counter(nim=22, gemini=3), 25, 25, False).startswith("SUSPECT")   # 3 starts moving the score
+    assert _validity(Counter(nim=10, **{"429": 2}), 12, 25, True).startswith("INVALID")
+    assert _validity(Counter(nim=10, **{"429": 1}), 11, 25, False).startswith("INVALID")
+    # no-answer rows invalidate, and outrank a smaller Gemini complaint (the 2026-08-15 17/25 run)
+    assert _validity(Counter(nim=12, gemini=3, refused=3, **{"-": 7}), 25, 25, False).startswith("INVALID")
+    assert "no answer" in _validity(Counter(nim=18, **{"-": 7}), 25, 25, False)
+    assert _validity(Counter(nim=24, timeout=1), 25, 25, False).startswith("SUSPECT")
+    assert _provider_mix(Counter(nim=3, gemini=1)) == "nim 3 · gemini 1"
+    assert _provider_mix(Counter()) == "(none)"
     print("selftest: OK")
 
 
-async def main(retrieval_only: bool) -> None:
+async def main(retrieval_only: bool, delay: float = 0.0, limit: int = 0) -> None:
     with open(QUESTIONS) as f:
         questions = json.load(f)["questions"]
+    if limit:
+        questions = questions[:limit]
     n = len(questions)
 
-    print("\n  KAIROS — Domain Benchmark  (%d questions)" % n)
+    print(f"\n  KAIROS — Domain Benchmark  ({n} questions)")
     print("  " + "=" * 84)
     hdr = f"  {'ID':<5}{'QUESTION':<46}{'RETR':<6}"
     if not retrieval_only:
@@ -162,12 +206,18 @@ async def main(retrieval_only: bool) -> None:
     retr_hits, correct_hits, prov_hits, syn_ms = 0, 0, 0, []
     # per-category tallies: cat -> {"n","retr","correct","prov"}
     cats: dict[str, dict[str, int]] = defaultdict(lambda: {"n": 0, "retr": 0, "correct": 0, "prov": 0})
+    # Which tier actually answered. A run served largely by the Gemini fallback is not a
+    # measurement of the production model, so this is counted, not just displayed.
+    via_counts: Counter[str] = Counter()
+    graded = 0            # questions that reached the grader (a 429 abort stops short of n)
+    consecutive_429 = 0
+    aborted = False
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as c:
         r = await c.post(f"{API}/auth/login", json={"email": "admin@kairos.local", "password": "KairosAdmin123!"})
         h = {"Authorization": f"Bearer {r.json()['access_token']}"}
 
-        for q in questions:
+        for qi, q in enumerate(questions):
             cat = q.get("category", "uncategorized")
             cats[cat]["n"] += 1
             ctx = await _gather_context(c, h, q)
@@ -189,9 +239,15 @@ async def main(retrieval_only: bool) -> None:
                     # correct outcome (safety gate) and carries its own sources.
                     sourced = refused or bool(body.get("sources"))
                     correct = (refused or _grade_answer(body.get("answer") or "", q)) and sourced
+                    if body.get("rate_limited"):
+                        prov, consecutive_429 = "429", consecutive_429 + 1
+                    else:
+                        consecutive_429 = 0
                 except (httpx.TimeoutException, httpx.HTTPError):
                     ms, prov = (time.perf_counter() - t) * 1000, "timeout"
                 syn_ms.append(ms)
+                via_counts[prov] += 1
+                graded += 1
                 correct_hits += correct
                 prov_hits += sourced
                 cats[cat]["correct"] += correct
@@ -200,16 +256,34 @@ async def main(retrieval_only: bool) -> None:
 
             print(line, flush=True)
 
+            # Every tier returned 429 twice running: the quota is gone and every remaining
+            # question would score as a miss. Stop rather than spend the rest of the run
+            # manufacturing a low number that looks like a model result.
+            if consecutive_429 >= 2:
+                print("\n  ABORTED — all synthesis providers returned HTTP 429 twice in a row.", flush=True)
+                print("  The remaining questions would score 0 for quota reasons, not model reasons.", flush=True)
+                aborted = True
+                break
+
+            # Pace the next synthesis call. See the module docstring: back-to-back calls are
+            # what push NIM into its timeout tail and spill the run onto the free Gemini tier.
+            if delay and not retrieval_only and qi < n - 1:
+                await asyncio.sleep(delay)
+
     def _rate(k: int, tot: int) -> str:
         lo, hi = _wilson(k, tot)
         return f"{k}/{tot} ({100*k//tot if tot else 0}%)  95% CI [{100*lo:.0f}–{100*hi:.0f}%]"
 
+    # An aborted run graded fewer questions than the file holds; rate against what actually ran.
+    looped = sum(d["n"] for d in cats.values())
     print("  " + "-" * 84)
-    print(f"  Retrieval (fact reaches context):    {_rate(retr_hits, n)}")
+    print(f"  Retrieval (fact reaches context):    {_rate(retr_hits, looped)}")
     if not retrieval_only:
-        print(f"  Answer quality (facts, not negated): {_rate(correct_hits, n)}")
-        print(f"  Provenance (sources cited):          {_rate(prov_hits, n)}")
+        print(f"  Answer quality (facts, not negated): {_rate(correct_hits, graded)}")
+        print(f"  Provenance (sources cited):          {_rate(prov_hits, graded)}")
         print(f"  Synthesis latency:                   p50 {_pct(syn_ms,50):.0f} ms · p95 {_pct(syn_ms,95):.0f} ms · avg {sum(syn_ms)/len(syn_ms):.0f} ms")
+        print(f"  Answered by:                         {_provider_mix(via_counts)}")
+        print(f"  Run validity:                        {_validity(via_counts, graded, n, aborted)}")
 
     print("\n  By category" + (" (retrieval · answer · provenance)" if not retrieval_only else " (retrieval)"))
     for cat in sorted(cats):
@@ -223,6 +297,47 @@ async def main(retrieval_only: bool) -> None:
     except Exception as e:  # noqa: BLE001
         print(f"  KG linkage:                        (unavailable: {type(e).__name__})")
     print("  Entity-extraction F1: backend/scripts/run_model_validation.py (Layer-0 model gate)\n")
+
+
+def _provider_mix(via: "Counter[str]") -> str:
+    """Which tier served each answer, most common first. `nim` is the production model."""
+    return " · ".join(f"{k} {v}" for k, v in via.most_common()) or "(none)"
+
+
+def _validity(via: "Counter[str]", graded: int, total: int, aborted: bool) -> str:
+    """
+    States plainly whether this run may be quoted as an answer-quality figure.
+
+    A run served by the Gemini fallback measures the fallback, not the production model;
+    a run that hit 429 measures an exhausted quota. Both previously printed a clean-looking
+    score with nothing distinguishing them from a real result (see benchmark/RESULTS.md,
+    runs 4-5 at 13/25 and 18/25).
+    """
+    if aborted:
+        return f"INVALID — aborted on provider 429 after {graded}/{total} questions. Do not quote."
+    if via.get("429"):
+        return f"INVALID — {via['429']} question(s) hit provider quota (429). Do not quote."
+    # A "-" row is a question where every provider failed, so no answer came back at all. It grades
+    # as a miss and is indistinguishable in the score from the model being wrong — the exact
+    # confusion this verdict exists to prevent. It was missed on the first pass: a run with 7 of
+    # these still printed "SUSPECT: 3 from Gemini", naming the smaller problem.
+    if via.get("-"):
+        return (f"INVALID — {via['-']} question(s) returned no answer from any provider "
+                "(infrastructure, not model quality). Do not quote.")
+    # `openrouter` serves the SAME llama-3.1-70b as `nim`, so it does not change which model
+    # produced the answer and does not confound the score — it counts as production, not fallback.
+    # Only `gemini` (a different model family) does.
+    same_model = via.get("nim", 0) + via.get("openrouter", 0)
+    # A stray fallback or two is noise; beyond ~10% the headline number is partly measuring
+    # a different model, which is exactly the confound RESULTS.md warns about.
+    fallback = via.get("gemini", 0)
+    if graded and fallback > max(1, graded // 10):
+        return (f"SUSPECT — {fallback}/{graded} answers came from the Gemini fallback, which is a "
+                "different model. Re-run paced (--delay) before quoting.")
+    if via.get("timeout"):
+        return f"SUSPECT — {via['timeout']} question(s) timed out client-side. Re-run before quoting."
+    return (f"VALID — {same_model}/{graded} answered by llama-3.1-70b "
+            f"(nim {via.get('nim', 0)} + openrouter {via.get('openrouter', 0)}).")
 
 
 async def _kg_completeness() -> str:
@@ -252,8 +367,14 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="KAIROS domain-expert benchmark")
     ap.add_argument("--retrieval-only", action="store_true", help="skip synthesis + grading (retrieval + KG only, fast)")
     ap.add_argument("--selftest", action="store_true", help="assert the grader logic and exit (no stack needed)")
+    ap.add_argument("--delay", type=float, default=15.0,
+                    help="seconds between synthesis calls (default 15). Pacing keeps the run on NIM "
+                         "instead of spilling onto the free Gemini tier; --delay 0 restores the old behaviour.")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="grade only the first N questions — a cheap calibration run to check the "
+                         "provider mix before spending a full sweep. 0 = all.")
     args = ap.parse_args()
     if args.selftest:
         _selftest()
     else:
-        asyncio.run(main(args.retrieval_only))
+        asyncio.run(main(args.retrieval_only, args.delay, args.limit))
