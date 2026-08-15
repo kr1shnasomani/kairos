@@ -812,8 +812,22 @@ Page-by-page manual QA pass (field-worker → engineer → admin surfaces). Ship
   the Aura console:<br>`MATCH ()-[r:KNOWLEDGE_EDGE]->() WITH r.edge_id AS eid, collect(r) AS rels WHERE size(rels)>1 UNWIND rels[1..] AS x DELETE x;`  (read path already dedupes; this makes the graph physically canonical, 130→43 edges.)
 
 ### Decisions for you (won't do unilaterally)
-- [ ] **Compliance role** is backend-OPA-only — not in the frontend `Role` type, not seeded, not in route access (a compliance user would redirect-loop). Wire it up (Role type + `/compliance`+`/audit` route access + `roleHome` + seed a user) only if a compliance persona is wanted in the demo.
-- [ ] **Reliability** gating is correct (STAFF_ONLY + PROMOTE_ROLES) but **no reliability user is seeded** — seed one to walk it live.
+- [x] **Compliance + reliability personas — WIRED AND VERIFIED 2026-08-15.**
+  Both roles existed in `infra/policies/kairos.rego` but neither could be logged into, so the two
+  personas that actually *demonstrate* governance were the two nobody could show.
+  - `compliance` added to the frontend `Role` type; `/compliance` and `/audit` moved from
+    `STAFF_ONLY` to a new `STAFF_AND_COMPLIANCE` list (adding the role without this would have
+    locked the auditor out of its own page), sidebar entries widened to match, and
+    `roleHome("compliance") → /compliance` because the default `/management` is `STAFF_ONLY` and
+    would have redirect-looped.
+  - Users seeded: `reliability@kairos.local` / `compliance@kairos.local` (see `seed_users.py`).
+  - **Verified live against OPA** with a deliberately non-existent item id, so nothing mutated:
+    `promote_quarantine` is **denied for compliance and for engineer**, and passes policy only for
+    reliability. That is the one-way quarantine gate demonstrable from the UI for the first time.
+  > Two things found while verifying, both pre-existing and left alone: **OPA only enforces writes**
+  > (POST/PUT/DELETE), so a GET to `/governance/*` still returns 200 for compliance — reads are
+  > gated by UI visibility, not policy. And promoting a **non-existent** quarantine item returns
+  > **500 rather than 404**.
 - [x] **Dead frontend fixture modules — DONE 2026-08-15.** It was correctly called a real refactor
   rather than a delete, and it was done as one: 6 modules removed, 32 `catch` branches rewritten to
   rethrow, `DemoChip` + 10 sites gone, `DataSource` narrowed to a single member. The "zero

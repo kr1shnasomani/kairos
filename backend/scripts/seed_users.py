@@ -34,6 +34,21 @@ TEST_USERS = [
         "password": "KairosField123!",
         "user_metadata": {"role": "field_worker", "site_id": "SITE_001", "name": "Field Worker"},
     },
+    # Reliability and compliance existed in OPA (infra/policies/kairos.rego) but had no seeded
+    # user, so neither persona could be logged into — the two roles that actually demonstrate
+    # governance were the two nobody could show. Reliability owns the one-way quarantine gate
+    # (`promote_quarantine`, which engineers deliberately do NOT have); compliance is a read-only
+    # auditor scoped to the compliance cockpit and audit trail.
+    {
+        "email": "reliability@kairos.local",
+        "password": "KairosReliability123!",
+        "user_metadata": {"role": "reliability", "site_id": "SITE_001", "name": "Reliability Engineer"},
+    },
+    {
+        "email": "compliance@kairos.local",
+        "password": "KairosCompliance123!",
+        "user_metadata": {"role": "compliance", "site_id": "SITE_001", "name": "Compliance Auditor"},
+    },
 ]
 
 

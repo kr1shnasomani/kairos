@@ -20,6 +20,8 @@ import { PageSkeleton } from "./skeleton";
 // Staff surfaces (Assure group + RCA) are hidden from field workers. Dev-bypass (no session)
 // defaults to engineer, so an unauthenticated demo still sees everything.
 const STAFF: Role[] = ["engineer", "reliability", "admin"];
+/** Staff plus the read-only compliance auditor — mirrors STAFF_AND_COMPLIANCE in use-role.ts. */
+const STAFF_AND_COMPLIANCE: Role[] = [...STAFF, "compliance"];
 
 type IconName =
   | "briefs" | "copilot" | "assets" | "rca" | "compliance"
@@ -89,9 +91,11 @@ const NAV: { group: string; items: NavItem[] }[] = [
   {
     group: "Assure",
     items: [
-      { href: "/compliance", label: "Compliance", icon: "compliance", roles: STAFF },
+      // The compliance auditor sees exactly these two and nothing else in the sidebar —
+      // matching `read_compliance` / `read_audit` in kairos.rego and ROUTE_ACCESS.
+      { href: "/compliance", label: "Compliance", icon: "compliance", roles: STAFF_AND_COMPLIANCE },
       { href: "/governance", label: "Governance", icon: "governance", roles: STAFF },
-      { href: "/audit", label: "Audit Trail", icon: "audit", roles: STAFF },
+      { href: "/audit", label: "Audit Trail", icon: "audit", roles: STAFF_AND_COMPLIANCE },
     ],
   },
   {
