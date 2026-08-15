@@ -19,6 +19,7 @@ services:
       target: dev
     environment:
       NODE_ENV: development
+      WATCHPACK_POLLING: "true"
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public

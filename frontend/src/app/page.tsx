@@ -513,31 +513,44 @@ function SystemDiagram() {
       <rect x="0" y="0" width="980" height="940" fill="url(#lp-dots)" />
 
       <g stroke="var(--lp-accent)" strokeWidth="1.5" fill="none">
-        <path d="M130 100v30M330 100v30M530 100v30M710 100v30" />
-        <path d="M130 130h580" />
-        <path d="M490 832v18" />
-        <path d="M130 850h580" />
-        <path d="M130 850v8M330 850v8M530 850v8M710 850v8" />
+        <path d="M160 100v30M380 100v30M600 100v30M820 100v30" />
+        <path d="M160 130h660" />
+        <path d="M490 836v20" />
+        <path d="M160 856h660" />
       </g>
 
+      {/* <g className="lp-flow" stroke="var(--lp-accent)" strokeWidth="1.5" markerEnd="url(#lp-arrow)" fill="none">
+        <path d="M490 130v46" />
+        <path d="M490 262v54" />
+        <path d="M490 409v55" />
+        <path d="M490 560v52" />
+        <path d="M490 692v44" />
+        <path d="M160 856v16M380 856v16M600 856v16M820 856v16" />
+      </g> */}
+
+      {/* Main vertical flow lines (keep arrowheads) */}
       <g className="lp-flow" stroke="var(--lp-accent)" strokeWidth="1.5" markerEnd="url(#lp-arrow)" fill="none">
         <path d="M490 130v46" />
         <path d="M490 262v54" />
         <path d="M490 409v55" />
         <path d="M490 560v52" />
         <path d="M490 692v44" />
-        <path d="M130 858v14M330 858v14M530 858v14M710 858v14" />
+      </g>
+
+      {/* Delivery drop lines (no arrowheads) */}
+      <g stroke="var(--lp-accent)" strokeWidth="1.5" fill="none">
+        <path d="M160 856v16M380 856v16M600 856v16M820 856v16" />
       </g>
 
       {/* one-way exits, dashed so they read as diversions */}
-      <g className="lp-flow" stroke="var(--lp-accent)" strokeWidth="1.5" markerEnd="url(#lp-arrow)" fill="none">
+      <g className="lp-flow" stroke="var(--lp-accent)" strokeWidth="1.5" strokeDasharray="5 4" markerEnd="url(#lp-arrow)" fill="none">
         <path d="M612 362h134" />
         <path d="M622 786h124" />
       </g>
 
       {/* datastores: reads and writes, not flow, so dimmer and bidirectional */}
       <g stroke="var(--lp-dark-muted)" strokeWidth="1" strokeDasharray="3 3" markerEnd="url(#lp-arrow-dim)" markerStart="url(#lp-arrow-dim)" fill="none" opacity="0.8">
-        <path d="M276 512H262" />
+        <path d="M246 512H272" />
       </g>
 
       {/* edge labels */}
@@ -548,10 +561,10 @@ function SystemDiagram() {
 
       <text x="40" y="34" className={DIAGRAM_LAYER}>SOURCES</text>
       {[
-        ["Drawings, P&IDs", 40],
-        ["Procedures", 240],
-        ["OT tag history", 440],
-        ["Voice notes", 620],
+        ["Drawings, P&IDs", 70],
+        ["Procedures", 290],
+        ["OT tag history", 510],
+        ["Voice notes", 730],
       ].map(([t, x]) => (
         <g key={t as string}>
           <rect x={x as number} y={48} width={180} height={52} rx="26" fill="url(#lp-panel)" stroke="var(--lp-dark-line)" strokeWidth="1" />
@@ -572,15 +585,44 @@ function SystemDiagram() {
       <Stage x={280} y={464} w={420} h={96} tag="L1 · L4" name="Identity and temporal graph" note="MDM merge · valid_from / valid_to · authority" />
 
       {/* backing stores */}
-      <text x="40" y="452" className={DIAGRAM_LAYER}>STORES</text>
-      {[["Neo4j", 470], ["Qdrant", 514], ["Elasticsearch", 558]].map(([t, y]) => {
+      <text x="40" y="420" className={DIAGRAM_LAYER}>STORES</text>
+      {[
+        ["Neo4j", 440],
+        ["Qdrant", 500],
+        ["Elasticsearch", 560],
+      ].map(([t, y, pathD]) => {
         const top = y as number;
         return (
           <g key={t as string}>
-            <rect x={60} y={top} width={196} height={28} fill="url(#lp-panel)" stroke="var(--lp-dark-line)" strokeWidth="1" />
-            <ellipse cx={158} cy={top + 28} rx="98" ry="7" fill="url(#lp-panel)" stroke="var(--lp-dark-line)" strokeWidth="1" />
-            <ellipse cx={158} cy={top} rx="98" ry="7" fill="var(--lp-dark)" stroke="var(--lp-dark-line)" strokeWidth="1" />
-            <text x={158} y={top + 19} textAnchor="middle" className="fill-white text-[12px]">{t as string}</text>
+            {/* Left and right lines brought inward (75 and 225) */}
+            <line x1={75} y1={top} x2={75} y2={top + 40} stroke="var(--lp-dark-line)" strokeWidth="1" />
+            <line x1={225} y1={top} x2={225} y2={top + 40} stroke="var(--lp-dark-line)" strokeWidth="1" />
+            
+            {/* Top ellipse rx reduced to 75 */}
+            <ellipse cx={150} cy={top} rx={75} ry={5} fill="#1a1a1a" stroke="var(--lp-dark-line)" strokeWidth="1" />
+            
+            {/* 1. BACK half of the ellipse (Starts at 75, rx is 75, ends at 225) */}
+            <path 
+              d={`M 75 ${top + 40} A 75 5 0 0 1 225 ${top + 40}`} 
+              fill="none" 
+              stroke="var(--lp-dark-line)" 
+              strokeWidth="1" 
+            />
+
+            {/* 2. FRONT half of the ellipse (Orange line) */}
+            <path 
+              d={`M 75 ${top + 40} A 75 5 0 0 0 225 ${top + 40}`} 
+              fill="none" 
+              stroke="#ff4438" 
+              strokeWidth="1.5" 
+            />
+            
+            {/* Shifted the icon slightly to the right to stay balanced in the narrower cylinder */}
+            <g transform={`translate(100, ${top + 20})`}>
+              <path d={pathD as string} stroke="var(--lp-accent)" strokeWidth="1.2" fill="none" />
+            </g>
+            
+            <text x={152} y={top + 24} textAnchor="middle" className="fill-white text-[12px] font-medium">{t as string}</text>
           </g>
         );
       })}
@@ -592,11 +634,11 @@ function SystemDiagram() {
       <text x="490" y="782" textAnchor="middle" className="fill-white text-[13px] font-semibold">evidence</text>
       <text x="490" y="800" textAnchor="middle" className="fill-white text-[13px] font-semibold">sufficient?</text>
       <text x="632" y="776" className="fill-[var(--lp-accent)] text-[11px] font-semibold">no</text>
-      <text x="502" y="862" className="fill-[var(--lp-accent)] text-[11px] font-semibold">yes</text>
+      <text x="502" y="850" className="fill-[var(--lp-accent)] text-[11px] font-semibold">yes</text>
       <ExitNode x={746} y={750} tag="L11 · ONE-WAY" name="Refusal card" note="Carries its sources" />
 
       {/* legend */}
-      <g transform="translate(746, 862)">
+      <g transform="translate(746, 620)">
         <line x1="0" y1="6" x2="26" y2="6" stroke="var(--lp-accent)" strokeWidth="1.5" />
         <text x="34" y="10" className={DIAGRAM_SUB}>flow</text>
         <line x1="0" y1="28" x2="26" y2="28" stroke="var(--lp-accent)" strokeWidth="1.5" strokeDasharray="5 4" />
@@ -607,10 +649,10 @@ function SystemDiagram() {
 
       <text x="40" y="842" className={DIAGRAM_LAYER}>DELIVERY</text>
       {[
-        ["Governed briefs", 40],
-        ["Expert copilot", 240],
-        ["Field capture", 440],
-        ["Audit packs", 620],
+        ["Governed briefs", 70],
+        ["Expert copilot", 290],
+        ["Field capture", 510],
+        ["Audit packs", 730],
       ].map(([t, x]) => (
         <g key={t as string}>
           <rect x={x as number} y={872} width={180} height={50} rx="25" fill="var(--lp-accent-strong)" />
