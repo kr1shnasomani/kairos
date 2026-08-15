@@ -659,8 +659,8 @@ would reward per hour spent.
 | # | Improvement | Why it matters | Est. |
 |---|---|---|---|
 | 8 | **A real agent loop** | Two of the problem statement's five illustrative tracks say "agentic". There is no tool-use or planning loop anywhere: every LLM call is single-shot inside a hand-written pipeline. This is the main ceiling on an Innovation score, however good the governance architecture is. | 1 w+ |
-| 9 | **Materialise compliance counts** | `/compliance/gaps` and `/dashboard` are O(clauses × assets) with a subquery per pair; `EXPLAIN` confirms `CartesianProduct`, and the dashboard variant is deliberately unbounded because a `LIMIT` would silently undercount a compliance posture. Fine at demo scale (12 × 10); materialise into Supabase on a scheduled scan before the asset count reaches the thousands. | 1 d |
-| 10 | **Retrieval quality beyond RRF** | RRF fixed the scale-mismatch bug, but there is still no cross-encoder rerank, no query planner, and dedupe is per-document so long documents contribute one chunk. | 2–3 d |
+| 9 | ~~Materialise compliance counts~~ — **WON'T DO. Reclassified as a known limitation, 2026-08-15** | `/compliance/gaps` and `/dashboard` are O(clauses × assets) with a subquery per pair; `EXPLAIN` confirms `CartesianProduct`, and the dashboard variant is deliberately unbounded because a `LIMIT` would silently undercount a compliance posture. **At 12 clauses × 10 assets = 120 pairs it is instant.** This is a note for whoever scales past a few thousand assets, not pending work — materialise into Supabase on a scheduled scan *then*. Listed as a task it simply resurfaces in every review. | n/a |
+| 10 | ~~Retrieval quality beyond RRF~~ — **WON'T DO now. Reclassified as a known limitation with evidence, 2026-08-15** | No cross-encoder rerank, no query planner, and dedupe is per-document so a long document contributes one chunk. **Retrieval scores 37/37**, so there is nothing to gain on this corpus. Worth recording the evidence, though: the safety-gate work measured RRF scores of **0.0156–0.0325 across all six hits of one query** — RRF barely discriminates here. That is a real weakness, invisible at 20 documents and material on a real archive. Revisit only when the corpus grows. | n/a |
 | 11 | **Custom P&ID parser (Path A)** | `requirements-cv.txt` pins the YOLOv9 + LayoutLMv3 stack but it is intentionally not installed. Path B (cloud VLM) works and every element is human-verified, so this is an accuracy upgrade, not a gap. | 1 w+ |
 
 ### Tier 4 — housekeeping
@@ -670,7 +670,7 @@ would reward per hour spent.
 | 12 | ~~Adopt PEP 585 annotations~~ — **DONE 2026-08-15** | Applied entirely by `ruff --fix`, no hand edits: **283** `typing.Dict`/`List` → PEP 585 builtins (UP006), **48** dead `typing` imports dropped (UP035), **136** `Optional[X]` → `X \| None` (UP045), **49** `timezone.utc` → `datetime.UTC` (UP017), then an F401/I001 pass for imports the rewrite orphaned. `"UP"` is now selected in `backend/ruff.toml`, so the old spelling cannot creep back. Verified against the **CI-pinned ruff 0.16.0** (not just the local 0.15.0): all checks pass; service-free suite 64 passed / 1 skipped; API boots and `/health/detailed` returns all five datastores ok — the Pydantic response models were rewritten, so that runtime check mattered. | done |
 | 13 | ~~eslint 10~~ — **DONE 2026-08-15, and it never needed eslint 10** | The claim that only `eslint@10` could fix this went stale: upstream shipped semver-compatible patches, so a plain **`npm audit fix`** cleared all of it. `npm audit` now reports **0 vulnerabilities**, eslint stays on **v9.39.4**, and `package.json` is untouched — only 4 transitive dev packages moved in the lockfile (`brace-expansion`, `js-yaml`, `undici`, `minimatch/brace-expansion`; 12 insertions / 13 deletions). Verified after a container rebuild: `tsc` clean, `eslint` 0 errors (3 pre-existing warnings), **vitest 135/135**. Worth noting the advisories were dev-only throughout — `npm audit --omit=dev` reported 0 even before the fix, so nothing shipped was ever affected. | done |
 | 14 | ~~Remove dead frontend fixture modules~~ — **DONE 2026-08-15** | Deleted `lib/{fixtures,assets,governance,documents,events,compliance}.ts`, the `DemoChip` component and all 10 render sites. `DataSource` is now a single member (`"live"`), so a fallback cannot return without a type error, and `FetchState` lost its `demo` case. All 32 fixture-returning `catch` blocks in `api.ts` now rethrow. **Three fabrication paths were live, not dead** — see below. Verified: `tsc` clean, `eslint` 0 errors, **vitest 135/135**. | done |
-| 15 | **Cross-site control plane** | `/management/cross-site` is fixture-only, and `ARCHITECTURE.md` describes PII redaction as gating cross-site knowledge promotion. No cross-site endpoint exists, so the redaction pipeline is real but that wiring is not. Either build the endpoint or reword the doc. | 1–2 d |
+| 15 | ~~Cross-site control plane~~ — **CLOSED 2026-08-15: nothing to do** | Re-read the page: it is **not** fixture-only. It renders a static, honest "unavailable" panel with the reason in the source — *"single-site deployment, so there is genuinely nothing to correlate — we show an honest 'unavailable' state rather than fabricated alerts."* No backend call, no fabrication. `ARCHITECTURE.md` describing PII-gated cross-site promotion is **design intent**, which that file states by convention and is not edited to match the build. Only build this if multi-site is actually claimed. | n/a |
 
 ---
 
@@ -903,9 +903,19 @@ Page-by-page manual QA pass (field-worker → engineer → admin surfaces). Ship
   > 44/45/46 (`ministral-14b`) — with **no row for the current NER model at all**. Backlog #6 closed
   > that on 2026-08-15: row 422 (`meta/llama-3.2-11b-vision-instruct`, `performed_by: "cli"`) is now
   > the newest entry. The cleanup below is still worth doing so the trend shows only models in use.
-- [ ] **Neo4j edge dedup** — re-counted 2026-08-15: **130 relationships / 43 distinct `edge_id` / 87
-  duplicate extras across 22 ids** (was "123→36"; the graph has grown, the defect is unchanged). Run in
-  the Aura console:<br>`MATCH ()-[r:KNOWLEDGE_EDGE]->() WITH r.edge_id AS eid, collect(r) AS rels WHERE size(rels)>1 UNWIND rels[1..] AS x DELETE x;`  (read path already dedupes; this makes the graph physically canonical, 130→43 edges.)
+- [x] **Neo4j edge dedup — DONE 2026-08-15. 130 → 43 relationships, provably lossless.**
+  Before touching anything, two checks: **0 relationships had a NULL `edge_id`** (so the dedup
+  could not collapse unrelated edges), and **0 duplicate groups diverged in content** — all 87
+  extras were byte-identical across all six governance properties, so the survivors carry the
+  same data.
+  A full export was taken first to `db/backups/knowledge_edges_pre_dedup.json` (130 edges, both
+  endpoints, all six properties). That mattered: rebuilding `KNOWLEDGE_EDGE`s otherwise means
+  re-ingesting 26 documents through OCR + NER + embeddings — **150+ model calls** — and `--fast`
+  does not help because it *skips* the document pipeline. With the dump, recovery is a re-import
+  at zero model cost.
+  Verified after: 43 relationships / 43 distinct `edge_id`, **43 distinct edge signatures before
+  and after with 0 lost**, `/health/detailed` all green, 13/13 layers, `/assets/EQ-101/knowledge`
+  still 5 facts, compliance F1 0.986 unchanged.
 
 ### Decisions for you (won't do unilaterally)
 - [x] **Compliance + reliability personas — WIRED AND VERIFIED 2026-08-15.**
