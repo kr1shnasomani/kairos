@@ -13,7 +13,8 @@ service rather than a second name model.
 """
 
 import re
-from typing import Any, Dict, Iterable, List, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 import structlog
 
@@ -24,7 +25,7 @@ log = structlog.get_logger(__name__)
 # ponytail: over-redaction is the safe direction for a privacy control — a false
 # positive costs one masked token, a false negative is a DPDP breach. Tighten only
 # with a test that pins the value that was wrongly masked.
-_PATTERNS: List[Tuple[str, re.Pattern[str]]] = [
+_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("EMAIL", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")),
     ("PAN", re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b")),
     ("AADHAAR", re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b")),
@@ -39,7 +40,7 @@ _PATTERNS: List[Tuple[str, re.Pattern[str]]] = [
 class PIIService:
     """Detects and masks personal identifiers in free text."""
 
-    def detect(self, text: str, person_names: Iterable[str] = ()) -> List[Dict[str, Any]]:
+    def detect(self, text: str, person_names: Iterable[str] = ()) -> list[dict[str, Any]]:
         """
         Returns non-overlapping PII spans, ordered by position.
         `person_names` are treated as PERSON matches (whole-word, case-insensitive).
@@ -47,7 +48,7 @@ class PIIService:
         if not text:
             return []
 
-        spans: List[Dict[str, Any]] = []
+        spans: list[dict[str, Any]] = []
 
         for name in {n.strip() for n in person_names if n and len(n.strip()) > 2}:
             for m in re.finditer(rf"\b{re.escape(name)}\b", text, re.IGNORECASE):
@@ -59,7 +60,7 @@ class PIIService:
 
         # Resolve overlaps: earliest start wins, longest match breaks ties.
         spans.sort(key=lambda s: (s["start"], -(s["end"] - s["start"])))
-        deduped: List[Dict[str, Any]] = []
+        deduped: list[dict[str, Any]] = []
         last_end = -1
         for s in spans:
             if s["start"] >= last_end:
@@ -67,7 +68,7 @@ class PIIService:
                 last_end = s["end"]
         return deduped
 
-    def redact(self, text: str, person_names: Iterable[str] = ()) -> Dict[str, Any]:
+    def redact(self, text: str, person_names: Iterable[str] = ()) -> dict[str, Any]:
         """
         Masks every detected identifier with a stable pseudonym (`[PERSON_1]`).
 
@@ -79,9 +80,9 @@ class PIIService:
         if not spans:
             return {"redacted_text": text, "spans": [], "counts": {}, "pii_found": False}
 
-        aliases: Dict[Tuple[str, str], str] = {}
-        counters: Dict[str, int] = {}
-        out: List[str] = []
+        aliases: dict[tuple[str, str], str] = {}
+        counters: dict[str, int] = {}
+        out: list[str] = []
         cursor = 0
 
         for s in spans:
@@ -94,7 +95,7 @@ class PIIService:
             cursor = s["end"]
         out.append(text[cursor:])
 
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
         for s in spans:
             counts[s["pii_type"]] = counts.get(s["pii_type"], 0) + 1
 

@@ -4,7 +4,6 @@ Calls kairos-opa for POST/PUT/DELETE routes; denies with 403 if OPA returns fals
 Skips check when APP_DEBUG=True and no Authorization header (dev bypass, same as auth).
 """
 
-from typing import Optional
 
 import httpx
 import structlog
@@ -69,7 +68,7 @@ class OPAMiddleware(BaseHTTPMiddleware):
             )
         return await call_next(request)
 
-    def _user_from_request(self, request: Request) -> Optional[dict]:
+    def _user_from_request(self, request: Request) -> dict | None:
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return None

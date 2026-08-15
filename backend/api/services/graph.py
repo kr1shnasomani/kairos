@@ -3,8 +3,8 @@ Graph service — Neo4j temporal graph operations (Layer 4).
 All write operations enforce the six mandatory edge properties.
 """
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from neo4j import AsyncDriver
@@ -44,7 +44,7 @@ class GraphService:
     # Asset nodes (Layer 1)
     # -------------------------------------------------------------------------
 
-    async def create_asset_node(self, asset_data: Dict[str, Any]) -> str:
+    async def create_asset_node(self, asset_data: dict[str, Any]) -> str:
         """
         Creates or merges a canonical asset node. If parent_asset_id is provided,
         creates a PARENT_OF relationship from parent to this asset.
@@ -70,7 +70,7 @@ class GraphService:
         """
         async with self.driver.session(database=self.database) as session:
             params = {k: v for k, v in asset_data.items() if k != "parent_asset_id"}
-            params["created_at"] = datetime.now(timezone.utc).isoformat()
+            params["created_at"] = datetime.now(UTC).isoformat()
             result = await session.run(node_cypher, **params)
             record = await result.single()
             asset_id = record["asset_id"]
@@ -83,7 +83,7 @@ class GraphService:
                 )
         return asset_id
 
-    async def get_asset(self, asset_id: str) -> Optional[Dict[str, Any]]:
+    async def get_asset(self, asset_id: str) -> dict[str, Any] | None:
         cypher = "MATCH (a:Asset {asset_id: $asset_id}) RETURN a"
         async with self.driver.session(database=self.database) as session:
             result = await session.run(cypher, asset_id=asset_id)
@@ -92,14 +92,14 @@ class GraphService:
 
     async def list_assets(
         self,
-        site_id: Optional[str] = None,
-        equipment_class: Optional[str] = None,
+        site_id: str | None = None,
+        equipment_class: str | None = None,
         skip: int = 0,
         limit: int = 50,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Returns paginated asset list with total count. Authority pre-filter before traversal."""
         where_clauses = []
-        params: Dict[str, Any] = {"skip": skip, "limit": limit}
+        params: dict[str, Any] = {"skip": skip, "limit": limit}
         if site_id:
             where_clauses.append("a.site_id = $site_id")
             params["site_id"] = site_id
@@ -127,7 +127,7 @@ class GraphService:
 
         return {"assets": assets, "total": total}
 
-    async def get_asset_hierarchy(self, asset_id: str) -> Optional[Dict[str, Any]]:
+    async def get_asset_hierarchy(self, asset_id: str) -> dict[str, Any] | None:
         """
         Returns the asset's position in the hierarchy:
         ancestors (walk up PARENT_OF chain, up to 10 levels) and direct children.
@@ -172,7 +172,7 @@ class GraphService:
         "Organisation": "org_id",
     }
 
-    async def merge_document_node(self, document_id: str, props: Optional[Dict[str, Any]] = None) -> None:
+    async def merge_document_node(self, document_id: str, props: dict[str, Any] | None = None) -> None:
         """MERGE a Document node into Neo4j (idempotent). Called before creating edges to it."""
         cypher = """
         MERGE (d:Document {document_id: $document_id})
@@ -183,10 +183,10 @@ class GraphService:
                 cypher,
                 document_id=document_id,
                 props=props or {},
-                created_at=datetime.now(timezone.utc).isoformat(),
+                created_at=datetime.now(UTC).isoformat(),
             )
 
-    async def merge_concept_node(self, concept_id: str, props: Optional[Dict[str, Any]] = None) -> None:
+    async def merge_concept_node(self, concept_id: str, props: dict[str, Any] | None = None) -> None:
         """MERGE a Concept node into Neo4j (idempotent). Used for topology elements, regulations, etc."""
         cypher = """
         MERGE (c:Concept {concept_id: $concept_id})
@@ -197,7 +197,7 @@ class GraphService:
                 cypher,
                 concept_id=concept_id,
                 props=props or {},
-                created_at=datetime.now(timezone.utc).isoformat(),
+                created_at=datetime.now(UTC).isoformat(),
             )
 
     async def detect_conflict(
@@ -207,7 +207,7 @@ class GraphService:
         relationship_type: str,
         new_document_id: str,
         new_authority_level: int,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Checks for an active edge on the same (source, relationship_type) from a DIFFERENT document.
         Returns conflict metadata dict for Supabase insert, or None if no conflict.
@@ -257,7 +257,7 @@ class GraphService:
 
     # Sentinel: stored as valid_to when the edge has no expiry yet.
     # Neo4j drops null properties, so we use far-future to guarantee the key exists.
-    _OPEN_VALID_TO = datetime(9999, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+    _OPEN_VALID_TO = datetime(9999, 12, 31, 23, 59, 59, tzinfo=UTC)
 
     async def create_knowledge_edge(
         self,
@@ -272,8 +272,8 @@ class GraphService:
         document_id: str,
         confidence: float,
         verification_status: str = "unverified",
-        valid_to: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        valid_to: datetime | None = None,
+    ) -> dict[str, Any]:
         """
         Creates a temporal knowledge edge with all six mandatory properties.
         Labels must be from the known node label set (validated against whitelist).
@@ -365,14 +365,14 @@ class GraphService:
     async def get_asset_knowledge_at(
         self,
         asset_id: str,
-        as_of: Optional[datetime] = None,
+        as_of: datetime | None = None,
         authority_min: int = 5,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Returns all temporal graph edges for an asset, optionally scoped to a
         historical point-in-time. Uses composite index on (asset_id, valid_from, valid_to).
         """
-        as_of_str = as_of.isoformat() if as_of else datetime.now(timezone.utc).isoformat()
+        as_of_str = as_of.isoformat() if as_of else datetime.now(UTC).isoformat()
         cypher = """
         MATCH (a:Asset {asset_id: $asset_id})-[r:KNOWLEDGE_EDGE]->(target)
         WHERE r.valid_from <= $as_of
@@ -392,7 +392,7 @@ class GraphService:
             # relationships that share one logical edge_id (Cypher DISTINCT can't collapse them
             # — they're separate graph elements). Keep the first, drop repeats.
             seen: set[str] = set()
-            facts: List[Dict[str, Any]] = []
+            facts: list[dict[str, Any]] = []
             async for record in result:
                 edge = dict(record["r"])
                 edge_id = edge.get("edge_id")
@@ -411,7 +411,7 @@ class GraphService:
         asset_id: str,
         window_start: str,
         limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Returns Event nodes linked to an asset (by property or relationship)
         with occurred_at >= window_start, ordered chronologically.
@@ -445,7 +445,7 @@ class GraphService:
                 async for r in result
             ]
 
-    async def get_blast_radius(self, document_id: str) -> Dict[str, Any]:
+    async def get_blast_radius(self, document_id: str) -> dict[str, Any]:
         """
         Traverses the graph to find all facts and downstream relationships
         that derive from the specified document (provenance_pointer = document_id).
@@ -476,7 +476,7 @@ class GraphService:
                 })
             return {"document_id": document_id, "affected_count": len(affected), "affected": affected}
 
-    async def get_last_inspection_date(self, asset_id: str) -> Optional[str]:
+    async def get_last_inspection_date(self, asset_id: str) -> str | None:
         """Returns the most recent inspection Event occurred_at for an asset, or None."""
         cypher = """
         MATCH (e:Event)

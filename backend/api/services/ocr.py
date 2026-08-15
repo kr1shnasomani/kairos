@@ -10,7 +10,7 @@ NOTE: The OCR model uses a DIFFERENT base URL and request format than the chat/L
 
 import base64
 import io
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 import structlog
@@ -49,8 +49,8 @@ class OCRService:
         self,
         file_bytes: bytes,
         mime_type: str = "application/pdf",
-        language_hint: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        language_hint: str | None = None,
+    ) -> dict[str, Any]:
         # Fast path: plain text files — decode directly, no API cost
         if mime_type in _TEXT_MIMES:
             text = file_bytes.decode("utf-8", errors="replace").strip()
@@ -154,7 +154,7 @@ class OCRService:
             log.error("ocr.nim_failed", error=str(exc))
             return ""
 
-    def _extract_native_pdf(self, pdf_bytes: bytes) -> Dict[str, Any]:
+    def _extract_native_pdf(self, pdf_bytes: bytes) -> dict[str, Any]:
         try:
             import fitz
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -183,7 +183,7 @@ class OCRService:
             return {"text": "", "blocks": [], "overall_confidence": 0.0,
                     "requires_review": True, "block_count": 0, "extraction_method": "error"}
 
-    def _native(self, text: str, method: str) -> Dict[str, Any]:
+    def _native(self, text: str, method: str) -> dict[str, Any]:
         """Result envelope for extraction paths that need no OCR model."""
         return {
             "text": text,
@@ -212,7 +212,7 @@ class OCRService:
             log.warning("ocr.spreadsheet_open_failed", error=str(exc))
             return ""
 
-        lines: List[str] = []
+        lines: list[str] = []
         try:
             for sheet in wb.worksheets:
                 rows = [
@@ -248,13 +248,13 @@ class OCRService:
         chunks = [c for c in raw.split(b"\nFrom ") if c.strip()] if raw.startswith(b"From ") else [raw]
 
         def render(msg: Message) -> str:
-            parts: List[str] = []
+            parts: list[str] = []
             for header in _EMAIL_HEADERS:
                 value = msg.get(header)
                 if value:
                     parts.append(f"{header}: {value}")
 
-            attachments: List[str] = []
+            attachments: list[str] = []
             for part in msg.walk() if msg.is_multipart() else [msg]:
                 disposition = str(part.get("Content-Disposition") or "")
                 if "attachment" in disposition:
@@ -285,7 +285,7 @@ class OCRService:
 
         return "\n\n---\n\n".join(r for r in rendered if r).strip()
 
-    def _to_images(self, file_bytes: bytes, mime_type: str) -> List[tuple]:
+    def _to_images(self, file_bytes: bytes, mime_type: str) -> list[tuple]:
         """Returns list of (image_bytes, mime) — one per page for PDFs, one for images."""
         if mime_type == "application/pdf":
             try:
@@ -305,7 +305,7 @@ class OCRService:
             return [(file_bytes, mime_type)]
 
     @staticmethod
-    def _empty(reason: str) -> Dict[str, Any]:
+    def _empty(reason: str) -> dict[str, Any]:
         return {
             "text": "",
             "blocks": [],

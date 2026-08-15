@@ -9,8 +9,8 @@ import sys
 
 sys.path.insert(0, "/app")
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
@@ -26,11 +26,11 @@ log = structlog.get_logger(__name__)
     time_limit=300,
     soft_time_limit=270,
 )
-def generate_offboarding_questions(item_id: str) -> Dict[str, Any]:
+def generate_offboarding_questions(item_id: str) -> dict[str, Any]:
     return asyncio.run(_generate(item_id))
 
 
-async def _generate(item_id: str) -> Dict[str, Any]:
+async def _generate(item_id: str) -> dict[str, Any]:
     from neo4j import AsyncGraphDatabase
     from supabase import create_client
 
@@ -56,9 +56,9 @@ async def _generate(item_id: str) -> Dict[str, Any]:
         settings.NEO4J_URI,
         auth=(settings.NEO4J_USERNAME, settings.NEO4J_PASSWORD),
     )
-    known: List[str] = []
-    unknown: List[str] = []
-    now = datetime.now(timezone.utc).isoformat()
+    known: list[str] = []
+    unknown: list[str] = []
+    now = datetime.now(UTC).isoformat()
     try:
         async with driver.session(database=settings.NEO4J_DATABASE) as neo4j_session:
             result = await neo4j_session.run(
@@ -88,7 +88,7 @@ async def _generate(item_id: str) -> Dict[str, Any]:
     finally:
         await driver.close()
 
-    context_items: List[Dict[str, Any]] = [
+    context_items: list[dict[str, Any]] = [
         {"text": f"Known fact: {m}", "confidence": 0.9, "authority_level": 2}
         for m in known
     ] + [
@@ -116,7 +116,7 @@ async def _generate(item_id: str) -> Dict[str, Any]:
     answer_match = re.search(r"ANSWER:\s*(.+?)(?:\nCONFIDENCE:|$)", answer_text, re.DOTALL | re.IGNORECASE)
     answer_block = answer_match.group(1).strip() if answer_match else answer_text
 
-    questions: List[str] = []
+    questions: list[str] = []
     for part in re.split(r"\d+[\.\)]\s+", answer_block):
         q = part.strip()
         if q and "?" in q:

@@ -5,7 +5,7 @@ Parallel ES exact + Qdrant semantic + Neo4j graph traversal, authority re-ranked
 
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
 
@@ -40,12 +40,12 @@ class SearchService:
         self,
         query: str,
         collection: str,
-        asset_id: Optional[str],
+        asset_id: str | None,
         authority_min: int,
         include_quarantine: bool,
-        as_of: Optional[datetime],
+        as_of: datetime | None,
         limit: int,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Parallel retrieval from ES + Qdrant + Neo4j.
         Deduplicates by document_id (lowest authority_level wins, then highest score).
@@ -53,7 +53,7 @@ class SearchService:
         """
         query_vector = await self.llm.embed(query, task="retrieval.query")
 
-        coros: List[Any] = [
+        coros: list[Any] = [
             self.engine.search(query, asset_id=asset_id, limit=limit),
             self.vector.search(collection, query_vector, limit=limit, asset_id=asset_id, authority_min=authority_min),
         ]
@@ -73,8 +73,8 @@ class SearchService:
         qdrant_raw = gathered[1] if not isinstance(gathered[1], Exception) else []
 
         idx = 2
-        graph_raw: List[Dict[str, Any]] = []
-        quarantine_raw: List[Dict[str, Any]] = []
+        graph_raw: list[dict[str, Any]] = []
+        quarantine_raw: list[dict[str, Any]] = []
         if asset_id:
             graph_raw = gathered[idx] if not isinstance(gathered[idx], Exception) else []
             idx += 1
@@ -96,7 +96,7 @@ class SearchService:
             limit,
         )
 
-    def _fuse(self, ranked_lists: List[List[SearchResult]], limit: int) -> List[SearchResult]:
+    def _fuse(self, ranked_lists: list[list[SearchResult]], limit: int) -> list[SearchResult]:
         """
         Reciprocal Rank Fusion across the retrieval sources, then authority-first ordering.
 
@@ -110,8 +110,8 @@ class SearchService:
         observation is a deliberate safety property, not a relevance artefact. RRF decides
         order *within* an authority level, which is where the scale bug actually did damage.
         """
-        fused: Dict[str, float] = {}
-        best: Dict[str, SearchResult] = {}
+        fused: dict[str, float] = {}
+        best: dict[str, SearchResult] = {}
 
         for results in ranked_lists:
             for rank, r in enumerate(results, start=1):
@@ -129,7 +129,7 @@ class SearchService:
         return ranked[:limit]
 
     @staticmethod
-    def _better(existing: Optional[SearchResult], candidate: SearchResult) -> SearchResult:
+    def _better(existing: SearchResult | None, candidate: SearchResult) -> SearchResult:
         """
         Picks the representative record for a document seen by several sources.
 
@@ -155,7 +155,7 @@ class SearchService:
         winner.is_quarantine = winner.is_quarantine and loser.is_quarantine
         return winner
 
-    def _normalize_es(self, hits: List[Dict]) -> List[SearchResult]:
+    def _normalize_es(self, hits: list[dict]) -> list[SearchResult]:
         return [
             SearchResult(
                 document_id=h.get("document_id") or "",
@@ -172,7 +172,7 @@ class SearchService:
             for h in hits
         ]
 
-    def _normalize_qdrant(self, hits: List[Dict], is_quarantine: bool) -> List[SearchResult]:
+    def _normalize_qdrant(self, hits: list[dict], is_quarantine: bool) -> list[SearchResult]:
         return [
             SearchResult(
                 document_id=p.get("document_id") or "",
@@ -190,7 +190,7 @@ class SearchService:
             for p in [h.get("payload", {})]
         ]
 
-    def _normalize_graph(self, hits: List[Dict], asset_id: Optional[str]) -> List[SearchResult]:
+    def _normalize_graph(self, hits: list[dict], asset_id: str | None) -> list[SearchResult]:
         return [
             SearchResult(
                 document_id=edge.get("document_id") or "",
@@ -213,7 +213,7 @@ class SearchService:
         ]
 
     @staticmethod
-    def _edge_snippet(edge: Dict[str, Any], target: Dict[str, Any], asset_id: Optional[str]) -> str:
+    def _edge_snippet(edge: dict[str, Any], target: dict[str, Any], asset_id: str | None) -> str:
         """Renders a knowledge edge as a readable fact line for the synthesis context."""
         relationship = str(edge.get("relationship_type") or "related to").replace("_", " ").lower()
         label = (

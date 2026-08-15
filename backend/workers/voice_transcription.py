@@ -9,8 +9,8 @@ import hashlib
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from supabase import create_client
@@ -48,7 +48,7 @@ def transcribe_voice_note(
     sha256: str,
     submitted_by: str,
     filename: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     log.info("voice_transcription.started",
              work_order_id=work_order_id, storage_path=storage_path)
 
@@ -94,7 +94,7 @@ def transcribe_voice_note(
 
     # Insert into quarantine_items
     item_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     sb.table("quarantine_items").insert({
         "item_id": item_id,
         "asset_id": asset_id,

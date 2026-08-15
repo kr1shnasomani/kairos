@@ -3,8 +3,8 @@ SLA Service — Layer 7: Governance SLA tracking and lazy escalation.
 Called inline from governance endpoints; no scheduled worker required.
 """
 
-from datetime import datetime, timezone
-from typing import Any, Dict
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
@@ -15,13 +15,13 @@ _ESCALATION_ROLE = "reliability_engineer"
 
 class SLAService:
     @staticmethod
-    async def check_and_escalate(supabase) -> Dict[str, Any]:
+    async def check_and_escalate(supabase) -> dict[str, Any]:
         """
         Finds overdue conflicts and quarantine items, marks them escalated, and writes audit_log rows.
         Returns counts for the SLA report. Idempotent — escalated_at IS NOT NULL rows are skipped.
         """
         import asyncio
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         # --- knowledge_conflicts overdue (use existing sla_deadline column) ---
         overdue_conflicts = await asyncio.to_thread(

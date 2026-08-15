@@ -3,29 +3,67 @@ CLI: run NER model validation against the rolling validation corpus.
 
 Usage (inside Docker):
     python scripts/run_model_validation.py --model-name meta/llama-3.2-11b-vision-instruct
+    python scripts/run_model_validation.py --model-name <m> --no-persist   # don't write audit_log
 
 Outputs per-entity-type precision, recall, F1 and overall metrics to stdout.
+
+TWO THINGS THIS SCRIPT REPORTS BEYOND THE RAW F1
+  1. Fallback count. `NERService.extract_entities` degrades to a regex last resort when the model
+     call fails or its reply will not parse, and that resort only matches ASSET_TAG. Those documents
+     then contribute *regex* output to a score labelled with the model's name — the same
+     "authoritative-looking F1 attributed to a model that was never invoked" defect the model-gate
+     already had once, surviving as a per-document failure mode. A run with any fallback is marked
+     SUSPECT and its F1 is a ceiling, not a measurement.
+  2. Persistence. Results are written to `audit_log` as `model_gate_result`, the same row shape the
+     Celery gate writes, so a CLI run reaches /system-benchmarks instead of vanishing at stdout.
 """
 
 import argparse
 import asyncio
 import json
 import sys
+from collections import Counter
 
 sys.path.insert(0, "/app")
+
+
+class _FallbackCountingNER:
+    """
+    Delegates to the real NERService and tallies which path produced each extraction.
+
+    `evaluate()` types its `ner` argument as `Any` and calls only `extract_entities`, so this wraps
+    cleanly with no change to product code. The result dict already self-reports its path as
+    `model` ("nim" / "ollama" / "regex") — this only counts what is already there.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.paths: Counter = Counter()
+
+    async def extract_entities(self, text, *args, **kwargs):
+        result = await self._inner.extract_entities(text, *args, **kwargs)
+        self.paths[(result or {}).get("model") or "none"] += 1
+        return result
+
+    @property
+    def fallback_count(self) -> int:
+        """Extractions that did NOT come from the model under test."""
+        return sum(n for path, n in self.paths.items() if path not in ("nim", "ollama"))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run NER model validation against validation_corpus")
     parser.add_argument("--model-name", required=True, help="Model identifier label for this run")
+    parser.add_argument("--no-persist", action="store_true",
+                        help="skip the audit_log write (dry run / experimenting)")
     args = parser.parse_args()
 
-    result = asyncio.run(_run(args.model_name))
+    result = asyncio.run(_run(args.model_name, persist=not args.no_persist))
     print(json.dumps(result, indent=2))
     sys.exit(0 if result.get("passed") else 1)
 
 
-async def _run(model_name: str) -> dict:
+async def _run(model_name: str, persist: bool = True) -> dict:
     from elasticsearch import AsyncElasticsearch
     from supabase import create_client
 
@@ -41,7 +79,8 @@ async def _run(model_name: str) -> dict:
         es_kwargs["basic_auth"] = (settings.ELASTICSEARCH_USERNAME, settings.ELASTICSEARCH_PASSWORD)
     es = AsyncElasticsearch(**es_kwargs)
 
-    ner = NERService(model=model_name)  # the gate must score the model it was asked about
+    # the gate must score the model it was asked about; the wrapper records which path answered
+    ner = _FallbackCountingNER(NERService(model=model_name))
     try:
         corpus_result = supabase.table("validation_corpus").select("*").execute()
         corpus = corpus_result.data or []
@@ -53,13 +92,53 @@ async def _run(model_name: str) -> dict:
         print(f"Evaluating {len(corpus)} corpus entries for model: {model_name}", file=sys.stderr)
         metrics = await evaluate(ner, es, corpus, settings)
 
-        return {
+        fallbacks = ner.fallback_count
+        result = {
             "model_name": model_name,
             "corpus_size": len(corpus),
             **metrics,
+            "extraction_paths": dict(ner.paths),
+            "fallback_extractions": fallbacks,
+            # A fallback contributes regex output (ASSET_TAG only) to a model-attributed score, so
+            # the F1 above is an upper bound rather than a measurement of this model.
+            "validity": "SUSPECT" if fallbacks else "VALID",
         }
+
+        if fallbacks:
+            print(
+                f"WARNING: {fallbacks}/{sum(ner.paths.values())} extraction(s) fell back to a "
+                f"non-model path {dict(ner.paths)} — F1 is a CEILING, not a measurement.",
+                file=sys.stderr,
+            )
+
+        if persist:
+            await _persist(supabase, model_name, result)
+
+        return result
     finally:
         await es.close()
+
+
+async def _persist(supabase, model_name: str, result: dict) -> None:
+    """
+    Write the run to `audit_log` in the same shape `workers/model_validation.py` uses, so CLI runs
+    and Celery-triggered runs land in one series on /system-benchmarks. Append-only; never updates
+    or deletes. A persistence failure must not discard an otherwise-good measurement, so it warns
+    rather than raising — the metrics are already on stdout by then.
+    """
+    try:
+        await asyncio.to_thread(
+            lambda: supabase.table("audit_log").insert({
+                "action": "model_gate_result",
+                "entity_type": "model_gate",
+                "entity_id": model_name,
+                "performed_by": "cli",  # distinguishes these from the worker's "system" rows
+                "details": result,
+            }).execute()
+        )
+        print(f"Persisted to audit_log (model_gate_result / {model_name})", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - reporting beats losing the run
+        print(f"WARNING: audit_log write failed ({type(exc).__name__}: {exc})", file=sys.stderr)
 
 
 if __name__ == "__main__":

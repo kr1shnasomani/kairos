@@ -5,7 +5,7 @@ Publishes to Redis Streams for async brief generation.
 """
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import shortuuid
 import structlog
@@ -74,7 +74,7 @@ async def ingest_work_order(
     recurrence_count = 0
     this_family = FAILURE_FAMILIES.get(payload.failure_code, payload.failure_code)
     try:
-        cutoff_90 = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+        cutoff_90 = (datetime.now(UTC) - timedelta(days=90)).isoformat()
         prior_wos = await asyncio.to_thread(
             lambda: supabase.table("operational_events")
             .select("payload")
@@ -157,7 +157,7 @@ async def ingest_work_order(
 
     # Attribution: if this asset had a prior WO in the last 30 days, evaluate outcome
     try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(days=30)).isoformat()
         count_result = await asyncio.to_thread(
             lambda: supabase.table("operational_events")
             .select("event_id", count="exact")
@@ -461,7 +461,7 @@ async def resolve_deviation_flag(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Already '{item['review_status']}'")
 
     asset_id = item.get("asset_id")
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     reviewer_id = current_user.get("user_id", "unknown")
 
     await asyncio.to_thread(
@@ -534,7 +534,7 @@ async def set_plant_state(
     Sets or updates the plant operating state for a site.
     turnaround/shutdown/emergency suppresses all non-critical briefs for that site.
     """
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     set_by = current_user.get("user_id", "unknown")
 
     await asyncio.to_thread(
@@ -655,7 +655,7 @@ async def ingest_inspection_complete(
     or non-empty findings. Correlates with other events for the same asset.
     """
     from api.services.graph import GraphService
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     event_dict = payload.model_dump(mode="json")
 
     # Create Neo4j knowledge edge if a supporting document is referenced

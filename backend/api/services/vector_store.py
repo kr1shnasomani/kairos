@@ -2,7 +2,7 @@
 Vector store service — Qdrant client wrapper (Layer 11: Semantic Retrieval).
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
 from qdrant_client import AsyncQdrantClient
@@ -54,8 +54,8 @@ class VectorStoreService:
         self,
         collection: str,
         point_id: str,
-        vector: List[float],
-        payload: Dict[str, Any],
+        vector: list[float],
+        payload: dict[str, Any],
     ) -> None:
         """Upserts a vector point with payload metadata."""
         await self.client.upsert(
@@ -66,13 +66,13 @@ class VectorStoreService:
     async def search(
         self,
         collection: str,
-        query_vector: List[float],
+        query_vector: list[float],
         limit: int = 10,
-        asset_id: Optional[str] = None,
+        asset_id: str | None = None,
         authority_min: int = 5,
         include_quarantine: bool = False,
         quarantine_only: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Semantic search with optional payload filtering.
         Filters: asset_id, authority_level <= authority_min, quarantine status.

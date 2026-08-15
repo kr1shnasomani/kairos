@@ -6,8 +6,8 @@ Implements EEMUA 191 push governor logic.
 import asyncio
 import json
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import redis.asyncio as aioredis
 import structlog
@@ -32,7 +32,7 @@ class EventBusService:
     # Publishing
     # -------------------------------------------------------------------------
 
-    async def publish(self, stream: str, event: Dict[str, Any]) -> str:
+    async def publish(self, stream: str, event: dict[str, Any]) -> str:
         """Publishes an event to a Redis Stream. Returns the stream entry ID."""
         # Serialize to flat dict (Redis Streams don't support nested structures)
         flat_event = {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in event.items()}
@@ -41,13 +41,13 @@ class EventBusService:
         log.info("event_bus.published", stream=stream, event_id=flat_event.get("event_id"), entry_id=entry_id)
         return entry_id
 
-    async def publish_work_order(self, event: Dict[str, Any]) -> str:
+    async def publish_work_order(self, event: dict[str, Any]) -> str:
         return await self.publish(self.settings.REDIS_STREAM_WORK_ORDERS, event)
 
-    async def publish_ptw(self, event: Dict[str, Any]) -> str:
+    async def publish_ptw(self, event: dict[str, Any]) -> str:
         return await self.publish(self.settings.REDIS_STREAM_PTW, event)
 
-    async def publish_shift_handover(self, event: Dict[str, Any]) -> str:
+    async def publish_shift_handover(self, event: dict[str, Any]) -> str:
         return await self.publish(self.settings.REDIS_STREAM_SHIFT_HANDOVER, event)
 
     # -------------------------------------------------------------------------
@@ -114,9 +114,8 @@ class EventBusService:
                 return self.settings.PLANT_STATE_DEFAULT
             row = result.data[0]
             if row.get("expires_at"):
-                from datetime import timezone
                 expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
-                if expires < datetime.now(timezone.utc):
+                if expires < datetime.now(UTC):
                     return self.settings.PLANT_STATE_DEFAULT
             return row.get("state", self.settings.PLANT_STATE_DEFAULT)
         except Exception as exc:
@@ -150,8 +149,8 @@ class EventBusService:
             await self.record_push(user_id)
         return bool(first)
 
-    async def get_governor_state(self, user_id: str) -> Dict[str, Any]:
-        from datetime import datetime, timedelta, timezone
+    async def get_governor_state(self, user_id: str) -> dict[str, Any]:
+        from datetime import datetime, timedelta
         count_key = self._governor_key(user_id)
         current_count = await self.redis.get(count_key)
         current_count = int(current_count) if current_count else 0
@@ -161,7 +160,7 @@ class EventBusService:
         if suppressed:
             ttl = await self.redis.ttl(count_key)
             if ttl > 0:
-                next_delivery_allowed_at = (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat()
+                next_delivery_allowed_at = (datetime.now(UTC) + timedelta(seconds=ttl)).isoformat()
         return {
             "user_id": user_id,
             "push_count_last_hour": current_count,
@@ -184,7 +183,7 @@ class EventBusService:
         event_id: str,
         occurred_at: datetime,
         supabase,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Groups events for the same asset within DEDUP_WINDOW_MINUTES into a compound event.
         Updates all correlated rows in operational_events with a shared compound_event_id.

@@ -4,7 +4,7 @@ Mirrors the Neo4j node/edge structure for API serialization.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -21,7 +21,7 @@ class TemporalEdge(BaseModel):
 
     # Temporal validity window
     valid_from: datetime
-    valid_to: Optional[datetime] = None  # None = currently valid
+    valid_to: datetime | None = None  # None = currently valid
 
     # Authority hierarchy (1=Regulatory ... 5=Field observation)
     authority_level: int = Field(..., ge=1, le=5)
@@ -38,8 +38,8 @@ class TemporalEdge(BaseModel):
         ...,
         description="unverified, verified, disputed, superseded, quarantined"
     )
-    verified_by: Optional[str] = None
-    verified_at: Optional[datetime] = None
+    verified_by: str | None = None
+    verified_at: datetime | None = None
 
 
 class GraphNode(BaseModel):
@@ -48,14 +48,14 @@ class GraphNode(BaseModel):
         ...,
         description="Asset, Event, Document, Concept, Person, Organisation"
     )
-    properties: Dict[str, Any] = Field(default_factory=dict)
+    properties: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class KnowledgeGraphSnapshot(BaseModel):
     """A subgraph snapshot for API responses (e.g., asset context view)."""
-    nodes: List[GraphNode] = Field(default_factory=list)
-    edges: List[TemporalEdge] = Field(default_factory=list)
-    as_of: Optional[datetime] = None  # Point-in-time for time-travel queries
+    nodes: list[GraphNode] = Field(default_factory=list)
+    edges: list[TemporalEdge] = Field(default_factory=list)
+    as_of: datetime | None = None  # Point-in-time for time-travel queries
     total_nodes: int = 0
     total_edges: int = 0

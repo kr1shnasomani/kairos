@@ -4,7 +4,6 @@ Frontend uses this to render the evidence lineage panel per entity.
 """
 
 import asyncio
-from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Query
@@ -19,10 +18,10 @@ router = APIRouter()
 async def get_audit_log(
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
-    entity_type: Optional[str] = Query(None, description="asset, document, brief, conflict, quarantine_item, query"),
-    entity_id: Optional[str] = Query(None, description="ID of the specific entity"),
-    action: Optional[str] = Query(None, description="Filter by action type"),
-    performed_by: Optional[str] = Query(None, description="Filter by user ID"),
+    entity_type: str | None = Query(None, description="asset, document, brief, conflict, quarantine_item, query"),
+    entity_id: str | None = Query(None, description="ID of the specific entity"),
+    action: str | None = Query(None, description="Filter by action type"),
+    performed_by: str | None = Query(None, description="Filter by user ID"),
     limit: int = Query(50, le=200),
     offset: int = Query(0),
 ) -> dict:

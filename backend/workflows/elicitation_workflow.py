@@ -8,8 +8,8 @@ import asyncio
 import json
 import os
 import re
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 from neo4j import AsyncGraphDatabase
@@ -44,14 +44,14 @@ def _get_supabase():
 
 
 @activity.defn
-async def generate_interview_questions(params: Dict[str, Any]) -> Dict[str, Any]:
+async def generate_interview_questions(params: dict[str, Any]) -> dict[str, Any]:
     work_order_id = params["work_order_id"]
     asset_id = params["asset_id"]
     failure_code = params.get("failure_code", "")
     triggered_by = params.get("triggered_by", "system")
 
     supabase = _get_supabase()
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     session_row = await asyncio.to_thread(
         lambda: supabase.table("elicitation_sessions").insert({
@@ -66,8 +66,8 @@ async def generate_interview_questions(params: Dict[str, Any]) -> Dict[str, Any]
 
     # Query Neo4j for known vs unknown failure modes on this asset
     driver = _get_neo4j()
-    known: List[str] = []
-    unknown: List[str] = []
+    known: list[str] = []
+    unknown: list[str] = []
     try:
         async with driver.session(database=os.environ.get("NEO4J_DATABASE", "neo4j")) as neo4j_session:
             result = await neo4j_session.run(
@@ -107,7 +107,7 @@ async def generate_interview_questions(params: Dict[str, Any]) -> Dict[str, Any]
         "Be specific, not generic. Focus on gaps in the knowledge base."
     )
     # Use "text" key — matches what LLMService._format_context reads
-    context_items: List[Dict[str, Any]] = [
+    context_items: list[dict[str, Any]] = [
         {"text": f"Known failure mode: {m}", "confidence": 0.9, "authority_level": 2}
         for m in known
     ] + [
@@ -130,7 +130,7 @@ async def generate_interview_questions(params: Dict[str, Any]) -> Dict[str, Any]
     answer_match = re.search(r"ANSWER:\s*(.+?)(?:\nCONFIDENCE:|$)", answer_text, re.DOTALL | re.IGNORECASE)
     answer_block = answer_match.group(1).strip() if answer_match else answer_text
 
-    questions: List[str] = []
+    questions: list[str] = []
     for part in re.split(r"\d+[\.\)]\s+", answer_block):
         q = part.strip().rstrip()
         if q and "?" in q:
@@ -159,7 +159,7 @@ async def generate_interview_questions(params: Dict[str, Any]) -> Dict[str, Any]
         lambda: supabase.table("elicitation_sessions").update({
             "questions": questions,
             "status": "questions_ready",
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }).eq("session_id", session_id).execute()
     )
 
@@ -169,7 +169,7 @@ async def generate_interview_questions(params: Dict[str, Any]) -> Dict[str, Any]
 
 
 @activity.defn
-async def store_elicitation_response(params: Dict[str, Any]) -> Dict[str, Any]:
+async def store_elicitation_response(params: dict[str, Any]) -> dict[str, Any]:
     work_order_id = params["work_order_id"]
     responses = params["responses"]  # list of {question, answer}
     asset_id = params.get("asset_id") or None
@@ -197,7 +197,7 @@ async def store_elicitation_response(params: Dict[str, Any]) -> Dict[str, Any]:
     await asyncio.to_thread(
         lambda: supabase.table("elicitation_sessions").update({
             "status": "completed",
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }).eq("work_order_id", work_order_id).execute()
     )
 
@@ -208,7 +208,7 @@ async def store_elicitation_response(params: Dict[str, Any]) -> Dict[str, Any]:
 @workflow.defn
 class MicroInterviewWorkflow:
     @workflow.run
-    async def run(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    async def run(self, params: dict[str, Any]) -> dict[str, Any]:
         return await workflow.execute_activity(
             generate_interview_questions,
             params,
@@ -220,7 +220,7 @@ class MicroInterviewWorkflow:
 @workflow.defn
 class StoreElicitationResponseWorkflow:
     @workflow.run
-    async def run(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    async def run(self, params: dict[str, Any]) -> dict[str, Any]:
         return await workflow.execute_activity(
             store_elicitation_response,
             params,
