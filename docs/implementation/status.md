@@ -372,6 +372,53 @@ documented mitigation. Bumped regardless.
 
 ---
 
+## ⚠️ Manual QA finding — the safety refusal gate rarely fires in the real UI (2026-08-15)
+
+**Verified live in the browser, logged in as admin.** Asked the copilot two safety-critical
+questions — "Maximum allowable pressure for the HE-3xx series?" (its own suggestion chip) and
+"Which valves make up the isolation boundary for V-247?". **Both were answered. Neither refused.**
+
+This is not a rendering bug — `RefusalCard` and the copilot's refusal block are wired correctly, and
+the gate does fire on weak evidence. The problem is what clears it.
+
+`services/llm.py` clears the gate when `max_confidence >= 0.7` **OR** `best_authority <= 3`, where
+`best_authority = min(authority_level)` **across the entire retrieved context**. Hybrid results carry
+no `confidence`, so in practice the authority arm decides everything — and it is a property of the
+*context set*, not of the evidence that actually supports the answer.
+
+Controlled proof (same query, gate fires before any model call, so this is free to reproduce):
+
+| Context | Result |
+|---|---|
+| weak evidence only (one L4 site SOP) | **refused** ✓ |
+| the same L4 doc **+ one unrelated L1** ("Applicable Standards and Statutory Provisions", a compiled reference list saying nothing about V-247) | **answered** |
+
+One irrelevant high-authority document anywhere in the context defeats the gate. In the live UI this
+is the normal case: `synthesize()` sends the top 6 hybrid hits, and this corpus almost always
+surfaces an L1 regulation or L3 OEM bulletin among them.
+
+**Why the benchmark disagrees.** It reports 3 refusals (Q07/Q19/Q25) because it passes a narrow,
+per-question routed context that often excludes those documents. So the benchmark measures the gate
+under conditions the product does not reproduce — the 3 refusals are real, but they overstate how
+often the gate protects a user.
+
+**Impact.** The shipped promise — *"On safety-critical parameters, it refuses rather than guess"*,
+printed on the copilot's own empty state — is materially weaker in the product than the benchmark
+implies. The answers given were factually correct here, so nothing is currently wrong on screen;
+the defect is that the guard is not doing the work it is credited with.
+
+**Not fixed — this is a deliberate design decision, not a typo.** Tightening it wrongly is its own
+failure: a gate that refuses everything makes the copilot useless (which is exactly why the
+authority arm was added — a confidence-only gate refused every safety query). Options, cheapest first:
+1. Judge authority over the **top-ranked** context items only, not the whole set — the best-matching
+   document is the one plausibly supporting the answer; a reference list ranked 6th is not.
+2. Require the authoritative document to be **cited in the answer** (`sources_used`) before clearing.
+3. Require both a relevance floor and authority ≤ 3.
+
+Option 1 is the smallest change with most of the benefit.
+
+---
+
 ## Benchmark caveats & measurement notes (2026-08-15)
 
 ### OpenRouter added as tier 2 (2026-08-15) — same model, ahead of Gemini
