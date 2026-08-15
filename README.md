@@ -217,7 +217,7 @@ kairos/
 ├── dataset/            # Golden demo + benchmark corpus (docs · events · telemetry)
 ├── db/                 # Neo4j Cypher schema · consolidated Supabase schema · maintenance SQL
 ├── docs/               # Product & technical documentation (this folder)
-├── fixtures/           # Shared mock data (P&ID topology, EAM assets)
+├── fixtures/           # Backend mock-by-design data (P&ID topology fallback, test audio)
 ├── infra/              # Caddy (HTTPS) · OPA policies · Temporal config · Grafana Cloud
 ├── tests/              # Integration test suite (self-cleaning)
 ├── docker-compose.yml  # Full local infrastructure

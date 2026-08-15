@@ -1,4 +1,12 @@
-> **HISTORICAL — the fixture system described below no longer exists.**
+> **MOSTLY HISTORICAL — but one fixture below is still live.**
+>
+> **`fixtures/pid_topology_mock.json` is NOT dead and must not be deleted.**
+> `workflows/document_pipeline.py:211` falls back to it when the NIM vision model cannot parse a
+> P&ID, and sets `topology_source: "demo_fixture"` — which the UI is required to disclose. That is
+> the mock-by-design path, and removing the file breaks P&ID fallback. `fixtures/test.wav` is
+> manual test audio for the voice-note flow (referenced from BE.md / FE.md), not used by code.
+>
+> Everything below about the **frontend** fixture system is historical:
 >
 > `lib/{fixtures,assets,governance,documents,events,compliance}.ts` and the `DemoChip` component
 > were deleted on 2026-08-15, and `DataSource` narrowed to a single member (`"live"`) so a fallback
