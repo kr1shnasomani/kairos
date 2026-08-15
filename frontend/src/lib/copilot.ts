@@ -42,3 +42,59 @@ export const SUGGESTIONS = [
   "Isolation points for work on V-247",
   "Open compliance gaps on P-101",
 ];
+
+// ─── Meta questions ──────────────────────────────────────────────────────────
+//
+// "hello", "what can you do?", "help" are questions about the *assistant*, not about
+// plant knowledge. Sending them down the retrieval pipeline retrieves nothing relevant,
+// spends a synthesis call (p50 ~40 s) and returns either a refusal or a vague answer
+// assembled from unrelated documents — which reads as the system being broken.
+//
+// These are answered locally instead. The reply describes the system and is rendered with
+// NO sources, because it has none: it is not retrieved knowledge and must never be dressed
+// up as such. Anything not matched here goes to the governed pipeline unchanged — this
+// deliberately does not attempt small talk, and no plant fact is ever answered from here.
+
+/** Marks a turn as locally answered, so the UI can label it and skip provenance chrome. */
+export const META_MODEL = "kairos-meta";
+
+const META_REPLIES: ReadonlyArray<{ test: RegExp; answer: string }> = [
+  {
+    test: /^\s*(hi|hey|hello|yo|good\s*(morning|afternoon|evening))\b/i,
+    answer:
+      "Hello. Ask me about an asset, a document, a procedure or a compliance clause and I'll answer " +
+      "from governed sources with citations.\n\nTry: \"What's the failure history of P-101?\"",
+  },
+  {
+    test: /\b(what can you do|what do you do|who are you|what are you|how do you work|what is kairos|help me|^\s*help\s*$|capabilities)\b/i,
+    answer:
+      "I answer questions about this plant's equipment from governed, cited sources.\n\n" +
+      "**What I can do**\n" +
+      "• Current facts about an asset — part numbers, ratings, OEM, equipment class\n" +
+      "• History and supersession — what was true on a past date, and which document replaced which\n" +
+      "• Traceability — which document and authority level a fact came from\n" +
+      "• Compliance gaps and the evidence behind them\n" +
+      "• Failure history, root-cause packs and blast radius\n\n" +
+      "**How I answer**\n" +
+      "Every claim carries its source document and authority level. Where evidence is weak I say so " +
+      "rather than smoothing over it.\n\n" +
+      "**What I refuse**\n" +
+      "Safety-critical parameters — pressure limits, isolation boundaries, torque specs, relief " +
+      "settings — when the evidence isn't authoritative enough. You get the source documents and an " +
+      "escalation path instead of a confident guess.",
+  },
+];
+
+/** A local answer for a meta question, or null to send the query to retrieval. */
+export function metaAnswer(query: string): CopilotAnswer | null {
+  const hit = META_REPLIES.find((r) => r.test.test(query));
+  if (!hit) return null;
+  return {
+    answer: hit.answer,
+    sources: [],
+    confidence: 1,
+    refused: false,
+    safety_critical: false,
+    model: META_MODEL,
+  };
+}

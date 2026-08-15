@@ -13,10 +13,10 @@ to OpenRouter on the *same* model then Gemini · `llama-3.2-11b-vision` NER · J
 | Metric | Result | Harness |
 |---|---|---|
 | Layer smoke checks | **13/13 pass** | `verify_layers.py` |
-| Retrieval (fact reaches context) | **25/25 (100%)** | `run_benchmark.py` |
-| Answer quality (facts stated, not negated) | **24/25 (96%)** | `run_benchmark.py` |
-| Provenance (sources cited) | **25/25 (100%)** | `run_benchmark.py` |
-| Entity-extraction F1 (Layer-0 gate) | **0.917** | `run_model_validation.py` |
+| Retrieval (fact reaches context) | **37/37 (100%)** | `run_benchmark.py` |
+| Answer quality (facts stated, not negated) | **24/25 (96%)** — on the previous 25-question set | `run_benchmark.py` |
+| Provenance (sources cited) | **25/25 (100%)** — on the previous 25-question set | `run_benchmark.py` |
+| Entity-extraction F1 (Layer-0 gate) | **0.917** (on the old 13-label corpus; corpus now 40) | `run_model_validation.py` |
 | Compliance gap detection | **P 1.000 · R 0.973 · F1 0.986** | `run_compliance_eval.py` |
 | Time-to-answer vs keyword search | **25.6% modelled reduction** | `run_time_to_answer.py` |
 | Concurrency | **2275 requests · 0% errors · knee at 50 VU** | `run_load_test.py` |
@@ -43,7 +43,19 @@ to OpenRouter on the *same* model then Gemini · `llama-3.2-11b-vision` NER · J
   13/13 checks passed
 ```
 
-## 2. `run_benchmark.py` — domain-expert Q&A (25 questions)
+## 2. `run_benchmark.py` — domain-expert Q&A
+
+**The question set was widened 25 → 37 on 2026-08-15**, so that no category sits at n=1 (eight did).
+Retrieval was re-run against all 37 and holds at **37/37**, tightening the interval from
+[87–100%] to **[91–100%]**:
+
+```
+  Retrieval (fact reaches context):    37/37 (100%)  95% CI [91–100%]
+```
+
+The answer-quality and provenance block below is the last **full** run, measured on the previous
+25-question set. It is not restated as a 37-question result, because it is not one — re-run to get
+a comparable figure.
 
 ```
   Retrieval (fact reaches context):    25/25 (100%)  95% CI [87–100%]
@@ -104,6 +116,11 @@ sources for direct verification.
 ```
 
 Previous run (2026-07-25, same model and corpus): precision 0.800 · recall 0.923 · F1 0.857.
+
+**The corpus was expanded 13 → 40 labels on 2026-08-15** (ASSET_TAG 9→30, PERSON 2→7,
+ORGANIZATION 2→3). The F1 above predates that and is not comparable to the next run — re-measure
+before quoting. `ORGANIZATION` stays small because the golden corpus contains only two unambiguous
+vendors; see the status.md caveats.
 
 **`validity: SUSPECT`** — 2 of 5 extractions fell back to the regex path, which matches ASSET_TAG
 only, so this F1 is a ceiling rather than a measurement of the model. Cause and fix in the

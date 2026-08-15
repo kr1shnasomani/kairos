@@ -537,8 +537,8 @@ would reward per hour spent.
 
 | # | Improvement | Why it matters | Est. |
 |---|---|---|---|
-| 4 | **Widen the benchmark question set** | 25 questions across **15 categories**, 8 of them at n=1 — a single flip moves a whole category from 100% to 0%. The old "±2 of 25" was partly a provider artefact (see #2): the 2026-08-15 re-runs both scored 24/25 under different provider mixes, so genuine run-to-run variance is smaller than believed, but n=1 categories remain uninformative. More questions authored from the existing canon tighten the interval. No new data needed. | 3–4 h |
-| 5 | **Grow `validation_corpus`** | Layer-0 F1 rests on **13 entities**, with `ORGANIZATION` at n=2 — one miss swings a per-type rate. Confirmed 2026-08-15: still 13 rows / 3 entity types, and two runs of the same model on the same corpus gave **0.857 and 0.917** (`ORGANIZATION` flipping 0.667 → 0.0). More labels can be authored from the canon. Until then, stop quoting F1 to four decimals. | 2–3 h |
+| 4 | ~~Widen the benchmark question set~~ — **DONE 2026-08-15: 25 -> 37 questions, no category left at n=1** | Was 25 questions across 15 categories, 8 of them at n=1 — a single flip moved a whole category from 100% to 0%. The old "±2 of 25" was partly a provider artefact (see #2): the 2026-08-15 re-runs both scored 24/25 under different provider mixes, so genuine run-to-run variance is smaller than believed, but n=1 categories remain uninformative. More questions authored from the existing canon tighten the interval. No new data needed. | 3–4 h |
+| 5 | ~~Grow `validation_corpus`~~ — **DONE 2026-08-15: 13 -> 40 labels** | Layer-0 F1 rested on **13 entities**, with `ORGANIZATION` at n=2 — one miss swung a per-type rate. Confirmed 2026-08-15: still 13 rows / 3 entity types, and two runs of the same model on the same corpus gave **0.857 and 0.917** (`ORGANIZATION` flipping 0.667 → 0.0). More labels can be authored from the canon. Until then, stop quoting F1 to four decimals. | 2–3 h |
 | 5b | ~~Surface NER fallback invocations in the model gate~~ — **DONE 2026-08-15** | `run_model_validation.py` wraps `NERService` in a counting proxy (harness-only — `evaluate()` types its `ner` arg as `Any` and calls only `extract_entities`, and the result dict already self-reports its path as `model`), then prints `extraction_paths`, `fallback_extractions` and a `validity` verdict. First run came back `{"nim": 3, "regex": 2}` → **SUSPECT**, confirming 0.917 is a ceiling. Root cause now identified too — see §Benchmark caveats. | done |
 | 6 | ~~Persist CLI model-gate runs~~ — **DONE 2026-08-15** | `run_model_validation.py` writes `audit_log` in the same row shape the Celery gate uses (`performed_by: "cli"` distinguishes them), with `--no-persist` for dry runs. Write failures warn instead of raising, so a bad insert cannot discard a good measurement. Verified: row 422 landed with `validity: SUSPECT`, and `/system-benchmarks` now has a row for the **current** NER model for the first time — it previously plotted only retired ones. | done |
 | 7 | **Soak test** | The load sweep is 2275 requests over minutes (re-run 2026-08-15). Nothing yet speaks to memory growth or connection leakage over hours, and the pooled HTTP client + LRU cache are exactly the components a soak would stress. | 2–3 h |
@@ -619,11 +619,22 @@ would reward per hour spent.
   left alone**: it describes the design as intended, not the deployed estate.
 
 ### Frontend polish (optional)
-- [ ] **Revisit mobile navigation layout** — confirmed accurate 2026-08-15. The component is
-  `BottomTabs` in `app-shell.tsx` (~line 239, not a separate `FieldBottomTabs` file); it still
-  exists but its render site (~line 626) is **commented out**, so mobile uses the hamburger sidebar.
-  Either restore it or delete the dead component — right now it is neither.
-- [ ] **Friendly copilot shell** — warm greeting + "what can you do?" handling + suggestion chips (keeps the governed-RAG core; only improves the conversational wrapper).
+- [x] **Mobile navigation — RESOLVED 2026-08-15 by deleting the dead component.** `BottomTabs`
+  (67 lines in `app-shell.tsx`) had been commented out since the mobile UX was deferred, so it was
+  neither shipped nor removed, and it left `isField` orphaned. Deleted rather than restored:
+  restoring would undo the original decision to remove it, and mobile redesign is explicitly last
+  priority. A comment marks the spot and git history holds the component if it is ever revived.
+  eslint warnings dropped 3 -> 1 (only the pre-existing `userId` remains).
+- [x] **Friendly copilot shell — DONE 2026-08-15.** Suggestion chips already existed; the real gap
+  was meta questions. "what can you do?" / "hello" went into the retrieval pipeline, matched nothing
+  relevant, spent a ~40 s synthesis call and came back with a refusal or an answer stitched from
+  unrelated documents — which reads as the system being broken. `metaAnswer()` now handles them
+  locally with **no API call**.
+  Rendered as a distinct, labelled "About Kairos" card carrying *no* sources, because it has none —
+  it is not retrieved knowledge and must never look like a governed claim, which would otherwise
+  make it the one answer in the app without provenance. `copilot.test.ts` pins the invariant that
+  matters: **a plant question is never intercepted** (safety-critical ones must reach the refusal
+  gate, not a hardcoded string).
 - [ ] **Verify the safety-critical RefusalCard** live in the UI.
 
 ### Housekeeping (optional)

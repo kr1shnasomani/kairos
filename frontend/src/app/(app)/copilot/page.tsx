@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SUGGESTIONS, type CopilotAnswer } from "@/lib/copilot";
+import { SUGGESTIONS, metaAnswer, type CopilotAnswer } from "@/lib/copilot";
 import { synthesize } from "@/lib/api";
 import { Answer, AnswerError, Thinking, SYNTHESIS_ENABLED } from "./_components/answer-card";
 import { Composer } from "./_components/composer";
@@ -73,6 +73,17 @@ export default function CopilotPage() {
 
   function run(id: number, q: string, at?: string) {
     setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer: null, error: undefined } : turn)));
+
+    // "hello" / "what can you do?" are about the assistant, not the plant. Answering them
+    // locally avoids a ~40 s synthesis call that would retrieve nothing relevant and come back
+    // with a refusal or an answer stitched from unrelated documents. Plant questions are
+    // untouched — metaAnswer returns null for anything it does not explicitly recognise.
+    const meta = metaAnswer(q);
+    if (meta) {
+      setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer: meta } : turn)));
+      return;
+    }
+
     synthesize(q, at)
       .then((answer) => {
         setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer } : turn)));

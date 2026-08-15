@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { CopilotAnswer } from "@/lib/copilot";
+import { META_MODEL, type CopilotAnswer } from "@/lib/copilot";
 import { AuthorityBadge, SourceChip, StatusBadge, ConfidenceMeter } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { EntityAnnotations } from "./entity-annotations";
@@ -47,6 +47,31 @@ export function Answer({ data }: { data: CopilotAnswer }) {
   const hasQuarantine = data.sources.some((s) => s.is_quarantine);
   // Non-safety, non-refused, low confidence — show uncertainty block.
   const uncertain = !data.refused && data.confidence < 0.7;
+  // A locally-answered meta question ("what can you do?"). It has no sources because it is
+  // not retrieved knowledge, which would otherwise make it the one answer in the app without
+  // provenance. Rendered as a labelled system reply so it cannot be read as a governed claim,
+  // and without the feedback control — there is no retrieval quality to rate.
+  const isMeta = data.model === META_MODEL;
+
+  if (isMeta) {
+    return (
+      <div className="space-y-3 rounded-2xl rounded-bl-sm border border-line bg-surface-2 p-4">
+        <div className="flex items-center gap-2">
+          <StatusBadge tone="neutral">About Kairos</StatusBadge>
+          <span className="text-caption text-muted">Not a knowledge answer — no sources cited</span>
+        </div>
+        <div className="space-y-2 text-sm leading-relaxed text-ink">
+          {(data.answer ?? "").split("\n").map((line, i) =>
+            line.trim() === "" ? null : (
+              <p key={i} className={line.startsWith("**") ? "font-semibold text-ink" : "text-pretty"}>
+                {line.replace(/\*\*/g, "")}
+              </p>
+            ),
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3.5 rounded-2xl rounded-bl-sm border border-line bg-surface p-4">
