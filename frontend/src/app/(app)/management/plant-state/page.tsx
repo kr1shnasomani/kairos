@@ -28,10 +28,11 @@ export default function PlantStatePage() {
       if (!alive || !u) return;
       setSiteId(u.site_id);
       setIsAdmin(ADMIN_ROLES.includes(u.role));
-      getPlantState(u.site_id).then(({ data, source }) => {
+      // Returned, not fire-and-forget: `getPlantState` now throws on failure instead of
+      // returning a fixture, and an unreturned inner promise would reject outside the
+      // outer .catch() — an unhandled rejection with the page stuck on its loading state.
+      return getPlantState(u.site_id).then(({ data }) => {
         if (!alive) return;
-        // Live-only: a demo fallback means the fetch failed — don't fabricate a state.
-        if (source === "demo") { setCurrent(null); setFailed(true); return; }
         setFailed(false);
         setCurrent(data);
       });

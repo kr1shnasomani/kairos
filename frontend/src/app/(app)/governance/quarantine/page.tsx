@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { QuarantineItem } from "@/lib/types";
 import { getQuarantine } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
-import { Button, DataTable, DemoChip, EmptyState, FilterTabs, PageHeader } from "@/components/ui";
+import { Button, DataTable, EmptyState, FilterTabs, PageHeader } from "@/components/ui";
 import { useRole, PROMOTE_ROLES } from "@/components/use-role";
 import { QueuePills } from "@/components/stat-pills";
 import { ItemPanel } from "./_components/item-panel";
@@ -36,7 +36,7 @@ export default function QuarantinePage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const hasData = state.status === "live" || state.status === "demo";
+  const hasData = state.status === "live";
   const items = useMemo<QuarantineItem[]>(() => (hasData ? state.data.items ?? [] : []), [state, hasData]);
 
   const counts = useMemo(() => {
@@ -99,7 +99,6 @@ export default function QuarantinePage() {
         eyebrow="Layer 6 · Quarantine"
         title="Review queue"
         lede="Unverified field inputs awaiting human review. Promotion to the canonical graph is a one-way gate: nothing is auto-promoted, ever."
-        actions={state.status === "demo" ? <DemoChip /> : undefined}
       />
 
       <section data-testid="quarantine-summary" className="mt-5">

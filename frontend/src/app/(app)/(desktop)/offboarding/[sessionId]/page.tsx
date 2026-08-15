@@ -195,7 +195,7 @@ export default function OffboardingSessionPage() {
     getOffboarding(programmeId).then((r) => {
       if (!alive) return;
       // Live-only: no fixture stand-in for a real programme.
-      if (!r.data || r.source === "demo") { setFailed(true); setLoaded(true); return; }
+      if (!r.data) { setFailed(true); setLoaded(true); return; }
       setFailed(false);
       setProgramme(r.data);
       setLoaded(true);

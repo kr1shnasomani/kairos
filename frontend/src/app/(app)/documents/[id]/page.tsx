@@ -38,9 +38,7 @@ function buildVersionChain(old: VaultDocument, newer: VaultDocument): TimelineEv
 
 export default async function DocumentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { data: d, source } = await getDocument(id);
-  // Live-only: no fixture stand-in for a real vault document.
-  if (source === "demo") throw new Error("Document detail: live data unavailable");
+  const { data: d } = await getDocument(id);
   if (!d) notFound();
 
   // Fetch the superseding doc to build the version chain timeline

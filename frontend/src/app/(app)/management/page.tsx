@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { AXIS, ChartCard, GRID, TOOLTIP } from "@/components/charts";
-import { DemoChip, MetricCard, PageHeader } from "@/components/ui";
+import { MetricCard, PageHeader } from "@/components/ui";
 import type { Fetched } from "@/lib/api";
 import { getComplianceDashboard, getConflicts, getEvents, getHealthDetailed, getQuarantine, getSlaReport } from "@/lib/api";
 import { useScrollReveal } from "@/lib/motion";
@@ -49,7 +49,7 @@ async function fetchOverview(): Promise<Fetched<Overview>> {
       compliance: dr.data,
       events: er.data?.items ?? [],
     },
-    source: [cr, qr, sr, dr, er].some((r) => r.source === "demo") ? "demo" : "live",
+    source: "live",
   };
 }
 
@@ -71,12 +71,12 @@ function dailyCounts(events: OperationalEvent[], endMs: number) {
 export default function ManagementPage() {
   const state = useFetch(fetchOverview);
   const loading = state.status === "loading";
-  const data = state.status === "live" || state.status === "demo" ? state.data : null;
+  const data = state.status === "live" ? state.data : null;
 
   // Health is a secondary strip on its own fetch — a slow/failed cloud ping shows an
   // inline "unavailable" state instead of blanking the whole overview.
   const healthState = useFetch(getHealthDetailed);
-  const health = healthState.status === "live" || healthState.status === "demo" ? healthState.data : null;
+  const health = healthState.status === "live" ? healthState.data : null;
   const healthLoading = healthState.status === "loading";
 
   const trend = useMemo(() => (data ? dailyCounts(data.events, nowMs()) : null), [data]);
@@ -102,7 +102,6 @@ export default function ManagementPage() {
         lede="Situational awareness across knowledge, conflicts, and compliance."
         actions={
           <>
-            {state.status === "demo" && <DemoChip />}
             <Link
               href="/management/plant-state"
               className="inline-flex min-h-11 items-center rounded-lg border border-line bg-surface px-3 text-caption font-medium text-muted transition-colors hover:bg-surface-2 hover:text-ink"

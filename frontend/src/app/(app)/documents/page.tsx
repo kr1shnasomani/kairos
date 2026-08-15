@@ -6,9 +6,7 @@ import { StatPills } from "@/components/stat-pills";
 import { DocumentsTable } from "./_components/documents-table";
 
 export default async function DocumentsPage() {
-  const { data, source } = await getDocuments();
-  // Live-only: never render fixture documents.
-  if (source === "demo") throw new Error("Documents: live data unavailable");
+  const { data } = await getDocuments();
   const items = data.items ?? [];
   const activeCount = items.filter((d) => d.status === "active").length;
 

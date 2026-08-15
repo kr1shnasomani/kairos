@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo } from "react";
 import type { CircuitBreakerEntry, CircuitBreakerState } from "@/lib/types";
 import { getCircuitBreaker } from "@/lib/api";
-import { DataTable, DemoChip, EmptyState, MetricCard, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import { DataTable, EmptyState, MetricCard, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
 import { Card } from "@/components/ui-card";
 import { BarList } from "@/components/charts/bar-list";
 import { ChartSkeleton } from "@/components/skeleton";
@@ -41,7 +41,7 @@ const COLUMNS: TableColumn<BreakerRow>[] = [
 export default function CircuitBreakerPage() {
   const state = useFetch(getCircuitBreaker);
   const loading = state.status === "loading";
-  const cb = state.status === "live" || state.status === "demo" ? state.data ?? FIXTURE : null;
+  const cb = state.status === "live" ? state.data ?? FIXTURE : null;
   const states = useMemo(() => cb?.states ?? [], [cb]);
   const halted = states.filter((e) => e.halted);
   const maxZ = states.length > 0 ? Math.max(...states.map((e) => e.z_score ?? 0)) : null;
@@ -64,8 +64,6 @@ export default function CircuitBreakerPage() {
       </Link>
 
       <PageHeader className="mt-4" eyebrow="Layer 11 · SPC governor" title="Circuit Breaker" lede="Statistical process control gates that halt ingestion for an asset class when z-score anomalies exceed threshold. Halted classes require admin override or human-verified resolution." />
-
-      {state.status === "demo" && <div className="mt-4"><DemoChip /></div>}
       {state.status === "error" && (
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-[color-mix(in_srgb,var(--danger)_30%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_5%,var(--surface))] p-4 text-body text-ink">
           Couldn&rsquo;t load circuit-breaker state.

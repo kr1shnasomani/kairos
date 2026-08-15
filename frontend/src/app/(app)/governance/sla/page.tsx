@@ -3,13 +3,13 @@
 // SLA escalations — analytics arc: KPI strip → breakdown/composition charts →
 // days-overdue distribution → merged drill-down table. One useFetch drives
 // every zone: skeletons on first paint (no fixture flash — fixture fallback
-// lives in api.ts), DemoChip only when the fetcher actually fell back,
+// lives in api.ts) only when the fetcher actually fell back,
 // error + retry on every surface.
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ChartContainer } from "@/components/charts";
-import { DataTable, DemoChip, EmptyState, FilterTabs, MetricCard, PageHeader } from "@/components/ui";
+import { DataTable, EmptyState, FilterTabs, MetricCard, PageHeader } from "@/components/ui";
 import { getSlaReport } from "@/lib/api";
 import { fmtRelTime } from "@/lib/format";
 import { useReducedMotion } from "@/lib/motion";
@@ -33,7 +33,7 @@ export default function SlaPage() {
   const [filter, setFilter] = useState("all");
 
   const loading = state.status === "loading";
-  const report = state.status === "live" || state.status === "demo" ? state.data : null;
+  const report = state.status === "live" ? state.data : null;
   const errorMsg = state.status === "error" ? state.error.message : undefined;
   const retry = state.status === "error" ? state.retry : undefined;
 
@@ -97,7 +97,6 @@ export default function SlaPage() {
         eyebrow="Layer 7 · Case management"
         title="SLA escalations"
         lede="Where governance SLAs are breached right now: overdue conflicts and quarantine reviews, escalated for attention."
-        actions={state.status === "demo" ? <DemoChip /> : undefined}
       />
       {report && <p className="mt-2 text-caption text-muted">Checked {fmtRelTime(report.checked_at)}</p>}
 

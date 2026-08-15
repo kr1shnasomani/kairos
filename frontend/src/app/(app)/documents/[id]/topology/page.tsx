@@ -38,7 +38,7 @@ function TopologyPageInner() {
   const [isDemo, setIsDemo] = useState(false);
 
   useEffect(() => {
-    getDocumentTopology(id).then(({ data, source }) => {
+    getDocumentTopology(id).then(({ data }) => {
       const resolved = data ?? FIXTURE;
       setTopo(resolved);
       // Two independent ways this can be non-extracted topology, and both must be shown:
@@ -46,7 +46,7 @@ function TopologyPageInner() {
       // back to its own demo fixture because the vision model was unreachable. The second
       // case returns source:"live" with plausible-looking elements, so it previously
       // rendered as if the drawing had actually been parsed.
-      setIsDemo(source === "demo" || !data || data.topology_source === "demo_fixture");
+      setIsDemo(!data || data.topology_source === "demo_fixture");
       setLoading(false);
     });
   }, [id]);

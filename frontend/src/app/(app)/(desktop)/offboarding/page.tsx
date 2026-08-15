@@ -27,9 +27,7 @@ function emailInitials(email: string) {
 }
 
 export default async function OffboardingPage() {
-  const { data: programmes, source } = await getOffboardingList();
-  // Live-only: never render fixture programmes.
-  if (source === "demo") throw new Error("Off-boarding: live data unavailable");
+  const { data: programmes } = await getOffboardingList();
   const totalSessions = programmes.reduce((sum, programme) => sum + programme.total_sessions, 0);
   const completedSessions = programmes.reduce((sum, programme) => sum + (programme.sessions_completed ?? 0), 0);
   const completedProgrammes = programmes.filter((programme) => programme.total_sessions > 0 && (programme.sessions_completed ?? 0) === programme.total_sessions).length;

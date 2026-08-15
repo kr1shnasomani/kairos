@@ -6,10 +6,9 @@ import { AssetRegistry } from "./asset-registry";
 import { IdentityConfirmAction } from "./identity-action";
 
 export default async function AssetsPage() {
-  const { data, source } = await getAssets();
+  const { data } = await getAssets();
   // Live-only: never render fixtures. A fallback means the backend is unreachable →
   // surface the shared error boundary (Try again) instead of fabricated assets.
-  if (source === "demo") throw new Error("Assets: live data unavailable");
   const items = data.items ?? [];
 
   // Spec §3: pills by equipment class — total plus the top classes by count.

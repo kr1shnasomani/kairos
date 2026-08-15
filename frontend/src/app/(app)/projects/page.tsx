@@ -21,11 +21,8 @@ export default function ProjectsPage() {
     let alive = true;
     Promise.all([getDocuments(), getAssets(), getEvents({ limit: 100 })]).then(([d, a, e]) => {
       if (!alive) return;
-      // Live-only: any fixture fallback → show a retry, never fabricated portfolio data.
-      if (d.source === "demo" || a.source === "demo" || e.source === "demo") {
-        setFailed(true);
-        return;
-      }
+      // Live-only is now enforced in the fetchers themselves: they throw rather than
+      // returning a fixture, so a failure lands in .catch() below.
       setFailed(false);
       setDocuments(d.data.items);
       setAssets(a.data.items);

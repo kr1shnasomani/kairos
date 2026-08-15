@@ -19,7 +19,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { getBlastRadius } from "@/lib/api";
 import type { BlastRadiusReport } from "@/lib/types";
-import { StatusBadge, DemoChip, EmptyState } from "@/components/ui";
+import { StatusBadge, EmptyState } from "@/components/ui";
 import Link from "next/link";
 import { useCanvasTokens, arrowMarker, type CanvasTokens } from "@/lib/graph-theme";
 
@@ -127,22 +127,6 @@ function buildBlastDiagram(report: BlastRadiusReport, tokens: CanvasTokens): { n
   return { nodes: rfNodes, edges: rfEdges };
 }
 
-// ── Fixture ───────────────────────────────────────────────────────────────────
-
-function fixtureReport(documentId: string): BlastRadiusReport {
-  return {
-    document_id: documentId,
-    affected_count: 4,
-    generated_at: new Date().toISOString(),
-    items: [
-      { item_id: "br-1", item_type: "procedure", description: "Isolation procedure SOP-IS-07", asset_id: "P-101", flagged_for_review: true },
-      { item_id: "br-2", item_type: "inspection", description: "Annual inspection schedule A-2024", asset_id: "EQ-101", flagged_for_review: true },
-      { item_id: "br-3", item_type: "fact", description: "Design pressure rating 15 bar", asset_id: "P-101", flagged_for_review: false },
-      { item_id: "br-4", item_type: "compliance", description: "OISD-118 §4.2 compliance mapping", asset_id: undefined, flagged_for_review: true },
-    ],
-  };
-}
-
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
 export function BlastRadiusPanel(props: { documentId: string }) {
@@ -152,18 +136,18 @@ export function BlastRadiusPanel(props: { documentId: string }) {
 function BlastRadiusPanelInner({ documentId }: { documentId: string }) {
   const tokens = useCanvasTokens();
   const [report, setReport] = useState<BlastRadiusReport | null>(null);
-  const [isDemo, setIsDemo] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   useEffect(() => {
     let alive = true;
-    getBlastRadius(documentId).then(({ data, source }) => {
-      if (!alive) return;
-      const resolved = data ?? fixtureReport(documentId);
-      setReport(resolved);
-      setIsDemo(source === "demo" || !data);
-    });
+    // No fixture fallback. This used to render fabricated blast-radius items — invented
+    // asset ids and a "Design pressure rating 15 bar" fact — whenever `data` was null,
+    // which is fabricated safety-relevant data presented as a real impact analysis.
+    // A null report leaves the panel in its own empty state.
+    getBlastRadius(documentId)
+      .then(({ data }) => { if (alive) setReport(data); })
+      .catch(() => { if (alive) setReport(null); });
     return () => { alive = false; };
   }, [documentId]);
 
@@ -193,7 +177,6 @@ function BlastRadiusPanelInner({ documentId }: { documentId: string }) {
       </div>
 
       <div className="mt-3 space-y-4">
-          {isDemo && <DemoChip />}
 
           {report.items.length === 0 ? (
             <div className="rounded-xl border border-line bg-surface">

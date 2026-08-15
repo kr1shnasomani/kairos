@@ -60,7 +60,8 @@ describe("strict-auth reads", () => {
     localStorage.setItem("kairos-refresh", "refresh-token");
 
     const { getBriefs } = await import("./api");
-    await getBriefs();
+    // Rejects rather than resolving to a fixture — the session teardown is what matters here.
+    await expect(getBriefs()).rejects.toThrow();
 
     expect(localStorage.getItem("kairos-token")).toBeNull();
     expect(localStorage.getItem("kairos-refresh")).toBeNull();
@@ -99,48 +100,36 @@ describe("strict-auth reads", () => {
   });
 });
 
-describe("audit-pack fallback", () => {
+describe("no fixture fallbacks", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("returns a visualizable frontend fixture when the backend is unavailable", async () => {
+  it("throws when the audit-pack backend is unavailable, instead of serving a fixture", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     const { getAuditPack } = await import("./api");
 
-    const result = await getAuditPack("OISD-117");
-
-    expect(result.source).toBe("demo");
-    expect(result.data?.framework).toBe("OISD-117");
-    expect(result.data?.clauses.length).toBeGreaterThan(0);
-    expect(result.data?.clauses.some((clause) => clause.clearance_blocked)).toBe(true);
-    expect(result.data?.clauses.some((clause) => clause.evidence.length > 0)).toBe(true);
+    // Was: returned a fabricated AuditPack tagged source:"demo" with invented clauses and
+    // evidence. The live-only guard discarded it anyway, so the only thing it achieved was
+    // making a failure look like a compliance record in the source.
+    await expect(getAuditPack("OISD-117")).rejects.toThrow();
   });
 });
 
-describe("event demo fixtures", () => {
+describe("events: empty and offline are honest", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.resetModules();
   });
 
-  it("returns varied click-through events when the backend is unavailable", async () => {
+  it("throws when the backend is unavailable", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    const { getEvents } = await import("./api");
 
-    const { getEvent, getEvents } = await import("./api");
-    const list = await getEvents({ limit: 4 });
-
-    expect(list.source).toBe("demo");
-    expect(list.data.items).toHaveLength(4);
-    expect(new Set(list.data.items.map((event) => event.priority)).size).toBeGreaterThan(1);
-    expect(list.data.items.some((event) => event.acknowledged)).toBe(true);
-    expect(list.data.items.some((event) => !event.acknowledged)).toBe(true);
-
-    const detail = await getEvent(list.data.items[0].event_id);
-    expect(detail.source).toBe("demo");
-    expect(detail.data).toMatchObject({ event_id: list.data.items[0].event_id });
-    expect(detail.data?.payload).not.toEqual({});
+    await expect(getEvents({ limit: 4 })).rejects.toThrow();
   });
 
-  it("uses demo events when the live event feed is empty", async () => {
+  it("returns an empty live list rather than substituting demo events", async () => {
+    // This is the important one. getEvents used to swap in fixtures when a *successful*
+    // request returned zero items — fabricating data on a 200, not just on failure.
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       items: [], total: 0, limit: 50, offset: 0,
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
@@ -148,7 +137,7 @@ describe("event demo fixtures", () => {
     const { getEvents } = await import("./api");
     const result = await getEvents();
 
-    expect(result.source).toBe("demo");
-    expect(result.data.items.length).toBeGreaterThan(0);
+    expect(result.source).toBe("live");
+    expect(result.data.items).toHaveLength(0);
   });
 });

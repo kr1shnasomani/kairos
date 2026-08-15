@@ -83,7 +83,7 @@ export default function ElicitationPage() {
     getElicitationQuestions(workOrderId).then((r) => {
       if (!alive) return;
       // Live-only: no fixture questions. If none are ready, say so honestly.
-      if (!r.data || r.source === "demo") { setFailed(true); return; }
+      if (!r.data) { setFailed(true); return; }
       setFailed(false);
       setSession(r.data);
     }).catch(() => { if (alive) setFailed(true); });
