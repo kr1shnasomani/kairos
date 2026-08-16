@@ -22,6 +22,9 @@ export function AppHeader({ name, role, onOpenSearch, onOpenCapture, onCreate, o
         <kbd className="ml-auto rounded border border-line bg-surface-2 px-1.5 py-0.5 text-micro">{shortcut}</kbd>
       </button>
       <div className="ml-auto flex items-center gap-3">
+        {/* Layer 12: which trust phase the backend is actually enforcing. Operators should be
+            able to see whether synthesis and proactive push are live without asking. */}
+        <PhaseBadge />
         <button type="button" onClick={onOpenCapture} aria-label="Open field capture" className="grid size-11 place-items-center rounded-xl border border-line bg-page text-ink shadow-sm transition-transform hover:-translate-y-0.5 hover:bg-surface-2"><svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M8 4v4m8-4v4M6 10h12M7 20h10a2 2 0 0 0 2-2V8H5v10a2 2 0 0 0 2 2Z" /><path d="m9 14 2 2 4-4" /></svg></button>
         <button type="button" onClick={onCreate} aria-label="Create asset" className="grid size-11 place-items-center rounded-xl border border-line bg-page text-ink shadow-sm transition-transform hover:-translate-y-0.5 hover:bg-surface-2"><svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></button>
         <button type="button" onClick={onOpenBriefs} aria-label="Open briefs" className="relative grid size-10 place-items-center rounded-lg text-ink transition-colors hover:bg-surface-2"><svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>{notificationCount ? <span className="absolute right-0 top-0 grid min-w-4 place-items-center rounded-full bg-danger px-1 text-micro font-bold text-white">{notificationCount}</span> : null}</button>
@@ -30,5 +33,6 @@ export function AppHeader({ name, role, onOpenSearch, onOpenCapture, onCreate, o
     </header>
   );
 }
+import { PhaseBadge } from "@/components/ui";
 import { getSearchShortcut } from "@/lib/search-shortcut";
 import { capitalize } from "@/lib/utils";

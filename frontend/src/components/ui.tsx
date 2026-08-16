@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { AuthorityLevel, AuditLogEntry, BriefSource } from "@/lib/types";
+import { getHealthDetailed } from "@/lib/api";
 import { authorityLabel, cn } from "@/lib/utils";
 import { useCountUp } from "@/lib/motion";
 import { MetricCardSkeleton, TableSkeleton } from "@/components/skeleton";
@@ -202,10 +203,27 @@ const PHASE_LABELS: Record<string, string> = {
   "3": "Phase 3 · Proactive",
 };
 
-/** Deployment phase pill — reads NEXT_PUBLIC_KAIROS_PHASE (default 3). */
+/**
+ * Deployment phase pill.
+ *
+ * Reads the phase the backend is **actually enforcing** (`GET /health/detailed`), not a frontend
+ * build-time constant. It previously read `NEXT_PUBLIC_KAIROS_PHASE` with a default of "3", so a
+ * deployment running in Phase 1 would still have claimed Phase 3 — and nothing consulted the
+ * value on either side. Renders nothing until the live phase is known, so it can never assert a
+ * phase it has not confirmed.
+ */
 export function PhaseBadge() {
-  const phase = process.env.NEXT_PUBLIC_KAIROS_PHASE ?? "3";
-  const label = PHASE_LABELS[phase] ?? `Phase ${phase}`;
+  const [phase, setPhase] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getHealthDetailed()
+      .then(({ data }) => { if (alive && typeof data?.phase === "number") setPhase(data.phase); })
+      .catch(() => { /* health unreachable — say nothing rather than guess a phase */ });
+    return () => { alive = false; };
+  }, []);
+
+  if (phase === null) return null;
+  const label = PHASE_LABELS[String(phase)] ?? `Phase ${phase}`;
   return (
     <span className="inline-flex h-[20px] items-center rounded-full bg-[color-mix(in_srgb,var(--info)_14%,transparent)] px-2 text-micro font-semibold text-info">
       {label}

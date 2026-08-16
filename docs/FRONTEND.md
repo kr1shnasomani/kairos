@@ -604,3 +604,39 @@ These are deliberate decisions, not open gaps — the UI handles each honestly t
 dataset (admin + `field_worker` sessions). Seven live-data crashes were found and fixed during the sweep
 (now guarded by `tests/test_contract.py`) — see the response-normalizer note in §6 and `AGENTS.md`
 "Known Pitfalls".
+
+
+---
+
+## Conformance updates — 2026-08-16
+
+UI changes landed with the architecture-conformance work. Detail and undo steps in
+[`implementation/conformance-changelog.md`](./implementation/conformance-changelog.md).
+
+| Surface | Change |
+|---|---|
+| `components/brief-detail.tsx` | **PTW dual sign-off now works.** Step 1 genuinely calls `ackBrief` (it previously called no API at all and only set local state); step 2 calls `countersignBrief` as a *different authenticated user*. Driven by **server truth** (`acknowledged_by` / `countersigned_by`), not local step state, so the two signatures can come from two sessions. The typed-name "shift lead" input is gone — identity comes from the session. |
+| `components/use-role.ts` | New `useMe()` — identity, not just role, because the countersigner is compared to the acknowledger by user id. |
+| `documents/[id]/topology` | Confirm/Reject **per element** (role-gated on `RESOLVE_ROLES`), a canonical-gate panel showing safety-critical progress, and a rewrite onto the shared `useFetch` hook. |
+| `documents/[id]` | `handwriting_suspect` chip — image-path documents only, **excluding** `pid_drawing` (a drawing is an image but carries no handwriting). |
+| `components/ui.tsx` · `app-header.tsx` | `PhaseBadge` reads the **live** phase from `/health/detailed` instead of a build-time env var, and is actually rendered. It renders nothing until the phase is known, so it can never assert an unconfirmed phase. |
+| `management/cross-site` | Eyebrow corrected — it read "Layer 13"; the architecture defines layers 0–12. |
+| `governance/circuit-breaker` | `?? FIXTURE` fallback removed (it invented halted breakers for "Valve" and "Separator"). Its test was **inverted, not deleted**: one case renders live data, one pins that an empty response renders no invented rows. |
+
+### Two live-only violations found and removed
+
+Both were page-local `FIXTURE` constants that survived the 2026-08-15 sweep, which targeted the
+`lib/*.ts` fixture *modules*:
+
+1. `documents/[id]/topology` — `data ?? FIXTURE`, including elements labelled `"verified"`.
+   Fabricated engineering data rendered through the very verification gate being built.
+2. `governance/circuit-breaker` — `state.data ?? FIXTURE`.
+
+> **When sweeping for fixtures, grep `?? FIXTURE`, `?? demo`, `|| FIXTURE` across `app/**/page.tsx`** —
+> not just the fixture modules. A page-local constant is the same defect at a different address.
+
+### A bug worth remembering
+
+`briefs/[id]/page.tsx` is a **server component**. In dev the SSR fetch carries no token, so the
+backend resolves it as `dev-user`/`engineer` regardless of who is logged into the browser. Any
+per-user authorization on a server-rendered page must account for that.

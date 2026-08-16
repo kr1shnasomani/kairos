@@ -262,7 +262,11 @@ function CoverageIndicator({ assetId }: { assetId: string }) {
   const [cov, setCov] = useState<OtCoverage | null>(null);
   useEffect(() => {
     let alive = true;
-    getOtCoverage(assetId).then(({ data }) => { if (alive) setCov(data); });
+    // getOtCoverage throws on failure (live-only). Without this catch the rejection was
+    // unhandled and the indicator silently never appeared.
+    getOtCoverage(assetId)
+      .then(({ data }) => { if (alive) setCov(data); })
+      .catch(() => { if (alive) setCov(null); });
     return () => { alive = false; };
   }, [assetId]);
   if (!cov) return null;

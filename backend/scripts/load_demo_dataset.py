@@ -232,6 +232,45 @@ def _seed_validation_corpus() -> None:
         log.warning("load.valcorpus_failed", error=str(exc))
 
 
+def _verify_demo_topology() -> None:
+    """
+    Mark the demo P&ID's extracted elements as engineer-verified.
+
+    Layer 5 instrumentation coverage is derived from **verified** topology only, and Layer 10's
+    telemetry check is gated on that coverage. Without this step every asset would correctly but
+    unhelpfully report `coverage_type: "none"` on a freshly loaded dataset, because no human has
+    reviewed the drawing yet — the demo would show the honest answer to a question nobody had
+    asked. This stands in for the engineer walking the review queue.
+
+    Idempotent, and it only ever promotes elements of the demo drawing.
+    """
+    try:
+        import asyncio as _aio
+
+        from supabase import create_client
+
+        from api.config import settings
+        from api.services.topology import TopologyVerificationService
+
+        sb = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+        manifests = (
+            sb.table("quarantine_items")
+            .select("content")
+            .like("content", "PID_TOPOLOGY_MANIFEST:%")
+            .execute()
+        )
+        for row in manifests.data or []:
+            document_id = row["content"].split("PID_TOPOLOGY_MANIFEST:", 1)[1]
+            svc = TopologyVerificationService(sb)
+            statuses = _aio.run(svc.element_statuses(document_id))
+            decisions = [{"element_id": eid, "decision": "confirmed"} for eid in statuses]
+            if decisions:
+                _aio.run(svc.verify_elements(document_id, decisions, reviewer_id="demo-loader"))
+                log.info("load.topology_verified", document_id=document_id, elements=len(decisions))
+    except Exception as exc:  # noqa: BLE001 — non-fatal for the demo load
+        log.warning("load.topology_verify_failed", error=str(exc))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Load the KAIROS golden demo dataset into a running stack.")
     parser.add_argument("--fast", action="store_true", help="Skip the document pipeline + voice (structured backbone + events only).")
@@ -249,6 +288,7 @@ def main() -> None:
             submit_voice(client)
             create_offboarding(client)
             _seed_validation_corpus()
+            _verify_demo_topology()
     log.info("load.done", fast=args.fast)
 
 

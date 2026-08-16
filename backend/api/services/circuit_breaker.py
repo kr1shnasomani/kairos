@@ -18,11 +18,52 @@ class CircuitBreakerService:
     def __init__(self, supabase) -> None:
         self.supabase = supabase
 
+    async def model_gate_block(self, asset_class: str) -> bool:
+        """
+        Whether the most recent Layer 0 model gate blocked this asset class.
+
+        Enforcement deliberately routes through the circuit breaker rather than a parallel gate:
+        the breaker is already the thing that halts extraction per asset class and is already
+        consulted by the extraction path, so a second mechanism would mean two places to check and
+        two ways to disagree. The gate only ever publishes `blocked_asset_classes` when
+        `MODEL_GATE_ENFORCE` is on, so this is inert by default.
+        """
+        try:
+            result = await asyncio.to_thread(
+                lambda: self.supabase.table("audit_log")
+                .select("details")
+                .eq("action", "model_gate_result")
+                .order("timestamp", desc=True)
+                .limit(1)
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001 — a reporting lookup must not break extraction
+            log.warning("circuit_breaker.model_gate_lookup_failed", error=str(exc))
+            return False
+        if not result.data:
+            return False
+        blocked = (result.data[0].get("details") or {}).get("blocked_asset_classes") or []
+        return asset_class in blocked
+
     async def check(self, asset_class: str) -> dict[str, Any]:
         """
-        Z-score SPC check for asset_class.
-        Returns {halted, z_score, reason, override_count_7d}.
+        Halt decision for an asset class — two independent inputs, one mechanism.
+
+        1. SPC: rolling Z-score over human override rates (drift during production operation).
+        2. Layer 0 model gate: a model that regressed on this class at its deployment gate.
+
+        The architecture wants both contained the same way — route new inputs of that class to
+        human-only processing until the model is retrained and passes validation.
         """
+        if await self.model_gate_block(asset_class):
+            log.warning("circuit_breaker.halted_by_model_gate", asset_class=asset_class)
+            return {
+                "halted": True,
+                "z_score": 0.0,
+                "reason": "model_gate_regression",
+                "override_count_7d": 0,
+            }
+
         now = datetime.now(UTC)
         thirty_days_ago = (now - timedelta(days=30)).isoformat()
         seven_days_ago = (now - timedelta(days=7)).isoformat()

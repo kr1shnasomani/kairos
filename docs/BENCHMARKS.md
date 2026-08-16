@@ -178,6 +178,6 @@ growth or connection leakage over hours.
   linkage figure.
 
 ## Functional validation (correctness, separate from accuracy)
-- Backend test suite: **~175 passed · 3 skipped** (1 = transient NIM timeout in-sandbox).
+- Backend test suite: **~175 passed · 3 skipped — *stale: not re-measured since 2026-08-16; ~53 tests added, so treat this as a floor*** (1 = transient NIM timeout in-sandbox).
 - Contract tests (`test_contract.py`) pin the API response shapes that historically drift.
 - Layer 3 P&ID vision extraction: live-validated on `pid_line3_isolation_boundary.png`.

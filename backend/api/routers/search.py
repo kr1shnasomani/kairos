@@ -130,7 +130,23 @@ async def synthesize(
     Assembles retrieved knowledge into a provenance-backed answer via NIM or Ollama.
     Safety-critical categories trigger explicit refusal when evidence confidence is low.
     No-ops cleanly when no LLM is configured (Phase 1 fallback).
+
+    Phase gate (Layer 12): in Phase 1 the deployment is retrieval-only by design — trust in
+    retrieval is established before trust in synthesis is requested. The caller still gets its
+    retrieved sources, so the answer surface degrades rather than breaking.
     """
+    if settings.KAIROS_PHASE < 2:
+        log.info("synthesis.phase_gated", phase=settings.KAIROS_PHASE, query_category=payload.query_category)
+        return SynthesizeResponse(
+            answer=None,
+            sources=payload.context or [],
+            refused=False,
+            message=(
+                "Synthesis is not enabled in Phase 1 (shadow / retrieval mode). "
+                "The retrieved source documents are returned for direct review."
+            ),
+        )
+
     llm = LLMService(settings)
 
     # Derive the category when the caller didn't supply one. Classifying here rather

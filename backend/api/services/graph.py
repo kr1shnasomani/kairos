@@ -358,6 +358,44 @@ class GraphService:
             record = await result.single()
             return record["closed"] if record else 0
 
+    async def set_topology_element_verification(
+        self,
+        document_id: str,
+        element_id: str,
+        verification_status: str,
+        verified_by: str,
+    ) -> int:
+        """
+        Flips a P&ID topology element's edge to its post-review state (Layer 3 → Layer 7 gate).
+
+        The ingestion pipeline already writes a `CONTAINS_TOPOLOGY_ELEMENT` edge per element with
+        `verification_status='unverified'`, so engineer verification *promotes an existing edge*
+        rather than creating a new one — element-by-element, which is what the architecture
+        requires before topology may be treated as canonical.
+
+        Returns the number of edges updated (0 if the element has no edge, e.g. the edge write
+        failed during extraction).
+        """
+        cypher = """
+        MATCH (d:Document {document_id: $document_id})
+              -[r:KNOWLEDGE_EDGE {relationship_type: 'CONTAINS_TOPOLOGY_ELEMENT'}]->
+              (c:Concept {concept_id: $element_id})
+        SET r.verification_status = $verification_status,
+            r.verified_by = $verified_by,
+            r.verified_at = datetime()
+        RETURN count(r) AS updated
+        """
+        async with self.driver.session(database=self.database) as session:
+            result = await session.run(
+                cypher,
+                document_id=document_id,
+                element_id=element_id,
+                verification_status=verification_status,
+                verified_by=verified_by,
+            )
+            record = await result.single()
+            return record["updated"] if record else 0
+
     # -------------------------------------------------------------------------
     # Time-travel queries (Layer 4)
     # -------------------------------------------------------------------------

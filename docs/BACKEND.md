@@ -550,7 +550,7 @@ Three independent checks — **all must pass** for `genuine_failure=True`:
 
 | Check | What it does | Passes when |
 |-------|-------------|------------|
-| `_check_telemetry_baseline` | Calls Go connector `/ot/coverage` then `/ot/query`. Splits data baseline/post halves. Computes 2σ deviation. | `abs(post_mean - baseline_mean) > 2σ` |
+| `_check_telemetry_baseline` | Calls `OtCoverageService` (in-process, Supabase-only) then Go `/ot/query`. **Brownfield downgrade:** with no directly instrumented component, telemetry drops to `evidence_role: "supporting"` and the work-order closeout attestation becomes primary. Otherwise splits baseline/post halves, 2σ deviation. | `abs(post_mean - baseline_mean) > 2σ` |
 | `_check_failure_code_match` | Queries last 5 WOs for asset. Maps failure codes to families via `FAILURE_FAMILIES`. | Same family in both current and prior WO |
 | `_check_execution_compliance` | Reads `close_notes` from WO payload. Keyword match against action verbs. | At least one action keyword found |
 
@@ -604,7 +604,7 @@ Source: `backend/connectors/cmd/connector/main.go`.
 |--------|------|-------------|
 | `GET` | `/health` | Liveness probe |
 | `GET` | `/ot/query` | Query historian. Uses `PIWebAPIClient` if `PI_WEBAPI_BASE_URL` set, else `MockHistorianClient` (50 sine-wave vibration points, mean≈1.8 mm/s). |
-| `GET` | `/ot/coverage/:asset_id` | Checks FastAPI `GET /assets/{id}/knowledge` for fact count. Returns `source=knowledge_graph` if asset is in graph, else mock 75% coverage. |
+| `GET` | `/ot/connectors` | Connector registry — every supported historian with config state and the env var that activates it. Replaces `/ot/coverage/:asset_id`, **deleted 2026-08-16** because it returned hardcoded `{asset}-VIBE`/`{asset}-TEMP`/`75%` for every asset. Coverage now derives from verified topology at `GET /assets/{id}/ot-coverage`. |
 | `POST` | `/eam/sync` | Reads `fixtures/sample_assets.json` if `EAM_ODS_ENDPOINT` not set. POSTs each asset to FastAPI `POST /assets` using `INTERNAL_API_KEY`. |
 | `POST` | `/eam/work-order` | Proxies incoming JSON body to FastAPI `POST /events/work-order`. |
 

@@ -11,19 +11,40 @@ from datetime import UTC, datetime
 
 import shortuuid
 import structlog
-from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel, Field
 
 from api.config import settings
-from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, SupabaseDep, TemporalDep
+from api.dependencies import (
+    CurrentUserDep,
+    ElasticsearchDep,
+    Neo4jDep,
+    SupabaseDep,
+    TemporalDep,
+    require_role,
+)
 from api.models.document import DocumentStatus, ExtractionResult, VaultDocument
 from api.services.graph import GraphService
 from api.services.metrics import ingestion_duration
 from api.services.ner import NERService
 from api.services.pii import PIIService
+from api.services.topology import TopologyVerificationService
 from workflows.document_pipeline import DocumentIngestionWorkflow
 
 log = structlog.get_logger(__name__)
 router = APIRouter()
+
+
+class TopologyElementDecision(BaseModel):
+    """One engineer verdict on one extracted P&ID element."""
+
+    element_id: str
+    decision: str = Field(description="confirmed | corrected | rejected")
+    note: str | None = None
+
+
+class TopologyVerifyRequest(BaseModel):
+    decisions: list[TopologyElementDecision] = Field(min_length=1)
 
 
 @router.post("/ingest", summary="Ingest a document into the immutable vault", status_code=status.HTTP_202_ACCEPTED)
@@ -328,7 +349,7 @@ async def get_extraction_results(
     graph edges created, and items routed to human review.
     """
     doc_result = await asyncio.to_thread(
-        lambda: supabase.table("documents").select("document_id").eq("document_id", document_id).execute()
+        lambda: supabase.table("documents").select("document_id, mime_type").eq("document_id", document_id).execute()
     )
     if not doc_result.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Document '{document_id}' not found")
@@ -346,6 +367,11 @@ async def get_extraction_results(
     )
     job = job_result.data[0] if job_result.data else {}
 
+    # Derived from the stored mime type rather than persisted separately — the vault already
+    # records exactly which path the document had to take, so a new column would duplicate it.
+    mime = (doc_result.data[0] or {}).get("mime_type", "") if doc_result.data else ""
+    went_through_ocr = mime.startswith("image/") or mime == "application/pdf"
+
     return ExtractionResult(
         document_id=document_id,
         extraction_model=f"{settings.NVIDIA_NIM_NER_MODEL} + {settings.NVIDIA_NIM_OCR_MODEL}",
@@ -353,6 +379,10 @@ async def get_extraction_results(
         graph_edges_created=job.get("graph_edges") or 0,
         vector_chunks_indexed=0,
         review_items=[],  # populated by link_to_graph activity in Task 5
+        extraction_path="ocr" if mime.startswith("image/") else "native",
+        # Only images can carry handwriting. A digital PDF has a text layer; a scanned one is an
+        # image and is caught by the branch above.
+        handwriting_suspect=mime.startswith("image/") and went_through_ocr,
     )
 
 
@@ -429,15 +459,65 @@ async def get_document_topology(
         )
 
     ctx = result.data[0]["session_context"]
+    svc = TopologyVerificationService(supabase)
+    statuses = await svc.element_statuses(document_id)
+    summary = svc.summarize(statuses)
     return {
         "document_id": document_id,
         "manifest_item_id": str(result.data[0]["item_id"]),
-        "verification_status": "unverified",
+        # Derived from what reviewers actually did, element by element. This was previously a
+        # hardcoded "unverified" literal, so every element rendered identically forever.
+        **summary,
+        "elements": statuses,
         "topology": ctx.get("topology", {}),
         # "vision_model" = real extraction; "demo_fixture" = fell back (show a demo chip).
         "topology_source": ctx.get("topology_source", "demo_fixture"),
         "extracted_at": result.data[0]["submitted_at"],
     }
+
+
+@router.post("/{document_id}/topology/verify", summary="Engineer verification of P&ID topology elements")
+async def verify_document_topology(
+    document_id: str,
+    payload: TopologyVerifyRequest,
+    supabase: SupabaseDep,
+    driver: Neo4jDep,
+    current_user: dict = Depends(require_role("engineer", "reliability", "admin")),
+) -> dict:
+    """
+    Records element-by-element engineer verification and promotes each confirmed element's
+    existing graph edge from `unverified` to `verified`.
+
+    This is the gate the architecture calls non-negotiable regardless of model accuracy: the
+    perception engine produces *candidate* topology, and a qualified engineer decides, element by
+    element, what becomes canonical. Safety-critical groups (isolation boundaries, instrumentation
+    loops) must be fully confirmed before `canonical_ready` turns true.
+    """
+    svc = TopologyVerificationService(supabase, GraphService(driver))
+    result = await svc.verify_elements(
+        document_id=document_id,
+        decisions=[d.model_dump() for d in payload.decisions],
+        reviewer_id=current_user.get("user_id", ""),
+    )
+    if not result["applied"] and result["unknown_elements"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No decision applied — unknown element ids or decisions: {result['unknown_elements']}",
+        )
+    await asyncio.to_thread(
+        lambda: supabase.table("audit_log").insert({
+            "action": "topology_elements_verified",
+            "entity_type": "document",
+            "entity_id": document_id,
+            "performed_by": current_user.get("user_id", ""),
+            "details": {
+                "applied": result["applied"],
+                "verification_status": result["verification_status"],
+                "canonical_ready": result["canonical_ready"],
+            },
+        }).execute()
+    )
+    return result
 
 
 @router.get("/{document_id}", summary="Get vault document metadata")

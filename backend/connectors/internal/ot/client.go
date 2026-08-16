@@ -212,17 +212,25 @@ func NewOPCUAClient(endpointURL string) *OPCUAClient {
 	return &OPCUAClient{EndpointURL: endpointURL}
 }
 
+// Query always fails loudly. It previously returned an empty slice with a nil error once an
+// endpoint was configured, which is indistinguishable from "the historian has no readings for
+// this tag" — a caller would record an absence of data as evidence. An unimplemented connector
+// must be impossible to mistake for a working one that found nothing.
+//
+// Implementing this for real needs the gopcua client plus an OPC-UA server to verify against;
+// until then the honest answer is that this path does not serve data.
 func (c *OPCUAClient) Query(ctx context.Context, q TimeSeriesQuery) ([]TimeSeriesPoint, error) {
 	if c.EndpointURL == "" {
 		return nil, fmt.Errorf("OPC-UA not configured: set OPCUA_ENDPOINT_URL in .env")
 	}
-	// TODO: implement OPC-UA historical read using gopcua library
-	return []TimeSeriesPoint{}, nil
+	return nil, fmt.Errorf(
+		"OPC-UA client is registered but not implemented in this build (endpoint %s); "+
+			"no telemetry is served on this path", c.EndpointURL)
 }
 
 func (c *OPCUAClient) Health(ctx context.Context) error {
 	if c.EndpointURL == "" {
 		return fmt.Errorf("OPC-UA not configured")
 	}
-	return nil
+	return fmt.Errorf("OPC-UA client is registered but not implemented in this build")
 }

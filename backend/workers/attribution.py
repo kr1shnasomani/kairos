@@ -5,6 +5,7 @@ confidence adjustment is made in the knowledge graph.
 All three checks must confirm a genuine failure before any action is taken.
 """
 
+import asyncio
 import os
 import statistics
 from datetime import UTC, datetime, timedelta
@@ -76,20 +77,41 @@ def evaluate_outcome(event_id: str, asset_id: str) -> dict[str, Any]:
 
 def _check_telemetry_baseline(asset_id: str, event_id: str) -> dict[str, Any]:
     """
-    Queries historian via Go connector for post-maintenance telemetry.
-    If coverage_percent == 0, asset is not instrumented — check skipped (primary_check=False).
-    If instrumented, checks whether post-maintenance mean deviates > 2σ from baseline.
+    Post-maintenance telemetry check, gated on real instrumentation coverage.
+
+    Coverage comes from engineer-verified P&ID topology (`OtCoverageService`), not from the
+    historian's own assertion. When the affected component is not directly instrumented, telemetry
+    is demoted to *supporting* evidence and the work-order closeout attestation becomes primary —
+    the brownfield constraint in architecture Layer 10.
+
+    When it is instrumented: checks whether the post-maintenance mean deviates > 2σ from baseline.
     """
     try:
-        cov = httpx.get(f"{_GO_URL}/ot/coverage/{asset_id}", timeout=10).json()
+        from api.services.ot_coverage import OtCoverageService
+
+        cov = asyncio.run(OtCoverageService(_supabase()).asset_coverage(asset_id))
     except Exception as exc:
-        log.warning("attribution.coverage_unreachable", error=str(exc))
-        return {"primary_check": False, "failed": False, "reason": "go_connector_unreachable"}
+        log.warning("attribution.coverage_unavailable", error=str(exc))
+        return {"primary_check": False, "failed": False, "reason": "coverage_unavailable"}
 
-    if cov.get("coverage_percent", 0) == 0:
-        return {"primary_check": False, "failed": False, "reason": "not_instrumented"}
+    # Brownfield downgrade (architecture Layer 10). Without a directly instrumented component,
+    # telemetry can only confirm the equipment is running — never that the specific failure mode
+    # was resolved. It is therefore demoted from primary evidence to supporting, and the
+    # human-verified work-order closeout becomes the primary check.
+    #
+    # This used to be unreachable: the coverage endpoint returned a hardcoded 75% for every
+    # asset, so `coverage_percent == 0` never fired and telemetry was always treated as primary.
+    if not cov.get("has_direct_sensors"):
+        return {
+            "primary_check": False,
+            "failed": False,
+            "reason": "not_directly_instrumented",
+            "coverage_type": cov.get("coverage_type", "none"),
+            "evidence_role": "supporting",
+            "primary_evidence": "work_order_closeout_attestation",
+        }
 
-    tag = (cov.get("instrumented_tags") or [asset_id + "-VIBE"])[0]
+    tag = cov["sensor_tags"][0]
 
     # Use event occurred_at as the maintenance date for the query window
     try:

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getMe } from "@/lib/auth";
-import type { Role } from "@/lib/types";
+import type { Role, User } from "@/lib/types";
 
 // Dev-bypass default: with no token the backend treats the caller as an engineer,
 // so an unauthenticated demo session still sees engineer-level actions.
@@ -14,6 +14,17 @@ export function useRole(): Role {
     });
   }, []);
   return role;
+}
+
+/** The full authenticated user. Needed where identity matters and not just role — e.g. a PTW
+ *  countersignature must come from a *different* person than the one who acknowledged, so the
+ *  UI has to compare user ids, not just check a role. Null until the fetch resolves. */
+export function useMe(): User | null {
+  const [me, setMe] = useState<User | null>(null);
+  useEffect(() => {
+    getMe().then(setMe);
+  }, []);
+  return me;
 }
 
 /** Roles allowed to promote a quarantine item. Matches OPA (`can_promote_quarantine`):

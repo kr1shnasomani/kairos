@@ -145,9 +145,9 @@ For the full design, including the 13-layer breakdown, knowledge-graph mechanics
 - **Universal document ingestion:** PDFs, engineering drawings, scanned/handwritten forms, and multi-script (Hindi / Hinglish) text flow through an OCR → NER → graph-linking → indexing pipeline into an immutable, deduplicated vault.
 - **Temporal knowledge graph:** every fact is a time-bounded edge with authority, provenance, confidence, and verification status; query the past, watch knowledge get superseded, never lose history.
 - **Expert copilot:** hybrid retrieval with citations, confidence scores, phase-gated synthesis, and explicit refusal on safety-critical queries, on mobile for technicians, not just desktops for engineers.
-- **Proactive briefs:** events (work orders, PTWs, tag-outs, inspections, alarms) assemble contextual briefs, rate-limited by an EEMUA-191 governor and suppressed by plant state.
+- **Proactive briefs:** events (work orders, PTWs, tag-outs, inspections, alarms) assemble contextual briefs, rate-limited by an EEMUA-191 governor and suppressed by plant state. Permit-to-Work briefs require **two distinct authenticated signatures** — the issuing engineer acknowledges, a second authority countersigns.
 - **Maintenance & RCA intelligence:** fuses work-order history, failure records, OEM manuals, and inspection findings into root-cause timelines and hypotheses, with a blast-radius view of everything a change affects.
-- **Governed accuracy:** dual-track conflict resolution, human-only quarantine promotion, Management-of-Change, SLA escalation, an SPC circuit breaker, and a model gate.
+- **Governed accuracy:** dual-track conflict resolution, human-only quarantine promotion, Management-of-Change, SLA escalation, an SPC circuit breaker, and a per-asset-class model gate. Extracted P&ID topology stays *candidate* until an engineer confirms it element by element.
 - **Compliance cockpit:** regulatory clauses (OISD, ISO 45001, Factory Act, PESO) mapped against current procedures, automatic gap detection, and human-signed audit-evidence packs.
 - **Knowledge capture at the cliff:** micro-interviews and voice capture pull undocumented expertise out of departing experts before it walks out the door.
 
@@ -201,7 +201,7 @@ To reset to a clean, deterministic state at any time: `make nuke && make dev && 
 | `compliance@kairos.local` | compliance | read-only: compliance cockpit + audit trail |
 | `field_worker@kairos.local` | field_worker | mobile-first field app (hamburger navigation) |
 
-Passwords are in `backend/scripts/seed_users.py`. The three personas are worth walking separately —
+Passwords are in `backend/scripts/seed_users.py`. The personas are worth walking separately —
 role-based governance is the point of the product, and it only *shows* when you log in as someone
 who cannot do everything: an engineer resolves conflicts but is **refused** quarantine promotion,
 while reliability is allowed.

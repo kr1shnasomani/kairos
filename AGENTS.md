@@ -68,6 +68,8 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 | Frontend routes & wiring | `docs/FRONTEND.md` |
 | **Frontend implementation plan** | **`docs/implementation/FE.md`** |
 | ~~Mock-data fallbacks + demo chip~~ — **historical**; the fixture modules and `DemoChip` were deleted 2026-08-15 | `docs/FIXTURES.md` |
+| **Conformance work log — every workstream, what changed, how to undo, bugs found** | **`docs/implementation/conformance-changelog.md`** |
+| **E2E verification sweep — 44 routes × 5 personas, what "working" means per route** | **`docs/implementation/e2e-sweep.md`** |
 | Integration test suite | `docs/TESTS.md` |
 | Golden demo dataset + loader | `docs/DATASET.md` |
 | Benchmarks + evaluation (harness → `benchmark/`, results → `benchmark/RESULTS.md`) | `docs/BENCHMARKS.md` |
@@ -103,8 +105,8 @@ Gotcha rebuilds: `docker compose up -d --no-deps --build kairos-frontend` (new n
 
 **Tests — Docker only, never the host.** Host package resolution differs from the pinned images and
 produces false results.
-- Service-free tier (**68 tests**, no stack, no secrets, no network — what CI's `unit` job runs):
-  `docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,model_validation,pid,auth_cache,config_guardrail}.py`
+- Service-free tier (**121 tests**, no stack, no secrets, no network — what CI's `unit` job runs):
+  `docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes}.py`
 - Full suite (needs the stack; **local stores only, never cloud**):
   `docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120`
 - Compliance Cypher (EXPLAIN + semantics vs local Neo4j): `scripts/verify_compliance_cypher.py`
@@ -135,6 +137,11 @@ produces false results.
 - **Compliance findings are clause-scoped.** A gap means no document of that clause's `requires_document_type` is linked to the asset — never "the asset has no verified procedure at all", which flagged every (regulation × asset) pair unconditionally.
 - **PII redaction runs at export, never at ingestion.** Names are legitimate operational knowledge ("which technician signed off…"); redacting on ingest breaks retrieval. `services/pii.py` → `GET /documents/{id}/redacted`, audited to `audit_log` with type counts only.
 - **Outbound model calls use `shared_client()`** (`services/http.py`) — pooled **per event loop**, never a per-call `AsyncClient` and never a global one (Celery runs a fresh loop per task). Always pass an explicit `timeout=` per request; the cached client keeps the first caller's default.
+- **PTW briefs need two distinct signatures.** `ack` deliberately withholds `acknowledged_at`; `POST /briefs/{id}/countersign` (reliability/admin) sets it once a *different* user signs. **Never scope the countersign read by recipient** — the countersigner is by definition not the recipient, and that filter made the whole flow 404. A PTW brief is readable by any staff role (a permit is a posted safety document, not private correspondence); signing stays reliability/admin.
+- **P&ID topology is candidate, not canonical, until element-by-element engineer verification.** `POST /documents/{id}/topology/verify` promotes the `CONTAINS_TOPOLOGY_ELEMENT` edge the pipeline already wrote. `canonical_ready` requires every safety-critical element (`isolation_boundaries`, `instrumentation_loops`) confirmed and none disputed.
+- **Instrumentation coverage counts only *verified* topology.** `coverage_type: "none"` means no verified drawing establishes instrumentation — **not** "this equipment has no sensors". `unverified_topology_present` separates review backlog from genuine absence. Never fabricate a sensor tag.
+- **Report-only flags ship OFF and must stay off unless deliberately enabled:** `TIMESTAMP_DRIFT_ENFORCE=False`, `MODEL_GATE_ENFORCE=False`, `KAIROS_PHASE=3`.
+- **Timestamp drift = same event, different source systems.** Never `occurred_at` vs `ingested_at` — historical documents legitimately occur months before ingestion, and that comparison flags the whole corpus.
 - EEMUA governor: `check_governor(user_id)` before every brief. ≤6/operator/hour. PTW always exempt.
 - Celery: lazy imports inside task body. All 6 queues: `ingestion,extraction,attribution,transcription,elicitation,validation`.
 - Secrets: never hardcode. All via `api/config.py` Settings → env vars.
@@ -167,6 +174,8 @@ produces false results.
 | Work-order dedup test flake | Unique `asset_id` per run (10-min dedup window) |
 | Site-wide brief wrong recipient | `user_id = f"site-{site_id}"` in `BriefEngine.deliver()` |
 | NIM OCR wrong base URL | `https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-ocr-v2` |
+| **PostgREST `.neq()` against a missing JSONB key drops every row** | `NULL != 'x'` is `NULL`, not `TRUE`. `.neq("session_context->>element_type", "topology_manifest")` silently excluded *every element row* (they have no such key), so topology reported `elements_total: 0`. Filter in Python when the key may be absent. |
+| **Unit tests cannot catch query-semantics bugs** | Every bug the suite has missed was a query bug: `.neq()` vs NULL, `.in_()` against a set the fake ignores. Test doubles implement filters as passthroughs, so a filter whose bug *is* its filtering always passes. These need a real database or a real browser. |
 
 ### Frontend — build & runtime
 
@@ -241,9 +250,9 @@ produces false results.
 - **Supabase MCP** (`mcp__claude_ai_Supabase__*`) — SQL, migrations, table inspection. Prefer over `docker exec`.
 
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
-**Tests:** ~175 passed · 3 skipped · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
+**Tests:** service-free tier **121 passed** (no stack/secrets/network) · frontend **145 passed, 0 errors** · full suite ~175 passed · 3 skipped · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
 
-**CI:** `tests.yml` is two tiers — **`unit`** runs 65 service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, NIM→Gemini per synthesize) and exhausting the Gemini free tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) **passes in full** — the audit step was fixed 2026-08-15 by a plain `npm audit fix` (0 vulnerabilities, eslint stays on v9; the old note claiming only `eslint@10` could fix it was stale). Two CI facts worth knowing: `lint.yml` needs `pull-requests: read` or `dorny/paths-filter` fails with *"Resource not accessible by integration"* and every lint job silently skips on PRs; and `next/font/google` fetches DM Sans/Geist **from Google at build time**, so a runner that cannot reach fonts.googleapis.com fails the build with `Module not found: @vercel/turbopack-next/internal/font/google/font` — transient, retry it, or self-host via `next/font/local` to remove the class.
+**CI:** `tests.yml` is two tiers — **`unit`** runs 121 service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, NIM→Gemini per synthesize) and exhausting the Gemini free tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) **passes in full** — the audit step was fixed 2026-08-15 by a plain `npm audit fix` (0 vulnerabilities, eslint stays on v9; the old note claiming only `eslint@10` could fix it was stale). Two CI facts worth knowing: `lint.yml` needs `pull-requests: read` or `dorny/paths-filter` fails with *"Resource not accessible by integration"* and every lint job silently skips on PRs; and `next/font/google` fetches DM Sans/Geist **from Google at build time**, so a runner that cannot reach fonts.googleapis.com fails the build with `Module not found: @vercel/turbopack-next/internal/font/google/font` — transient, retry it, or self-host via `next/font/local` to remove the class.
 
 > **Ruff is pinned, and that is deliberate.** `lint.yml` had no version pin and there was no
 > config, so it ran with whatever rule set the newest release enabled — Linting went from green

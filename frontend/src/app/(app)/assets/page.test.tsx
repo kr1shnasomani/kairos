@@ -6,7 +6,11 @@ import AssetsError from "./error";
 
 const mocks = vi.hoisted(() => ({ getAssets: vi.fn(), push: vi.fn() }));
 
-vi.mock("@/lib/api", () => ({ getAssets: mocks.getAssets }));
+// getToken is pulled in transitively (useRole -> getMe -> getToken). A whole-module mock that
+// omits it leaves it undefined, and the effect throws as an unhandled rejection — the tests still
+// pass, which is exactly what makes it dangerous: a real failure in the same effect would be
+// invisible for the same reason.
+vi.mock("@/lib/api", () => ({ getAssets: mocks.getAssets, getToken: vi.fn(() => null) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 
 function asset(i: number, over: Partial<AssetSummary> = {}): AssetSummary {

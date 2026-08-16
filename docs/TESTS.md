@@ -6,7 +6,7 @@ All tests run **inside Docker**. There is no host shortcut: host package resolut
 the pinned images and produces false results — `auth.test.ts` and `api.test.ts` fail on the host
 and pass in the container. A host run will lie to you.
 
-### Tier 1 — service-free (68 tests, no stack, no secrets, no network)
+### Tier 1 — service-free (121 tests, no stack, no secrets, no network)
 
 These need nothing running. This is what CI's `unit` job executes on every push.
 
@@ -112,7 +112,7 @@ tests/                        ← project root (NOT inside backend/)
 pytest.ini                    ← project root
 ```
 
-Latest full run: **~175 passed · 3 skipped · 1 known transient flake**
+Latest full run: **~175 passed · 3 skipped — *stale: not re-measured since 2026-08-16; ~53 tests added, so treat this as a floor* · 1 known transient flake**
 (`test_briefs.py::test_attribution_worker_queues_recheck` — a work-order POST occasionally 500s under
 concurrent load; passes deterministically in isolation).
 
@@ -435,7 +435,7 @@ Hits the **Go service at port 8090** (`http://kairos-backend-go:8090` inside Doc
 | `test_ot_query_requires_asset_and_tag` | Missing params → 400 |
 | `test_ot_query_returns_timeseries` | `/ot/query?asset_id=&tag=` → `data[]`, `from`, `to` |
 | `test_ot_query_mock_flag` | `mock=true` when `PI_WEBAPI_BASE_URL` not set |
-| `test_ot_coverage_returns_shape` | `/ot/coverage/{id}` → `instrumented_tags`, `coverage_percent` |
+| `test_ot_coverage.py` (6 cases, service-free) | `GET /assets/{id}/ot-coverage` — verified loops yield real drawing tags; **unverified topology is not coverage**; no linked drawing → `none`, never a fabricated tag |
 | `test_ot_coverage_unknown_asset` | Unknown asset → 200 with mock coverage (not 404) |
 | `test_eam_sync_returns_completed` | `/eam/sync` loads fixture → `status=completed`, `synced>=0` |
 | `test_eam_work_order_forwarding` | Go `/eam/work-order` → proxied to FastAPI → `status=accepted/deduplicated` |

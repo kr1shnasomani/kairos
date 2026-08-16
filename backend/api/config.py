@@ -181,6 +181,48 @@ class Settings(BaseSettings):
     PLANT_STATE_DEFAULT: str = "normal"
 
     # -------------------------------------------------------------------------
+    # Layer 12: phased trust architecture
+    #
+    # The architecture treats the deployment phases as *release gates embedded in the software*,
+    # not a label:
+    #   1 — Shadow / retrieval only: no synthesis, no proactive briefs.
+    #   2 — Human-in-the-loop assist: synthesis on, proactive delivery still off.
+    #   3 — Governed proactive: everything on.
+    #
+    # Defaults to 3 so behaviour is unchanged unless a deployment deliberately steps back.
+    # -------------------------------------------------------------------------
+    KAIROS_PHASE: int = 3
+
+    # -------------------------------------------------------------------------
+    # Layer 4: timestamp alignment across source systems
+    #
+    # Brownfield plants run EAM, DMS, SCADA and email archives whose clocks are not on a common
+    # NTP source. Unreconciled, that corrupts temporal ordering and therefore time-travel RCA.
+    #
+    # This compares the *same correlated event as reported by different source systems* — never
+    # occurred_at against ingested_at, which legitimately differ by months for historical
+    # documents and would flag the entire corpus.
+    #
+    # Ships report-only: drift is logged and surfaced, but no conflict row is opened until
+    # TIMESTAMP_DRIFT_ENFORCE is turned on deliberately.
+    # -------------------------------------------------------------------------
+    TIMESTAMP_DRIFT_TOLERANCE_MINUTES: int = 60
+    TIMESTAMP_DRIFT_ENFORCE: bool = False
+
+    # -------------------------------------------------------------------------
+    # Layer 0: model gate enforcement
+    #
+    # The architecture wants a model that passes globally but regresses on a specific asset class
+    # blocked *for that class* until retrained. Enforcement runs through the circuit breaker that
+    # already halts extraction per asset class — one mechanism, not two.
+    #
+    # Ships OFF: on a small corpus a single class can fail on noise, and an enforcing gate would
+    # halt extraction for that class mid-demo. Turn on deliberately once the corpus is large
+    # enough for per-class scores to be stable.
+    # -------------------------------------------------------------------------
+    MODEL_GATE_ENFORCE: bool = False
+
+    # -------------------------------------------------------------------------
     # Go Connector
     # -------------------------------------------------------------------------
     GO_CONNECTOR_PORT: int = 8090

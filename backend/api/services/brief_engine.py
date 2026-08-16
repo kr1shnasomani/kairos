@@ -565,6 +565,18 @@ class BriefEngine:
             lambda: self.supabase.table("briefs").insert(row).execute()
         )
 
+        # Phase gate (Layer 12). Proactive *push* is the Phase 3 capability — before that the
+        # brief is still assembled and readable in the inbox, it is simply not pushed at the
+        # operator. Persisting it and skipping the publish is the difference between
+        # "not yet trusted to interrupt you" and "not built".
+        if self.settings.KAIROS_PHASE < 3:
+            log.info(
+                "brief_engine.proactive_suppressed_by_phase",
+                brief_id=brief.brief_id,
+                phase=self.settings.KAIROS_PHASE,
+            )
+            return brief.brief_id
+
         bus = EventBusService(redis, self.settings)
         await bus.publish(self.settings.REDIS_STREAM_BRIEFS, {
             "brief_id": brief.brief_id,

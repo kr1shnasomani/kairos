@@ -65,6 +65,27 @@ async def _run_gate(model_name: str) -> dict[str, Any]:
 
         metrics = await evaluate(ner, es, corpus, settings)
 
+        # Per-asset-class scoring (Layer 0). The architecture is explicit: a model that passes on
+        # global metrics but fails on a specific class must be blocked *for that class*. A single
+        # global F1 cannot express that, so partition the corpus and score each class.
+        #
+        # Partitioning costs no extra model calls — each document belongs to exactly one class,
+        # so every document is still evaluated once.
+        class_map = await _document_asset_classes(supabase, [row["document_id"] for row in corpus])
+        partitions: dict[str, list[dict[str, Any]]] = {}
+        for row in corpus:
+            partitions.setdefault(class_map.get(row["document_id"], "unclassified"), []).append(row)
+
+        by_asset_class: dict[str, Any] = {}
+        for asset_class, subset in partitions.items():
+            sub_metrics = await evaluate(ner, es, subset, settings)
+            by_asset_class[asset_class] = {
+                "precision": sub_metrics["precision"],
+                "recall": sub_metrics["recall"],
+                "f1": sub_metrics["f1"],
+                "corpus_size": len(subset),
+            }
+
         # Fetch incumbent baseline (last successful run) from audit_log
         baseline_result = await asyncio.to_thread(
             lambda: supabase.table("audit_log")
@@ -75,12 +96,21 @@ async def _run_gate(model_name: str) -> dict[str, Any]:
             .execute()
         )
         passed = True
+        regressed_classes: list[str] = []
         if baseline_result.data:
-            baseline_types = baseline_result.data[0].get("details", {}).get("by_entity_type", {})
+            baseline_details = baseline_result.data[0].get("details", {}) or {}
+            baseline_types = baseline_details.get("by_entity_type", {})
             for etype, scores in metrics["by_entity_type"].items():
                 if scores["f1"] < baseline_types.get(etype, {}).get("f1", 0.0):
                     passed = False
                     break
+
+            # A per-class regression blocks that class even when the global score holds.
+            baseline_classes = baseline_details.get("by_asset_class", {})
+            for asset_class, scores in by_asset_class.items():
+                prior = baseline_classes.get(asset_class, {}).get("f1")
+                if prior is not None and scores["f1"] < prior:
+                    regressed_classes.append(asset_class)
 
         result: dict[str, Any] = {
             "model_name": model_name,
@@ -90,6 +120,11 @@ async def _run_gate(model_name: str) -> dict[str, Any]:
             "f1": metrics["f1"],
             "passed": passed,
             "by_entity_type": metrics["by_entity_type"],
+            "by_asset_class": by_asset_class,
+            "regressed_asset_classes": regressed_classes,
+            # Report-only unless explicitly enabled — see Settings.MODEL_GATE_ENFORCE.
+            "enforcement": "enforced" if settings.MODEL_GATE_ENFORCE else "advisory_only",
+            "blocked_asset_classes": regressed_classes if settings.MODEL_GATE_ENFORCE else [],
         }
 
         await asyncio.to_thread(
@@ -225,3 +260,35 @@ async def evaluate(
         "f1": round(overall_f1, 4),
         "by_entity_type": entity_metrics,
     }
+
+
+async def _document_asset_classes(supabase, document_ids: list[str]) -> dict[str, str]:
+    """
+    Map each corpus document to the equipment class of the asset it is linked to.
+
+    `documents -> document_asset_links -> assets.equipment_class`. Documents with no asset link
+    fall into "unclassified" rather than being dropped: excluding them would quietly shrink the
+    corpus a gate reports on, which is the kind of silent narrowing Layer 0 exists to prevent.
+    """
+    unique_ids = list({d for d in document_ids if d})
+    if not unique_ids:
+        return {}
+
+    links = await asyncio.to_thread(
+        lambda: supabase.table("document_asset_links")
+        .select("document_id, asset_id")
+        .in_("document_id", unique_ids)
+        .execute()
+    )
+    doc_to_asset = {r["document_id"]: r["asset_id"] for r in (links.data or [])}
+    if not doc_to_asset:
+        return {}
+
+    assets = await asyncio.to_thread(
+        lambda: supabase.table("assets")
+        .select("asset_id, equipment_class")
+        .in_("asset_id", list(set(doc_to_asset.values())))
+        .execute()
+    )
+    asset_to_class = {r["asset_id"]: r.get("equipment_class") or "unclassified" for r in (assets.data or [])}
+    return {doc: asset_to_class.get(asset, "unclassified") for doc, asset in doc_to_asset.items()}

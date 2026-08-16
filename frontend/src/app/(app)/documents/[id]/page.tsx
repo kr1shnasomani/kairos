@@ -67,6 +67,9 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
         {d.status === "superseded"
           ? <StatusBadge tone="neutral" dot={false}>Superseded</StatusBadge>
           : <StatusBadge tone="verified">Active</StatusBadge>}
+        {d.handwriting_suspect && (
+          <StatusBadge tone="caution">Handwriting suspect · read from image</StatusBadge>
+        )}
       </div>
       <PageHeader
         compact

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import type { CircuitBreakerEntry, CircuitBreakerState } from "@/lib/types";
+import type { CircuitBreakerEntry } from "@/lib/types";
 import { getCircuitBreaker } from "@/lib/api";
 import { DataTable, EmptyState, MetricCard, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
 import { Card } from "@/components/ui-card";
@@ -12,16 +12,6 @@ import { useFetch } from "@/lib/use-fetch";
 import { fmtNum } from "@/lib/format";
 import { triggerLabel } from "@/lib/utils";
 
-const FIXTURE: CircuitBreakerState = {
-  halted_count: 2,
-  states: [
-    { asset_class: "Pump",       halted: false, z_score: 1.2, override_count_7d: 0, reason: "within_normal_range" },
-    { asset_class: "Valve",      halted: true,  z_score: 3.8, override_count_7d: 4, reason: "z_score_exceeded" },
-    { asset_class: "Instrument", halted: false, z_score: 0.6, override_count_7d: 1, reason: "within_normal_range" },
-    { asset_class: "Vessel",     halted: false, z_score: 1.9, override_count_7d: 2, reason: "within_normal_range" },
-    { asset_class: "Separator",  halted: true,  z_score: 4.1, override_count_7d: 7, reason: "z_score_exceeded" },
-  ],
-};
 
 // DataTable needs an index signature; Pick over the interface provides one.
 type BreakerRow = Pick<CircuitBreakerEntry, keyof CircuitBreakerEntry>;
@@ -41,7 +31,10 @@ const COLUMNS: TableColumn<BreakerRow>[] = [
 export default function CircuitBreakerPage() {
   const state = useFetch(getCircuitBreaker);
   const loading = state.status === "loading";
-  const cb = state.status === "live" ? state.data ?? FIXTURE : null;
+  // Live-only: no fixture fallback. This used to be `state.data ?? FIXTURE`, which invented
+  // halted breakers for Valve and Separator — fabricated governance state on a page whose
+  // entire purpose is reporting whether extraction has actually been halted.
+  const cb = state.status === "live" ? state.data : null;
   const states = useMemo(() => cb?.states ?? [], [cb]);
   const halted = states.filter((e) => e.halted);
   const maxZ = states.length > 0 ? Math.max(...states.map((e) => e.z_score ?? 0)) : null;

@@ -21,9 +21,9 @@ import (
 )
 
 var (
-	historian     ot.HistorianClient
-	fastAPIURL    string
-	internalKey   string
+	historian   ot.HistorianClient
+	fastAPIURL  string
+	internalKey string
 )
 
 func main() {
@@ -52,7 +52,7 @@ func main() {
 	ot_ := router.Group("/ot")
 	{
 		ot_.GET("/query", queryHistorian)
-		ot_.GET("/coverage/:asset_id", getInstrumentationCoverage)
+		ot_.GET("/connectors", listConnectors)
 	}
 
 	// EAM ingestion endpoints (Layer 1 — MDM bootstrap)
@@ -144,43 +144,76 @@ func queryHistorian(c *gin.Context) {
 	})
 }
 
-func getInstrumentationCoverage(c *gin.Context) {
-	assetID := c.Param("asset_id")
+// =============================================================================
+// Connector registry (Layer 5)
+//
+// The architecture's Layer 5 claim is that "new connector types are added without changing the
+// core layer". This makes that claim inspectable: every supported historian type is registered
+// with its configuration state and the exact env var that would activate it.
+//
+// An unconfigured connector reports itself as unconfigured. It never fabricates a reading and
+// never fails silently — the previous coverage handler did both, returning hardcoded sensor tags
+// for every asset under a "knowledge_graph" source label.
+// =============================================================================
 
-	// Query FastAPI knowledge endpoint to check if asset is in the graph
-	knowledgeURL := fmt.Sprintf("%s/assets/%s/knowledge", fastAPIURL, assetID)
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, knowledgeURL, nil)
-	if err == nil {
-		req.Header.Set("Authorization", "Bearer "+internalKey)
-		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-		if err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				var knowledge map[string]interface{}
-				if json.NewDecoder(resp.Body).Decode(&knowledge) == nil {
-					factCount, _ := knowledge["fact_count"].(float64)
-					// Asset is in graph — return instrumentation tags
-					c.JSON(http.StatusOK, gin.H{
-						"asset_id":                  assetID,
-						"instrumented_tags":         []string{assetID + "-VIBE", assetID + "-TEMP"},
-						"uninstrumented_components": []string{"seal_housing"},
-						"coverage_percent":          75,
-						"fact_count":                int(factCount),
-						"source":                    "knowledge_graph",
-					})
-					return
-				}
-			}
+type connectorInfo struct {
+	Name       string `json:"name"`
+	Protocol   string `json:"protocol"`
+	Status     string `json:"status"`
+	ConfigVar  string `json:"config_var"`
+	Configured bool   `json:"configured"`
+	Detail     string `json:"detail"`
+}
+
+func connectorRegistry() []connectorInfo {
+	piConfigured := os.Getenv("PI_WEBAPI_BASE_URL") != ""
+	opcConfigured := os.Getenv("OPCUA_ENDPOINT_URL") != ""
+	uniConfigured := os.Getenv("UNIFORMANCE_BASE_URL") != ""
+	gqlConfigured := os.Getenv("HISTORIAN_GRAPHQL_URL") != ""
+
+	status := func(configured bool, implemented bool) (string, string) {
+		switch {
+		case configured && implemented:
+			return "active", "Configured and serving queries."
+		case !implemented:
+			return "registered", "Registered in the connector layer; client not implemented in this build."
+		default:
+			return "not_configured", "Implemented, but no endpoint configured for this deployment."
 		}
 	}
 
-	// ponytail: fallback mock coverage when FastAPI unreachable or asset not in graph
+	piStatus, piDetail := status(piConfigured, true)
+	if !piConfigured {
+		piStatus, piDetail = "not_configured", "Implemented. No endpoint set — the mock historian is serving telemetry, and every response is stamped mock:true."
+	}
+	opcStatus, opcDetail := status(opcConfigured, false)
+	uniStatus, uniDetail := status(uniConfigured, false)
+	gqlStatus, gqlDetail := status(gqlConfigured, false)
+
+	return []connectorInfo{
+		{"OSIsoft PI Web API", "REST", piStatus, "PI_WEBAPI_BASE_URL", piConfigured, piDetail},
+		{"OPC-UA", "OPC-UA binary", opcStatus, "OPCUA_ENDPOINT_URL", opcConfigured, opcDetail},
+		{"Honeywell Uniformance", "REST", uniStatus, "UNIFORMANCE_BASE_URL", uniConfigured, uniDetail},
+		{"Generic GraphQL federation", "GraphQL", gqlStatus, "HISTORIAN_GRAPHQL_URL", gqlConfigured, gqlDetail},
+	}
+}
+
+func listConnectors(c *gin.Context) {
+	registry := connectorRegistry()
+	active := 0
+	for _, r := range registry {
+		if r.Status == "active" {
+			active++
+		}
+	}
+	_, isMock := historian.(*ot.MockHistorianClient)
 	c.JSON(http.StatusOK, gin.H{
-		"asset_id":                  assetID,
-		"instrumented_tags":         []string{assetID + "-VIBE", assetID + "-TEMP"},
-		"uninstrumented_components": []string{"seal_housing"},
-		"coverage_percent":          75,
-		"mock":                      true,
+		"connectors":   registry,
+		"active_count": active,
+		"serving_historian": map[string]any{
+			"mock": isMock,
+			"note": "Mock historian returns synthetic telemetry. Every /ot/query response carries mock:true.",
+		},
 	})
 }
 

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
 from api.dependencies import (
+    CurrentUserDep,
     ElasticsearchDep,
     Neo4jDep,
     QdrantDep,
@@ -19,6 +20,7 @@ from api.dependencies import (
     TemporalDep,
     require_role,
 )
+from api.services.http import shared_client
 
 log = structlog.get_logger(__name__)
 
@@ -46,6 +48,7 @@ async def detailed_health_check(
     es: ElasticsearchDep,
     redis: RedisDep,
     temporal: TemporalDep,
+    settings: SettingsDep,
 ) -> dict:
     """
     Returns 200 when all downstream dependencies are reachable.
@@ -112,7 +115,17 @@ async def detailed_health_check(
         overall_status = "degraded"
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 
-    return {"status": overall_status, "checks": checks}
+    # Phase is served from live backend config, not a frontend build-time env var, so the badge
+    # reports what is actually being enforced rather than what the image was built with.
+    return {
+        "status": overall_status,
+        "checks": checks,
+        "phase": settings.KAIROS_PHASE,
+        "phase_enforced": {
+            "synthesis": settings.KAIROS_PHASE >= 2,
+            "proactive_delivery": settings.KAIROS_PHASE >= 3,
+        },
+    }
 
 
 @router.get("/model", summary="Probe an external model provider (admin, opt-in)")
@@ -172,3 +185,34 @@ async def model_health_check(
         log.warning("health.model_probe_failed", provider=provider, error=str(exc))
         return {"provider": provider, "ok": False,
                 "latency_ms": round((time.perf_counter() - t0) * 1000), "detail": "probe failed"}
+
+
+@router.get("/connectors", summary="OT historian connector registry (Layer 5)")
+async def ot_connector_registry(
+    current_user: CurrentUserDep,
+    settings: SettingsDep,
+) -> dict:
+    """
+    Which historian connectors this deployment supports, and which are actually configured.
+
+    Layer 5's claim is that "new connector types are added without changing the core layer" — this
+    makes that inspectable rather than asserted. An unconfigured connector says so; it never
+    fabricates a reading and never fails silently, which is precisely what the deleted coverage
+    handler did (hardcoded sensor tags for every asset, labelled `source: "knowledge_graph"`).
+    """
+    import os
+
+    go_url = os.getenv("GO_CONNECTOR_URL", f"http://kairos-backend-go:{settings.GO_CONNECTOR_PORT}")
+    try:
+        client = shared_client(5.0)
+        resp = await client.get(f"{go_url}/ot/connectors", timeout=5.0)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as exc:
+        # The connector service being down is itself the honest answer — not an empty registry
+        # that would read as "no connectors supported".
+        log.warning("health.connector_registry_unreachable", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OT connector service is unreachable — connector registry unavailable.",
+        ) from exc

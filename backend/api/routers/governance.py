@@ -807,3 +807,102 @@ async def model_gate_history(
         .execute()
     )
     return {"items": result.data or [], "total": len(result.data or [])}
+
+
+@router.get("/push-volume-gate", summary="EEMUA 191 pilot monitoring gate (reporting only)")
+async def push_volume_gate(
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+    settings: SettingsDep,
+    days: int = Query(30, ge=1, le=90),
+) -> dict:
+    """
+    The Phase 3 precondition from the architecture: push volume must stay within EEMUA 191 norms
+    (<=6 per operator per hour) for 30 consecutive operating days before governed proactive mode
+    is the default operating posture.
+
+    **Reporting only — this never blocks Phase 3 at runtime.** The gate exists to tell an operator
+    whether the push thesis is holding against real data; wiring it as a hard runtime block would
+    mean a deployment with under 30 days of history could not deliver briefs at all, which is a
+    worse failure than the one it prevents. Phase activation stays a deliberate configuration
+    decision (`KAIROS_PHASE`), informed by this number.
+    """
+    since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+    result = await asyncio.to_thread(
+        lambda: supabase.table("briefs")
+        .select("recipient_user_id, delivered_at")
+        .gte("delivered_at", since)
+        .execute()
+    )
+    rows = [r for r in (result.data or []) if r.get("delivered_at")]
+
+    # Peak hourly rate per operator — the ceiling is a per-hour limit, so an average over the
+    # window would hide exactly the bursts EEMUA 191 is written about.
+    per_user_hour: dict[tuple[str, str], int] = {}
+    for row in rows:
+        hour_bucket = str(row["delivered_at"])[:13]  # YYYY-MM-DDTHH
+        key = (row.get("recipient_user_id") or "unknown", hour_bucket)
+        per_user_hour[key] = per_user_hour.get(key, 0) + 1
+
+    ceiling = settings.MAX_PUSH_PER_USER_PER_HOUR
+    peak = max(per_user_hour.values(), default=0)
+    breaches = [
+        {"recipient_user_id": user, "hour": hour, "count": count}
+        for (user, hour), count in sorted(per_user_hour.items())
+        if count > ceiling
+    ]
+
+    return {
+        "window_days": days,
+        "ceiling_per_operator_per_hour": ceiling,
+        "peak_per_operator_per_hour": peak,
+        "breach_count": len(breaches),
+        "breaches": breaches[:20],
+        "briefs_delivered": len(rows),
+        "within_eemua_norms": len(breaches) == 0,
+        "current_phase": settings.KAIROS_PHASE,
+        # Named so no caller mistakes this for an enforcement point.
+        "enforcement": "advisory_only",
+    }
+
+
+@router.get("/timestamp-drift", summary="Cross-source clock drift report (Layer 4)")
+async def timestamp_drift_report(
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+    settings: SettingsDep,
+    limit: int = Query(50, le=200),
+) -> dict:
+    """
+    Clock drift between source systems reporting the *same* correlated event.
+
+    Deliberately NOT `occurred_at` vs `ingested_at`: a document that occurred months before it was
+    ingested is history, not skew, and comparing those would flag an entire golden corpus and bury
+    the real signal. Only compound events — the same physical action seen by two or more systems —
+    are comparable.
+
+    Report-only while `TIMESTAMP_DRIFT_ENFORCE` is false: drift is surfaced here but opens no
+    conflict row, so the check can be observed against real data before it creates review load.
+    """
+    from api.services.timestamp_alignment import TimestampAlignmentService
+
+    result = await asyncio.to_thread(
+        lambda: supabase.table("operational_events")
+        .select("compound_event_id")
+        .not_.is_("compound_event_id", "null")
+        .limit(limit * 4)
+        .execute()
+    )
+    compound_ids = list({r["compound_event_id"] for r in (result.data or []) if r.get("compound_event_id")})[:limit]
+
+    svc = TimestampAlignmentService(supabase, settings)
+    checked = [await svc.check_compound_event(cid) for cid in compound_ids]
+    drifting = [c for c in checked if c.get("drift_detected")]
+
+    return {
+        "compound_events_checked": len(checked),
+        "drift_detected_count": len(drifting),
+        "tolerance_minutes": settings.TIMESTAMP_DRIFT_TOLERANCE_MINUTES,
+        "enforcement": "enforced" if settings.TIMESTAMP_DRIFT_ENFORCE else "advisory_only",
+        "items": drifting[:limit],
+    }

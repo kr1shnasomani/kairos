@@ -14,6 +14,7 @@ from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, Setting
 from api.models.asset import AssetCreate
 from api.services.coverage import CoverageService
 from api.services.graph import GraphService
+from api.services.ot_coverage import OtCoverageService
 
 log = structlog.get_logger(__name__)
 router = APIRouter()
@@ -237,6 +238,22 @@ async def get_asset_hierarchy(
     if not hierarchy:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Asset '{asset_id}' not found")
     return hierarchy
+
+
+@router.get("/{asset_id}/ot-coverage", summary="Instrumentation coverage map for an asset")
+async def get_asset_ot_coverage(
+    asset_id: str,
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    """
+    Which components on this asset are actually monitored by historian tags (Layer 5).
+
+    Derived from **engineer-verified** P&ID topology only. An asset whose drawings have not been
+    verified returns `coverage_type: "none"` — the honest answer, not a guess. Layer 10 uses this
+    to decide whether a repair can be judged by telemetry or needs human closeout attestation.
+    """
+    return await OtCoverageService(supabase).asset_coverage(asset_id)
 
 
 @router.get("/{asset_id}/knowledge", summary="Get all knowledge graph facts for an asset")

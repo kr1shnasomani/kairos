@@ -46,6 +46,11 @@ export interface Brief {
   freeze_deviation_flag_id?: string | null;
   delivered_at: string;
   acknowledged_at?: string | null;
+  /** Set at ack time. For PTW briefs this alone is NOT completion — a countersignature is
+   *  still required, and `acknowledged_at` stays null until it arrives (architecture Flow B). */
+  acknowledged_by?: string | null;
+  countersigned_by?: string | null;
+  countersigned_at?: string | null;
 }
 
 export interface GovernorState {
@@ -258,6 +263,12 @@ export type DocumentState = "active" | "superseded";
 export interface VaultDocument {
   document_id: string;
   file_name: string;
+  /** Layer 3: "ocr" = text read off an image (scans, field forms), "native" = parsed from
+   *  digital structure. Derived server-side so the rule has one definition. */
+  extraction_path?: "ocr" | "native";
+  /** Image-path documents are where handwriting lives. A flag, deliberately not a confidence
+   *  penalty — lowering the score would push these under the 0.7 quarantine threshold. */
+  handwriting_suspect?: boolean;
   document_type: string; // oem_manual | procedure | inspection_report | ptw | shift_log | regulation | pid_drawing
   authority_level: AuthorityLevel;
   source_system: string;
@@ -590,6 +601,16 @@ export interface TopologyGraph {
   /** "vision_model" = extracted from the drawing. "demo_fixture" = the VLM was
    *  unreachable and the pipeline fell back to canned topology; the UI must say so. */
   topology_source?: "vision_model" | "demo_fixture";
+  /** Drawing-level roll-up of element-by-element engineer verification (Layer 3 → Layer 7). */
+  verification_status: "unverified" | "partially_verified" | "verified";
+  elements_total: number;
+  elements_verified: number;
+  elements_disputed: number;
+  safety_critical_total: number;
+  safety_critical_verified: number;
+  /** True only when every safety-critical element is confirmed and none are disputed.
+   *  Until then the topology is a candidate, not canonical. */
+  canonical_ready: boolean;
 }
 
 // --- Audit log (GET /audit-log) ---
@@ -620,6 +641,10 @@ export interface HealthDetailed {
   overall: "healthy" | "degraded" | "down";
   services: ServiceHealth[];
   checked_at: string;
+  /** Deployment phase actually being enforced by the backend (Layer 12), not a frontend
+   *  build-time constant. Undefined only if the API predates the phase gate. */
+  phase?: number;
+  phase_enforced?: { synthesis: boolean; proactive_delivery: boolean };
 }
 
 // --- Audit pack (GET /compliance/audit-pack) — mirrors backend routers/compliance.py ---
@@ -651,12 +676,23 @@ export interface AuditPack {
   status?: string;
 }
 
-// --- OT instrumentation coverage (GET /ot/coverage/{asset_id}) ---
+// --- OT instrumentation coverage (GET /assets/{asset_id}/ot-coverage) ---
 export interface OtCoverage {
   asset_id: string;
   has_direct_sensors: boolean;
   sensor_tags: string[];
+  /** "none" means no *verified* drawing establishes instrumentation — not a claim that the
+   *  equipment has no sensors. "macro" is the brownfield case: equipment is on a verified
+   *  drawing but no verified loop covers it, so only overall readings exist. */
   coverage_type: "direct" | "macro" | "none";
+  verified_loops: number;
+  total_loops: number;
+  /** Provenance, so coverage can never be mistaken for a historian assertion. */
+  derived_from: "verified_pid_topology";
+  source_documents: string[];
+  /** True when the drawing has instrumentation the engineer has not yet verified — the gap is
+   *  review backlog, not absent instrumentation, and the UI should say so. */
+  unverified_topology_present: boolean;
   last_reading?: string | null;
 }
 

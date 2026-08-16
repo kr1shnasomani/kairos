@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useState } from "react";
 import type { Brief } from "@/lib/types";
 import { priorityMeta, relativeTime, triggerLabel } from "@/lib/utils";
-import { ackBrief, sendBriefFeedback } from "@/lib/api";
+import { ackBrief, countersignBrief, sendBriefFeedback } from "@/lib/api";
+import { PROMOTE_ROLES, useMe } from "./use-role";
 import { AuthorityBadge, Button, EvidenceLineage, PageHeader, SourceChip, StatusBadge } from "./ui";
 
 type FeedbackRating = "accurate" | "missing_context" | "incorrect";
@@ -14,13 +15,25 @@ type AckStep = "idle" | "step1_done" | "complete";
 export function BriefDetail({ brief }: { brief: Brief }) {
   const p = priorityMeta(brief.priority);
   const isPtw = brief.requires_countersignature;
+  const me = useMe();
+
+  // Server truth, not local step state: a PTW brief's two signatures are made by two different
+  // people in two different sessions, so step 2 has to be driven by what the backend recorded.
+  const ackedBy = brief.acknowledged_by ?? null;
+  const counterBy = brief.countersigned_by ?? null;
+  const canCountersign =
+    isPtw &&
+    !!ackedBy &&
+    !counterBy &&
+    !!me &&
+    PROMOTE_ROLES.includes(me.role) &&
+    me.user_id !== ackedBy;
   const isFrozen = brief.frozen || brief.delivery_frozen;
   const quarantineCount = brief.sources.filter((s) => s.is_quarantine).length;
   const hasLowConfidence = quarantineCount > 0;
 
   const [ackStep, setAckStep] = useState<AckStep>("idle");
   const [engineerSig, setEngineerSig] = useState("");
-  const [shiftLeadSig, setShiftLeadSig] = useState("");
   const [ackBusy, setAckBusy] = useState(false);
   const [ackError, setAckError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackRating | null>(null);
@@ -28,34 +41,31 @@ export function BriefDetail({ brief }: { brief: Brief }) {
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
+  /** Signature 1 — the issuing authority. Always hits the API, for PTW briefs too: the
+   *  engineer's acknowledgment is what the countersignature is later checked against. */
   async function ackStep1() {
     if (engineerSig.trim().length < 2 || ackBusy) return;
-    if (!isPtw) {
-      // Single-step for non-PTW briefs
-      setAckBusy(true);
-      setAckError(null);
-      try {
-        await ackBrief(brief.brief_id, { signature: engineerSig });
-        setAckStep("complete");
-      } catch {
-        setAckError("Acknowledgment failed to save — check your connection and try again.");
-      } finally {
-        setAckBusy(false);
-      }
-      return;
-    }
-    setAckStep("step1_done");
-  }
-
-  async function ackStep2() {
-    if (shiftLeadSig.trim().length < 2 || ackBusy) return;
     setAckBusy(true);
     setAckError(null);
     try {
-      await ackBrief(brief.brief_id, {
-        signature: `${engineerSig} + ${shiftLeadSig}`,
-        notes: "PTW dual countersignature",
-      });
+      await ackBrief(brief.brief_id, { signature: engineerSig });
+      // PTW is not delivered on one signature — it now waits for a second authority.
+      setAckStep(isPtw ? "step1_done" : "complete");
+    } catch {
+      setAckError("Acknowledgment failed to save — check your connection and try again.");
+    } finally {
+      setAckBusy(false);
+    }
+  }
+
+  /** Signature 2 — a different authenticated person holding reliability/admin. Identity comes
+   *  from the session, never a typed name, which is what makes the audit trail meaningful. */
+  async function ackStep2() {
+    if (ackBusy || !canCountersign) return;
+    setAckBusy(true);
+    setAckError(null);
+    try {
+      await countersignBrief(brief.brief_id);
       setAckStep("complete");
     } catch {
       setAckError("Countersignature failed to save — the brief is not yet delivered. Try again.");
@@ -79,7 +89,12 @@ export function BriefDetail({ brief }: { brief: Brief }) {
     }
   }
 
-  const isComplete = ackStep === "complete";
+  // Complete on server truth as well as local state, so reopening a signed brief in a fresh
+  // session shows it signed. PTW needs both signatures; everything else needs one.
+  const isComplete =
+    ackStep === "complete" || (isPtw ? !!counterBy : !!brief.acknowledged_at);
+  // PTW awaiting its second signature — the state the old UI could never leave.
+  const awaitingCountersign = isPtw && !!ackedBy && !counterBy && !isComplete;
 
   return (
     <div data-testid="brief-detail-workspace" className="mx-auto max-w-[1400px]">
@@ -214,33 +229,39 @@ export function BriefDetail({ brief }: { brief: Brief }) {
                 <path d="M20 6 9 17l-5-5" />
               </svg>
               {isPtw
-                ? `PTW acknowledged — engineer: ${engineerSig} · shift lead: ${shiftLeadSig}`
+                ? `PTW signed off — acknowledged by ${ackedBy ?? "engineer"} · countersigned by ${counterBy ?? "second authority"}`
                 : `Acknowledged${engineerSig ? ` · signed ${engineerSig}` : ""}`}
             </div>
-            <p className="text-caption text-muted">Signature and timestamp logged in the evidence lineage.</p>
+            <p className="text-caption text-muted">Both identities and timestamps are logged in the audit trail.</p>
           </div>
-        ) : isPtw && ackStep === "step1_done" ? (
-          /* Step 2: Shift Lead countersignature */
-          <div>
-            <p className="text-body font-semibold">Step 2 of 2 — Shift Lead countersignature</p>
+        ) : awaitingCountersign || (isPtw && ackStep === "step1_done") ? (
+          /* Signature 2 — a second, distinct authority. Identity comes from their session. */
+          <div data-testid="brief-countersign">
+            <p className="text-body font-semibold">Step 2 of 2 — countersignature</p>
             <p className="mt-1 text-caption text-muted">
-              Confirming isolation strategy has been reviewed and isolation sequence above is approved.
-              Engineer sign-off recorded: <span className="font-medium text-ink">{engineerSig}</span>
+              Acknowledged by <span className="font-medium text-ink">{ackedBy ?? engineerSig}</span>. A
+              second authority must confirm the isolation strategy before this permit is delivered.
             </p>
-            <input
-              value={shiftLeadSig}
-              onChange={(e) => setShiftLeadSig(e.target.value)}
-              placeholder="Shift Lead: type your name to countersign"
-              className="mt-3 min-h-11 w-full rounded-lg border border-line bg-surface-2 px-3 text-body outline-none focus-visible:border-accent"
-              aria-label="Shift Lead signature"
-            />
-            <div className="mt-3 flex items-center gap-2">
-              <Button variant="primary" onClick={ackStep2} disabled={shiftLeadSig.trim().length < 2 || ackBusy}>
-                {ackBusy ? "Saving…" : "Countersign — mark PTW delivered"}
-              </Button>
-              <span className="text-caption text-muted">Brief is not delivered until both signatures are captured.</span>
-            </div>
-            {ackError && <p className="mt-2 text-caption text-danger">{ackError}</p>}
+            {canCountersign ? (
+              <>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Button variant="primary" onClick={ackStep2} disabled={ackBusy}>
+                    {ackBusy ? "Saving…" : "Countersign permit"}
+                  </Button>
+                  {/* Identity, not a raw uuid in the button label. */}
+                  <span className="text-caption text-muted">
+                    Signed as <span className="font-medium text-ink">{me!.email || me!.user_id}</span> — your session identity, not a typed name.
+                  </span>
+                </div>
+                {ackError && <p className="mt-2 text-caption text-danger">{ackError}</p>}
+              </>
+            ) : (
+              <p className="mt-3 rounded-lg border border-line bg-surface-2 px-3 py-2 text-caption text-muted">
+                {me && me.user_id === ackedBy
+                  ? "You acknowledged this brief. A countersignature has to come from someone else — that is the point of dual sign-off."
+                  : "Waiting on a reliability engineer or administrator to countersign. Engineers cannot provide both signatures."}
+              </p>
+            )}
           </div>
         ) : (
           /* Step 1 (or single-step for non-PTW) */

@@ -104,6 +104,13 @@ class OCRService:
             "requires_review": False,
             "block_count": len(blocks),
             "extraction_method": "nim_ocr",
+            # Layer 3: text that came off an image, not out of a digital document. Scans and
+            # field forms are where handwriting lives, so this flag — not a lowered confidence
+            # score — is what marks it. Deliberately NOT scaling `overall_confidence`: that would
+            # push these extractions under the 0.7 quarantine threshold and silently move real
+            # facts out of the canonical graph, which is a retrieval regression, not a safeguard.
+            "extraction_path": "ocr",
+            "handwriting_suspect": True,
         }
 
     async def _nim_ocr(self, img_bytes: bytes, img_mime: str) -> str:
@@ -177,11 +184,15 @@ class OCRService:
                 "requires_review": False,
                 "block_count": len(blocks),
                 "extraction_method": "native_pdf",
+                # Text layer parsed straight out of the PDF — no image was read.
+                "extraction_path": "native",
+                "handwriting_suspect": False,
             }
         except Exception as exc:
             log.error("ocr.native_pdf_failed", error=str(exc))
             return {"text": "", "blocks": [], "overall_confidence": 0.0,
-                    "requires_review": True, "block_count": 0, "extraction_method": "error"}
+                    "requires_review": True, "block_count": 0, "extraction_method": "error",
+                    "extraction_path": "unknown", "handwriting_suspect": False}
 
     def _native(self, text: str, method: str) -> dict[str, Any]:
         """Result envelope for extraction paths that need no OCR model."""
@@ -192,6 +203,9 @@ class OCRService:
             "requires_review": False,
             "block_count": 1,
             "extraction_method": method,
+            # Digital text — parsed, not read off an image. Handwriting cannot be present.
+            "extraction_path": "native",
+            "handwriting_suspect": False,
         }
 
     @staticmethod
@@ -314,4 +328,6 @@ class OCRService:
             "block_count": 0,
             "extraction_method": "error",
             "error": reason,
+            "extraction_path": "unknown",
+            "handwriting_suspect": False,
         }

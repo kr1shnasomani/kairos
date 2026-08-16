@@ -7,9 +7,9 @@ import asyncio
 from datetime import UTC
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from api.dependencies import CurrentUserDep, RedisDep, SettingsDep, SupabaseDep
+from api.dependencies import CurrentUserDep, RedisDep, SettingsDep, SupabaseDep, require_role
 from api.models.brief import BriefFeedback
 from api.services.event_bus import EventBusService
 
@@ -58,7 +58,8 @@ async def get_my_briefs(
             "brief_id, trigger_event_id, trigger_event_type, asset_id, work_order_id, ptw_id, "
             "recipient_user_id, priority, headline, body, action_items, warnings, "
             "quarantine_flags, sources, confidence, requires_countersignature, "
-            "delivered_at, acknowledged_at, acknowledged_by, delivery_frozen, created_at"
+            "delivered_at, acknowledged_at, acknowledged_by, countersigned_by, countersigned_at, "
+            "delivery_frozen, created_at"
         )
         .or_(f"recipient_user_id.eq.{user_id},recipient_user_id.eq.{site_recipient}" if site_recipient else f"recipient_user_id.eq.{user_id}")
         .order("created_at", desc=True)
@@ -149,18 +150,36 @@ async def get_brief(
 ) -> dict:
     """Returns a single brief with full evidence lineage. Enforces recipient ownership —
     the user's own briefs plus **site-wide** briefs addressed to their site (`site-{site_id}`),
-    which would otherwise be unopenable by anyone."""
+    which would otherwise be unopenable by anyone.
+
+    One deliberate exception: **any staff role may open a PTW brief addressed to someone else.**
+    A permit-to-work brief is a posted safety document for a work area, not private
+    correspondence — Flow B has the issuing engineer acknowledge it and a *different* authority
+    countersign, so at minimum two people must be able to read it, and in practice anyone working
+    that isolation needs to. Restricting it to the recipient made the dual sign-off impossible.
+
+    The exception is narrow: PTW briefs only, staff roles only. It does not widen the inbox
+    listing, and it does not grant the right to *sign* — countersigning remains reliability/admin
+    (`require_role` + OPA `can_countersign_brief`)."""
     result = await asyncio.to_thread(
         lambda: supabase.table("briefs")
         .select("*")
         .eq("brief_id", brief_id)
-        .in_("recipient_user_id", _brief_recipients(current_user))
         .limit(1)
         .execute()
     )
     if not result.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Brief '{brief_id}' not found")
-    return result.data[0]
+
+    brief = result.data[0]
+    is_recipient = brief.get("recipient_user_id") in _brief_recipients(current_user)
+    is_readable_permit = (
+        bool(brief.get("requires_countersignature"))
+        and current_user.get("role") in {"engineer", "reliability", "admin"}
+    )
+    if not (is_recipient or is_readable_permit):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Brief '{brief_id}' not found")
+    return brief
 
 
 @router.post("/{brief_id}/ack", summary="Acknowledge a brief (required for PTW / safety-critical)")
@@ -171,8 +190,9 @@ async def ack_brief(
 ) -> dict:
     """
     Cryptographically logs that the user acknowledged the brief content.
-    For PTW briefs (requires_countersignature=True), acknowledged_at is NOT set until
-    a countersignature is received — enforced in Task 13 full wiring.
+    For PTW briefs (requires_countersignature=True), `acknowledged_at` is deliberately NOT set
+    here — it is set by POST /briefs/{id}/countersign once a second distinct authority signs,
+    which is the dual sign-off the architecture requires for safety-critical briefs (Flow B).
     """
     from datetime import datetime
     user_id = current_user.get("user_id", "")
@@ -212,6 +232,105 @@ async def ack_brief(
         "status": "acknowledged" if not requires_cs else "pending_countersignature",
         "brief_id": brief_id,
         "acknowledged_by": user_id,
+    }
+
+
+@router.post("/{brief_id}/countersign", summary="Countersign a PTW brief (second authority)")
+async def countersign_brief(
+    brief_id: str,
+    supabase: SupabaseDep,
+    current_user: dict = Depends(require_role("reliability", "admin")),
+) -> dict:
+    """
+    Completes the dual sign-off required for safety-critical (PTW) briefs — architecture Flow B:
+    the issuing engineer acknowledges, a second authority countersigns, and only then is the brief
+    logged as delivered-and-accepted.
+
+    Two distinct humans are mandatory: the countersigner may not be the user who acknowledged.
+    `acknowledged_at` is set here, because that is the moment both signatures exist.
+    """
+    from datetime import datetime
+
+    user_id = current_user.get("user_id", "")
+    now = datetime.now(UTC).isoformat()
+
+    # Deliberately NOT scoped by recipient. The countersigner is, by definition, someone other
+    # than the person the brief was delivered to — Flow B has the issuing engineer acknowledge and
+    # a second authority countersign. Scoping this read the way `ack` scopes its own made the
+    # entire flow impossible: the second authority is never in `_brief_recipients`, so every
+    # countersign attempt 404'd. Authorisation here is by role (`require_role` above, mirrored by
+    # OPA's `can_countersign_brief`), not by delivery address.
+    #
+    # ponytail: single-site deployment, so role is a sufficient boundary. When the cross-site
+    # control plane lands, scope this to the countersigner's site via the brief's asset.
+    result = await asyncio.to_thread(
+        lambda: supabase.table("briefs")
+        .select("brief_id, requires_countersignature, acknowledged_by, acknowledged_at, countersigned_by")
+        .eq("brief_id", brief_id)
+        .limit(1)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Brief '{brief_id}' not found")
+
+    brief_row = result.data[0]
+
+    if not brief_row.get("requires_countersignature", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This brief does not require a countersignature.",
+        )
+    if brief_row.get("countersigned_by"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Brief '{brief_id}' is already countersigned.",
+        )
+
+    acknowledged_by = brief_row.get("acknowledged_by")
+    if not acknowledged_by:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Brief must be acknowledged by the issuing authority before it can be countersigned.",
+        )
+    if acknowledged_by == user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A countersignature requires a second, distinct authority — "
+                   "the acknowledging user cannot countersign their own brief.",
+        )
+
+    await asyncio.to_thread(
+        lambda: supabase.table("briefs").update({
+            "countersigned_by": user_id,
+            "countersigned_at": now,
+            "acknowledged_at": now,  # both signatures now present
+        }).eq("brief_id", brief_id).execute()
+    )
+    await asyncio.to_thread(
+        lambda: supabase.table("audit_log").insert({
+            "action": "brief_countersigned",
+            "entity_type": "brief",
+            "entity_id": brief_id,
+            "performed_by": user_id,
+            "details": {
+                "countersigned_at": now,
+                "acknowledged_by": acknowledged_by,
+                "acknowledged_at": now,
+            },
+        }).execute()
+    )
+    log.info(
+        "briefs.countersigned",
+        brief_id=brief_id,
+        countersigned_by=user_id,
+        acknowledged_by=acknowledged_by,
+    )
+    return {
+        "status": "acknowledged",
+        "brief_id": brief_id,
+        "acknowledged_by": acknowledged_by,
+        "countersigned_by": user_id,
+        "countersigned_at": now,
     }
 
 

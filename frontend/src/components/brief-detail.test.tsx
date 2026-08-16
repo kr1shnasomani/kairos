@@ -3,7 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Brief } from "@/lib/types";
 import { BriefDetail } from "./brief-detail";
 
-vi.mock("@/lib/api", () => ({ ackBrief: vi.fn(), sendBriefFeedback: vi.fn() }));
+// getToken is pulled in transitively via useMe -> getMe; without it the whole-module mock
+// leaves it undefined and the effect throws.
+vi.mock("@/lib/api", () => ({
+  ackBrief: vi.fn(),
+  countersignBrief: vi.fn(),
+  sendBriefFeedback: vi.fn(),
+  getToken: vi.fn(() => null),
+}));
 
 const brief: Brief = {
   brief_id: "BRF-101",
@@ -32,5 +39,46 @@ describe("BriefDetail", () => {
     expect(screen.getByTestId("brief-context")).toHaveTextContent("Evidence");
     expect(screen.getByTestId("brief-acknowledgment")).toHaveClass("lg:sticky");
     expect(screen.getByLabelText("Engineer signature")).toHaveClass("min-h-11");
+  });
+
+  // Regression guard for the dead-end this workstream fixed: a PTW brief that had been
+  // acknowledged used to be unreachable — no countersign path existed, so it could never
+  // be delivered. It must now render an explicit "awaiting second authority" state.
+  it("shows a PTW brief as awaiting a second authority once acknowledged", () => {
+    render(
+      <BriefDetail
+        brief={{
+          ...brief,
+          requires_countersignature: true,
+          acknowledged_by: "eng-1",
+          acknowledged_at: null,
+          countersigned_by: null,
+        }}
+      />,
+    );
+
+    const panel = screen.getByTestId("brief-countersign");
+    expect(panel).toHaveTextContent("Step 2 of 2");
+    expect(panel).toHaveTextContent("eng-1");
+    // Unauthenticated in this test (getToken -> null), so no countersign button is offered.
+    expect(panel).toHaveTextContent(/reliability engineer or administrator/i);
+  });
+
+  it("shows a fully signed PTW brief as complete", () => {
+    render(
+      <BriefDetail
+        brief={{
+          ...brief,
+          requires_countersignature: true,
+          acknowledged_by: "eng-1",
+          acknowledged_at: "2026-07-15T09:00:00Z",
+          countersigned_by: "rel-1",
+          countersigned_at: "2026-07-15T09:00:00Z",
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("brief-acknowledgment")).toHaveTextContent("PTW signed off");
+    expect(screen.queryByTestId("brief-countersign")).toBeNull();
   });
 });

@@ -5,7 +5,7 @@ Pydantic models — Document (Layer 2: Immutable Vault, Layer 3: Extraction)
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class SynthesizeRequest(BaseModel):
@@ -68,6 +68,27 @@ class VaultDocument(BaseModel):
     asset_links: list[str] = Field(default_factory=list, description="Linked canonical asset IDs")
     access_tags: list[str] = Field(default_factory=list)
 
+    @computed_field
+    @property
+    def extraction_path(self) -> str:
+        """Whether this document's text was read off an image or parsed from digital structure."""
+        return "ocr" if self.mime_type.startswith("image/") else "native"
+
+    @computed_field
+    @property
+    def handwriting_suspect(self) -> bool:
+        """
+        Layer 3: image-path documents are where handwriting lives — field inspection forms and
+        shift logs. Derived here rather than in the frontend so the rule has one definition, and
+        surfaced as a *flag* rather than a confidence penalty: lowering the score would push these
+        under the 0.7 quarantine threshold and quietly drop real facts out of the canonical graph.
+
+        Engineering drawings are excluded. A P&ID is an image and goes through the vision path,
+        but it carries no handwriting — flagging it would put a "handwriting suspect" caution on
+        every drawing in the vault and teach reviewers to ignore the badge.
+        """
+        return self.mime_type.startswith("image/") and self.document_type != "pid_drawing"
+
 
 class DocumentStatus(BaseModel):
     document_id: str
@@ -103,6 +124,11 @@ class ExtractionResult(BaseModel):
     vector_chunks_indexed: int = 0
     review_items: list[dict[str, Any]] = Field(default_factory=list)
     extracted_at: datetime = Field(default_factory=datetime.utcnow)
+    # Layer 3: whether the text was read off an image or parsed from a digital document.
+    # Handwriting only occurs on the image path, and the architecture asks for it to be
+    # "flagged explicitly in the extraction output" — as a marker, not a confidence penalty.
+    extraction_path: str = "unknown"
+    handwriting_suspect: bool = False
 
 
 class SearchResult(BaseModel):

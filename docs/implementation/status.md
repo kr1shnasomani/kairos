@@ -13,6 +13,24 @@
 
 ## Headline
 
+> **Update 2026-08-16 — architecture conformance raised 82% → ~94%.** A one-to-one audit of every
+> layer against `ARCHITECTURE.md`, then seven workstreams to close the gaps. The pattern in every
+> gap was the same: *the data model was built and the enforcement was not.* Full detail and undo
+> steps in [`conformance-changelog.md`](./conformance-changelog.md); route/persona verification in
+> [`e2e-sweep.md`](./e2e-sweep.md).
+>
+> Landed: PTW dual sign-off (was a dead end — a PTW brief could never be acknowledged) ·
+> P&ID element-by-element verification gate · real instrumentation coverage from verified topology
+> (replacing a handler that returned hardcoded sensor tags for every asset) · enforced phase gating ·
+> timestamp drift detection · per-asset-class model gate · connector registry.
+>
+> **Four bugs were found only by running against a real database and a real browser** — every one a
+> query-semantics or real-data bug that the unit suite passed clean. See the changelog's closing note.
+>
+> Remaining deviations are deliberate and documented: P&ID Path A (VLM instead of YOLOv9), OPC-UA /
+> Uniformance / GraphQL connectors, PuppyGraph federated MDM, separate handwriting + form models.
+> Those four cap the score below 100 by construction.
+
 **All 13 architecture layers are implemented — the *product* is complete.** What remains is
 **deployment, ops, and optional polish** (public hosting, manual E2E, security hardening) —
 tracked in [Pending](#pending--deployment-ops--polish-as-of-2026-07-18) below.
@@ -155,15 +173,15 @@ are mock **by design**.
 
 | Layer | Verdict | One-line |
 |---|:--:|---|
-| 0 · Empirical Validation & Model Safety | ✅ | Corpus grows from human promotions/annotations; model gate per **entity-type** F1 (per-**asset-class** enforcement lives in L7's circuit breaker) |
+| 0 · Empirical Validation & Model Safety | ✅ | Corpus grows from human promotions/annotations; model gate now scores **per asset class** and enforces through L7's circuit breaker (`MODEL_GATE_ENFORCE`, off by default) |
 | 1 · Deterministic Identity & MDM | ✅ | Human-confirmed `MERGE` assets, alias resolution, quarantine for unlinkable knowledge. EAM bootstrap is a fixture (no SAP/Maximo) |
 | 2 · Immutable Evidence Vault | ✅ | Supabase Storage, SHA-256 dedup, version chain, `active/superseded/…` status, never-delete |
-| 3 · Multimodal Perception | ✅ | Two-path OCR (PyMuPDF + NIM), NIM NER, P&ID **vision** (Path B), voice (Groq), handwriting, annotations |
+| 3 · Multimodal Perception | ✅ | Two-path OCR (PyMuPDF + NIM), NIM NER, P&ID **vision** (Path B) **+ element-by-element engineer verification gate**, voice (Groq), `extraction_path`/`handwriting_suspect` flags, annotations |
 | 4 · Temporal Reality Graph | ⚠️ | 6 edge props ✅, time-travel ✅, blast-radius ✅ — but only **3 of 6 node types** are graph nodes |
-| 5 · Zero-Copy OT Virtualization | 🔵 | Mock historian by design; `PIWebAPIClient` built, OPC-UA/Honeywell/GraphQL are stubs/absent |
+| 5 · Zero-Copy OT Virtualization | 🔵 | Mock historian by design; `PIWebAPIClient` built; **real instrumentation coverage map** from verified topology; **connector registry** self-reports config state. OPC-UA/Honeywell/GraphQL registered-not-implemented (fail loudly, never return empty-as-success) |
 | 6 · Quarantine Knowledge | ✅ | One-way gate, searchable+labelled, 4 review actions, SLA escalation |
 | 7 · Dual-Track Governance | ⚠️ | Admin vs engineering tracks, per-criticality SLA, SPC circuit breaker all conformant — but MoC **webhook signature verification is dead code** (see below) |
-| 8 · Event Subscription & Delivery | 🟡 | 8 sources, dedup/correlate/late-arrival, EEMUA governor, cool-down, sign-off — **pilot-gate not built** |
+| 8 · Event Subscription & Delivery | ✅ | 8 sources, dedup/correlate/late-arrival, EEMUA governor, cool-down, **working PTW dual sign-off**, **pilot gate built** (`/governance/push-volume-gate`, advisory-only by design) |
 | 9 · Knowledge Elicitation | ✅ | Micro-interviews on all 3 designed triggers, off-boarding programmes |
 | 10 · Outcome Attribution | ✅ | All 3 parallel checks built; telemetry check reads the L5 mock historian (by design) |
 | 11 · Reasoning & Synthesis | ✅ | Hybrid retrieval (exact+semantic+graph+authority re-rank), safety refusal, all output types |
@@ -311,6 +329,24 @@ constants (`SUGGESTIONS`, `RCA_PRESETS`) plus the test-only `rcaFor`.
 
 Test suites that asserted the old behaviour were inverted rather than deleted, so the guarantee is
 now pinned: an empty live list must render an empty state, and an unavailable backend must reject.
+
+### It was four, not three — two more found 2026-08-16 (conformance work, W3)
+
+The 2026-08-15 sweep missed two page-local `FIXTURE` constants. They survived because the cleanup
+targeted the `lib/*.ts` fixture **modules**; these live inside the page files themselves.
+
+| Where | What it fabricated | Status |
+|---|---|---|
+| `documents/[id]/topology/page.tsx` | `const resolved = data ?? FIXTURE` — hardcoded topology including elements labelled `verification_status: "verified"`. Fabricated engineering data rendered through the engineer-verification gate itself. | ✅ **Fixed 2026-08-16** (W3). Fallback removed, orphaned `FIXTURE` deleted from `_components/topo-data.ts`, page moved onto `useFetch`. |
+| `governance/circuit-breaker/page.tsx:44` | `state.data ?? FIXTURE` with a hardcoded `CircuitBreakerState` at line 15 — invented breaker state whenever the live response is null. | ⚠️ **OPEN — not yet fixed.** Flagged during W3 and deliberately left alone to stay in scope. Fix it the same way the topology page was fixed: drop the `?? FIXTURE`, delete the constant, let `useFetch` drive loading → live → error+retry, and render an honest empty state. Baseline to protect: frontend `144 passed / 3 pre-existing errors`. |
+
+The topology page also had a second defect: `getDocumentTopology` throws, but the effect used
+`.then()` with no `.catch()`. `/topology` 404s **by design** for any non-`pid_drawing` document, so
+opening topology on an ordinary document left the loading spinner running forever. Fixed in W3.
+
+> **Lesson for future sweeps:** grep for `?? FIXTURE`, `?? demo`, and `|| FIXTURE` across
+> `app/**/page.tsx`, not just for the fixture modules. A page-local constant is the same defect
+> with a different address.
 
 ---
 
@@ -973,7 +1009,7 @@ Page-by-page manual QA pass (field-worker → engineer → admin surfaces). Ship
 
 ## Verification snapshot (2026-07-18, test counts updated 2026-07-19)
 
-- Backend test suite: **~175 passed · 3 skipped** (1 transient flake; passes in isolation) — **not re-run this session** (write-heavy; must run against `--profile local-stores`, never cloud). This session's backend changes (alias resolve, brief recipient scoping, MoC endpoints, promote gating, model-gate default) are low-risk and don't touch the asserted paths (`test_promote_quarantine_item` uses `admin_client`).
+- Backend test suite: **~175 passed · 3 skipped — *stale: not re-measured since 2026-08-16; ~53 tests added, so treat this as a floor*** (1 transient flake; passes in isolation) — **not re-run this session** (write-heavy; must run against `--profile local-stores`, never cloud). This session's backend changes (alias resolve, brief recipient scoping, MoC endpoints, promote gating, model-gate default) are low-risk and don't touch the asserted paths (`test_promote_quarantine_item` uses `admin_client`).
 - Frontend suite: **135/135 green across 55 files** (re-run in-container 2026-08-15 after the
   `npm audit fix` lockfile change; was 124/124 on 2026-07-19). `tsc` clean, `eslint` 0 errors / 3
   pre-existing unused-var warnings. vitest is not gated in CI (the dev container OOMs at 2 GB,

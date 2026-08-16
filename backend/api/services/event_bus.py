@@ -219,6 +219,20 @@ class EventBusService:
             .execute()
         )
         log.info("event_bus.compound_event_linked", compound_event_id=compound_id, event_ids=all_ids)
+
+        # Layer 4 timestamp alignment. This is the right hook: a compound event is by definition
+        # the same physical action reported by more than one source system, which is exactly the
+        # comparison the architecture asks for. Report-only by default, and never allowed to
+        # block correlation — a data-quality check must not drop operational events.
+        try:
+            from api.services.timestamp_alignment import TimestampAlignmentService
+
+            await TimestampAlignmentService(supabase, self.settings).check_compound_event(
+                compound_id, asset_id=asset_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("event_bus.timestamp_alignment_failed", error=str(exc))
+
         return compound_id
 
     async def is_duplicate(self, asset_id: str, event_type: str) -> bool:

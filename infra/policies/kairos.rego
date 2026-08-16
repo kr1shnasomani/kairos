@@ -22,7 +22,7 @@ default allow := false
 roles := {
     "field_worker":  {"read_search", "read_briefs", "ack_brief"},
     "engineer":      {"read_search", "read_briefs", "ack_brief", "ingest_document", "read_governance", "resolve_admin_conflict", "read_assets", "write_assets"},
-    "reliability":   {"read_search", "read_briefs", "ingest_document", "read_governance", "promote_quarantine", "resolve_admin_conflict", "read_assets"},
+    "reliability":   {"read_search", "read_briefs", "ingest_document", "read_governance", "promote_quarantine", "countersign_brief", "resolve_admin_conflict", "read_assets"},
     "compliance":    {"read_search", "read_compliance", "read_audit"},
     "admin":         {"*"},
 }
@@ -91,12 +91,24 @@ can_promote_quarantine if {
 }
 
 # =============================================================================
+# PTW brief countersignature — the second of two required signatures.
+# Architecture Flow B: the issuing engineer acknowledges, a second authority
+# countersigns. Engineers deliberately cannot countersign, so the two signatures
+# cannot both come from the issuing role.
+# =============================================================================
+
+can_countersign_brief if {
+    input.action == "countersign_brief"
+    input.user.role in {"reliability", "admin"}
+}
+
+# =============================================================================
 # Catch-all: non-sensitive writes allowed for any authenticated role.
 # Sensitive actions are blocked above for insufficient roles; everything else
 # (events, briefs, search, compliance reads via POST) passes through.
 # =============================================================================
 
-_sensitive_actions := {"promote_quarantine", "resolve_admin_conflict", "write_assets", "ingest_document"}
+_sensitive_actions := {"promote_quarantine", "countersign_brief", "resolve_admin_conflict", "write_assets", "ingest_document"}
 
 allow if {
     input.user.role in {"field_worker", "engineer", "reliability", "admin", "compliance"}

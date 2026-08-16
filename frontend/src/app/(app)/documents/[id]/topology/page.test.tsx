@@ -9,9 +9,17 @@ vi.mock("@/lib/api", () => ({
       document_id: "DOC-1", generated_at: "2026-07-15T08:00:00Z",
       nodes: [{ node_id: "P-101", node_type: "Pump", label: "P-101", verification_status: "verified", properties: {} }],
       edges: [],
+      verification_status: "partially_verified",
+      elements_total: 2, elements_verified: 1, elements_disputed: 0,
+      safety_critical_total: 1, safety_critical_verified: 0,
+      canonical_ready: false,
     },
     source: "api",
   }),
+  verifyTopologyElements: vi.fn(),
+  // Pulled in transitively via useRole -> getMe; the whole-module mock would otherwise
+  // leave it undefined and the effect throws.
+  getToken: vi.fn(() => null),
 }));
 vi.mock("@/lib/graph-theme", () => ({
   useCanvasTokens: () => ({ "--info": "blue", "--accent": "purple", "--verified": "green", "--caution": "orange", "--danger": "red", "--muted": "gray", "--line": "gray" }),

@@ -177,6 +177,23 @@ error text when the upstream call fails. `400` for an unknown provider.
 
 ---
 
+### `GET /health/connectors`
+
+OT historian connector registry (Layer 5) — makes *"new connector types are added without changing
+the core layer"* inspectable rather than asserted. Passthrough to the Go connector.
+
+Every supported historian is listed with its configuration state and the env var that activates it.
+An unconfigured connector reports itself as unconfigured; it never fabricates a reading and never
+fails silently.
+
+**Response `200`:** `{connectors: [{name, protocol, status, config_var, configured, detail}], active_count, serving_historian: {mock, note}}`
+
+`status` is `active` (configured + implemented) · `not_configured` (implemented, no endpoint) ·
+`registered` (in the connector layer, client not implemented in this build). **`503`** if the
+connector service is unreachable — not an empty registry, which would read as "no connectors supported".
+
+---
+
 ## 3. Assets (MDM)
 
 **Prefix:** `/assets`
@@ -354,6 +371,37 @@ Get all temporal graph facts linked to this asset from Neo4j. Accepts a **canoni
   ]
 }
 ```
+
+---
+
+### `GET /assets/{asset_id}/ot-coverage`
+
+Instrumentation coverage map (Layer 5) — which components on this asset are actually monitored.
+
+Derived from **engineer-verified P&ID topology only**: verified `instrumentation_loops[].instruments[]`
+are the sensor tags. Layer 10 uses this to decide whether a repair can be judged by telemetry or
+needs human closeout attestation.
+
+> Replaces a Go handler that returned hardcoded `{asset}-VIBE` / `{asset}-TEMP` / `75%` for **every**
+> asset on both branches, including the one labelled `source: "knowledge_graph"`. That route is deleted.
+
+**Response `200`:**
+```json
+{
+  "asset_id": "V-247",
+  "coverage_type": "direct | macro | none",
+  "has_direct_sensors": true,
+  "sensor_tags": ["FT-3047", "FV-3047"],
+  "verified_loops": 1, "total_loops": 1,
+  "derived_from": "verified_pid_topology",
+  "source_documents": ["DOC-..."],
+  "unverified_topology_present": false
+}
+```
+
+`coverage_type: "none"` means **no verified drawing establishes instrumentation** — not a claim that
+the equipment has no sensors. `unverified_topology_present` distinguishes review backlog from
+genuine absence.
 
 ---
 
@@ -584,6 +632,41 @@ Only available for documents with `document_type = "pid_drawing"` — all other 
 > edges from `primary_isolations` + `bleed_vents`.
 
 **`404`** for any non-`pid_drawing` document, or if topology not yet extracted.
+
+The response also carries the **verification roll-up**, derived from each element's review state
+(it was previously a hardcoded `"unverified"` literal, so no reviewer action could change it):
+
+```json
+{
+  "verification_status": "unverified | partially_verified | verified",
+  "elements_total": 4, "elements_verified": 4, "elements_disputed": 0,
+  "safety_critical_total": 2, "safety_critical_verified": 2,
+  "canonical_ready": true,
+  "elements": { "TOPO-LOOP-001": { "verification_status": "verified", "element_group": "instrumentation_loops", "reviewed_by": "...", "reviewed_at": "..." } }
+}
+```
+
+---
+
+### `POST /documents/{document_id}/topology/verify`
+
+Element-by-element engineer verification — the Layer 3 → Layer 7 gate the architecture calls
+non-negotiable regardless of model accuracy. Confirming an element promotes the
+`CONTAINS_TOPOLOGY_ELEMENT` edge the ingestion pipeline already wrote from `unverified` to
+`verified`; it does **not** create new edges.
+
+**Auth required:** Yes — engineer, reliability, or admin.
+
+**Request body:**
+```json
+{ "decisions": [ { "element_id": "TOPO-LOOP-001", "decision": "confirmed | corrected | rejected", "note": "optional" } ] }
+```
+
+**Response `200`:** the refreshed roll-up plus `applied: [...]` and `unknown_elements: [...]`.
+Unknown element ids are reported, never silently ignored. `400` if no decision applied.
+
+`canonical_ready` turns true only when **every** safety-critical element (isolation boundaries,
+instrumentation loops) is confirmed and none are disputed.
 
 ---
 
@@ -1362,9 +1445,41 @@ Acknowledge a brief. Required for PTW briefs and any brief with `requires_counte
 }
 ```
 
-Safety-critical briefs (`requires_countersignature: true`) require a second user's signature. Attempting to ack without the countersignature returns `400`.
+For PTW briefs (`requires_countersignature: true`) this records the **first** signature only.
+`acknowledged_at` is deliberately left null and the response status is `pending_countersignature` —
+the brief is not complete until a second, distinct authority countersigns (see below).
 
-**Response `200`:** `{"brief_id": "...", "ack_status": "acknowledged"}`
+**Response `200`:** `{"brief_id": "...", "status": "acknowledged" | "pending_countersignature", "acknowledged_by": "..."}`
+
+---
+
+### `POST /briefs/{brief_id}/countersign`
+
+Second of the two signatures a PTW brief requires (architecture Flow B). Sets `acknowledged_at`,
+because that is the moment both signatures exist.
+
+**Auth required:** Yes — **reliability or admin** (OPA `can_countersign_brief`). Engineers
+deliberately cannot countersign, so both signatures can never come from the issuing role.
+
+**Request body:** none. Identity comes from the session, never a typed name.
+
+**Rules enforced:**
+- The countersigner must be a **different user** than `acknowledged_by` → `403`.
+- The brief must already be acknowledged → `409`.
+- Already countersigned → `409`. Not a PTW brief → `400`.
+- **Not scoped by recipient.** The countersigner is by definition not the person the brief was
+  delivered to; scoping this read by recipient made every countersign return `404`.
+
+**Response `200`:**
+```json
+{
+  "status": "acknowledged",
+  "brief_id": "...",
+  "acknowledged_by": "engineer-uuid",
+  "countersigned_by": "reliability-uuid",
+  "countersigned_at": "2026-08-16T09:12:00Z"
+}
+```
 
 ---
 
@@ -1842,6 +1957,35 @@ Return the last 20 model gate run results.
 ```
 
 > Shape is **contract-locked** to `{items, total}` (raw `audit_log` rows) by `tests/test_contract.py` and `tests/test_governance.py`. The frontend `getModelGateHistory` adapter flattens each row's `details` into the UI `ModelGateResult` shape and returns `{ history: [...] }`.
+
+---
+
+### `GET /governance/push-volume-gate`
+
+EEMUA 191 pilot monitoring gate — the architecture's Phase 3 precondition.
+
+Computes **peak** per-operator-per-hour push volume over a rolling window (an average would hide
+exactly the bursts EEMUA 191 exists to prevent).
+
+**`enforcement: "advisory_only"` — this never blocks Phase 3 at runtime.** A deployment with under
+30 days of history would otherwise be unable to deliver briefs at all, which is a worse failure than
+the one it prevents. Phase activation stays a deliberate `KAIROS_PHASE` decision, informed by this.
+
+**Response `200`:** `{window_days, ceiling_per_operator_per_hour, peak_per_operator_per_hour, breach_count, breaches[], briefs_delivered, within_eemua_norms, current_phase, enforcement}`
+
+---
+
+### `GET /governance/timestamp-drift`
+
+Cross-source clock drift (Layer 4). Compares the **same correlated event as reported by different
+source systems**, reusing the `compound_event_id` grouping Layer 8 already builds.
+
+> Deliberately **not** `occurred_at` vs `ingested_at` — a document that occurred months before it was
+> ingested is history, not skew, and that comparison would flag an entire golden corpus.
+
+Report-only while `TIMESTAMP_DRIFT_ENFORCE=false`: drift is surfaced but opens no conflict row.
+
+**Response `200`:** `{compound_events_checked, drift_detected_count, tolerance_minutes, enforcement, items[]}`
 
 ---
 
@@ -2414,6 +2558,11 @@ Query the audit log with optional filters.
 ---
 
 ## 13. Go OT Connector (port 8090)
+
+> **`GET /ot/coverage/{asset_id}` was deleted (2026-08-16).** It returned hardcoded sensor tags for
+> every asset. Instrumentation coverage is now derived from verified topology at
+> `GET /assets/{asset_id}/ot-coverage`. `GET /ot/connectors` was added (see `/health/connectors`).
+
 
 **Base URL:** `http://localhost:8090`
 

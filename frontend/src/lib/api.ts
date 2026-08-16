@@ -213,6 +213,21 @@ export function ackBrief(briefId: string, body: { signature?: string; notes?: st
   return postJson<{ ack_status: string }>(`/briefs/${briefId}/ack`, { user_id: "dev-user", ...body });
 }
 
+/**
+ * Second of the two signatures a PTW brief requires. The backend sets `acknowledged_at`
+ * here, not at ack time — a safety-critical brief is only complete once a distinct second
+ * authority (reliability/admin) has signed.
+ */
+export function countersignBrief(briefId: string) {
+  return postJson<{
+    status: string;
+    brief_id: string;
+    acknowledged_by: string;
+    countersigned_by: string;
+    countersigned_at: string;
+  }>(`/briefs/${briefId}/countersign`, {});
+}
+
 export function sendBriefFeedback(briefId: string, rating: string, notes?: string) {
   return postJson<{ feedback_recorded: boolean }>(`/briefs/${briefId}/feedback`, { rating, notes });
 }
@@ -976,6 +991,13 @@ export async function getDocumentTopology(documentId: string): Promise<Fetched<T
       verification_status?: string;
       extracted_at?: string;
       topology_source?: string;
+      elements?: Record<string, { verification_status?: string; element_group?: string }>;
+      elements_total?: number;
+      elements_verified?: number;
+      elements_disputed?: number;
+      safety_critical_total?: number;
+      safety_critical_verified?: number;
+      canonical_ready?: boolean;
       topology?: {
         equipment_nodes?: Array<Record<string, unknown>>;
         isolation_valves?: Array<Record<string, unknown>>;
@@ -984,9 +1006,14 @@ export async function getDocumentTopology(documentId: string): Promise<Fetched<T
       };
     }>(`/documents/${documentId}/topology`);
 
-    const status = (["verified", "unverified", "disputed"].includes(raw.verification_status ?? "")
-      ? raw.verification_status
-      : "unverified") as TopologyNode["verification_status"];
+    // Per-element verification, keyed by element id. Every node used to be stamped with one
+    // document-level string, so the per-node colour coding was decorative — a reviewer could
+    // confirm an element and nothing on screen changed.
+    const elements = raw.elements ?? {};
+    const statusOf = (id: string): TopologyNode["verification_status"] => {
+      const s = elements[id]?.verification_status;
+      return s === "verified" || s === "disputed" ? s : "unverified";
+    };
     const t = raw.topology ?? {};
     const nodes: TopologyNode[] = [];
     const tagToId = new Map<string, string>(); // tag / boundary_id / loop_id → node_id
@@ -995,24 +1022,24 @@ export async function getDocumentTopology(documentId: string): Promise<Fetched<T
       const id = String(e.id);
       const tag = String(e.tag ?? id);
       tagToId.set(tag, id);
-      nodes.push({ node_id: id, node_type: EQUIP_TYPE_MAP[String(e.equipment_class)] ?? "Equipment", label: tag, verification_status: status, properties: e });
+      nodes.push({ node_id: id, node_type: EQUIP_TYPE_MAP[String(e.equipment_class)] ?? "Equipment", label: tag, verification_status: statusOf(id), properties: e });
     }
     for (const v of t.isolation_valves ?? []) {
       const id = String(v.id);
       const tag = String(v.tag ?? id);
       tagToId.set(tag, id);
-      nodes.push({ node_id: id, node_type: "Valve", label: tag, verification_status: status, properties: v });
+      nodes.push({ node_id: id, node_type: "Valve", label: tag, verification_status: statusOf(id), properties: v });
     }
     for (const l of t.instrumentation_loops ?? []) {
       const id = String(l.id);
       const label = String(l.loop_id ?? id);
       tagToId.set(label, id);
-      nodes.push({ node_id: id, node_type: "Instrument", label, verification_status: status, properties: l });
+      nodes.push({ node_id: id, node_type: "Instrument", label, verification_status: statusOf(id), properties: l });
     }
     const edges: TopologyEdge[] = [];
     for (const b of t.isolation_boundaries ?? []) {
       const id = String(b.id);
-      nodes.push({ node_id: id, node_type: "Boundary", label: String(b.boundary_id ?? id), verification_status: status, properties: b });
+      nodes.push({ node_id: id, node_type: "Boundary", label: String(b.boundary_id ?? id), verification_status: statusOf(id), properties: b });
       const refs = [...((b.primary_isolations as string[]) ?? []), ...((b.bleed_vents as string[]) ?? [])];
       for (const tag of refs) {
         const targetId = tagToId.get(tag);
@@ -1029,6 +1056,16 @@ export async function getDocumentTopology(documentId: string): Promise<Fetched<T
       // the pipeline fell back to the demo fixture. The backend already records this;
       // nothing consumed it, so fixture topology rendered as if it were extracted.
       topology_source: raw.topology_source === "vision_model" ? "vision_model" : "demo_fixture",
+      verification_status:
+        raw.verification_status === "verified" || raw.verification_status === "partially_verified"
+          ? raw.verification_status
+          : "unverified",
+      elements_total: raw.elements_total ?? 0,
+      elements_verified: raw.elements_verified ?? 0,
+      elements_disputed: raw.elements_disputed ?? 0,
+      safety_critical_total: raw.safety_critical_total ?? 0,
+      safety_critical_verified: raw.safety_critical_verified ?? 0,
+      canonical_ready: raw.canonical_ready ?? false,
     };
     return { data, source: "live" };
   } catch (e) {
@@ -1036,6 +1073,28 @@ export async function getDocumentTopology(documentId: string): Promise<Fetched<T
     // (useFetch / a server component) turns this into an error+retry state.
     throw e instanceof Error ? e : new Error(String(e));
   }
+}
+
+/**
+ * Element-by-element engineer verification of extracted P&ID topology. Confirming an element
+ * promotes the edge the ingestion pipeline already wrote from `unverified` to `verified`;
+ * topology is not canonical until every safety-critical element is confirmed.
+ */
+export function verifyTopologyElements(
+  documentId: string,
+  decisions: { element_id: string; decision: "confirmed" | "corrected" | "rejected"; note?: string }[],
+) {
+  return postJson<{
+    verification_status: "unverified" | "partially_verified" | "verified";
+    elements_total: number;
+    elements_verified: number;
+    elements_disputed: number;
+    safety_critical_total: number;
+    safety_critical_verified: number;
+    canonical_ready: boolean;
+    applied: string[];
+    unknown_elements: string[];
+  }>(`/documents/${documentId}/topology/verify`, { decisions });
 }
 
 export function supersedeDocument(documentId: string, formData: FormData) {
@@ -1095,7 +1154,12 @@ const _SERVICE_LABELS: Record<string, string> = {
 
 export async function getHealthDetailed(): Promise<Fetched<HealthDetailed | null>> {
   try {
-    const raw = await getJson<{ status: string; checks: Record<string, string> }>("/health/detailed");
+    const raw = await getJson<{
+      status: string;
+      checks: Record<string, string>;
+      phase?: number;
+      phase_enforced?: { synthesis: boolean; proactive_delivery: boolean };
+    }>("/health/detailed");
     const services: ServiceHealth[] = Object.entries(raw.checks ?? {}).map(([name, state]) => ({
       name: _SERVICE_LABELS[name] ?? name,
       status: state === "ok" ? "healthy" : "down",
@@ -1109,6 +1173,8 @@ export async function getHealthDetailed(): Promise<Fetched<HealthDetailed | null
         overall: anyDown ? "degraded" : "healthy",
         services,
         checked_at: new Date().toISOString(),
+        phase: raw.phase,
+        phase_enforced: raw.phase_enforced,
       },
       source: "live",
     };
@@ -1119,10 +1185,16 @@ export async function getHealthDetailed(): Promise<Fetched<HealthDetailed | null
   }
 }
 
-// --- OT coverage (via FastAPI passthrough to Go connector) ---
+/**
+ * Instrumentation coverage for an asset (Layer 5), derived from engineer-verified P&ID topology.
+ *
+ * This used to request `/ot/coverage/{id}` — a route that exists on the Go connector (:8090), not
+ * on the API this client talks to, so every call 404'd and the indicator never rendered. The Go
+ * handler it pointed at returned hardcoded `VIBE`/`TEMP` tags for every asset anyway.
+ */
 export async function getOtCoverage(assetId: string): Promise<Fetched<OtCoverage | null>> {
   try {
-    const data = await getJson<OtCoverage>(`/ot/coverage/${assetId}`);
+    const data = await getJson<OtCoverage>(`/assets/${assetId}/ot-coverage`);
     return { data, source: "live" };
   } catch (e) {
     // Live-only: never substitute fixture data for a failed fetch. The caller
