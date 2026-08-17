@@ -458,7 +458,17 @@ function Stage({ x, y, w, h, tag, name, note }: { x: number; y: number; w: numbe
       <rect x={x + w - 78} y={y + 12} width="62" height="18" fill="var(--lp-accent)" opacity="0.16" />
       <text x={x + w - 47} y={y + 25} textAnchor="middle" className={DIAGRAM_LAYER}>{tag}</text>
       <text x={x + 20} y={y + 30} className="fill-white text-[16px] font-semibold">{name}</text>
-      {note ? <text x={x + 20} y={y + 52} className={DIAGRAM_SUB}>{note}</text> : null}
+      
+      {/* Updated multi-line note rendering */}
+      {note ? (
+        <text x={x + 20} y={y + 52} className={DIAGRAM_SUB}>
+          {note.split('\n').map((line, index) => (
+            <tspan key={index} x={x + 20} dy={index === 0 ? 0 : 18}>
+              {line}
+            </tspan>
+          ))}
+        </text>
+      ) : null}
     </g>
   );
 }
@@ -467,11 +477,11 @@ function Stage({ x, y, w, h, tag, name, note }: { x: number; y: number; w: numbe
 function ExitNode({ x, y, tag, name, note }: { x: number; y: number; tag: string; name: string; note: string }) {
   return (
     <g>
-      <rect x={x} y={y} width="190" height="72" fill="var(--lp-dark-surface)" stroke="var(--lp-accent)" strokeWidth="1.5" />
-      <rect x={x} y={y} width="190" height="3" fill="var(--lp-accent)" />
-      <text x={x + 16} y={y + 26} className={DIAGRAM_LAYER}>{tag}</text>
-      <text x={x + 16} y={y + 46} className="fill-white text-[14px] font-semibold">{name}</text>
-      <text x={x + 16} y={y + 62} className={DIAGRAM_SUB}>{note}</text>
+      <rect x={x} y={y} width="220" height="75" fill="var(--lp-dark-surface)" stroke="var(--lp-accent)" strokeWidth="1.5" />
+      <rect x={x} y={y} width="220" height="3" fill="var(--lp-accent)" />
+      <text x={x + 14} y={y + 22} className={DIAGRAM_LAYER}>{tag}</text>
+      <text x={x + 14} y={y + 42} className="fill-white text-[12px] font-semibold">{name}</text>
+      <text x={x + 14} y={y + 60} className={DIAGRAM_SUB}>{note}</text>
     </g>
   );
 }
@@ -484,7 +494,7 @@ function ExitNode({ x, y, tag, name, note }: { x: number; y: number; tag: string
 function SystemDiagram() {
   return (
     <svg
-      viewBox="0 0 980 940"
+      viewBox="0 0 980 1080"
       className="lp-diagram h-auto w-full min-w-[900px]"
       role="img"
       aria-label="Kairos architecture. Four source types feed the perception layer. A confidence gate at 0.70 sends low-confidence extractions one way into quarantine; the rest pass to identity resolution and the temporal knowledge graph, backed by Neo4j, Qdrant and Elasticsearch. Governance checks conflicts, supersession and coverage, then a safety gate diverts thin-evidence safety questions to a refusal card. Everything else reaches delivery as governed briefs, copilot answers, field capture and audit packs."
@@ -510,54 +520,48 @@ function SystemDiagram() {
       </defs>
 
       {/* plotting field, so the diagram reads as a designed surface */}
-      <rect x="0" y="0" width="980" height="940" fill="url(#lp-dots)" />
+      <rect x="0" y="0" width="980" height="1070" fill="url(#lp-dots)" />
 
       <g stroke="var(--lp-accent)" strokeWidth="1.5" fill="none">
         <path d="M160 100v30M380 100v30M600 100v30M820 100v30" />
         <path d="M160 130h660" />
-        <path d="M490 836v20" />
-        <path d="M160 856h660" />
       </g>
 
-      {/* <g className="lp-flow" stroke="var(--lp-accent)" strokeWidth="1.5" markerEnd="url(#lp-arrow)" fill="none">
-        <path d="M490 130v46" />
-        <path d="M490 262v54" />
-        <path d="M490 409v55" />
-        <path d="M490 560v52" />
-        <path d="M490 692v44" />
-        <path d="M160 856v16M380 856v16M600 856v16M820 856v16" />
-      </g> */}
-
-      {/* Main vertical flow lines (keep arrowheads) */}
+      {/* Main vertical flow lines */}
       <g className="lp-flow" stroke="var(--lp-accent)" strokeWidth="1.5" markerEnd="url(#lp-arrow)" fill="none">
         <path d="M490 130v46" />
         <path d="M490 262v54" />
         <path d="M490 409v55" />
         <path d="M490 560v52" />
-        <path d="M490 692v44" />
+        <path d="M490 697v35" />
+        <path d="M490 817v43" />
       </g>
 
-      {/* Delivery drop lines (no arrowheads) */}
+      {/* Delivery split bar & drop lines */}
       <g stroke="var(--lp-accent)" strokeWidth="1.5" fill="none">
-        <path d="M160 856v16M380 856v16M600 856v16M820 856v16" />
+        <path d="M490 952v20" />
+        <path d="M160 972h660" />
+        <path d="M160 972v16M380 972v16M600 972v16M820 972v16" />
       </g>
 
-      {/* one-way exits, dashed so they read as diversions */}
+      {/* One-way exit diversion arrows */}
       <g className="lp-flow" stroke="var(--lp-accent)" strokeWidth="1.5" strokeDasharray="5 4" markerEnd="url(#lp-arrow)" fill="none">
         <path d="M612 362h134" />
-        <path d="M622 786h124" />
+        <path d="M622 906h124" />
       </g>
 
-      {/* datastores: reads and writes, not flow, so dimmer and bidirectional */}
+      {/* Datastore connections */}
       <g stroke="var(--lp-dark-muted)" strokeWidth="1" strokeDasharray="3 3" markerEnd="url(#lp-arrow-dim)" markerStart="url(#lp-arrow-dim)" fill="none" opacity="0.8">
-        <path d="M246 512H272" />
+        <path d="M225 510H280" />
+        <path d="M225 750H280" />
+        <path d="M225 800H280" />
       </g>
 
-      {/* edge labels */}
+      {/* Edge labels */}
       <text x="500" y="155" className={EDGE_LABEL}>ingest</text>
-      <text x="500" y="292" className={EDGE_LABEL}>score</text>
-      <text x="500" y="590" className={EDGE_LABEL}>check</text>
-      <text x="500" y="718" className={EDGE_LABEL}>synthesise</text>
+      <text x="500" y="292" className={EDGE_LABEL}>SCORE</text>
+      <text x="500" y="590" className={EDGE_LABEL}>RETRIEVE</text>
+      <text x="500" y="842" className={EDGE_LABEL}>CHECK</text>
 
       <text x="40" y="34" className={DIAGRAM_LAYER}>SOURCES</text>
       {[
@@ -572,24 +576,28 @@ function SystemDiagram() {
         </g>
       ))}
 
-      <Stage x={280} y={176} w={420} h={86} tag="L0 · L3" name="Perception" note="OCR · entity extraction · transcription" />
+      <Stage x={280} y={176} w={420} h={86} tag="L0 · L3" name="PERCEPTION & EVIDENCE" note="OCR · P&ID vision · NER / entity extraction · Speech-to-text / transcription" />
 
       {/* confidence gate */}
       <path d="M490 316 612 362 490 408 368 362z" fill="url(#lp-gate)" stroke="var(--lp-accent)" strokeWidth="1.5" />
-      <text x="490" y="358" textAnchor="middle" className="fill-white text-[13px] font-semibold">confidence</text>
-      <text x="490" y="376" textAnchor="middle" className="fill-white text-[13px] font-semibold">≥ 0.70?</text>
-      <text x="622" y="352" className="fill-[var(--lp-accent)] text-[11px] font-semibold">no</text>
+      <text x="490" y="354" textAnchor="middle" className="fill-white text-[13px] font-semibold uppercase">CONFIDENCE</text>
+      <text x="490" y="374" textAnchor="middle" className="fill-white text-[13px] font-semibold">≥ 0.70?</text>
+      <text x="622" y="352" className="fill-[var(--lp-accent)] text-[11px] font-semibold uppercase">NO</text>
       <text x="502" y="440" className="fill-[var(--lp-accent)] text-[11px] font-semibold">yes</text>
-      <ExitNode x={746} y={326} tag="L6 · ONE-WAY" name="Quarantine" note="Human promotion only" />
+      <ExitNode x={746} y={325} tag="L6 · QUARANTINE" name="Held for human promotion only." note="One-way safety exit." />
 
-      <Stage x={280} y={464} w={420} h={96} tag="L1 · L4" name="Identity and temporal graph" note="MDM merge · valid_from / valid_to · authority" />
+      <Stage 
+        x={280} y={464} w={420} h={96} tag="L4 · L6" name="IDENTITY & TEMPORAL GRAPH" 
+        note={"· Identity resolution · Temporal knowledge · Provenance \n · Historical & superseded facts"} 
+      />
+      
 
       {/* backing stores */}
-      <text x="40" y="420" className={DIAGRAM_LAYER}>STORES</text>
+      <text x="40" y="480" className={DIAGRAM_LAYER}>STORES</text>
       {[
-        ["Neo4j", 440],
-        ["Qdrant", 500],
-        ["Elasticsearch", 560],
+        ["Neo4j", 490],
+        ["Qdrant", 730],
+        ["Elasticsearch", 790],
       ].map(([t, y, pathD]) => {
         const top = y as number;
         return (
@@ -627,27 +635,35 @@ function SystemDiagram() {
         );
       })}
 
-      <Stage x={280} y={612} w={420} h={80} tag="L7" name="Governance" note="conflicts · supersession · coverage gaps" />
+      <Stage 
+        x={280} 
+        y={612} 
+        w={420} 
+        h={85} 
+        tag="L7 · L9" 
+        name="GOVERNANCE" 
+        note={"· Conflicts · Supersession · Coverage gaps · Quarantine\n· Management of Change"} 
+      />
 
-      {/* safety gate */}
-      <path d="M490 736 622 786 490 836 358 786z" fill="url(#lp-gate)" stroke="var(--lp-accent)" strokeWidth="1.5" />
-      <text x="490" y="782" textAnchor="middle" className="fill-white text-[13px] font-semibold">evidence</text>
-      <text x="490" y="800" textAnchor="middle" className="fill-white text-[13px] font-semibold">sufficient?</text>
-      <text x="632" y="776" className="fill-[var(--lp-accent)] text-[11px] font-semibold">no</text>
-      <text x="502" y="850" className="fill-[var(--lp-accent)] text-[11px] font-semibold">yes</text>
-      <ExitNode x={746} y={750} tag="L11 · ONE-WAY" name="Refusal card" note="Carries its sources" />
+      <Stage 
+        x={280} 
+        y={732} 
+        w={420} 
+        h={85} 
+        tag="L10" 
+        name="RETRIEVAL & SYNTHESIS" 
+        note={"• Hybrid retrieval (graph + vector + text)\n• Ranking · Synthesis · Evidence assembly"} 
+      />
 
-      {/* legend */}
-      <g transform="translate(746, 620)">
-        <line x1="0" y1="6" x2="26" y2="6" stroke="var(--lp-accent)" strokeWidth="1.5" />
-        <text x="34" y="10" className={DIAGRAM_SUB}>flow</text>
-        <line x1="0" y1="28" x2="26" y2="28" stroke="var(--lp-accent)" strokeWidth="1.5" strokeDasharray="5 4" />
-        <text x="34" y="32" className={DIAGRAM_SUB}>one-way exit</text>
-        <line x1="0" y1="50" x2="26" y2="50" stroke="var(--lp-dark-muted)" strokeWidth="1" strokeDasharray="3 3" />
-        <text x="34" y="54" className={DIAGRAM_SUB}>read / write</text>
-      </g>
+      {/* EVIDENCE SUFFICIENT? decision diamond placed below RETRIEVAL & SYNTHESIS */}
+      <path d="M490 860 622 906 490 952 358 906z" fill="url(#lp-gate)" stroke="var(--lp-accent)" strokeWidth="1.5" />
+      <text x="490" y="898" textAnchor="middle" className="fill-white text-[13px] font-semibold uppercase">EVIDENCE</text>
+      <text x="490" y="918" textAnchor="middle" className="fill-white text-[13px] font-semibold uppercase">SUFFICIENT?</text>
+      <text x="632" y="896" className="fill-[var(--lp-accent)] text-[11px] font-semibold uppercase">NO</text>
+      <text x="502" y="968" className="fill-[var(--lp-accent)] text-[11px] font-semibold">yes</text>
+      <ExitNode x={746} y={864} tag="L11 · REFUSAL CARD" name="Sources retained." note="Refuse instead of guess." />
 
-      <text x="40" y="842" className={DIAGRAM_LAYER}>DELIVERY</text>
+      <text x="40" y="960" className={DIAGRAM_LAYER}>DELIVERY (L12)</text>
       {[
         ["Governed briefs", 70],
         ["Expert copilot", 290],
@@ -655,8 +671,8 @@ function SystemDiagram() {
         ["Audit packs", 730],
       ].map(([t, x]) => (
         <g key={t as string}>
-          <rect x={x as number} y={872} width={180} height={50} rx="25" fill="var(--lp-accent-strong)" />
-          <text x={(x as number) + 90} y={902} textAnchor="middle" className="fill-white text-[13px] font-semibold">{t as string}</text>
+          <rect x={x as number} y={988} width={180} height={50} rx="25" fill="var(--lp-accent-strong)" />
+          <text x={(x as number) + 90} y={1018} textAnchor="middle" className="fill-white text-[13px] font-semibold">{t as string}</text>
         </g>
       ))}
     </svg>
@@ -1113,6 +1129,8 @@ export default function Home() {
 
       {/* ── System design: the flow, then the stack ─────────────────────── */}
       <section id="system" className="bg-(--lp-dark) text-white">
+
+        
         <div className="lp-frame lp-frame--dark px-4 py-16 sm:px-6 sm:py-24">
           <div data-reveal>
             <Eyebrow>System design</Eyebrow>
