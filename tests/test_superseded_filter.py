@@ -117,3 +117,83 @@ async def test_mark_superseded_sets_payload_and_never_deletes():
     await VectorStoreService(q, _Settings()).mark_superseded("kairos_documents", "DOC-1")
     assert q.set_payload_args["payload"] == {"status": "superseded"}
     assert q.set_payload_args["points"].must[0].key == "document_id"
+
+
+# =============================================================================
+# Layer 7 — pending-MoC disclosure reaches every output type
+# =============================================================================
+
+
+class _MocQuery:
+    def __init__(self, table, data):
+        self._table, self._data = table, data
+
+    def select(self, *_a, **_k):
+        return self
+
+    def eq(self, *_a):
+        return self
+
+    def in_(self, *_a):
+        return self
+
+    def execute(self):
+        class _R:
+            pass
+
+        r = _R()
+        r.data = self._data
+        return r
+
+
+class _MocSupabase:
+    """Two-table stand-in: knowledge_conflicts + moc_items."""
+
+    def __init__(self, conflicts, mocs):
+        self._c, self._m = conflicts, mocs
+
+    def table(self, name):
+        return _MocQuery(name, self._c if name == "knowledge_conflicts" else self._m)
+
+
+async def test_pending_moc_warning_is_raised_for_a_cited_asset():
+    from api.routers.search import pending_moc_warnings
+
+    sb = _MocSupabase(
+        conflicts=[{
+            "conflict_id": "C-1", "asset_id": "EQ-101", "parameter": "seal_torque",
+            "severity": "major", "sla_deadline": "2026-08-20T00:00:00Z",
+        }],
+        mocs=[{"moc_id": "MOC-9", "conflict_id": "C-1", "status": "pending"}],
+    )
+    out = await pending_moc_warnings(sb, [{"asset_id": "EQ-101"}])
+
+    assert len(out) == 1
+    assert out[0]["asset_id"] == "EQ-101"
+    assert out[0]["parameter"] == "seal_torque"
+
+
+async def test_no_warning_when_no_asset_is_cited():
+    from api.routers.search import pending_moc_warnings
+
+    sb = _MocSupabase(conflicts=[{"conflict_id": "C-1", "asset_id": "EQ-101"}], mocs=[])
+    assert await pending_moc_warnings(sb, [{"title": "no asset here"}]) == []
+
+
+async def test_lookup_failure_does_not_take_the_answer_down():
+    from api.routers.search import pending_moc_warnings
+
+    class _Broken:
+        def table(self, _n):
+            raise RuntimeError("supabase down")
+
+    assert await pending_moc_warnings(_Broken(), [{"asset_id": "EQ-101"}]) == []
+
+
+def test_every_answer_surface_can_carry_the_moc_banner():
+    """Regression: the banner reached synthesized answers only, so the same asset under the same
+    pending change was flagged in the copilot and silent in search and the RCA pack."""
+    from api.models.document import RCAPackResponse, SearchResponse, SynthesizeResponse
+
+    for model in (SearchResponse, RCAPackResponse, SynthesizeResponse):
+        assert "pending_moc" in model.model_fields, f"{model.__name__} cannot disclose a pending MoC"

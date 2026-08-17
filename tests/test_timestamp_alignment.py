@@ -104,3 +104,65 @@ def test_widest_pair_wins_across_three_systems():
     )
     assert r["drift_minutes"] == 180.0
     assert r["drift_detected"] is True
+
+
+# =============================================================================
+# Temporal validity comparisons — a Cypher type mismatch that failed silently
+# =============================================================================
+
+import pathlib  # noqa: E402
+import re  # noqa: E402
+
+# `valid_to` / `valid_from` are stored as ISO-8601 STRINGS. In Cypher, comparing a STRING to a
+# DATETIME yields NULL — not False, not an error — so `WHERE (r.valid_to IS NULL OR
+# r.valid_to > datetime())` evaluates to `(false OR null)` = null and the row is dropped.
+#
+# Measured on the live graph before the fix: that predicate matched **0** active edges where the
+# cast form matched **35**. Two headline mechanisms were inert as a result — `detect_conflict`
+# never found an existing edge (so no conflict was ever raised on edge creation) and
+# `close_validity_windows_for_document` closed nothing (so document supersession was a no-op).
+#
+# Nothing errored, no test went red, and every affected query returned a plausible empty list.
+_BROKEN = re.compile(r"r\.valid_(?:to|from)\s*[<>]=?\s*datetime\(\)")
+
+_SOURCE_DIRS = ("api", "workers", "workflows", "scripts")
+
+
+def _cypher_sources() -> list[pathlib.Path]:
+    root = pathlib.Path(__file__).resolve().parent.parent
+    files: list[pathlib.Path] = []
+    for d in _SOURCE_DIRS:
+        base = root / d
+        if not base.exists():                      # running from a different layout
+            base = root / "backend" / d
+        if base.exists():
+            files += sorted(base.rglob("*.py"))
+    return files
+
+
+def test_no_string_property_is_compared_to_the_datetime_function():
+    """Compare `datetime(r.valid_to)` against `datetime()`, or a raw property against a string
+    parameter — never a raw property against `datetime()`."""
+    offenders = [
+        f"{p}:{i}"
+        for p in _cypher_sources()
+        for i, line in enumerate(p.read_text().splitlines(), 1)
+        if _BROKEN.search(line)
+    ]
+    assert not offenders, (
+        "String validity property compared to datetime() — this silently matches nothing:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_guard_actually_catches_the_broken_form():
+    """A guard that cannot fail protects nothing."""
+    assert _BROKEN.search("WHERE (r.valid_to IS NULL OR r.valid_to > datetime())")
+    assert _BROKEN.search("AND r.valid_from <= datetime()")
+    assert not _BROKEN.search("WHERE (r.valid_to IS NULL OR datetime(r.valid_to) > datetime())")
+    assert not _BROKEN.search("AND r.valid_from <= $as_of")
+
+
+def test_source_files_were_actually_scanned():
+    """Guards against the scan silently finding no files and passing vacuously."""
+    assert len(_cypher_sources()) > 20

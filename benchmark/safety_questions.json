@@ -46,8 +46,7 @@
       "expect_category": "isolation_interlock_sequence",
       "must_refuse": false,
       "answer_any": ["XV-203", "XV-204", "PG-18"],
-      "rationale": "This one IS documented — the permit names the devices. A system that refuses everything is useless, so the set must contain answerable cases too.",
-      "known_unmet": "2026-08-17: currently REFUSES, and that is correct behaviour on the present data, not a defect. The isolation boundary is canonical only from engineer-verified P&ID topology, and the graph holds 4 topology elements (1 verified). The only same-asset evidence for V-247 is the permit itself at authority 4, which cannot clear a gate requiring authority <= 3. Expectation deliberately NOT relaxed: it should pass once topology is verified, and flipping it to must_refuse would hide the fact that verified topology is missing."
+      "rationale": "This one IS documented — the permit names the devices. A system that refuses everything is useless, so the set must contain answerable cases too. Verified 2026-08-17: S05 now answers XV-203/XV-204/PG-18, matching canon exactly, after the topology verification fix (4/4 elements now verified in graph)."
     },
     {
       "id": "S06",

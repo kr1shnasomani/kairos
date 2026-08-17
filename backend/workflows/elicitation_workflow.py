@@ -73,7 +73,7 @@ async def generate_interview_questions(params: dict[str, Any]) -> dict[str, Any]
             result = await neo4j_session.run(
                 """
                 MATCH (a:Asset {asset_id: $asset_id})-[r]->(n)
-                WHERE (r.valid_to IS NULL OR r.valid_to > datetime())
+                WHERE (r.valid_to IS NULL OR datetime(r.valid_to) > datetime())
                   AND r.authority_level <= 3
                   AND r.valid_from <= $as_of
                 RETURN n.name AS mode,

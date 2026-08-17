@@ -26,7 +26,7 @@ from api.models.document import (
     SynthesizeResponse,
 )
 from api.services.graph import GraphService
-from api.services.llm import SAFETY_CRITICAL_CATEGORIES, LLMService
+from api.services.llm import SAFETY_CRITICAL_CATEGORIES, LLMService, query_asset_tags
 from api.services.search_engine import SearchEngineService
 from api.services.search_service import SearchService
 from api.services.vector_store import VectorStoreService
@@ -144,7 +144,13 @@ async def search(
             r.vault_url = vault_map.get(r.document_id)
 
     methods = sorted({r.retrieval_method for r in results})
-    return SearchResponse(query=q, results=results, total=len(results), retrieval_methods=methods)
+    return SearchResponse(
+        query=q,
+        results=results,
+        total=len(results),
+        retrieval_methods=methods,
+        pending_moc=await pending_moc_warnings(supabase, [{"asset_id": r.asset_id} for r in results]),
+    )
 
 
 @router.get("/assets/{asset_id}", summary="Search within a specific asset's knowledge")
@@ -155,6 +161,7 @@ async def search_asset(
     qdrant: QdrantDep,
     es: ElasticsearchDep,
     settings: SettingsDep,
+    supabase: SupabaseDep,
     q: str = Query(...),
     limit: int = Query(10, le=50),
 ) -> SearchResponse:
@@ -175,7 +182,70 @@ async def search_asset(
         limit=limit,
     )
     methods = sorted({r.retrieval_method for r in results})
-    return SearchResponse(query=q, results=results, total=len(results), retrieval_methods=methods)
+    return SearchResponse(
+        query=q,
+        results=results,
+        total=len(results),
+        retrieval_methods=methods,
+        pending_moc=await pending_moc_warnings(supabase, [{"asset_id": asset_id}]),
+    )
+
+
+_TOPOLOGY_EVIDENCE_CATEGORIES = {"isolation_interlock_sequence"}
+
+
+async def _verified_topology_evidence(query: str, graph: GraphService) -> list[dict]:
+    """Engineer-verified P&ID elements for the assets the query names, as gate-eligible evidence.
+
+    Layer 3 → Layer 11. An isolation question ("which valves make up the isolation boundary for
+    V-247?") is answerable from the drawing, but retrieval only ever returned *documents* — so the
+    best available evidence was the authority-4 site PTW, the gate correctly refused it, and the
+    verified drawing sat unused in the graph. That was a wiring gap presenting as a safety refusal.
+
+    Two properties make this safe to admit:
+
+    - **Verified only.** `get_verified_topology_for_asset` returns nothing that an engineer has not
+      confirmed element-by-element, so an unverified vision reading can never reach the gate.
+    - **The edge's own authority, not an invented one.** `authority_level` and `confidence` are
+      read off the `CONTAINS_TOPOLOGY_ELEMENT` edge. Topology does not get a privileged authority
+      for being topology; it clears the gate only if the edge it came from already would.
+
+    `asset_id` is set to the queried tag so `_authority_candidates`' same-asset filter matches, and
+    `relevance_score` is set high because this evidence was selected *by* asset rather than ranked
+    into position — an item with no score would drop the whole context out of the scored branch.
+    """
+    tags = query_asset_tags(query)
+    if not tags:
+        return []
+    results = await asyncio.gather(
+        *[graph.get_verified_topology_for_asset(t) for t in sorted(tags)],
+        return_exceptions=True,
+    )
+    evidence: list[dict] = []
+    for tag, rows in zip(sorted(tags), results, strict=False):
+        if isinstance(rows, Exception):
+            log.warning("synthesis.topology_evidence_failed", asset=tag, error=str(rows))
+            continue
+        for r in rows:
+            label = r.get("label") or r.get("element_id")
+            element_type = (r.get("element_type") or "element").replace("_", " ").rstrip("s")
+            evidence.append({
+                "document_id": r.get("document_id"),
+                "asset_id": tag,
+                "authority_level": r.get("authority_level"),
+                "confidence": r.get("confidence"),
+                "relevance_score": 1.0,
+                "verification_status": r.get("verification_status"),
+                "source_type": "verified_pid_topology",
+                "title": f"P&ID topology — {label} ({element_type})",
+                "content": (
+                    f"{element_type.capitalize()} {label} appears on the P&ID drawing containing "
+                    f"{tag}, engineer-verified by {r.get('verified_by') or 'unknown'}."
+                ),
+            })
+    if evidence:
+        log.info("synthesis.topology_evidence_added", assets=sorted(tags), elements=len(evidence))
+    return evidence
 
 
 @router.post("/synthesize", response_model=SynthesizeResponse, summary="Synthesize an answer from retrieved knowledge")
@@ -184,6 +254,7 @@ async def synthesize(
     current_user: CurrentUserDep,
     settings: SettingsDep,
     supabase: SupabaseDep,
+    driver: Neo4jDep,
 ) -> SynthesizeResponse:
     """
     Assembles retrieved knowledge into a provenance-backed answer via NIM or Ollama.
@@ -213,7 +284,16 @@ async def synthesize(
     # benchmark, and anything added later — instead of only the ones that remember.
     category = payload.query_category or LLMService.classify_query_category(payload.query)
 
-    result = await llm.synthesize(payload.query, payload.context, category)
+    # Admit engineer-verified drawing topology alongside the retrieved documents. Server-side for
+    # the same reason the category is derived here: every caller gets it, not just the ones that
+    # remember to ask.
+    context = list(payload.context or [])
+    if category in _TOPOLOGY_EVIDENCE_CATEGORIES:
+        context += await _verified_topology_evidence(
+            payload.query, GraphService(driver, settings.NEO4J_DATABASE)
+        )
+
+    result = await llm.synthesize(payload.query, context, category)
 
     parsed: dict = {}
     if result.get("answer"):
@@ -461,4 +541,5 @@ async def generate_rca_pack(
         confidence=confidence,
         refused=refused,
         synthesis_available=synthesis_available,
+        pending_moc=await pending_moc_warnings(supabase, [{"asset_id": payload.asset_id}]),
     )

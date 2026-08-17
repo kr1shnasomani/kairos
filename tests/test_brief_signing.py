@@ -36,3 +36,89 @@ def test_ack_and_countersign_differ_for_same_user_and_time():
     ack = _sign_acknowledgment("s", "b-1", "u", "acknowledged", _ARGS[4])
     counter = _sign_acknowledgment("s", "b-1", "u", "countersigned", _ARGS[4])
     assert ack != counter
+
+
+# =============================================================================
+# Brief source citations — operator-facing provenance, not graph internals
+# =============================================================================
+
+from api.services.brief_engine import _resolve_source_documents, _sources_from_graph  # noqa: E402
+
+
+def _edge(doc_id="DOC-1", rel="DOCUMENTED_BY", auth=4, verified=False):
+    return {"edge": {
+        "document_id": doc_id,
+        "relationship_type": rel,
+        "authority_level": auth,
+        "verification_status": "verified" if verified else "unverified",
+    }}
+
+
+def test_relationship_type_is_humanised_not_raw():
+    """`relevant_excerpt` used to be the raw edge type ("DOCUMENTED_BY")."""
+    s = _sources_from_graph([_edge()])[0]
+    assert "DOCUMENTED_BY" not in s.relevant_excerpt
+    assert "document link" in s.relevant_excerpt
+
+
+def test_unverified_link_is_disclosed_in_the_excerpt():
+    assert "not yet engineer-verified" in _sources_from_graph([_edge(verified=False)])[0].relevant_excerpt
+    assert "not yet engineer-verified" not in _sources_from_graph([_edge(verified=True)])[0].relevant_excerpt
+
+
+def test_a_vault_document_is_not_badged_as_quarantine():
+    """Regression: `is_quarantine` was set from `verification_status != "verified"`. Every edge
+    starts unverified by design, so every source — including authority-4 permits — was badged as
+    an unverified field observation, and the badge stopped discriminating anything."""
+    assert _sources_from_graph([_edge(auth=4, verified=False)])[0].is_quarantine is False
+
+
+class _DocQuery:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def select(self, *_a, **_k):
+        return self
+
+    def in_(self, *_a):
+        return self
+
+    def execute(self):
+        class _R:
+            pass
+
+        r = _R()
+        r.data = self._rows
+        return r
+
+
+class _DocSupabase:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def table(self, _name):
+        return _DocQuery(self._rows)
+
+
+async def test_source_gets_a_real_title_and_vault_link():
+    """An operator saw `title: "DOC-CPLLSP2QYWUN"` and `vault_url: null` — an opaque id with no
+    way to open the document from a point-of-action surface."""
+    sb = _DocSupabase([{
+        "document_id": "DOC-1", "file_name": "ptw_v247.pdf",
+        "document_type": "ptw", "vault_url": "https://vault/ptw_v247.pdf",
+    }])
+    s = (await _resolve_source_documents(sb, _sources_from_graph([_edge()])))[0]
+
+    assert s.title == "ptw_v247.pdf"
+    assert s.document_type == "ptw"
+    assert s.vault_url == "https://vault/ptw_v247.pdf"
+
+
+async def test_lookup_failure_keeps_the_citation():
+    """A brief with a terse id still beats a brief with no provenance."""
+    class _Broken:
+        def table(self, _n):
+            raise RuntimeError("supabase down")
+
+    s = (await _resolve_source_documents(_Broken(), _sources_from_graph([_edge()])))[0]
+    assert s.document_id == "DOC-1"

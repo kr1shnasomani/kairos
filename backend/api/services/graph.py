@@ -200,6 +200,115 @@ class GraphService:
                 created_at=datetime.now(UTC).isoformat(),
             )
 
+    async def merge_event_node(
+        self,
+        event_id: str,
+        event_type: str,
+        occurred_at: str,
+        asset_id: str | None = None,
+        props: dict[str, Any] | None = None,
+    ) -> None:
+        """MERGE an Event node and link it to its asset (Layer 4).
+
+        `Event` is one of the six designed node types and the only one with an index already
+        declared for it (`event_type_idx`, `event_occurred_idx` in `init_schema.cypher`) that
+        nothing ever wrote to. Operational events lived only in Supabase, so a graph traversal
+        could not reach them: `get_last_inspection_date` originally matched `(e:Event)` and was
+        therefore permanently `null`, and was rewritten to read an edge instead.
+
+        The `OCCURRED_ON` edge is a plain relationship, not a `KNOWLEDGE_EDGE` — an event is a
+        fact about the world with its own timestamp, not a temporal knowledge assertion that
+        could be superseded or carry an authority level. Overloading `KNOWLEDGE_EDGE` here would
+        put rows into every authority-filtered query that are not knowledge claims.
+
+        Best-effort by design: Supabase is the system of record for events, so a graph write
+        failure must never fail the event ingest.
+        """
+        cypher = """
+        MERGE (e:Event {event_id: $event_id})
+        ON CREATE SET e.event_type = $event_type,
+                      e.occurred_at = $occurred_at,
+                      e.asset_id = $asset_id,
+                      e += $props,
+                      e.created_at = $created_at
+        WITH e
+        OPTIONAL MATCH (a:Asset {asset_id: $asset_id})
+        // Conditional MERGE: an event may reference no asset (plant-state changes) or an asset
+        // not yet in the MDM backbone. FOREACH-over-a-CASE is the idiom that skips the write
+        // without a subquery — `CALL { }` without a variable scope clause is deprecated, and a
+        // plain MATCH would drop the Event row entirely when the asset is absent.
+        FOREACH (_ IN CASE WHEN a IS NULL THEN [] ELSE [1] END |
+            MERGE (a)-[:OCCURRED_ON]->(e)
+        )
+        RETURN e.event_id AS event_id
+        """
+        try:
+            async with self.driver.session(database=self.database) as session:
+                await session.run(
+                    cypher,
+                    event_id=str(event_id),
+                    event_type=event_type,
+                    occurred_at=occurred_at,
+                    asset_id=asset_id,
+                    props=props or {},
+                    created_at=datetime.now(UTC).isoformat(),
+                )
+        except Exception as exc:
+            log.warning(
+                "graph.event_node_failed",
+                event_id=str(event_id), event_type=event_type, error=str(exc),
+            )
+
+    @staticmethod
+    def entity_node_id(entity_type: str, text: str) -> str:
+        """Deterministic node id for an extracted PERSON / ORGANIZATION.
+
+        Same person named in two documents must MERGE onto one node, so the id is derived from
+        the normalised surface form rather than generated — a uuid would create a new node per
+        mention and the graph would hold ten "Rohit Menon"s with one edge each.
+
+        Deliberately naive: case-folded, whitespace-collapsed. Real entity resolution (nicknames,
+        initials, transliteration) is Layer 1's job for assets and is not attempted here; two
+        spellings of a name stay two nodes, which is visible and fixable, rather than being
+        silently merged onto the wrong person.
+        """
+        slug = "-".join(text.split()).upper()
+        prefix = "PERSON" if entity_type.upper() == "PERSON" else "ORG"
+        return f"{prefix}-{slug}"
+
+    async def merge_person_node(self, person_id: str, props: dict[str, Any] | None = None) -> None:
+        """MERGE a Person node (idempotent). Layer 4 designates Person a first-class node type."""
+        cypher = """
+        MERGE (p:Person {person_id: $person_id})
+        ON CREATE SET p += $props, p.created_at = $created_at
+        """
+        async with self.driver.session(database=self.database) as session:
+            await session.run(
+                cypher,
+                person_id=person_id,
+                props=props or {},
+                created_at=datetime.now(UTC).isoformat(),
+            )
+
+    async def merge_organisation_node(self, org_id: str, props: dict[str, Any] | None = None) -> None:
+        """MERGE an Organisation node (idempotent).
+
+        Label is `Organisation` — the spelling `db/neo4j/init_schema.cypher` declares the
+        uniqueness constraint for and seeds `KAIROS_PLATFORM` under. `Organization` would create
+        a second, unconstrained label that looks identical in query output.
+        """
+        cypher = """
+        MERGE (o:Organisation {org_id: $org_id})
+        ON CREATE SET o += $props, o.created_at = $created_at
+        """
+        async with self.driver.session(database=self.database) as session:
+            await session.run(
+                cypher,
+                org_id=org_id,
+                props=props or {},
+                created_at=datetime.now(UTC).isoformat(),
+            )
+
     async def detect_conflict(
         self,
         source_id: str,
@@ -219,7 +328,7 @@ class GraphService:
         cypher = f"""
         MATCH (src:{source_label} {{{src_field}: $source_id}})-[r:KNOWLEDGE_EDGE]->(existing)
         WHERE r.relationship_type = $relationship_type
-          AND (r.valid_to IS NULL OR r.valid_to > datetime())
+          AND (r.valid_to IS NULL OR datetime(r.valid_to) > datetime())
           AND r.document_id <> $new_document_id
           AND r.verification_status <> 'superseded'
         RETURN r.edge_id AS edge_id, r.document_id AS document_id,
@@ -349,7 +458,7 @@ class GraphService:
         """
         cypher = """
         MATCH ()-[r:KNOWLEDGE_EDGE {document_id: $document_id}]-()
-        WHERE (r.valid_to IS NULL OR r.valid_to > datetime())
+        WHERE (r.valid_to IS NULL OR datetime(r.valid_to) > datetime())
         SET r.valid_to = $valid_to, r.verification_status = 'superseded'
         RETURN count(r) AS closed
         """
@@ -357,6 +466,54 @@ class GraphService:
             result = await session.run(cypher, document_id=document_id, valid_to=valid_to.isoformat())
             record = await result.single()
             return record["closed"] if record else 0
+
+    async def get_verified_topology_for_asset(
+        self,
+        asset_tag: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Engineer-verified P&ID elements on the drawing that contains `asset_tag`.
+
+        **Only `verification_status = 'verified'` elements are ever returned.** An unverified
+        element is a vision model's candidate reading of a drawing, and the architecture is
+        explicit that topology is not canonical until an engineer has confirmed it
+        element-by-element. Returning an unverified element here would launder an extraction into
+        an isolation claim — the single worst failure this system can have.
+
+        The join is by element **label**, not by an `Asset`→`Document` edge: the extraction writes
+        `(:Document)-[:KNOWLEDGE_EDGE {relationship_type:'CONTAINS_TOPOLOGY_ELEMENT'}]->(:Concept)`
+        and the asset appears as a `Concept.label` (V-247 is an `equipment_nodes` element), so the
+        drawing is located *through* the asset rather than pointed at by it. `brief_engine` used to
+        query `(:Asset)-[{relationship_type:'pid_topology'}]->()`, a relationship type nothing ever
+        writes and a direction that does not exist — so it silently returned `[]` for every asset,
+        which is why PTW briefs carried no isolation devices. Callers must share this one query.
+        """
+        cypher = """
+        MATCH (d:Document)-[:KNOWLEDGE_EDGE {relationship_type: 'CONTAINS_TOPOLOGY_ELEMENT'}]
+              ->(anchor:Concept)
+        WHERE toUpper(anchor.label) = toUpper($asset_tag)
+        WITH DISTINCT d
+        MATCH (d)-[r:KNOWLEDGE_EDGE {relationship_type: 'CONTAINS_TOPOLOGY_ELEMENT'}]->(c:Concept)
+        WHERE r.verification_status = 'verified'
+          AND (r.valid_to IS NULL OR datetime(r.valid_to) > datetime())
+        RETURN c.concept_id   AS element_id,
+               c.label        AS label,
+               c.element_type AS element_type,
+               d.document_id  AS document_id,
+               r.authority_level    AS authority_level,
+               r.confidence         AS confidence,
+               r.verified_by        AS verified_by,
+               r.verification_status AS verification_status
+        ORDER BY c.element_type, c.label
+        LIMIT $limit
+        """
+        try:
+            async with self.driver.session(database=self.database) as session:
+                result = await session.run(cypher, asset_tag=asset_tag, limit=limit)
+                return [dict(r) async for r in result]
+        except Exception as exc:
+            log.warning("graph.verified_topology_failed", asset_tag=asset_tag, error=str(exc))
+            return []
 
     async def set_topology_element_verification(
         self,

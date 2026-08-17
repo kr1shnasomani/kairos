@@ -6,7 +6,7 @@ All tests run **inside Docker**. There is no host shortcut: host package resolut
 the pinned images and produces false results — `auth.test.ts` and `api.test.ts` fail on the host
 and pass in the container. A host run will lie to you.
 
-### Tier 1 — service-free (199 tests, no stack, no secrets, no network)
+### Tier 1 — service-free (222 tests, no stack, no secrets, no network)
 
 These need nothing running. This is what CI's `unit` job executes on every push.
 
@@ -18,7 +18,7 @@ ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ne
 superseded_filter,brief_signing,attribution_evidence,authz_boundary}.py
 ```
 
-All **21** files, **199 tests**. `test_attribution_evidence.py` (12 tests) covers the pure
+All **21** files, **222 tests**. `test_attribution_evidence.py` (12 tests) covers the pure
 decision functions `_attribute` and `_classify_attestation` in `workers/attribution.py`,
 including the brownfield regression that `genuine_failure` was unreachable on uninstrumented assets.
 `test_authz_boundary.py` (41 tests) covers the trust boundary — which routes are policy-enforced,

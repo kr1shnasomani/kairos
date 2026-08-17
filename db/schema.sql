@@ -58,11 +58,15 @@ CREATE TABLE IF NOT EXISTS documents (
     version_chain   TEXT REFERENCES documents(document_id),
     occurred_at     TIMESTAMPTZ,                          -- migration 009
     ingested_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    ingested_by     TEXT NOT NULL
+    ingested_by     TEXT NOT NULL,
+    -- migration 017 — Layer 2: the IAM-derived permission tags each artifact is specified to
+    -- receive on ingestion. {site_id, required_action, classification, ingested_by, derived_from}
+    access_tags     JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS idx_documents_status    ON documents(status);
 CREATE INDEX IF NOT EXISTS idx_documents_type      ON documents(document_type);
 CREATE INDEX IF NOT EXISTS idx_documents_authority ON documents(authority_level);
+CREATE INDEX IF NOT EXISTS idx_documents_access_site ON documents ((access_tags ->> 'site_id'));
 
 CREATE TABLE IF NOT EXISTS document_asset_links (
     id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

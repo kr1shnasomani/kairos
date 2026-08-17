@@ -247,26 +247,41 @@ def _verify_demo_topology() -> None:
     try:
         import asyncio as _aio
 
+        from neo4j import AsyncGraphDatabase
         from supabase import create_client
 
         from api.config import settings
+        from api.services.graph import GraphService
         from api.services.topology import TopologyVerificationService
 
         sb = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+        # A GraphService is REQUIRED here, not optional. `TopologyVerificationService.graph`
+        # defaults to None, and with it None `verify_elements` updates the Supabase review row and
+        # silently skips promoting the graph edge. This script ran without one, so the demo loaded
+        # into a state where `GET /documents/{id}/topology` reported 4/4 verified and
+        # `canonical_ready: true` while three of the four `CONTAINS_TOPOLOGY_ELEMENT` edges were
+        # still `unverified` — the two stores disagreeing about what a human had approved.
+        _driver = AsyncGraphDatabase.driver(
+            settings.NEO4J_URI, auth=(settings.NEO4J_USERNAME, settings.NEO4J_PASSWORD)
+        )
+        _graph = GraphService(_driver, settings.NEO4J_DATABASE)
         manifests = (
             sb.table("quarantine_items")
             .select("content")
             .like("content", "PID_TOPOLOGY_MANIFEST:%")
             .execute()
         )
-        for row in manifests.data or []:
-            document_id = row["content"].split("PID_TOPOLOGY_MANIFEST:", 1)[1]
-            svc = TopologyVerificationService(sb)
-            statuses = _aio.run(svc.element_statuses(document_id))
-            decisions = [{"element_id": eid, "decision": "confirmed"} for eid in statuses]
-            if decisions:
-                _aio.run(svc.verify_elements(document_id, decisions, reviewer_id="demo-loader"))
-                log.info("load.topology_verified", document_id=document_id, elements=len(decisions))
+        try:
+            for row in manifests.data or []:
+                document_id = row["content"].split("PID_TOPOLOGY_MANIFEST:", 1)[1]
+                svc = TopologyVerificationService(sb, graph=_graph)
+                statuses = _aio.run(svc.element_statuses(document_id))
+                decisions = [{"element_id": eid, "decision": "confirmed"} for eid in statuses]
+                if decisions:
+                    _aio.run(svc.verify_elements(document_id, decisions, reviewer_id="demo-loader"))
+                    log.info("load.topology_verified", document_id=document_id, elements=len(decisions))
+        finally:
+            _aio.run(_driver.close())
     except Exception as exc:  # noqa: BLE001 — non-fatal for the demo load
         log.warning("load.topology_verify_failed", error=str(exc))
 

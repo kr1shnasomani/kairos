@@ -582,8 +582,136 @@ async def link_to_graph(
                         source_ts=_occurred_str,
                     )
 
+    # ------------------------------------------------------------------------------------
+    # Cross-system timestamp alignment — ON THE INGESTION PATH (Layer 4).
+    #
+    # The design places this check "before committing any validity window to the graph", but it
+    # only ever ran on Layer-8 compound events. The stated blocker was that documents have no
+    # correlation concept: `compound_event_id` is events-only.
+    #
+    # They do have one. A document and an operational event that describe the **same asset**
+    # inside the correlation window, reported by **different source systems**, are the same
+    # physical action seen twice — which is exactly what drift means here. So the document is
+    # correlated against sibling events rather than against other documents, and the existing
+    # pure `analyse()` does the comparison unchanged.
+    #
+    # Report-only: `TIMESTAMP_DRIFT_ENFORCE` ships off, and `valid_from` is NOT moved. Silently
+    # rewriting a document's date to a historian clock would corrupt exactly the time-travel
+    # this is meant to protect.
+    # ------------------------------------------------------------------------------------
+    if _occurred_str and asset_id:
+        try:
+            from api.services.timestamp_alignment import TimestampAlignmentService
+
+            _window = int(os.environ.get("LATE_ARRIVAL_WINDOW_MINUTES", "30"))
+            _lo = (canonical_valid_from - timedelta(minutes=_window)).isoformat()
+            _hi = (canonical_valid_from + timedelta(minutes=_window)).isoformat()
+            _siblings = await asyncio.to_thread(
+                lambda: supabase.table("operational_events")
+                .select("event_id, source_system, occurred_at")
+                .eq("asset_id", asset_id)
+                .gte("occurred_at", _lo)
+                .lte("occurred_at", _hi)
+                .limit(20)
+                .execute()
+            )
+            _rows = list(_siblings.data or [])
+            if _rows:
+                _doc_source = doc_row.get("source_system") or "unknown"
+                _alignment = TimestampAlignmentService.analyse(
+                    [{"source_system": _doc_source, "occurred_at": _occurred_str,
+                      "event_id": document_id}] + _rows,
+                    tolerance_minutes=int(os.environ.get("TIMESTAMP_DRIFT_TOLERANCE_MINUTES", "60")),
+                )
+                if _alignment.get("drift_detected"):
+                    await asyncio.to_thread(
+                        lambda a=_alignment: supabase.table("audit_log").insert({
+                            "action": "timestamp_drift_detected",
+                            "entity_type": "document",
+                            "entity_id": document_id,
+                            "performed_by": "extraction_pipeline",
+                            "details": {
+                                **a,
+                                "correlated_events": [r["event_id"] for r in _rows],
+                                "note": (
+                                    "cross-system drift on the ingestion path — reported only; "
+                                    "valid_from still uses this document's own source timestamp"
+                                ),
+                            },
+                        }).execute()
+                    )
+                    log.warning(
+                        "activity.ingest_timestamp_drift",
+                        document_id=document_id,
+                        drift_minutes=_alignment.get("drift_minutes"),
+                        sources=_alignment.get("sources"),
+                    )
+        except Exception as exc:  # noqa: BLE001 — alignment is advisory, never blocks ingestion
+            log.warning("activity.ingest_alignment_failed", document_id=document_id, error=str(exc))
+
     edges_created = 0
     quarantine_count = 0
+    people_linked = 0
+    orgs_linked = 0
+
+    # ---------------------------------------------------------------------
+    # Layer 4 — materialise PERSON / ORGANIZATION as first-class graph nodes.
+    #
+    # The design names six node types (Asset, Event, Document, Concept, Person, Organisation);
+    # only three were ever written. NER already extracted people and organisations and the schema
+    # already declared uniqueness constraints for both — the entities were simply dropped on the
+    # floor here, because the loop below skips every entity that is not an ASSET_TAG. So
+    # "which people have touched this equipment" could not be answered from the graph at all.
+    #
+    # Same confidence bar as asset tags (0.7): below it the mention is a candidate, not a fact,
+    # and Layer 6's rule is that low-confidence extractions go to quarantine and never to the
+    # graph. Edges are `unverified` like every other extracted edge — a human promotes them.
+    # ---------------------------------------------------------------------
+    for entity in entities:
+        etype = (entity.get("entity_type") or "").upper()
+        if etype not in ("PERSON", "ORGANIZATION"):
+            continue
+        text = (entity.get("text") or "").strip()
+        confidence = entity.get("confidence", 0.0)
+        if not text or confidence < 0.7:
+            continue
+        node_id = graph.entity_node_id(etype, text)
+        try:
+            if etype == "PERSON":
+                await graph.merge_person_node(node_id, {"name": text, "source": "ner_extraction"})
+                label, rel = "Person", "MENTIONS_PERSON"
+            else:
+                await graph.merge_organisation_node(node_id, {"name": text, "source": "ner_extraction"})
+                label, rel = "Organisation", "MENTIONS_ORGANISATION"
+
+            await graph.create_knowledge_edge(
+                source_id=document_id,
+                source_label="Document",
+                target_id=node_id,
+                target_label=label,
+                relationship_type=rel,
+                valid_from=canonical_valid_from,
+                authority_level=authority_level,
+                document_id=document_id,
+                confidence=confidence,
+                verification_status="unverified",
+            )
+            if etype == "PERSON":
+                people_linked += 1
+            else:
+                orgs_linked += 1
+            edges_created += 1
+        except Exception as exc:
+            log.warning(
+                "link.entity_node_failed",
+                entity_type=etype, text=text, document_id=document_id, error=str(exc),
+            )
+
+    if people_linked or orgs_linked:
+        log.info(
+            "link.entity_nodes_materialised",
+            document_id=document_id, people=people_linked, organisations=orgs_linked,
+        )
 
     for entity in entities:
         if entity.get("entity_type") != "ASSET_TAG":
@@ -627,7 +755,6 @@ async def link_to_graph(
 
                 conflict = result.get("conflict")
                 if conflict:
-                    from datetime import timedelta
                     await asyncio.to_thread(
                         lambda cd=conflict, aid=canonical_id: supabase.table("knowledge_conflicts").insert({
                             "track": cd["track"],

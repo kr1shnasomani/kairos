@@ -98,3 +98,44 @@ def test_digital_documents_are_native_and_unflagged():
     d = _vault_doc("manual.pdf", "application/pdf", "oem_manual")
     assert d.extraction_path == "native"
     assert d.handwriting_suspect is False
+
+
+# =============================================================================
+# Layer 4 — PERSON / ORGANIZATION materialised as first-class nodes
+# =============================================================================
+
+from api.services.graph import GraphService  # noqa: E402
+
+
+def test_entity_node_id_is_stable_across_mentions():
+    """The same person named in two documents must MERGE onto one node. A generated id would
+    create a node per mention, leaving the graph with ten disconnected 'Rohit Menon's."""
+    a = GraphService.entity_node_id("PERSON", "Rohit Menon")
+    b = GraphService.entity_node_id("PERSON", "rohit  menon")
+    assert a == b == "PERSON-ROHIT-MENON"
+
+
+def test_person_and_org_ids_do_not_collide():
+    """A person and a company with the same name are different nodes."""
+    assert GraphService.entity_node_id("PERSON", "Fischer") != GraphService.entity_node_id(
+        "ORGANIZATION", "Fischer"
+    )
+
+
+def test_org_prefix_is_used_for_organizations():
+    assert GraphService.entity_node_id("ORGANIZATION", "Fischer Valves") == "ORG-FISCHER-VALVES"
+
+
+def test_all_six_designed_node_labels_are_writable():
+    """L4 designates six node types. Three were writable; Person/Organisation/Event were not,
+    so `create_knowledge_edge` rejected them as unknown labels."""
+    assert set(GraphService._LABEL_ID_FIELD) == {
+        "Asset", "Document", "Event", "Concept", "Person", "Organisation",
+    }
+
+
+def test_organisation_label_matches_the_schema_spelling():
+    """`init_schema.cypher` constrains `Organisation`. Writing `Organization` would silently
+    create a second, unconstrained label that looks identical in query output."""
+    assert "Organisation" in GraphService._LABEL_ID_FIELD
+    assert "Organization" not in GraphService._LABEL_ID_FIELD

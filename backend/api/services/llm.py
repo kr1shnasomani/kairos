@@ -148,7 +148,7 @@ AUTHORITATIVE_LEVEL = 3
 _AUTHORITY_TOP_K = 3
 
 
-def _query_asset_tags(query: str) -> set[str]:
+def query_asset_tags(query: str) -> set[str]:
     """
     Asset tags named in the question itself (e.g. "HE-302" in "MAWP for HE-302?").
 
@@ -293,7 +293,7 @@ class LLMService:
         # otherwise read as confidence 0.0 and refuse every safety query.
         if query_category in SAFETY_CRITICAL_CATEGORIES:
             max_confidence = max((r.get("confidence") or 0.0 for r in retrieved_context), default=0.0)
-            gate_context = _authority_candidates(retrieved_context, _query_asset_tags(query))
+            gate_context = _authority_candidates(retrieved_context, query_asset_tags(query))
             best_authority = min((r.get("authority_level") or 5 for r in gate_context), default=5)
             if max_confidence < confidence_threshold and best_authority > AUTHORITATIVE_LEVEL:
                 log.info(

@@ -65,7 +65,7 @@ async def _generate(item_id: str) -> dict[str, Any]:
                 """
                 MATCH (a:Asset)-[r]->(n)
                 WHERE a.equipment_class = $equip_family
-                  AND (r.valid_to IS NULL OR r.valid_to > datetime())
+                  AND (r.valid_to IS NULL OR datetime(r.valid_to) > datetime())
                   AND r.authority_level <= 3
                   AND r.valid_from <= $as_of
                 RETURN n.name AS mode,

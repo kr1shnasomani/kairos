@@ -219,3 +219,92 @@ async def test_manifest_row_is_excluded_but_element_rows_are_not():
 
     assert set(statuses) == {"XV-203", "FT-3047"}
     assert "manifest" not in statuses
+
+
+# =============================================================================
+# Verified topology as synthesis evidence (Layer 3 → Layer 11)
+# =============================================================================
+
+
+class _FakeGraph:
+    """Stands in for GraphService.get_verified_topology_for_asset."""
+
+    def __init__(self, by_asset: dict[str, list[dict]]):
+        self._by_asset = by_asset
+        self.asked: list[str] = []
+
+    async def get_verified_topology_for_asset(self, asset_tag: str, limit: int = 20):
+        self.asked.append(asset_tag)
+        return self._by_asset.get(asset_tag.upper(), [])
+
+
+def _element(label, group, auth=3):
+    return {
+        "element_id": f"TOPO-{label}",
+        "label": label,
+        "element_type": group,
+        "document_id": "DOC-PID-1",
+        "authority_level": auth,
+        "confidence": 0.9,
+        "verified_by": "eng-1",
+        "verification_status": "verified",
+    }
+
+
+async def test_topology_evidence_is_anchored_to_the_asset_in_the_question():
+    """Evidence must carry the queried tag as `asset_id`, or `_authority_candidates`' same-asset
+    filter drops it and admitting topology achieves nothing."""
+    from api.routers.search import _verified_topology_evidence
+
+    graph = _FakeGraph({"V-247": [_element("XV-203", "isolation_valves")]})
+    ev = await _verified_topology_evidence("isolation boundary for V-247?", graph)
+
+    assert graph.asked == ["V-247"]
+    assert [e["asset_id"] for e in ev] == ["V-247"]
+    assert ev[0]["relevance_score"] is not None  # or the scored branch is skipped entirely
+
+
+async def test_topology_evidence_keeps_the_edges_own_authority():
+    """Topology is not privileged for being topology — it clears the gate only if the edge it came
+    from already would. An authority-4 edge must not arrive as authority 3."""
+    from api.routers.search import _verified_topology_evidence
+
+    graph = _FakeGraph({"V-247": [_element("XV-203", "isolation_valves", auth=4)]})
+    ev = await _verified_topology_evidence("isolate V-247", graph)
+
+    assert ev[0]["authority_level"] == 4
+
+
+async def test_no_asset_in_query_means_no_topology_evidence():
+    from api.routers.search import _verified_topology_evidence
+
+    graph = _FakeGraph({"V-247": [_element("XV-203", "isolation_valves")]})
+    assert await _verified_topology_evidence("what is the isolation procedure?", graph) == []
+    assert graph.asked == []
+
+
+async def test_asset_without_verified_topology_yields_nothing():
+    """The refusal path. An asset whose drawing has no verified element must add no evidence, so
+    the gate still refuses rather than answering from a lower-authority document."""
+    from api.routers.search import _verified_topology_evidence
+
+    graph = _FakeGraph({"V-247": [_element("XV-203", "isolation_valves")]})
+    assert await _verified_topology_evidence("isolation boundary for HE-303?", graph) == []
+
+
+async def test_graph_failure_degrades_to_no_evidence_not_an_error():
+    """A graph outage must refuse, never crash the synthesis request."""
+    from api.routers.search import _verified_topology_evidence
+
+    class _Broken:
+        async def get_verified_topology_for_asset(self, asset_tag, limit=20):
+            raise RuntimeError("neo4j unreachable")
+
+    assert await _verified_topology_evidence("isolation boundary for V-247?", _Broken()) == []
+
+
+def test_only_isolation_queries_admit_topology():
+    """Scope guard: a pressure question about the same asset must not pick up drawing evidence."""
+    from api.routers.search import _TOPOLOGY_EVIDENCE_CATEGORIES
+
+    assert _TOPOLOGY_EVIDENCE_CATEGORIES == {"isolation_interlock_sequence"}

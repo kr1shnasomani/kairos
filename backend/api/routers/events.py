@@ -43,6 +43,33 @@ log = structlog.get_logger(__name__)
 router = APIRouter()
 
 
+async def _materialise_event_node(
+    driver,
+    event_id,
+    event_type: str,
+    occurred_at: str,
+    asset_id: str | None,
+) -> None:
+    """Mirror an operational event into the graph as an `Event` node (Layer 4).
+
+    Events were written to Supabase only, so three of the six designed node types existed and
+    `Event` — which already has two indexes declared for it in `init_schema.cypher` — was never
+    written. Any traversal that wanted to reach an event had to leave the graph.
+
+    Supabase remains the system of record. `merge_event_node` swallows its own failures, so a
+    Neo4j outage degrades the graph view without failing the ingest: losing the event entirely
+    because a secondary store was down would be the worse trade.
+    """
+    from api.services.graph import GraphService
+
+    await GraphService(driver).merge_event_node(
+        event_id=str(event_id),
+        event_type=event_type,
+        occurred_at=occurred_at,
+        asset_id=asset_id,
+    )
+
+
 @router.post("/work-order", summary="Ingest work order event", status_code=status.HTTP_202_ACCEPTED)
 async def ingest_work_order(
     payload: WorkOrderEvent,
@@ -106,6 +133,11 @@ async def ingest_work_order(
             "received_at": payload.received_at.isoformat(),
             "event_subtype": "recurring" if recurring_detected else None,
         }).execute()
+    )
+
+    await _materialise_event_node(
+        driver, payload.event_id, payload.event_type,
+        payload.occurred_at.isoformat(), payload.asset_id,
     )
 
     stream_id = await bus.publish_work_order(event_dict)
@@ -238,6 +270,11 @@ async def ingest_ptw(
         }).execute()
     )
 
+    await _materialise_event_node(
+        driver, payload.event_id, payload.event_type,
+        payload.occurred_at.isoformat(), primary_asset_id,
+    )
+
     stream_id = await bus.publish_ptw(event_dict)
 
     # Publish directly to briefs stream with critical priority — bypasses governor
@@ -304,6 +341,11 @@ async def ingest_shift_handover(
         }).execute()
     )
 
+    await _materialise_event_node(
+        driver, payload.event_id, payload.event_type,
+        payload.occurred_at.isoformat(), None,
+    )
+
     stream_id = await bus.publish_shift_handover(event_dict)
 
     await asyncio.to_thread(
@@ -337,6 +379,7 @@ async def ingest_alarm(
     redis: RedisDep,
     supabase: SupabaseDep,
     settings: SettingsDep,
+    driver: Neo4jDep,
 ) -> dict:
     """Received when an operator acknowledges a DCS process alarm."""
     bus = EventBusService(redis, settings)
@@ -360,6 +403,11 @@ async def ingest_alarm(
             "occurred_at": payload.occurred_at.isoformat(),
             "received_at": payload.received_at.isoformat(),
         }).execute()
+    )
+
+    await _materialise_event_node(
+        driver, payload.event_id, payload.event_type,
+        payload.occurred_at.isoformat(), payload.asset_id,
     )
 
     stream_id = await bus.publish(settings.REDIS_STREAM_ALARMS, event_dict)
@@ -597,6 +645,7 @@ async def ingest_tag_out(
     redis: RedisDep,
     supabase: SupabaseDep,
     settings: SettingsDep,
+    driver: Neo4jDep,
 ) -> dict:
     """
     Receives an equipment tag-out event. Deduplicates, publishes to TAG_OUT stream,
@@ -622,6 +671,11 @@ async def ingest_tag_out(
             "received_at": payload.received_at.isoformat(),
             "event_subtype": None,
         }).execute()
+    )
+
+    await _materialise_event_node(
+        driver, payload.event_id, payload.event_type,
+        payload.occurred_at.isoformat(), payload.asset_id,
     )
 
     stream_id = await bus.publish(settings.REDIS_STREAM_TAG_OUT, event_dict)
@@ -753,6 +807,11 @@ async def ingest_inspection_complete(
             "occurred_at": payload.occurred_at.isoformat(),
             "received_at": payload.received_at.isoformat(),
         }).execute()
+    )
+
+    await _materialise_event_node(
+        driver, payload.event_id, payload.event_type,
+        payload.occurred_at.isoformat(), payload.asset_id,
     )
 
     bus = EventBusService(redis, settings)

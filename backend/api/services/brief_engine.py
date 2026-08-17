@@ -61,7 +61,9 @@ class BriefEngine:
             r if not isinstance(r, Exception) else [] for r in results
         ]
 
-        sources = _sources_from_graph(graph_edges) + _sources_from_vector(vector_hits)
+        sources = await _resolve_source_documents(
+            self.supabase, _sources_from_graph(graph_edges) + _sources_from_vector(vector_hits)
+        )
         warnings = [c["parameter"] for c in conflicts if isinstance(c, dict) and "parameter" in c]
         quarantine_flags = [q["item_id"] for q in quarantine_items if isinstance(q, dict)]
         action_items = [
@@ -193,7 +195,7 @@ class BriefEngine:
             if isinstance(q_list, list):
                 quarantine_flags += [q["item_id"] for q in q_list if isinstance(q, dict)]
 
-        sources = _sources_from_graph(topology)
+        sources = await _resolve_source_documents(self.supabase, _sources_from_graph(topology))
         warnings = []
         if quarantine_flags:
             warnings.append(f"{len(quarantine_flags)} quarantine item(s) in isolation boundary — review before work")
@@ -312,7 +314,9 @@ class BriefEngine:
             r if not isinstance(r, Exception) else [] for r in results
         ]
 
-        sources = _sources_from_graph(graph_edges) + _sources_from_vector(vector_hits)
+        sources = await _resolve_source_documents(
+            self.supabase, _sources_from_graph(graph_edges) + _sources_from_vector(vector_hits)
+        )
         quarantine_flags = [q["item_id"] for q in quarantine_items if isinstance(q, dict)]
 
         total_occurrences = recurrence_count + 1
@@ -734,26 +738,27 @@ class BriefEngine:
         return result.data or []
 
     async def _asset_pid_topology(self, asset_id: str) -> list[dict[str, Any]]:
-        """Neo4j query for pid_topology edges connected to this asset."""
-        cypher = """
-        MATCH (a:Asset {asset_id: $asset_id})-[r:KNOWLEDGE_EDGE]->(n)
-        WHERE r.relationship_type = 'pid_topology'
-          AND (r.valid_to IS NULL OR r.valid_to > datetime())
-          AND r.valid_from <= $as_of
-        RETURN n.concept_id AS element, n.type AS type
-        LIMIT 20
+        """Engineer-verified P&ID elements on the drawing containing this asset.
+
+        Delegates to `GraphService.get_verified_topology_for_asset` so briefs and synthesis read
+        topology through one query. This method previously matched
+        `(:Asset)-[{relationship_type:'pid_topology'}]->()` — a relationship type nothing writes,
+        in a direction that does not exist — so it returned `[]` for every asset and every PTW and
+        tag-out brief silently shipped with no isolation devices. It read as "this asset has no
+        topology" when the real meaning was "this query cannot match anything".
         """
-        try:
-            async with self.graph.driver.session(database=self.graph.database) as session:
-                result = await session.run(
-                    cypher,
-                    asset_id=asset_id,
-                    as_of=datetime.now(UTC).isoformat(),
-                )
-                return [dict(r) async for r in result]
-        except Exception as e:
-            log.warning("brief_engine.pid_topology_failed", error=str(e))
-            return []
+        rows = await self.graph.get_verified_topology_for_asset(asset_id)
+        # Keep the {element, type} shape the brief body and `_sources_from_graph` expect.
+        return [
+            {
+                "element": r.get("label") or r.get("element_id"),
+                "type": r.get("element_type"),
+                "element_id": r.get("element_id"),
+                "document_id": r.get("document_id"),
+                "verification_status": r.get("verification_status"),
+            }
+            for r in rows
+        ]
 
     async def _get_active_ptw_for_asset(self, asset_id: str) -> list[dict[str, Any]]:
         """Supabase query for active PTW events referencing this asset in their payload."""
@@ -890,14 +895,61 @@ def _sources_from_graph(edges: list[dict[str, Any]]) -> list[SourceCitation]:
         # type ("DOCUMENTED_BY") as the excerpt and "unknown" as the type — internals leaking
         # into a point-of-action brief. `_humanize_rel` already existed for the body text.
         rel = _humanize_rel(edge.get("relationship_type"))
+        verified = edge.get("verification_status") == "verified"
         sources.append(SourceCitation(
             document_id=doc_id,
             document_type=edge.get("document_type") or "linked record",
-            title=doc_id,
+            title=doc_id,  # replaced with the real document title by `_resolve_source_documents`
             authority_level=edge.get("authority_level", 5),
-            relevant_excerpt=f"Linked to this asset as {rel}.",
-            is_quarantine=edge.get("verification_status") != "verified",
+            relevant_excerpt=(
+                f"Linked to this asset as {rel}."
+                if verified
+                else f"Linked to this asset as {rel} — link not yet engineer-verified."
+            ),
+            # `is_quarantine` means "this came from the quarantine layer", NOT "this edge is
+            # unverified". Conflating them badged every vault document as quarantine, because
+            # every edge starts `unverified` by design — a warning that fires on all sources
+            # discriminates nothing, and it mislabelled an authority-4 permit as an unverified
+            # field observation. Edge verification is disclosed in the excerpt instead.
+            is_quarantine=False,
         ))
+    return sources
+
+
+async def _resolve_source_documents(supabase, sources: list[SourceCitation]) -> list[SourceCitation]:
+    """Fill in real document titles and vault links, batched.
+
+    A brief's source list showed `title: "DOC-CPLLSP2QYWUN"` with `vault_url: null` — an opaque
+    id an operator cannot act on, and no way to open the underlying document from a
+    point-of-action surface. The ids are all we have at graph-read time; the human-readable
+    identity lives in Supabase `documents`.
+
+    Best-effort: on any lookup failure the caller keeps the id-titled sources rather than losing
+    the citation entirely, because a brief without provenance is worse than one with a terse id.
+    """
+    doc_ids = sorted({s.document_id for s in sources if s.document_id})
+    if not doc_ids:
+        return sources
+    try:
+        rows = await asyncio.to_thread(
+            lambda: supabase.table("documents")
+            .select("document_id, file_name, document_type, vault_url")
+            .in_("document_id", doc_ids)
+            .execute()
+        )
+        by_id = {r["document_id"]: r for r in (rows.data or [])}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("brief_engine.source_resolve_failed", error=str(exc), documents=len(doc_ids))
+        return sources
+
+    for s in sources:
+        row = by_id.get(s.document_id)
+        if not row:
+            continue
+        s.title = row.get("file_name") or s.title
+        s.vault_url = row.get("vault_url") or s.vault_url
+        if row.get("document_type"):
+            s.document_type = row["document_type"]
     return sources
 
 

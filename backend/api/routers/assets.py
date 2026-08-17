@@ -204,14 +204,44 @@ async def get_asset(
         .execute()
     )
     inspection_future = graph.get_last_inspection_date(asset_id)
+    # Identity attribution lives in Supabase, not on the graph node: the write path sets
+    # `identity_confirmed` on the Neo4j node but records *who* confirmed it and *when* in
+    # `assets` + `audit_log`. Reading only the node meant no surface could show who vouched for
+    # an asset's identity — on the layer whose entire claim is deterministic, human-confirmed
+    # identity, the provenance existed but was unreachable.
+    identity_future = asyncio.to_thread(
+        lambda: supabase.table("assets")
+        .select("identity_confirmed, identity_confirmed_by, identity_confirmed_at")
+        .eq("asset_id", asset_id)
+        .limit(1)
+        .execute()
+    )
 
-    wo_result, gap_result, last_inspection = await asyncio.gather(wo_future, gap_future, inspection_future)
+    wo_result, gap_result, last_inspection, identity_result = await asyncio.gather(
+        wo_future, gap_future, inspection_future, identity_future, return_exceptions=True
+    )
+
+    identity: dict = {}
+    if not isinstance(identity_result, BaseException) and identity_result.data:
+        identity = identity_result.data[0]
+    elif isinstance(identity_result, BaseException):
+        log.warning("asset.identity_lookup_failed", asset_id=asset_id, error=str(identity_result))
+
+    for name, result in (("work_orders", wo_result), ("compliance_gaps", gap_result),
+                         ("last_inspection", last_inspection)):
+        if isinstance(result, BaseException):
+            log.warning("asset.enrichment_failed", asset_id=asset_id, field=name, error=str(result))
 
     return {
         **asset,
-        "open_work_orders_count": wo_result.count or 0,
-        "compliance_gap_count": gap_result.count or 0,
-        "last_inspection_date": last_inspection,
+        "open_work_orders_count": 0 if isinstance(wo_result, BaseException) else (wo_result.count or 0),
+        "compliance_gap_count": 0 if isinstance(gap_result, BaseException) else (gap_result.count or 0),
+        "last_inspection_date": None if isinstance(last_inspection, BaseException) else last_inspection,
+        # Graph node wins on the boolean (it is the canonical MDM record); Supabase supplies the
+        # attribution the node does not carry.
+        "identity_confirmed": asset.get("identity_confirmed", identity.get("identity_confirmed")),
+        "identity_confirmed_by": identity.get("identity_confirmed_by"),
+        "identity_confirmed_at": identity.get("identity_confirmed_at"),
     }
 
 

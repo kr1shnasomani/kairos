@@ -64,6 +64,9 @@ class RCAPackResponse(BaseModel):
     confidence: float | None = None
     refused: bool = False
     synthesis_available: bool = False
+    # Same Layer-7 disclosure as SearchResponse/SynthesizeResponse — an RCA hypothesis built on an
+    # asset whose parameters are under MoC dispute must say so.
+    pending_moc: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class VaultDocument(BaseModel):
@@ -81,7 +84,10 @@ class VaultDocument(BaseModel):
     status: str = Field(..., description="active, superseded, archived, disputed")
     version_chain: str | None = Field(None, description="document_id this supersedes (new version → old version pointer)")
     asset_links: list[str] = Field(default_factory=list, description="Linked canonical asset IDs")
-    access_tags: list[str] = Field(default_factory=list)
+    # Layer 2 IAM-derived permission tags, stamped at ingestion (migration 017). Declared as a
+    # `list[str]` before it was ever populated, which could not carry the structured tags the
+    # spec describes: {site_id, required_action, classification, ingested_by, derived_from}.
+    access_tags: dict[str, Any] = Field(default_factory=dict)
 
     @computed_field
     @property
@@ -166,6 +172,11 @@ class SearchResponse(BaseModel):
     total: int
     synthesis: None = None
     retrieval_methods: list[str] = Field(default_factory=list)
+    # Layer 7: assets cited here that sit under an unresolved engineering-track conflict. The
+    # canonical graph is deliberately not updated while a MoC is open, so results drawn from
+    # such an asset are reporting a value under formal dispute. Previously only synthesized
+    # answers carried this, so the same asset was flagged on one surface and silent on another.
+    pending_moc: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ConflictItem(BaseModel):

@@ -22,13 +22,16 @@
 
 ## Headline
 
-**All 13 architecture layers are implemented.** Architecture conformance is **~89.5%** — the mean of
+**All 13 architecture layers are implemented.** Architecture conformance is **~91%** — the mean of
 the 13 per-layer scores in [Conformance](#architecture--implementation-conformance), measured by an
 independent re-audit on 2026-08-17 that scored *reachability in the path the architecture specifies*
 rather than *presence of the mechanism*. The previous ~94% figure was self-assessed against the
-looser rubric and is superseded; the re-audit landed at ~88%, and the L10 brownfield fix later the
-same day (72 → 92) moved it to its current value. **Recompute this from the table when a layer
-score changes** — it read ~88% here while the table said ~89.5% for exactly that reason.
+looser rubric and is superseded; the re-audit landed at ~88%, and same-day fixes to L10
+(brownfield attribution), L4 (all 6 node types, ingestion-path alignment, and the `valid_to`
+comparison that had silenced conflict detection), L2 (IAM access tags), L7 (MoC banner on every
+output type) and L11 (verified topology as gate evidence) moved it to its current value.
+**Recompute this from the table when a layer score changes** — it once read ~88% here while the
+table said ~89.5%, for exactly that reason.
 
 Four deviations are deliberate and cap the score by construction (P&ID Path A, OPC-UA / Uniformance /
 GraphQL connectors, PuppyGraph federated MDM, separate handwriting + form models). The rest of the
@@ -57,7 +60,7 @@ scheduled workflows after 60 days of repo inactivity).
 | 1 | Deterministic Identity & MDM Backbone | ✅ | `/assets` (`MERGE`, `identity_confirmed_by` required), `asset_alias_map`, `services/graph.py` | EAM asset bootstrap = Go-connector **fixture** (no SAP/Maximo) — mock by design |
 | 2 | Immutable Evidence Vault | ✅ | Supabase Storage (`kairos-vault`), SHA-256 dedup, `documents`, `POST /documents/ingest` | — |
 | 3 | Multimodal Perception Engine | ✅ | OCR (NIM Nemotron), NER (NIM llama-3.2-11b-vision), voice (Groq Whisper), annotations, **P&ID topology** (`services/pid.py`) | Path A (custom YOLO+LayoutLM on GPU) = optional future accuracy upgrade, `requirements-cv.txt` |
-| 4 | Temporal Reality Graph | ✅ | Neo4j, `KNOWLEDGE_EDGE` (6 props), `as_of` time-travel, blast-radius, conflict detection | Only 3 of 6 designed node types are graph nodes — see divergence below |
+| 4 | Temporal Reality Graph | ✅ | Neo4j, `KNOWLEDGE_EDGE` (6 props), `as_of` time-travel, blast-radius, conflict detection | All 6 designed node types now written (2026-08-17); existing corpus not backfilled |
 | 5 | Zero-Copy OT Virtualization | 🟦 | Go connector `/ot/query`, `/ot/coverage` (`MockHistorianClient`) | **Mock by design — no plant historian.** Real path (`PIWebAPIClient`) is built; set `PI_WEBAPI_BASE_URL` to go live. OPC-UA is a stub. |
 | 6 | Quarantine Knowledge Layer | ✅ | `quarantine_items` one-way gate, `/governance/quarantine` promote / dispute / request-info | — |
 | 7 | Dual-Track Governance & Adjudication | ✅ | `knowledge_conflicts`, MoC webhook (signature-verified), SLA escalation, circuit breaker, blast-radius | — |
@@ -84,36 +87,46 @@ are the external-plant integrations, which are mock **by design**.
 |---|:--:|:--:|---|
 | 0 · Empirical Validation & Model Safety | 🟡 | 92 | Corpus grows from human promotions/annotations; scores per entity type **and** per asset class; `make model-gate` exits non-zero on regression. Not auto-run by CI/CD, and `MODEL_GATE_ENFORCE` ships off |
 | 1 · Deterministic Identity & MDM | 🟡 | 85 | Human-confirmed `MERGE` assets, alias resolution **with a confirm endpoint**, quarantine for unlinkable knowledge. EAM bootstrap is still a fixture |
-| 2 · Immutable Evidence Vault | 🟡 | 93 | Supabase Storage, SHA-256 dedup, version chain, never-delete; supersession now propagates to ES + Qdrant. **No IAM-derived access tags** on the artifact (1 of the 6 things the spec says each receives) |
+| 2 · Immutable Evidence Vault | ✅ | 97 | Supabase Storage, SHA-256 dedup, version chain, never-delete; supersession now propagates to ES + Qdrant. **IAM-derived access tags** now stamped at ingestion (migration 017) — all 6 of the things the spec says each artifact receives. Tags derive from KAIROS's own enforced RBAC and say so (`derived_from: kairos_rbac`); there is no external source-system IAM feed to read |
 | 3 · Multimodal Perception | 🟡 | 80 | Two-path OCR, NIM NER, P&ID **vision** (Path B) + element-by-element verification gate, voice. **No separate handwriting model** (a flag, and confidence deliberately not lowered) and **no layout-aware form/checklist parsing** |
-| 4 · Temporal Reality Graph | ⚠️ | 78 | 6 edge props ✅, time-travel ✅, blast-radius ✅ — but only **3 of 6 node types** are graph nodes, and timestamp alignment runs only on L8 compound events, never on the document-ingestion path where the spec places it |
+| 4 · Temporal Reality Graph | 🟡 | 92 | 6 edge props ✅, time-travel ✅, blast-radius ✅, **all 6 node types now written** (Event via `OCCURRED_ON` from all 6 event routes; Person/Organisation from extraction), and **timestamp alignment now runs on the document-ingestion path** by correlating a document against sibling events for the same asset. Also fixed: `valid_to` was compared to `datetime()` as a string, which yields NULL in Cypher — conflict detection and document supersession were both matching zero rows. Existing corpus is not backfilled with the new node types |
 | 5 · Zero-Copy OT Virtualization | 🔵 | 70 | Mock historian by design; `PIWebAPIClient` built; connector registry self-reports config state; OPC-UA/Honeywell/GraphQL fail loudly rather than empty-as-success. Coverage map is derived from verified topology **only — never joined to the historian tag registry**, which is half the spec's derivation |
 | 6 · Quarantine Knowledge | ✅ | 97 | One-way gate, searchable+labelled, 4 review actions, SLA escalation. No per-item domain-owner assignment |
-| 7 · Dual-Track Governance | 🟡 | 94 | Admin vs engineering tracks, per-criticality SLA, SPC circuit breaker, MoC webhook signature verification, **pending-MoC banner on synthesized answers**. Banner not yet on `GET /search/` or `/rca-pack`; SPC has no deployment-maturity dimension |
+| 7 · Dual-Track Governance | 🟡 | 97 | Admin vs engineering tracks, per-criticality SLA, SPC circuit breaker, MoC webhook signature verification, **pending-MoC banner on every output type** — synthesized answers, `GET /search/`, `/search/assets/{id}` and `/rca-pack`. Conflict detection itself was inert until the `valid_to` fix (see L4). SPC has no deployment-maturity dimension |
 | 8 · Event Subscription & Delivery | 🟡 | 95 | 8 sources, dedup on **all six** routes keyed by business id, correlate/late-arrival, EEMUA governor, cool-down, priority ordering, **HMAC-signed** PTW dual sign-off, pilot gate (advisory by design) |
 | 9 · Knowledge Elicitation | ✅ | 95 | Micro-interviews on all 3 designed triggers, off-boarding programmes |
 | 10 · Outcome Attribution | ✅ | 92 | Brownfield branch fixed 2026-08-17: `evidence_role` now routes the decision; uninstrumented assets use the human-verified work-order closeout attestation as primary evidence; `_attribute` and `_classify_attestation` are pure + service-free tested (12 tests). **No authority downgrade** on confirmed failure — audit flag only, deliberately conservative |
-| 11 · Reasoning & Synthesis | 🟡 | 96 | Hybrid retrieval (exact+semantic+graph+authority re-rank), double safety refusal gate, all output types, **superseded documents excluded from default retrieval** |
+| 11 · Reasoning & Synthesis | 🟡 | 97 | Hybrid retrieval (exact+semantic+graph+authority re-rank), double safety refusal gate, all output types, superseded documents excluded from default retrieval, and **engineer-verified P&ID topology admitted as gate evidence** for isolation queries — carrying the edge's own authority, never a privileged one |
 | 12 · Phased Deployment & Interface | 🟡 | 96 | Phase badge, field mode, point-of-action UI, **answer feedback wired to the backend**. Phase/pilot *activation* remains operational, not code |
 
-**Overall ~89.5%** (mean of the per-layer scores). One layer carries a ⚠️: L4 node types.
+**Overall ~91.2%** (mean of the per-layer scores). No layer carries a ⚠️ — L4's node-type drift closed 2026-08-17.
 L10's brownfield branch was fixed 2026-08-17 (72 → 92).
 
 ### Divergences that remain
 
-#### ⚠️ L4 — only 3 of 6 designed node types exist as graph nodes
-**Design:** Asset, **Event**, Document, Concept, **Person**, **Organization**.
-**Reality:** the graph only `MERGE`s **Asset**, **Document**, **Concept**. Events live in Supabase
-(`operational_events`); `PERSON`/`ORGANIZATION` are *extracted* by NER but not promoted to nodes.
-**Impact (reduced 2026-08-17):** `GraphService.get_last_inspection_date` used to query `(e:Event)` and
-was therefore always `null`; it now reads the `INSPECTION_RECORD` edge that the event route actually
-writes, so it works without Event nodes. `get_asset_events` no longer exists. What remains is that
-graph traversals like "which people touched this equipment" run through Supabase and edges rather
-than native node types.
-**Nuance:** this is a write-path gap, not a schema gap — `db/neo4j/init_schema.cypher` already
-declares uniqueness constraints for all 6 labels and seeds a `KAIROS_PLATFORM` `Organisation` node.
-**To close:** materialise `Event`/`Person`/`Organization` during ingestion + event replay, and wire
-(or remove) the two Event read methods. Low urgency — nothing errors.
+#### ✅ L4 — all 6 designed node types are now written (2026-08-17)
+**Design:** Asset, Event, Document, Concept, Person, Organisation.
+**Was:** only Asset, Document and Concept were ever `MERGE`d. Events lived solely in Supabase
+(`operational_events`), and `PERSON`/`ORGANIZATION` were *extracted* by NER then dropped — the
+ingestion loop skipped every entity that was not an `ASSET_TAG`. So "which people touched this
+equipment" could not be answered from the graph at all.
+**Now:**
+- `merge_event_node` writes an `Event` node and an `(:Asset)-[:OCCURRED_ON]->(:Event)` edge from
+  **all six** event routes. `OCCURRED_ON` is a plain relationship, deliberately *not* a
+  `KNOWLEDGE_EDGE`: an event is a fact with its own timestamp, not a temporal knowledge assertion
+  that could be superseded or carry an authority level, and overloading the type would inject
+  non-claims into every authority-filtered query. Supabase stays the system of record — graph
+  write failures are logged and never fail the ingest.
+- `merge_person_node` / `merge_organisation_node` run on the extraction path at the same 0.7
+  confidence bar as asset tags, linked by `MENTIONS_PERSON` / `MENTIONS_ORGANISATION` edges.
+  Node ids are derived from the normalised surface form (`GraphService.entity_node_id`) so the
+  same person in two documents MERGEs onto one node instead of one node per mention.
+- Label is `Organisation`, matching the uniqueness constraint `init_schema.cypher` declares.
+  `Organization` would create a second, unconstrained label indistinguishable in query output.
+**Caveat — the graph fills forward, not backward.** Only newly ingested documents and newly
+received events materialise these nodes; backfilling the existing corpus needs a re-ingestion
+run (≈1 NIM call per document) and has not been done. The write path is closed; the current
+graph reflects what has been written since.
 
 #### ✅ L10 — brownfield attribution branch fixed (2026-08-17)
 **Was:** `_check_telemetry_baseline` returned `failed: False` for uninstrumented assets but
@@ -188,7 +201,7 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | Compliance gap detection | **P 1.000 · R 0.838 · F1 0.912**, zero false positives | `run_compliance_eval.py` |
 | Retrieval reach by arm | exact **89.2%** · semantic **94.6%** · hybrid **94.6%** (n=37, CIs overlap) | `run_retrieval_baseline.py` |
 | Proactive brief quality (Layer 8) | **6/6 graded** — structural only; content expectations unmet, see RESULTS §9 | `run_brief_eval.py` |
-| Adversarial safety | **0 unsafe / 15** · 14 refusals · 0 misclassified · `VALID` | `run_safety_eval.py` |
+| Adversarial safety | **0 unsafe answers** / 15 questions — 12 refusals, S05 now answers — run validity `VALID` | `run_safety_eval.py` |
 | Concurrency | **2275 req · 0% errors · knee at 50 VU** | `run_load_test.py` |
 
 ### How to read these — the caveats that still apply
@@ -371,17 +384,26 @@ against **local stores** if the window is long enough to matter for Aura quota.
 
 ### Known non-blocking gaps
 
-- **`GET /assets/{id}` does not surface `identity_confirmed_by`.** The read path returns the Neo4j
-  node, which carries `identity_confirmed` but not the `_by`/`_at` attribution — those are written to
-  Supabase `assets` and `audit_log`. The provenance exists and is auditable; it is just not available
-  to the UI, so no surface can show *who* confirmed an asset's identity. Found by the 2026-08-17 sweep.
+- ~~**`GET /assets/{id}` does not surface `identity_confirmed_by`**~~ — **FIXED 2026-08-17.** The
+  read path now joins the Supabase `assets` row for `identity_confirmed_by` / `_at`, which the
+  Neo4j node does not carry. Layer 1's whole claim is human-confirmed identity; the provenance
+  existed but no surface could show *who* confirmed it.
 
-- **`valid_to` stored as a string** in some Cypher paths (`brief_engine`, `offboarding`, `graph`,
-  `elicitation`). The audit query was corrected to parse `datetime(r.valid_to)`; the rest are a
-  candidate for a root-cause data migration.
-- **Brief `sources[]` still shows graph internals** — the prose body is humanised, but each entry
-  carries `relevant_excerpt: "DOCUMENTED_BY"` (the raw relationship type) and
-  `document_type: "unknown"`.
+- ~~**`valid_to` stored as a string**~~ — **FIXED 2026-08-17, and it was not cosmetic.** Four
+  queries compared the string property to Cypher's `datetime()`, which yields **NULL** — so
+  `(r.valid_to IS NULL OR r.valid_to > datetime())` was `(false OR null)` and dropped every row.
+  Measured live: **0** active edges matched where the cast form matched **35**. `detect_conflict`
+  therefore never found an existing edge (no conflict was ever raised on edge creation) and
+  `close_validity_windows_for_document` closed nothing (document supersession was a no-op).
+  Nothing errored and no test went red — every affected query just returned a plausible empty
+  list. All sites now use `datetime(r.valid_to)`, and `tests/test_timestamp_alignment.py` scans
+  the source for the broken form so it cannot reappear.
+- ~~**Brief `sources[]` still shows graph internals**~~ — **FIXED 2026-08-17.** `relevant_excerpt`
+  and `document_type` were humanised earlier; the remaining leaks were the raw `DOC-…` id as the
+  title and a null `vault_url`, both now resolved from Supabase. Also fixed: `is_quarantine` was
+  derived from `verification_status != "verified"`, and since every edge starts unverified by
+  design, **every** source was badged as an unverified field observation — including authority-4
+  permits. Edge verification is disclosed in the excerpt instead; the badge now means what it says.
 - Promoting a **non-existent** quarantine item returns **500 rather than 404**.
 - **Audit-pack `vessel`/`compressor` clauses show 0 evidence** (no asset has a matching
   `equipment_class`); `PESO` / `Factory Act` frameworks are not seeded → intentionally not shown.
@@ -489,7 +511,7 @@ against **local stores** if the window is long enough to matter for Aura quota.
 - **Supabase MCP** (`mcp__claude_ai_Supabase__*`) — SQL, migrations, table inspection. Prefer over `docker exec`.
 
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
-**Tests:** service-free tier **199 passed** across **21 files** (no stack/secrets/network) · frontend **145 passed / 57 files, 0 errors** · full suite ~175 passed · 3 skipped *(floor — not re-measured since 2026-08-16)* · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
+**Tests:** service-free tier **222 passed** across **21 files** (no stack/secrets/network) · frontend **145 passed / 57 files, 0 errors** · full suite ~175 passed · 3 skipped *(floor — not re-measured since 2026-08-16)* · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
 
 **CI:** `tests.yml` is two tiers — **`unit`** runs the service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config, **authz boundary**) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, a synthesis cascade call per synthesize) and exhausting a provider tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) passes in full. Two CI facts worth knowing: `lint.yml` needs `pull-requests: read` or `dorny/paths-filter` fails with *"Resource not accessible by integration"* and every lint job silently skips on PRs; and `next/font/google` fetches DM Sans/Geist **from Google at build time**, so a runner that cannot reach fonts.googleapis.com fails the build with `Module not found: @vercel/turbopack-next/internal/font/google/font` — transient, retry it, or self-host via `next/font/local` to remove the class.
 

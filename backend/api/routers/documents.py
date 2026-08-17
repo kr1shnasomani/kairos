@@ -38,6 +38,39 @@ log = structlog.get_logger(__name__)
 router = APIRouter()
 
 
+def _access_tags(current_user: dict, authority_level: int) -> dict:
+    """Permission tags stamped onto a vault artifact at ingestion (Layer 2).
+
+    ARCHITECTURE.md L2 specifies six things each artifact receives; this was the missing one.
+    The spec says the tags are "derived from the source system's IAM configuration" — KAIROS has
+    **no external source-system IAM feed** (no SAP/Maximo/DMS identity plane), so deriving them
+    from an imaginary one would be fabrication. They are derived instead from the deployment's
+    own enforced RBAC, and `derived_from` says so plainly rather than implying an upstream
+    authority that does not exist. If an EAM IAM feed is ever connected, that becomes the source
+    and `derived_from` changes with it.
+
+    `required_action` is not decorative: it is the actual OPA action that gates document reads
+    (`read_documents`), so the tag records the rule the API really enforces rather than a
+    parallel scheme that could silently drift from it.
+
+    `site_id` comes from the verified token, never from the request — same rule as `site_scope`.
+    """
+    return {
+        "site_id": current_user.get("site_id") or None,
+        "required_action": "read_documents",
+        # Authority 1–2 are regulatory/engineering standards, 3–4 controlled operational
+        # documents, 5 informational field material. This mirrors the authority hierarchy that
+        # already governs retrieval rather than inventing a second classification axis.
+        "classification": (
+            "regulatory" if authority_level <= 2
+            else "controlled" if authority_level <= 4
+            else "informational"
+        ),
+        "ingested_by": current_user.get("user_id", "unknown"),
+        "derived_from": "kairos_rbac",
+    }
+
+
 class TopologyElementDecision(BaseModel):
     """One engineer verdict on one extracted P&ID element."""
 
@@ -148,6 +181,7 @@ async def ingest_document(
                 "ingested_at": now,
                 "ingested_by": current_user.get("user_id", "unknown"),
                 "occurred_at": occurred_at,
+                "access_tags": _access_tags(current_user, authority_level),
             }).execute()
         )
 
@@ -563,7 +597,9 @@ async def get_document(
         status=doc["status"],
         version_chain=doc.get("version_chain"),
         asset_links=asset_links,
-        access_tags=[],
+        # Was hardcoded `[]` — the field existed on the response model and was never populated
+        # from anything, so the artifact always reported no access tags.
+        access_tags=doc.get("access_tags") or {},
     )
 
 
