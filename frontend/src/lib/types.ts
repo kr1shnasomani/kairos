@@ -337,6 +337,7 @@ export interface OverdueQuarantineItem {
   item_id: string;
   asset_id: string | null;
   input_type: string;
+  content?: string;
   sla_due_at: string;
   escalated_at: string | null;
 }

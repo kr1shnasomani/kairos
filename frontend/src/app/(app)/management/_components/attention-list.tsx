@@ -29,7 +29,7 @@ function rank(sla: SlaReport | null, compliance: ComplianceDashboard | null): { 
   const quarantine = (sla?.overdue_quarantine_items ?? []).map((q): Row => ({
     key: `quarantine-${q.item_id}`,
     tone: "danger",
-    title: `Overdue quarantine · ${q.input_type}`,
+    title: `Quarantine: ${q.content ?? q.input_type}`,
     asset: q.asset_id,
     since: q.sla_due_at,
     href: "/governance/quarantine",

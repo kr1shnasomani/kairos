@@ -449,7 +449,7 @@ async def get_sla_report(
     )
     overdue_quarantine = await asyncio.to_thread(
         lambda: supabase.table("quarantine_items")
-        .select("item_id, asset_id, input_type, sla_due_at, escalated_at", count="exact")
+        .select("item_id, asset_id, input_type, content, sla_due_at, escalated_at", count="exact")
         .lt("sla_due_at", now)
         .eq("review_status", "pending")
         .execute()

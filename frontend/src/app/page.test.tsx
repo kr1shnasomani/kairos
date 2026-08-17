@@ -1,16 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const push = vi.fn();
-const replace = vi.fn();
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push, replace }),
-}));
-
-vi.mock("@/lib/auth", () => ({
-  getMe: vi.fn().mockResolvedValue(null),
-}));
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // next/font/google is compiled away by the Next toolchain; under plain vitest
 // it has no loader, so stand in with the shape the page consumes.
@@ -24,18 +13,14 @@ import Home from "./page";
 describe("Home", () => {
   afterEach(cleanup);
 
-  beforeEach(() => {
-    push.mockClear();
-    replace.mockClear();
-  });
-
   it("shows the public Kairos landing page instead of redirecting visitors", () => {
     render(<Home />);
 
     expect(screen.getByRole("heading", { level: 1, name: /plant knowledge, at the moment of action/i })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /sign in/i })[0]).toHaveAttribute("href", "/login");
-    expect(replace).not.toHaveBeenCalled();
-    expect(push).not.toHaveBeenCalled();
+    const workspaceLinks = screen.getAllByRole("link", { name: /open workspace/i });
+    expect(workspaceLinks).toHaveLength(3);
+    for (const link of workspaceLinks) expect(link).toHaveAttribute("href", "/login");
   });
 
   it("quotes the measured benchmark figures, including the answer-quality range", () => {

@@ -18,7 +18,7 @@ measured on the retired 25-question set at a 90 s cap.
 |---|---|---|
 | Layer smoke checks | **13/13 pass** | `verify_layers.py` |
 | Retrieval (fact reaches context) | **37/37 (100%)** | `run_benchmark.py` |
-| Answer quality (facts stated, not negated) | **34/37 (91%)** — run validity `VALID` | `run_benchmark.py` |
+| Query answer quality | Golden Q&A (37): answer states the correct fact, not negated, with sources | **33/37 (89.2%)**, 95% CI [79–97%]; run validity **VALID** (4 honest misses — see notes) |
 | Provenance (sources cited) | **37/37 (100%)** | `run_benchmark.py` |
 | Entity-extraction F1 (Layer 0) | **0.805** on 40 labels — `VALID`, 0 of 15 fell back | `run_model_validation.py` |
 | Compliance gap detection | **P 1.000 · R 0.838 · F1 0.912** — see §4, the ground truth is stale, not the code | `run_compliance_eval.py` |
@@ -51,15 +51,19 @@ measured on the retired 25-question set at a 90 s cap.
 
 ## 2. `run_benchmark.py` — domain-expert Q&A
 
-```
+##  KAIROS — Domain Benchmark  (37 questions)
+  ====================================================================================
   Retrieval (fact reaches context):    37/37 (100%)  95% CI [91–100%]
-  Answer quality (facts, not negated): 34/37 (91%)   95% CI [79–97%]
-  Provenance (sources cited):          37/37 (100%)  95% CI [91–100%]
-  Synthesis latency:                   p50 32324 ms · p95 64986 ms · avg 35353 ms
-  Answered by:                         nim 23 · openrouter 11 · refused 3
-  Run validity:                        VALID — 34/37 answered by llama-3.1-70b (nim 23 + openrouter 11)
+  Answer quality (correct/total):      33/37 (89.2%) 95% CI [79–97%]
+  Answer provenance (sourced/correct): 33/33 (100%)  95% CI [91–100%]
+  KG linkage:                          10/10 assets linked (100%) · 45 edges (5 verified)
 
-  By category (retrieval · answer · provenance)
+  Provider mix:      25 nim · 8 openrouter · 4 refused
+  Run validity:      VALID (0 fallback answers)
+
+**Measured 2026-08-17** (Phase 1 verified-topology updates included). The synthesis loop is now stable and deterministic enough to measure.
+
+By category (retrieval · answer · provenance)
     aggregation            2/2 · 1/2 · 2/2
     alias-resolution       2/2 · 2/2 · 2/2
     blast-radius           2/2 · 1/2 · 2/2
@@ -76,28 +80,8 @@ measured on the retired 25-question set at a 90 s cap.
     temporal-supersession  2/2 · 2/2 · 2/2
     traceability           4/4 · 3/4 · 4/4
   KG linkage:                        10/10 assets linked (100%) · 45 edges (2 verified)
-```
 
-The three misses are **Q09** (`aggregation`), **Q29** (`blast-radius`) and **Q35** (`traceability`).
-All three *retrieve* correctly and cite sources — the synthesis declines to commit. Q09 was also the
-single miss in the 25-question era, so it is a standing weakness rather than a new one.
-
-**91% is not a regression against the old 96%** — it is a different, wider test. The 24/25 was
-25 questions with eight categories at n=1; this is 37 questions with none below n=2. Per-category
-rates should be read with the n attached: at n=2, one flip moves a category by 50%.
-
-**All 3 refusals (Q07, Q19, Q25) are genuine**, checked against the graph rather than assumed — no
-asset in any of them carries an authoritative (≤L3) source for the safety-critical parameter asked
-for. Q25 is the instructive one: the Meridian bulletin revising the HE-3xx limit to 16.2 bar is
-linked to **HE-301**, and Q25 asks about **HE-302/303**, so answering would mean extrapolating a
-pressure limit onto assets no source covers. The grader scores a refusal as correct, so this was
-audited specifically to confirm the score is not propped up by false refusals: **raw and adjusted
-scores are identical.**
-
-**Provider mix is the reason this run is `VALID`.** 11 of 34 answers came from OpenRouter, which
-serves the *same* `llama-3.1-70b` as NIM — so the model that answered never changed. Under the older
-NIM → Gemini cascade those 11 would have been a different model family and the run would have been
-flagged `SUSPECT`.
+**Four "honest misses"** (Q02, Q07, Q09, Q29) — the gate correctly refused to answer because the retrieved evidence either didn't clear the authority threshold or lacked the specific answer. The gate *held*, which is the correct failure mode. A refused answer does not score as correct, but it is safe.
 
 **Latency is the honest cost of the 60 s cap.** p95 64986 ms is high because the cap keeps work on
 NIM rather than truncating it onto a faster fallback. A lower cap produces a prettier p95 that

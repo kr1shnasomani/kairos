@@ -1,12 +1,8 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Noto_Sans_Devanagari } from "next/font/google";
+import { Geist_Mono, Noto_Sans_Devanagari } from "next/font/google";
 import "./globals.css";
 import { CanvasTokensProvider } from "@/lib/graph-theme";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+import { dmSans, instrumentSans } from "./landing-fonts";
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -39,7 +35,7 @@ export default function RootLayout({
     <html
       lang="en"
       data-theme="light"
-      className={`${geistSans.variable} ${geistMono.variable} ${notoDevanagari.variable} h-full`}
+      className={`${dmSans.variable} ${instrumentSans.variable} ${geistMono.variable} ${notoDevanagari.variable} h-full`}
       suppressHydrationWarning
     >
       <head>

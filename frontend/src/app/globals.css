@@ -1,23 +1,24 @@
 @import "tailwindcss";
 
 /* ============================================================
-   KAIROS — "Paper" theme. ONE UI, TWO PALETTES.
+   KAIROS workspace theme. ONE UI, TWO PALETTES.
    Light is default; [data-theme="dark"] recolors, never restructures.
-   Brand: Kairos Orange. Status scale is separate from the accent.
+   Brand typography and base surfaces match the public landing page.
    ============================================================ */
 
 :root {
   /* surfaces + text (light / default) */
-  --canvas: #f5f2ec;      /* warm cream page ground */
-  --surface: #fdfcfa;     /* card */
-  --surface-2: #ffffff;   /* raised / inset */
-  --line: #e6e1d6;        /* hairline border */
-  --ink: #1c1a17;         /* primary text */
-  --muted: #6e6a62;       /* secondary text */
+  --canvas: #ffffff;      /* landing page ground */
+  --surface: #ffffff;     /* card */
+  --surface-2: #f8f8f8;   /* landing page band / inset */
+  --line: #e5e3df;        /* landing page hairline */
+  --ink: #0b1015;         /* landing page primary text */
+  --muted: #3f3f3f;       /* landing page secondary text */
 
   /* brand */
-  --accent: #b83d16;      /* Kairos Orange — accessible text/action variant */
-  --accent-soft: #fbe8df; /* accent wash */
+  --accent: #d93400;      /* landing action variant; AA against white */
+  --accent-fill: #d93400; /* filled controls with white text */
+  --accent-soft: #fff0eb; /* accent wash */
   --on-accent: #ffffff;
 
   /* semantic status — authority / verification / severity */
@@ -31,15 +32,16 @@
 }
 
 :root[data-theme="dark"] {
-  --canvas: #14110e;      /* warm near-black (not blue-black) */
-  --surface: #1e1a16;
-  --surface-2: #241f1a;
-  --line: #332c24;
-  --ink: #ede9e2;
-  --muted: #9a9186;
+  --canvas: #0a0a0a;      /* landing page dark band */
+  --surface: #141414;
+  --surface-2: #1d1d1d;
+  --line: #ffffff1f;
+  --ink: #f5f5f4;
+  --muted: #a3a09b;
 
-  --accent: #f15a2b;      /* nudged brighter for dark legibility */
-  --accent-soft: #3a241a;
+  --accent: #ff6a1f;
+  --accent-fill: #d93400; /* retains AA contrast with white text */
+  --accent-soft: #3a1b0d;
   --on-accent: #ffffff;
 
   --danger: #e4574c;
@@ -51,6 +53,7 @@
 /* Map tokens → Tailwind v4 utilities (bg-surface, text-ink, border-line, …) */
 @theme inline {
   --color-canvas: var(--canvas);
+  --color-page: var(--canvas);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-line: var(--line);
@@ -64,7 +67,8 @@
   --color-verified: var(--verified);
   --color-info: var(--info);
 
-  --font-sans: var(--font-geist-sans), var(--font-noto-devanagari), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-dm), var(--font-noto-devanagari), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-instrument), var(--font-noto-devanagari), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
 
   --radius-card: var(--radius-lg);
@@ -153,10 +157,10 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Headings use Geist Sans like the rest of the UI (single sans typeface) */
+/* Workspace headings share the landing page's Instrument Sans voice. */
 h1, h2, h3, .font-display {
-  font-family: var(--font-sans);
-  letter-spacing: -0.01em;
+  font-family: var(--font-display);
+  letter-spacing: 0;
   text-wrap: balance;
 }
 
@@ -241,16 +245,16 @@ h1, h2, h3, .font-display {
    generic tokens locally, so every utility inside (text-muted, bg-surface-2,
    border-line, bg-accent-soft…) recolors with zero markup changes. */
 :root {
-  --sidebar: #1c1916;        /* warm near-black rail */
-  --sidebar-hover: #282320;
-  --sidebar-line: #2e2822;
-  --sidebar-fg: #ede9e2;
-  --sidebar-muted: #a09789;
-  --sidebar-accent: #f15a2b; /* dark-legible Kairos Orange */
-  --sidebar-active: #3a241a; /* accent wash on dark */
+  --sidebar: #0a0a0a;
+  --sidebar-hover: #141414;
+  --sidebar-line: #ffffff1f;
+  --sidebar-fg: #f5f5f4;
+  --sidebar-muted: #a3a09b;
+  --sidebar-accent: #ff6a1f;
+  --sidebar-active: #3a1b0d;
 }
 :root[data-theme="dark"] {
-  --sidebar: #1a1613;        /* one step off the canvas so the rail still reads */
+  --sidebar: #0a0a0a;
 }
 [data-contrast="high"] {
   --sidebar: #0c0a08;
@@ -271,6 +275,12 @@ h1, h2, h3, .font-display {
   --accent-soft: var(--sidebar-active);
   background: var(--sidebar);
   color: var(--sidebar-fg);
+}
+
+/* Bright orange stays available for dark-mode text and focus. Filled actions
+   need the darker landing orange so white labels remain accessible. */
+.bg-accent.text-on-accent {
+  background-color: var(--accent-fill);
 }
 
 /* Fluid sibling cards: fill each row, but stack when two readable tiles no longer fit. */

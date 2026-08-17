@@ -16,13 +16,13 @@ export type CanvasTokens = Record<CanvasTokenName, string>;
 // Mirror the shipped light-theme tokens in globals.css (SSR-only fallback; the
 // provider reads the live computed values before first client paint).
 const FALLBACK_TOKENS: CanvasTokens = {
-  "--accent": "#b83d16",
+  "--accent": "#d93400",
   "--danger": "#b42318",
   "--caution": "#9a5b00",
   "--verified": "#216d3b",
   "--info": "#1d4ed8",
-  "--muted": "#6e6a62",
-  "--line": "#e6e1d6",
+  "--muted": "#3f3f3f",
+  "--line": "#e5e3df",
 };
 
 function readTokens(): CanvasTokens {

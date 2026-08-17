@@ -23,16 +23,39 @@ export function SlaChip({ item, nowMs }: { item: QuarantineRow; nowMs: number })
   return <span className={`tabular text-label font-semibold ${tone}`}>{label}</span>;
 }
 
+export function formatContent(raw: string): string {
+  if (!raw) return "—";
+  try {
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+         if (parsed[0].answer) return parsed[0].answer;
+         if (parsed[0].question_index !== undefined) return `Q${parsed[0].question_index}: ${parsed[0].answer || ""}`;
+      }
+      if (parsed.answer) return parsed.answer;
+      if (parsed.quarantine_id) return `Quarantine ID: ${parsed.quarantine_id}`;
+      // fallback
+      return JSON.stringify(parsed).replace(/["{}]/g, " ").trim();
+    }
+  } catch (e) {
+    // Ignore parse errors, just return raw
+  }
+  return raw;
+}
+
 export function buildColumns(nowMs: number): TableColumn<QuarantineRow>[] {
   return [
     {
       key: "content",
       label: "Content",
-      render: (r) => (
-        <span className="block max-w-[320px] truncate text-ink" title={r.content}>
-          {r.content}
-        </span>
-      ),
+      render: (r) => {
+        const display = formatContent(r.content);
+        return (
+          <span className="block max-w-[320px] truncate text-ink" title={display}>
+            {display}
+          </span>
+        );
+      },
     },
     {
       key: "asset_id",

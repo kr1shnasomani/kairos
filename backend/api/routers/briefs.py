@@ -6,7 +6,7 @@ EEMUA 191 governor: ≤6 push events/operator/hour; PTW (critical) briefs always
 import asyncio
 import hashlib
 import hmac
-from datetime import UTC
+from datetime import UTC, datetime
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -136,7 +136,16 @@ async def get_my_briefs(
     # record_push_once is idempotent per brief_id, so re-opening the inbox (a page
     # refresh) never re-pushes already-delivered briefs — otherwise simply viewing
     # your briefs twice would exhaust the ceiling and suppress your own inbox.
+    now = datetime.now(UTC)
     for b in delivered:
+        delivered_at_str = b.get("delivered_at")
+        if delivered_at_str:
+            try:
+                dt = datetime.fromisoformat(delivered_at_str.replace("Z", "+00:00"))
+                if (now - dt).total_seconds() > 3600:
+                    continue
+            except ValueError:
+                pass
         await bus.record_push_once(user_id, b["brief_id"])
 
     # Refresh governor state after recording pushes

@@ -16,6 +16,7 @@ import type { Role, User, GovernorEventState, PlantState } from "@/lib/types";
 import { capitalize, cn } from "@/lib/utils";
 import { ThemeToggle } from "./theme-toggle";
 import { PageSkeleton } from "./skeleton";
+import { Modal } from "./ui";
 
 // Staff surfaces (Assure group + RCA) are hidden from field workers. Dev-bypass (no session)
 // defaults to engineer, so an unauthenticated demo still sees everything.
@@ -195,25 +196,6 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
           );
         })}
 
-        {/* Ingest Document — a create action, set apart below the groups (the
-            space-y-5 on <nav> gives the gap the design calls for). Staff only. */}
-        {STAFF.includes(role) && (
-          <Link
-            href="/documents/ingest"
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-2.5 rounded-lg border border-dashed px-2 py-1.5 text-body font-semibold transition-colors",
-              pathname === "/documents/ingest"
-                ? "border-accent bg-accent-soft text-accent"
-                : "border-line text-muted hover:border-[color-mix(in_srgb,var(--accent)_45%,var(--line))] hover:bg-surface-2 hover:text-ink",
-            )}
-          >
-            <svg className="size-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            Ingest Document
-          </Link>
-        )}
       </nav>
 
       {user && <GovernorPill userId={user.user_id} />}
@@ -255,10 +237,62 @@ function AccountMenu({ open, onClose, name, role, onSignOut }: { open: boolean; 
   );
 }
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+export function MiniCalendar({ onClose }: { onClose: () => void }) {
+  const [today] = useState(() => new Date());
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const totalCells = Math.ceil((firstWeekday + daysInMonth) / WEEKDAYS.length) * WEEKDAYS.length;
+  const monthLabel = today.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+  return (
+    <Modal title="Calendar" onClose={onClose}>
+      <table aria-label={`Calendar for ${monthLabel}`} className="w-full table-fixed border-collapse text-center">
+        <caption className="mb-3 text-left text-subtitle font-semibold text-ink">{monthLabel}</caption>
+        <thead>
+          <tr className="text-label font-semibold text-muted">
+            {WEEKDAYS.map((weekday) => <th key={weekday} scope="col" className="pb-2">{weekday}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: totalCells / WEEKDAYS.length }, (_, week) => (
+            <tr key={week}>
+              {Array.from({ length: WEEKDAYS.length }, (_, weekday) => {
+                const day = week * WEEKDAYS.length + weekday - firstWeekday + 1;
+                if (day < 1 || day > daysInMonth) return <td key={`${week}-${weekday}`} className="h-9" />;
+                const isToday = day === today.getDate();
+                const dateTime = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                return (
+                  <td key={dateTime} className="h-9">
+                    <time
+                      dateTime={dateTime}
+                      aria-current={isToday ? "date" : undefined}
+                      className={cn(
+                        "inline-grid size-7 place-items-center rounded-full text-caption",
+                        isToday ? "bg-accent-soft font-semibold text-accent" : "text-ink",
+                      )}
+                    >
+                      {day}
+                    </time>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Modal>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [palette, setPalette] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const goSeqRef = useRef<number | null>(null);
@@ -466,6 +500,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <CommandPalette open={palette} onClose={() => setPalette(false)} items={paletteItems} />
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+      {calendarOpen && <MiniCalendar onClose={() => setCalendarOpen(false)} />}
 
       {/* Desktop sidebar — all roles; sidebar-scope remaps tokens to the dark rail palette */}
       <aside className="sidebar-scope hidden w-[316px] shrink-0 border-r border-line md:block print:hidden">
@@ -508,14 +543,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Mobile: 56px bottom tabs + safe-area for all roles; content padding clears them */}
       {/* inert while the sheet dialog is open so screen readers can't wander behind it */}
       <div
-        inert={moreOpen || mobileDrawerOpen || undefined}
+        inert={moreOpen || mobileDrawerOpen || calendarOpen || undefined}
         className="flex min-w-0 flex-1 flex-col pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0 print:pb-0"
       >
         <AppHeader
           name="Kairos user"
           role={role}
           onOpenSearch={() => setPalette(true)}
-          onOpenCapture={() => router.push("/field/voice")}
+          onOpenCalendar={() => setCalendarOpen((open) => !open)}
+          calendarOpen={calendarOpen}
           onCreate={() => router.push("/assets/bootstrap")}
           onOpenBriefs={() => router.push("/briefs")}
           onOpenUser={() => setAccountOpen((open) => !open)}
@@ -524,7 +560,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <MobileAppHeader
           onOpenMenu={() => setMobileDrawerOpen(true)}
           onOpenSearch={() => setPalette(true)}
-          onOpenCapture={() => router.push("/field/voice")}
+          onOpenCalendar={() => setCalendarOpen((open) => !open)}
+          calendarOpen={calendarOpen}
           onCreate={() => router.push("/assets/bootstrap")}
           onOpenBriefs={() => router.push("/briefs")}
           onOpenUser={() => setAccountOpen((open) => !open)}

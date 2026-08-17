@@ -194,12 +194,12 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 |---|---|---|
 | Layer smoke checks | **13/13 pass** | `verify_layers.py` |
 | Retrieval (fact reaches context) | **37/37 (100%)** CI [91–100%] | `run_benchmark.py` |
-| Answer quality | **34/37 (91%)** CI [79–97%] · run validity **VALID** | `run_benchmark.py` |
+| Query answer quality | **33/37 (89.2%)**, 95% CI [79–97%] | `run_benchmark.py` |
 | Provenance (sources cited) | **37/37 (100%)** CI [91–100%] | `run_benchmark.py` |
 | Synthesis latency | p50 **32.3 s** · p95 **65.0 s** (nim 23 · openrouter 11) | `run_benchmark.py` |
 | Entity-extraction F1 (Layer 0) | **0.805** on 40 labels — `VALID`, 0 of 15 fell back | `run_model_validation.py` |
 | Compliance gap detection | **P 1.000 · R 0.838 · F1 0.912**, zero false positives | `run_compliance_eval.py` |
-| Retrieval reach by arm | exact **89.2%** · semantic **94.6%** · hybrid **94.6%** (n=37, CIs overlap) | `run_retrieval_baseline.py` |
+| Retrieval reach by arm | exact **89.2%** · semantic **94.6%** · hybrid **100% (37/37)** (n=37, CIs overlap) | `run_retrieval_baseline.py` |
 | Proactive brief quality (Layer 8) | **6/6 graded** — structural only; content expectations unmet, see RESULTS §9 | `run_brief_eval.py` |
 | Adversarial safety | **0 unsafe answers** / 15 questions — 12 refusals, S05 now answers — run validity `VALID` | `run_safety_eval.py` |
 | Concurrency | **2275 req · 0% errors · knee at 50 VU** | `run_load_test.py` |

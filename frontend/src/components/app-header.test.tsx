@@ -7,19 +7,19 @@ describe("AppHeader", () => {
 
   it("opens template-style desktop actions and shows the active user context", () => {
     const onOpenSearch = vi.fn();
-    const onOpenCapture = vi.fn();
+    const onOpenCalendar = vi.fn();
     const onCreate = vi.fn();
     const onOpenBriefs = vi.fn();
     const onOpenUser = vi.fn();
-    render(<AppHeader name="Avery Engineer" role="engineer" onOpenSearch={onOpenSearch} onOpenCapture={onOpenCapture} onCreate={onCreate} onOpenBriefs={onOpenBriefs} onOpenUser={onOpenUser} userInitial="A" />);
+    render(<AppHeader name="Avery Engineer" role="engineer" onOpenSearch={onOpenSearch} onOpenCalendar={onOpenCalendar} calendarOpen={false} onCreate={onCreate} onOpenBriefs={onOpenBriefs} onOpenUser={onOpenUser} userInitial="A" />);
 
     fireEvent.click(screen.getByRole("button", { name: /search workspace/i }));
-    fireEvent.click(screen.getByRole("button", { name: /open field capture/i }));
+    fireEvent.click(screen.getByRole("button", { name: /open calendar/i }));
     fireEvent.click(screen.getByRole("button", { name: /create asset/i }));
     fireEvent.click(screen.getByRole("button", { name: /open briefs/i }));
     fireEvent.click(screen.getByRole("button", { name: /open user menu/i }));
     expect(onOpenSearch).toHaveBeenCalledOnce();
-    expect(onOpenCapture).toHaveBeenCalledOnce();
+    expect(onOpenCalendar).toHaveBeenCalledOnce();
     expect(onCreate).toHaveBeenCalledOnce();
     expect(onOpenBriefs).toHaveBeenCalledOnce();
     expect(onOpenUser).toHaveBeenCalledOnce();
@@ -29,14 +29,14 @@ describe("AppHeader", () => {
   });
 
   it("keeps the compact template identity label for long source names", () => {
-    render(<AppHeader name="avery-long-engineer-name" role="engineer" onOpenSearch={vi.fn()} onOpenCapture={vi.fn()} onCreate={vi.fn()} onOpenBriefs={vi.fn()} onOpenUser={vi.fn()} userInitial="AE" />);
+    render(<AppHeader name="avery-long-engineer-name" role="engineer" onOpenSearch={vi.fn()} onOpenCalendar={vi.fn()} calendarOpen={false} onCreate={vi.fn()} onOpenBriefs={vi.fn()} onOpenUser={vi.fn()} userInitial="AE" />);
 
     expect(screen.getByRole("button", { name: /open user menu/i })).toHaveTextContent("AE");
     expect(screen.getByText("avery-long-engineer-name")).toBeInTheDocument();
   });
 
   it("keeps a profile icon for wide headers and initials for tighter desktop headers", () => {
-    render(<AppHeader name="Kairos user" role="engineer" onOpenSearch={vi.fn()} onOpenCapture={vi.fn()} onCreate={vi.fn()} onOpenBriefs={vi.fn()} onOpenUser={vi.fn()} userInitial="KU" />);
+    render(<AppHeader name="Kairos user" role="engineer" onOpenSearch={vi.fn()} onOpenCalendar={vi.fn()} calendarOpen={false} onCreate={vi.fn()} onOpenBriefs={vi.fn()} onOpenUser={vi.fn()} userInitial="KU" />);
 
     expect(screen.getByTestId("account-profile-icon")).toHaveClass("hidden", "xl:grid");
     expect(screen.getByText("KU")).toHaveClass("xl:hidden");

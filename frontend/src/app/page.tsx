@@ -2,9 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getMe } from "@/lib/auth";
 import { dmSans, instrumentSans } from "./landing-fonts";
 
 const navLinks = [
@@ -878,16 +876,10 @@ function Shot({ src, alt }: { src: string; alt: string }) {
 }
 
 export default function Home() {
-  const router = useRouter();
   const [capability, setCapability] = useState(0);
   const [audience, setAudience] = useState(0);
   const [faqGroup, setFaqGroup] = useState(0);
   useReveal();
-
-  async function enterWorkspace() {
-    const user = await getMe();
-    router.push(user?.role === "field_worker" ? "/briefs" : user ? "/management" : "/login");
-  }
 
   const active = capabilities[capability];
 
@@ -922,15 +914,14 @@ export default function Home() {
             >
               Sign in
             </Link>
-            <button
-              type="button"
-              onClick={enterWorkspace}
+            <Link
+              href="/login"
               className="group relative flex items-center gap-2 overflow-hidden bg-(--lp-accent-strong) px-5 text-[14px] font-medium text-white sm:px-7"
             >
               <PixelFill />
               <span className="relative z-10">Open workspace</span>
               <span aria-hidden="true" className="relative z-10">›</span>
-            </button>
+            </Link>
           </div>
         </nav>
       </header>
@@ -953,15 +944,14 @@ export default function Home() {
               controls into one operational workspace, and makes every answer show its evidence.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={enterWorkspace}
+              <Link
+                href="/login"
                 className="group relative inline-flex min-h-11 min-w-[207px] items-center justify-center gap-2 overflow-hidden bg-(--lp-accent-strong) px-3 py-[15px] text-[14px] font-medium text-white"
               >
                 <PixelFill />
                 <span className="relative z-10">Open workspace</span>
                 <span aria-hidden="true" className="relative z-10">›</span>
-              </button>
+              </Link>
               <a
                 href="#capabilities"
                 className="inline-flex min-h-11 min-w-[207px] items-center justify-center gap-2 bg-(--lp-ink) px-3 py-[15px] text-[14px] font-medium text-white transition-colors duration-150 hover:bg-(--lp-accent-strong)"
@@ -1399,15 +1389,14 @@ export default function Home() {
               <p className="mt-4 max-w-xs text-[14px] leading-5 text-(--lp-muted)">
                 The right knowledge to the right person at the moment of action.
               </p>
-              <button
-                type="button"
-                onClick={enterWorkspace}
+              <Link
+                href="/login"
                 className="group relative mt-6 inline-flex min-h-11 items-center justify-center gap-2 overflow-hidden bg-(--lp-accent-strong) px-5 py-[15px] text-[14px] font-medium text-white"
               >
                 <PixelFill />
                 <span className="relative z-10">Open workspace</span>
                 <span aria-hidden="true" className="relative z-10">›</span>
-              </button>
+              </Link>
             </div>
 
             {footerColumns.map(({ heading, links }) => (
