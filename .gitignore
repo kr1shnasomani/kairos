@@ -125,23 +125,22 @@ logs/
 /backend/otel/data/
 
 # --- Temporal ---
-# Dynamic config is tracked, local state is not
 /backend/temporal/data/
 
 # --- Documentation builds ---
 /docs/_build/
 /docs/site/
 
-# --- Jupyter (if used for data exploration) ---
+# --- Jupyter ---
 .ipynb_checkpoints/
 *.ipynb
 
 # --- HuggingFace downloads ---
 /backend/.cache/huggingface/
 
-# Local .env backups (may contain secrets)
+# Local .env backups
 .env.bak.*
 
-# Benchmark run logs + checkpoints (durable across container recreation; not source)
+# Benchmark run logs + checkpoints
 backend/.benchmark_runs/
 scripts/

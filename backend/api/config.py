@@ -30,6 +30,19 @@ class Settings(BaseSettings):
     MAX_UPLOAD_MB: int = 25                 # reject document uploads larger than this
     RATE_LIMIT_PER_MINUTE: int = 120        # per-client-IP request cap (0 = disabled)
 
+    @property
+    def dev_bypass_allowed(self) -> bool:
+        """Single definition of "a bypass of the trust boundary is permitted here".
+
+        Two bypasses read it: the unauthenticated mock user (`dependencies.get_current_user`)
+        and the OPA middleware's no-token pass-through + unreachable-OPA fallback. Both used to
+        key off `APP_DEBUG` alone, so a deployment that forgot `APP_ENV=production` got the
+        dev bypass *and* skipped the `_no_insecure_defaults_in_prod` guardrail that is supposed
+        to catch exactly that. Requiring both means the guardrail is no longer the only thing
+        standing between a mis-set env and an open API.
+        """
+        return self.APP_DEBUG and self.APP_ENV != "production"
+
     # -------------------------------------------------------------------------
     # Supabase (cloud — filled in later)
     # -------------------------------------------------------------------------

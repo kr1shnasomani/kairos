@@ -23,6 +23,12 @@ PAYLOAD_INDEXES = {
     "asset_id": PayloadSchemaType.KEYWORD,
     "document_id": PayloadSchemaType.KEYWORD,
     "is_quarantine": PayloadSchemaType.BOOL,
+    # Required by the superseded-document filter in VectorStoreService.search. Qdrant Cloud
+    # rejects a filter on an UNINDEXED field with HTTP 400 — and because hybrid_search gathers
+    # with return_exceptions=True, that 400 was swallowed as `search.qdrant_failed` and hybrid
+    # retrieval silently degraded to Elasticsearch-only. Measured: semantic arm 0/37 on the
+    # retrieval baseline. Any new payload filter needs its index added here.
+    "status": PayloadSchemaType.KEYWORD,
 }
 
 COLLECTIONS = {

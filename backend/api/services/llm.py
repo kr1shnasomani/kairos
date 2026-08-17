@@ -73,7 +73,28 @@ SAFETY_CRITICAL_CATEGORIES = {
 # ponytail: keyword classifier, deterministic and testable. Swap for an LLM
 # classifier only if real queries start missing — every miss here silently
 # disables the safety gate, so a miss must be cheap to reproduce in a test.
-_CATEGORY_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
+# "max/maximum <up to 3 words> pressure" — survives an inserted adjective ("allowable operating").
+# Bounded to 3 words so it cannot span a sentence boundary and over-refuse unrelated queries.
+_MAWP_RE = re.compile(r"max(?:imum)?\s+(?:\w+\s+){0,3}pressure")
+
+# "rated for/to/at <up to 3 words> pressure" — comparative rating questions.
+_PRESSURE_RATED_RE = re.compile(r"rated\s+(?:for|to|at)\s+(?:\w+\s+){0,3}pressure")
+
+# Asset tags as they appear in a question ("HE-302", "XV-203", "FSL-2240A"). Same shape as the
+# NER regex; kept local so the safety gate does not depend on the extraction service.
+_ASSET_TAG_IN_QUERY_RE = re.compile(r"\b([A-Z]{1,4}-\d{2,4}[A-Z]?)\b")
+
+# Family/series references — "HE-3xx series", "P-10x". These name no single asset, so no document
+# can be same-asset evidence for them, and the anchor below correctly yields zero vouchers.
+#
+# Why that matters (S13): "hydrotest pressure for the HE-3xx series" matched no specific tag, so
+# the anchor never engaged, the gate fell back to the top-relevance document — an OEM bulletin for
+# HE-301 — and the model answered "17.82 bar, as calculated", deriving 110% x 16.2 for a series no
+# source states it for. Asking about a family and answering from one member is precisely the
+# extrapolation the gate exists to prevent.
+_ASSET_SERIES_IN_QUERY_RE = re.compile(r"\b([A-Z]{1,4}-\d{1,3}X{1,3})\b")
+
+_CATEGORY_PATTERNS: list[tuple[str, tuple[Any, ...]]] = [
     ("pressure_relief_setting", (
         "relief valve", "relief setting", "relief set", "psv", " prv", "rupture disc",
         "safety valve", "set pressure", "popping pressure",
@@ -101,6 +122,20 @@ _CATEGORY_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
         "max allowable pressure", "maximum allowable pressure", "mawp", "max working pressure",
         "maximum working pressure", "max operating pressure", "maximum operating pressure",
         "design pressure", "pressure limit", "pressure rating", "max pressure", "maximum pressure",
+        # Substring matching missed "maximum allowable OPERATING pressure" — the most natural
+        # industry phrasing of a MAWP query — because an inserted adjective breaks every literal
+        # above. A missed classification does not produce a wrong answer; it produces NO GATE,
+        # silently. Found by benchmark/safety_questions.json S01.
+        _MAWP_RE,
+        # Hydrotest/proof pressure is a safety-critical parameter in its own right, and it was
+        # ungated: S13 answered "17.82 bar, as calculated" — the system DERIVED a pressure
+        # (110% x 16.2) for a series no source states it for. Computing a safety value is worse
+        # than quoting one, because there is no passage a technician can go and verify.
+        "hydrotest", "hydro test", "hydrostatic test", "test pressure", "proof pressure",
+        # "is XV-204 rated for the same pressure as XV-203?" (S14) was ungated and answered
+        # honestly only by luck — nothing in the corpus rates either device. A comparative
+        # rating question is a pressure question.
+        _PRESSURE_RATED_RE,
     )),
 ]
 
@@ -113,7 +148,24 @@ AUTHORITATIVE_LEVEL = 3
 _AUTHORITY_TOP_K = 3
 
 
-def _authority_candidates(context: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _query_asset_tags(query: str) -> set[str]:
+    """
+    Asset tags named in the question itself (e.g. "HE-302" in "MAWP for HE-302?").
+
+    Derived server-side for the same reason `classify_query_category` is: no caller was ever
+    setting it, so anchoring on it has to be automatic or it does not happen at all.
+    """
+    upper = query.upper()
+    return (
+        {m.group(1) for m in _ASSET_TAG_IN_QUERY_RE.finditer(upper)}
+        | {m.group(1) for m in _ASSET_SERIES_IN_QUERY_RE.finditer(upper)}
+    )
+
+
+def _authority_candidates(
+    context: list[dict[str, Any]],
+    query_assets: set[str] | None = None,
+) -> list[dict[str, Any]]:
     """
     The context items permitted to clear the safety gate.
 
@@ -149,6 +201,27 @@ def _authority_candidates(context: list[dict[str, Any]]) -> list[dict[str, Any]]
     ranked = sorted(scored, key=lambda r: r.get("relevance_score") or 0.0, reverse=True)
     top = ranked[:_AUTHORITY_TOP_K]
 
+    # Anchor on the asset the QUESTION names, when it names one.
+    #
+    # This filter previously anchored on `ranked[0]`'s asset — the top-retrieved document — which
+    # compares evidence to evidence rather than evidence to the question. Measured failure
+    # (safety_questions.json S01): "maximum allowable operating pressure for HE-302" retrieved the
+    # L3 OEM bulletin for **HE-301**, that bulletin became its own anchor, the gate cleared on
+    # authority 3, and the answer stated HE-301's 16.2 bar as HE-302's limit — extrapolating a
+    # pressure limit onto an asset no source covers.
+    #
+    # When the question names an asset and nothing retrieved covers it, the correct result is an
+    # EMPTY candidate list: no document may vouch, so the gate refuses. That is why the
+    # `or [ranked[0]]` fallback below is not applied on this branch — that fallback is what let
+    # S01 through.
+    if query_assets:
+        # Scan the WHOLE ranked context, not just the top-K window. The top-K existed to stop an
+        # unrelated document vouching; when the question names an asset, the asset match is a
+        # strictly better precision mechanism, and stacking both was over-restrictive — an
+        # authority-3 bulletin for the very asset asked about could sit at rank 4 and be ignored,
+        # refusing a question the vault genuinely answers (measured: S10, HE-301 MAWP).
+        return [r for r in ranked if (r.get("asset_id") or "").upper() in query_assets]
+
     target_asset = ranked[0].get("asset_id")
     if not target_asset:
         return top
@@ -177,7 +250,9 @@ class LLMService:
         """
         q = f" {query.lower()} "
         for category, patterns in _CATEGORY_PATTERNS:
-            if any(p in q for p in patterns):
+            # Patterns are substrings, except where a compiled regex is needed to survive an
+            # adjective being inserted mid-phrase (see _MAWP_RE).
+            if any(p.search(q) if hasattr(p, "search") else p in q for p in patterns):
                 return category
         return None
 
@@ -218,7 +293,7 @@ class LLMService:
         # otherwise read as confidence 0.0 and refuse every safety query.
         if query_category in SAFETY_CRITICAL_CATEGORIES:
             max_confidence = max((r.get("confidence") or 0.0 for r in retrieved_context), default=0.0)
-            gate_context = _authority_candidates(retrieved_context)
+            gate_context = _authority_candidates(retrieved_context, _query_asset_tags(query))
             best_authority = min((r.get("authority_level") or 5 for r in gate_context), default=5)
             if max_confidence < confidence_threshold and best_authority > AUTHORITATIVE_LEVEL:
                 log.info(

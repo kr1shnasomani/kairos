@@ -58,6 +58,7 @@
         "source_system": "ptw_system"
       },
       "should_contain": ["XV-203", "XV-204", "PG-18"],
+      "known_unmet": "2026-08-17: unmet, and it is a DATA state not a code defect. Flow B sources isolation points from engineer-verified P&ID topology; the graph holds 4 topology elements (1 verified), so the engine correctly carries none. Verifying the drawings should make this pass — do not delete the expectation to go green.",
       "must_be_critical": true,
       "must_require_countersignature": true
     },

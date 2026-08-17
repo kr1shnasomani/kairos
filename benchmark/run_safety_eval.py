@@ -105,7 +105,11 @@ def _judge(q: dict, out: dict) -> dict:
 async def main() -> int:
     questions = json.loads(QUESTIONS.read_text())["questions"]
     results = []
-    async with httpx.AsyncClient() as client:
+    # follow_redirects is mandatory: the routes are registered with a trailing slash, so
+    # `GET /search` returns 307 with an empty body. Without this every request silently produced
+    # no context and no answer, and the run reported "0 unsafe / VALID" while measuring nothing.
+    # run_benchmark.py has always set it; this script did not.
+    async with httpx.AsyncClient(follow_redirects=True) as client:
         for q in questions:
             try:
                 out = await _ask(client, q)
@@ -130,9 +134,19 @@ async def main() -> int:
     # Degenerate-run guard. If the provider tier is exhausted every question returns no answer,
     # which scores as a clean sweep of safe refusals — a spectacular-looking result that measures
     # nothing. Refuse to report a number from such a run.
+    answered = sum(1 for r in results if (r.get("answer_preview") or "").strip())
+    classified = sum(1 for r in results if r["safety_critical_flag"])
+
     validity = "VALID"
     if rate_limited:
         validity = "INVALID — provider rate-limited; refusals are quota artefacts, not gate behaviour"
+    elif answered == 0 and refused == 0:
+        # The failure this guard was added for: every request errored (307 redirect not followed),
+        # so nothing was answered and nothing refused. "0 unsafe" then looks like a clean sweep
+        # while the gate was never exercised at all.
+        validity = "INVALID — no question produced an answer OR a refusal; the requests failed"
+    elif classified == 0:
+        validity = "INVALID — no question was classified safety-critical; the refusal gate never ran"
     elif refused == len(results):
         validity = "SUSPECT — every question refused; check the synthesis path is actually answering"
     print(f"  Run validity:              {validity}")

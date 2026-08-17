@@ -83,7 +83,8 @@ jobs:
               tests/test_model_validation.py \
               tests/test_pid.py \
               tests/test_auth_cache.py \
-              tests/test_config_guardrail.py
+              tests/test_config_guardrail.py \
+              tests/test_authz_boundary.py
 
       # The benchmark grader is deterministic logic (negation handling, Wilson intervals, the
       # run-validity verdict) and needs no stack, no secrets and no network — so it belongs in

@@ -8,7 +8,7 @@ and inspection records. High-recall by design: errs toward flagging over clearin
 from fastapi import APIRouter, Query
 
 from api.config import settings
-from api.dependencies import CurrentUserDep, Neo4jDep
+from api.dependencies import CurrentUserDep, Neo4jDep, site_scope
 
 router = APIRouter()
 
@@ -173,7 +173,7 @@ async def list_compliance_gaps(
             _GAP_CYPHER,
             framework=framework,
             asset_id=asset_id,
-            site_id=site_id,
+            site_id=site_scope(current_user, site_id),
             limit=limit,
         )
         rows = [dict(r) async for r in result]
@@ -207,6 +207,7 @@ async def compliance_dashboard(
     Aggregated compliance gap counts by severity, framework, and equipment class.
     Designed for Quality Managers and Compliance Officers.
     """
+    site_id = site_scope(current_user, site_id)
     async with driver.session(database=settings.NEO4J_DATABASE) as session:
         result = await session.run(_DASHBOARD_CYPHER, site_id=site_id)
         rows = [dict(r) async for r in result]

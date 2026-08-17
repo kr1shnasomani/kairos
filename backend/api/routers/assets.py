@@ -10,7 +10,15 @@ import shortuuid
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from api.dependencies import CurrentUserDep, ElasticsearchDep, Neo4jDep, SettingsDep, SupabaseDep, require_role
+from api.dependencies import (
+    CurrentUserDep,
+    ElasticsearchDep,
+    Neo4jDep,
+    SettingsDep,
+    SupabaseDep,
+    require_role,
+    site_scope,
+)
 from api.models.asset import AssetCreate
 from api.services.coverage import CoverageService
 from api.services.graph import GraphService
@@ -133,10 +141,13 @@ async def list_assets(
     limit: int = Query(50, le=500),
     offset: int = Query(0),
 ) -> dict:
-    """Paginated list of canonical asset nodes from the MDM backbone (Neo4j)."""
+    """Paginated list of canonical asset nodes from the MDM backbone (Neo4j).
+
+    `site_id` narrows within the caller's own site; it cannot widen past it (see `site_scope`).
+    """
     graph = GraphService(driver)
     result = await graph.list_assets(
-        site_id=site_id,
+        site_id=site_scope(current_user, site_id),
         equipment_class=equipment_class,
         skip=offset,
         limit=limit,

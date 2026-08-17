@@ -202,13 +202,13 @@ async def get_current_user(
 ) -> dict:
     """
     Decode and validate the JWT bearer token.
-    In development, if no token is provided and APP_DEBUG is True, returns a mock user.
+    In development, if no token is provided and `dev_bypass_allowed`, returns a mock user.
     In production, raises 401 for missing/invalid tokens.
     """
     if not credentials:
-        if settings.APP_DEBUG:
+        if settings.dev_bypass_allowed:
             # Allow unauthenticated access in dev for rapid iteration
-            log.warning("auth.bypass", reason="APP_DEBUG=true, no token provided")
+            log.warning("auth.bypass", reason="dev_bypass_allowed, no token provided")
             return {"user_id": "dev-user", "role": "engineer", "site_id": "SITE_001"}
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -275,3 +275,36 @@ def require_role(*roles: str):
             )
         return current_user
     return _check
+
+
+def site_scope(current_user: dict, requested: str | None) -> str | None:
+    """Resolve the `site_id` a site-filtered read may actually see.
+
+    Tenancy was previously a **client-supplied query parameter**: `GET /assets?site_id=X`
+    and the two `/compliance` reads passed whatever the caller typed straight into Cypher, so
+    any authenticated user could read any site by editing the URL. The site now comes from the
+    verified token, not the request.
+
+    - `admin` keeps the cross-site view (`requested`, or `None` for all sites).
+    - Everyone else is pinned to their own `site_id`; asking for someone else's is a 403 rather
+      than a silent re-scope, so a caller is never told it read one site while reading another.
+    - An account with no `site_id` gets nothing. Fail closed: a blank site used to mean
+      "no filter" — i.e. every site — which is exactly backwards.
+
+    ponytail: single-site MVP, so this is the whole tenancy boundary for reads that already
+    carry a site axis. Search/documents have no site column yet — see the note in status.md.
+    """
+    if current_user.get("role") == "admin":
+        return requested
+    own = current_user.get("site_id") or ""
+    if not own:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has no site assigned; ask an administrator to set one.",
+        )
+    if requested and requested != own:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Not permitted to read site '{requested}'.",
+        )
+    return own

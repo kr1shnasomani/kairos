@@ -85,13 +85,14 @@ def create_app() -> FastAPI:
     )
 
     # -------------------------------------------------------------------------
-    # OPA policy enforcement (write routes)
+    # OPA policy enforcement (write routes + sensitive reads)
     # -------------------------------------------------------------------------
     app.add_middleware(
         OPAMiddleware,
         opa_url=settings.OPA_URL,
         jwt_secret=settings.SUPABASE_JWT_SECRET or settings.APP_SECRET_KEY,
-        debug=settings.APP_DEBUG,
+        internal_api_key=settings.INTERNAL_API_KEY,
+        debug=settings.dev_bypass_allowed,
     )
 
     # -------------------------------------------------------------------------

@@ -21,8 +21,8 @@ default allow := false
 
 roles := {
     "field_worker":  {"read_search", "read_briefs", "ack_brief"},
-    "engineer":      {"read_search", "read_briefs", "ack_brief", "ingest_document", "read_governance", "resolve_admin_conflict", "read_assets", "write_assets"},
-    "reliability":   {"read_search", "read_briefs", "ingest_document", "read_governance", "promote_quarantine", "countersign_brief", "resolve_admin_conflict", "read_assets"},
+    "engineer":      {"read_search", "read_briefs", "ack_brief", "ingest_document", "read_governance", "read_compliance", "read_audit", "resolve_admin_conflict", "read_assets", "write_assets"},
+    "reliability":   {"read_search", "read_briefs", "ingest_document", "read_governance", "read_compliance", "read_audit", "promote_quarantine", "countersign_brief", "resolve_admin_conflict", "read_assets"},
     "compliance":    {"read_search", "read_compliance", "read_audit"},
     "admin":         {"*"},
 }
@@ -106,9 +106,16 @@ can_countersign_brief if {
 # Catch-all: non-sensitive writes allowed for any authenticated role.
 # Sensitive actions are blocked above for insufficient roles; everything else
 # (events, briefs, search, compliance reads via POST) passes through.
+#
+# The three `read_*` actions MUST stay in this set. They are granted per-role in the table
+# above, and the catch-all would otherwise hand every one of them to every authenticated role —
+# which is the same hole as not enforcing reads at all.
 # =============================================================================
 
-_sensitive_actions := {"promote_quarantine", "countersign_brief", "resolve_admin_conflict", "write_assets", "ingest_document"}
+_sensitive_actions := {
+    "promote_quarantine", "countersign_brief", "resolve_admin_conflict", "write_assets",
+    "ingest_document", "read_audit", "read_compliance", "read_governance",
+}
 
 allow if {
     input.user.role in {"field_worker", "engineer", "reliability", "admin", "compliance"}
