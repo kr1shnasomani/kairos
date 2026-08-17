@@ -60,7 +60,7 @@ scheduled workflows after 60 days of repo inactivity).
 | 7 | Dual-Track Governance & Adjudication | ✅ | `knowledge_conflicts`, MoC webhook (signature-verified), SLA escalation, circuit breaker, blast-radius | — |
 | 8 | Operational Event & Proactive Delivery | ✅ | 8 event sources, Redis Streams, EEMUA governor, `services/brief_engine.py`, plant-state suppression, PTW dual sign-off | — |
 | 9 | Structured Knowledge Elicitation | ✅ | `MicroInterviewWorkflow` (`workflows/elicitation_workflow.py`), off-boarding programmes | — |
-| 10 | Telemetry-Grounded Outcome Attribution | 🟨 | `workers/attribution.py` (3-check logic), triggered from `POST /events/work-order` | Full attribution logic; its telemetry-baseline check reads the Layer-5 **mock** historian by design |
+| 10 | Telemetry-Grounded Outcome Attribution | ✅ | `workers/attribution.py` — `_attribute`, `_classify_attestation`, `_check_closeout_attestation` (pure), triggered from `POST /events/work-order` | Brownfield branch fixed 2026-08-17: `evidence_role` now branches the decision; uninstrumented assets use closeout attestation as primary; 12 service-free tests |
 | 11 | Reasoning & Synthesis | ✅ | Hybrid search, `/search/synthesize`, `/search/rca-pack`, safety refusal (NIM `llama-3.1-70b` + Jina embed) | — |
 | 12 | Phased Deployment, Trust & Point-of-Action Interface | ✅ | Next.js frontend, `PhaseBadge`, field mode, all routes | Cross-site advisories render an honest "unavailable" panel (single-site MVP, by design) |
 
@@ -89,12 +89,12 @@ are the external-plant integrations, which are mock **by design**.
 | 7 · Dual-Track Governance | 🟡 | 94 | Admin vs engineering tracks, per-criticality SLA, SPC circuit breaker, MoC webhook signature verification, **pending-MoC banner on synthesized answers**. Banner not yet on `GET /search/` or `/rca-pack`; SPC has no deployment-maturity dimension |
 | 8 · Event Subscription & Delivery | 🟡 | 95 | 8 sources, dedup on **all six** routes keyed by business id, correlate/late-arrival, EEMUA governor, cool-down, priority ordering, **HMAC-signed** PTW dual sign-off, pilot gate (advisory by design) |
 | 9 · Knowledge Elicitation | ✅ | 95 | Micro-interviews on all 3 designed triggers, off-boarding programmes |
-| 10 · Outcome Attribution | ⚠️ | 72 | All 3 parallel checks built, but the **brownfield branch is inert**: an uninstrumented asset returns `failed: False` into an `AND`, so attribution can never conclude a genuine failure, and the declared `work_order_closeout_attestation` primary evidence is never a decision input. No authority downgrade occurs — audit flag only |
+| 10 · Outcome Attribution | ✅ | 92 | Brownfield branch fixed 2026-08-17: `evidence_role` now routes the decision; uninstrumented assets use the human-verified work-order closeout attestation as primary evidence; `_attribute` and `_classify_attestation` are pure + service-free tested (12 tests). **No authority downgrade** on confirmed failure — audit flag only, deliberately conservative |
 | 11 · Reasoning & Synthesis | 🟡 | 96 | Hybrid retrieval (exact+semantic+graph+authority re-rank), double safety refusal gate, all output types, **superseded documents excluded from default retrieval** |
 | 12 · Phased Deployment & Interface | 🟡 | 96 | Phase badge, field mode, point-of-action UI, **answer feedback wired to the backend**. Phase/pilot *activation* remains operational, not code |
 
-**Overall ~88%** (mean of the per-layer scores). Two layers carry a ⚠️: L4 node types and L10's
-inert brownfield branch.
+**Overall ~89.5%** (mean of the per-layer scores). One layer carries a ⚠️: L4 node types.
+L10's brownfield branch was fixed 2026-08-17 (72 → 92).
 
 ### Divergences that remain
 
@@ -112,18 +112,18 @@ declares uniqueness constraints for all 6 labels and seeds a `KAIROS_PLATFORM` `
 **To close:** materialise `Event`/`Person`/`Organization` during ingestion + event replay, and wire
 (or remove) the two Event read methods. Low urgency — nothing errors.
 
-#### ⚠️ L10 — the brownfield attribution branch is inert
-**Design:** where a component is not directly instrumented, the telemetry check is demoted to
-*supporting* evidence and the human-verified work-order closeout attestation becomes the **primary**
-check.
-**Reality:** `_check_telemetry_baseline` returns `failed: False` with
-`primary_evidence: "work_order_closeout_attestation"` — but `evaluate_outcome` combines the three
-checks with `AND`, so a `False` telemetry result makes `genuine_failure` unreachable on every
-uninstrumented asset. The field names the right evidence; the decision never reads it.
-**Also:** no authority downgrade occurs on a confirmed failure — only an `attribution_flag` audit
-row. That is deliberately conservative, but it is not what the design describes.
-**To close:** branch the aggregation on `primary_check`, and make the closeout attestation a real
-parsed input rather than the keyword scan that `_check_execution_compliance` performs.
+#### ✅ L10 — brownfield attribution branch fixed (2026-08-17)
+**Was:** `_check_telemetry_baseline` returned `failed: False` for uninstrumented assets but
+`evaluate_outcome` combined all three checks with `AND`, making `genuine_failure` unreachable.
+The declared `work_order_closeout_attestation` primary evidence was never a decision input.
+**Fix:** `_check_telemetry_baseline` now emits `evidence_role` (`primary`/`supporting`/`unavailable`)
+and `conclusive` on every return path. `evaluate_outcome` lazily calls the new
+`_check_closeout_attestation` only when telemetry is demoted (`evidence_role == "supporting"`).
+The new `_attribute()` pure decision function branches on `evidence_role` and routes
+uninstrumented assets through attestation-as-primary. 12 service-free tests, including a
+regression test for the brownfield path (`test_brownfield_asset_can_now_be_attributed`).
+**Remaining:** no authority downgrade on confirmed failure — audit flag only. Deliberately
+conservative; requires human review gate before any confidence change.
 
 #### 🟡 L4 — timestamp handling detects drift but doesn't normalize, and runs in the wrong place
 The pipeline **detects** drift beyond `TIMESTAMP_DRIFT_TOLERANCE_MINUTES` (60) and flags it for
@@ -181,9 +181,11 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | Answer quality | **34/37 (91%)** CI [79–97%] · run validity **VALID** | `run_benchmark.py` |
 | Provenance (sources cited) | **37/37 (100%)** CI [91–100%] | `run_benchmark.py` |
 | Synthesis latency | p50 **32.3 s** · p95 **65.0 s** (nim 23 · openrouter 11) | `run_benchmark.py` |
-| Entity-extraction F1 (Layer 0) | **0.847** on 40 labels — `SUSPECT`, 1 of 15 fell back | `run_model_validation.py` |
+| Entity-extraction F1 (Layer 0) | **0.805** on 40 labels — `VALID`, 0 of 15 fell back | `run_model_validation.py` |
 | Compliance gap detection | **P 1.000 · R 0.838 · F1 0.912**, zero false positives | `run_compliance_eval.py` |
-| Time-to-answer vs BM25 | **9.5%** modelled reduction | `run_time_to_answer.py` |
+| Retrieval reach (hybrid, measured) | **33/37 (89.2%)** exact-only arm — semantic-only 0% | `run_retrieval_baseline.py` |
+| Proactive brief quality (Layer 8) | **6/6 pass** (graded `must_all`) — 7 soft `should_contain` unmet | `run_brief_eval.py` |
+| Adversarial safety | **0 unsafe answers** / 15 questions — run validity `VALID` | `run_safety_eval.py` |
 | Concurrency | **2275 req · 0% errors · knee at 50 VU** | `run_load_test.py` |
 
 ### How to read these — the caveats that still apply
@@ -194,9 +196,7 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
   (Fischer, Meridian). "Rajgarh Petrochemical Complex" appears in 13 documents and is deliberately
   **unlabelled** — it reads equally as ORGANIZATION or LOCATION, and a ground truth that punishes a
   defensible answer is worse than a smaller one. Raising n needs **new source documents**.
-- **A `SUSPECT` entity-F1 is a ceiling, not a score.** Any fallback lands on the regex path, which
-  matches `ASSET_TAG` only. The 2026-08-16 fallback was `ner.parse_failed` (malformed JSON), **not**
-  a timeout — that class is fixed and the run recorded zero timeouts.
+- **A `VALID` entity-F1 means zero fallbacks.** 15 of 15 extractions ran on the NIM model with zero timeouts and zero JSON parse failures. This successfully validates the fixes for both the timeout latency issues and the JSON truncation issues.
 - **Compliance F1 drifts downward as humans legitimately promote knowledge.** Its ground truth is
   derived from the static dataset manifest, so evidence promoted into the graph afterwards reads as a
   false negative. Five of six FNs in this run are one promotion on EQ-101 (`PROMOTED-f17b1416…`, a
@@ -270,6 +270,12 @@ against **local stores** if the window is long enough to matter for Aura quota.
 
 ### Known limitations — recorded, not planned
 
+- **No supervised ML, permanently — settled, not pending.** PyTorch / scikit-learn / LightGBM are
+  not installed and will not be. A 24-document corpus cannot train a model that beats the
+  deterministic path. The quantitative story is SPC control charts, Wilson intervals, RRF and 2σ
+  baselines — statistical methods where the data supports them. Full reasoning and the deck framing
+  are in [Open items](#open-items). **Do not re-file this as a gap.**
+
 - **Compliance counts are computed live**, O(clauses × assets) with a subquery per pair; `EXPLAIN`
   confirms `CartesianProduct`, and the dashboard variant is deliberately unbounded because a `LIMIT`
   would silently undercount a compliance posture. At 12 clauses × 10 assets it is instant. Materialise
@@ -286,13 +292,38 @@ against **local stores** if the window is long enough to matter for Aura quota.
 
 ### Open items
 
-- [ ] **Deck/writeup vs as-built** (artifacts, not code). The ML stack (PyTorch / scikit-learn /
-  LightGBM) was deliberately deferred — system-design complexity, and the corpus is too small to
-  train on. The knowledge-coverage heatmap **is built** (`GET /assets/coverage` + `/management/coverage`),
-  so that half of the slide is true. This is a *roadmap vs shipped* framing question: either mark the
-  ML items as planned, or build them. If the slide is revised, describe what actually runs: local
-  Docker + cloud model APIs (NIM / OpenRouter / Gemini / Jina / Groq) with cloud stores (Aura, Qdrant
-  Cloud, Supabase). The deployment line is moot — deployment is out of scope.
+- [x] **Deck/writeup vs as-built — SETTLED 2026-08-17. Do not re-raise.**
+  The ML stack named in the deck (PyTorch / scikit-learn / LightGBM) is **deliberately not built and
+  will not be built**. It is not a scheduling gap.
+
+  **Why it stays unbuilt:** the corpus is 24 documents and 40 NER labels. Any supervised model
+  trained on that cannot outperform the deterministic path, and shipping one would mean presenting a
+  model fit on nothing as a credential. The first question it invites — "what was your training set
+  size?" — has no good answer. Choosing not to ship it is the correct engineering call, not an
+  unfinished task.
+
+  **What is shipped instead, and is the honest quantitative story:** SPC z-score control charts with
+  rolling per-asset-class baselines (`services/circuit_breaker.py`), Wilson confidence intervals on
+  every reported benchmark rate, Reciprocal Rank Fusion for multi-source retrieval
+  (`services/search_service.py`), 2σ telemetry baseline comparison in outcome attribution
+  (`workers/attribution.py`), and a precision/recall/F1 evaluation harness with a per-asset-class
+  deployment gate (`workers/model_validation.py`). Statistical methods where the data supports them.
+
+  **Framing to use in any deck or writeup:** *"Statistical methods where the data supports them — SPC
+  control charts for drift detection, Wilson intervals on all reported rates, RRF for retrieval
+  fusion. Supervised ML is roadmap, not shipped: a 24-document corpus cannot train a model that
+  outperforms the deterministic path, and we chose not to ship one that looks impressive and measures
+  nothing."*
+
+  **The threshold at which this changes:** enough verified operational history to fit a distribution
+  per equipment class — the anomaly detection over extraction outputs described in
+  `ARCHITECTURE.md §8` (flag a parameter that deviates sharply from its class's historical range) is
+  the natural first step, and it is plain statistics rather than a trained model. Neither is
+  reachable on the present corpus.
+
+  The knowledge-coverage heatmap **is** built (`GET /assets/coverage` + `/management/coverage`), so
+  that half of the original slide was already true. Deployment remains out of scope.
+
 - [x] **Timestamp-drift conflict — RESOLVED 2026-08-17 (option 2: ingest lag, never `valid_from`).**
   `document_pipeline.py` compared `occurred_at` vs `ingested_at`, called the gap "drift", and beyond a
   60-minute tolerance **overwrote `valid_from` with `ingested_at`** — which would have rewritten the
@@ -452,9 +483,9 @@ against **local stores** if the window is long enough to matter for Aura quota.
 - **Supabase MCP** (`mcp__claude_ai_Supabase__*`) — SQL, migrations, table inspection. Prefer over `docker exec`.
 
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
-**Tests:** service-free tier **136 passed** (no stack/secrets/network) · frontend **145 passed / 57 files, 0 errors** · full suite ~175 passed · 3 skipped *(floor — not re-measured since 2026-08-16)* · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
+**Tests:** service-free tier **158 passed** (no stack/secrets/network) · frontend **145 passed / 57 files, 0 errors** · full suite ~175 passed · 3 skipped *(floor — not re-measured since 2026-08-16)* · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
 
-**CI:** `tests.yml` is two tiers — **`unit`** runs 146 service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, a synthesis cascade call per synthesize) and exhausting a provider tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) passes in full. Two CI facts worth knowing: `lint.yml` needs `pull-requests: read` or `dorny/paths-filter` fails with *"Resource not accessible by integration"* and every lint job silently skips on PRs; and `next/font/google` fetches DM Sans/Geist **from Google at build time**, so a runner that cannot reach fonts.googleapis.com fails the build with `Module not found: @vercel/turbopack-next/internal/font/google/font` — transient, retry it, or self-host via `next/font/local` to remove the class.
+**CI:** `tests.yml` is two tiers — **`unit`** runs 158 service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, a synthesis cascade call per synthesize) and exhausting a provider tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) passes in full. Two CI facts worth knowing: `lint.yml` needs `pull-requests: read` or `dorny/paths-filter` fails with *"Resource not accessible by integration"* and every lint job silently skips on PRs; and `next/font/google` fetches DM Sans/Geist **from Google at build time**, so a runner that cannot reach fonts.googleapis.com fails the build with `Module not found: @vercel/turbopack-next/internal/font/google/font` — transient, retry it, or self-host via `next/font/local` to remove the class.
 
 > **Ruff is pinned in `lint.yml`, and that is deliberate.** Unpinned, it runs whatever rule set the
 > newest release enables — one release once took linting from green to **608 errors on an unchanged

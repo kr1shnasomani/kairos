@@ -173,6 +173,8 @@ export function Answer({ data, query = "" }: { data: CopilotAnswer; query?: stri
             </div>
           </div>
         </div>
+      ) : data.is_synthesizing ? (
+        <Thinking />
       ) : uncertain ? (
         /* Non-safety uncertainty: show answer but call out low evidence */
         <div className="rounded-lg border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_6%,var(--surface))] p-3.5">
@@ -232,7 +234,7 @@ export function Answer({ data, query = "" }: { data: CopilotAnswer; query?: stri
       )}
 
       {/* Footer: confidence meter + model + feedback */}
-      {!data.refused && (
+      {!data.refused && !data.is_synthesizing && (
         <div className="space-y-2.5 border-t border-line pt-3">
           <ConfidenceMeter value={data.confidence} />
           <div className="flex items-center gap-3 text-label text-muted">

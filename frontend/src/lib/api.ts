@@ -427,7 +427,7 @@ export function requestQuarantineInfo(itemId: string, note: string) {
 // --- Copilot (POST /search/synthesize) + RCA (POST /search/rca-pack) ---
 // Both are read-oriented POSTs. Live first, fixture on any error (backend down / refusal path).
 
-export async function synthesize(query: string, asOf?: string): Promise<CopilotAnswer> {
+export async function synthesize(query: string, asOf?: string, onSources?: (partial: CopilotAnswer) => void): Promise<CopilotAnswer> {
   try {
     // Step 1 — RETRIEVE. Synthesis assembles only from context it is given, so we must run hybrid
     // search first (exactly what the benchmark does). Without this the answer is always empty.
@@ -454,6 +454,23 @@ export async function synthesize(query: string, asOf?: string): Promise<CopilotA
       relevance_score: r.relevance_score,
       asset_id: r.asset_id ?? null,
     }));
+
+    if (onSources) {
+      const byId = new Map(context.map((c) => [c.document_id, c]));
+      onSources({
+        answer: null,
+        sources: context.map((c) => ({
+          document_id: c.document_id,
+          title: c.title,
+          authority_level: (c.authority_level as CopilotAnswer["sources"][number]["authority_level"]) ?? 5,
+          excerpt: c.text.slice(0, 200),
+        })),
+        confidence: 0,
+        refused: false,
+        safety_critical: false,
+        is_synthesizing: true,
+      });
+    }
 
     // Step 2 — SYNTHESIZE from the retrieved context. Long timeout: NIM/Gemini can take ~10–30s.
     const live = await postJson<{

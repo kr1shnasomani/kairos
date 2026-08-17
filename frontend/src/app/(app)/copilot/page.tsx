@@ -84,7 +84,9 @@ export default function CopilotPage() {
       return;
     }
 
-    synthesize(q, at)
+    synthesize(q, at, (partial) => {
+      setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer: partial } : turn)));
+    })
       .then((answer) => {
         setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer } : turn)));
       })

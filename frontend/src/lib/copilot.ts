@@ -46,6 +46,8 @@ export interface CopilotAnswer {
   entities?: ExtractedEntity[];
   /** Non-empty → the answer touches a parameter under formal dispute; the UI must say so. */
   pending_moc?: PendingMoc[];
+  /** True while sources have been retrieved but synthesis is still running. */
+  is_synthesizing?: boolean;
 }
 
 export const SUGGESTIONS = [

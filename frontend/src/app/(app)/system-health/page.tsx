@@ -209,7 +209,7 @@ export default function SystemHealthPage() {
         {/* API surfaces */}
         <section>
           <h2 className="text-label font-bold uppercase tracking-[0.1em] text-muted">API surfaces</h2>
-          <div className="mt-3 overflow-hidden rounded-xl border border-line">
+          <div className="mt-3 overflow-x-auto rounded-xl border border-line">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-line bg-surface-2 text-label uppercase tracking-wide text-muted">
@@ -262,7 +262,7 @@ export default function SystemHealthPage() {
         {/* Datastores */}
         <section>
           <h2 className="text-label font-bold uppercase tracking-[0.1em] text-muted">Datastores &amp; dependencies</h2>
-          <div className="mt-3 overflow-hidden rounded-xl border border-line">
+          <div className="mt-3 overflow-x-auto rounded-xl border border-line">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-line bg-surface-2 text-label uppercase tracking-wide text-muted">

@@ -6,7 +6,7 @@ All tests run **inside Docker**. There is no host shortcut: host package resolut
 the pinned images and produces false results — `auth.test.ts` and `api.test.ts` fail on the host
 and pass in the container. A host run will lie to you.
 
-### Tier 1 — service-free (146 tests, no stack, no secrets, no network)
+### Tier 1 — service-free (158 tests, no stack, no secrets, no network)
 
 These need nothing running. This is what CI's `unit` job executes on every push.
 
@@ -15,11 +15,14 @@ docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-a
   pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,\
 model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,\
 ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ner_parse,\
-superseded_filter,brief_signing}.py
+superseded_filter,brief_signing,attribution_evidence}.py
 ```
 
-All **19** files, **146 tests**. The seven conformance files (`briefs_countersign` … `model_gate_classes`)
-are part of this tier — an earlier version of this command listed only the first nine and undercounted it.
+All **20** files, **158 tests**. `test_attribution_evidence.py` (12 tests) covers the pure
+decision functions `_attribute` and `_classify_attestation` in `workers/attribution.py`,
+including the brownfield regression that `genuine_failure` was unreachable on uninstrumented assets.
+The seven conformance files (`briefs_countersign` … `model_gate_classes`) are part of this tier —
+an earlier version of this command listed only the first nine and undercounted it.
 
 ```bash
 ```

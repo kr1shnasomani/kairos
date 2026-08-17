@@ -39,19 +39,22 @@ def evaluate_outcome(event_id: str, asset_id: str) -> dict[str, Any]:
     failure_check = _check_failure_code_match(asset_id, event_id)
     execution_check = _check_execution_compliance(event_id)
 
-    genuine_failure = (
-        telemetry_check.get("failed", False)
-        and failure_check.get("matched", False)
-        and execution_check.get("compliant", False)
-    )
+    # Fetched only when telemetry is demoted — no wasted query on an instrumented asset.
+    attestation_check: dict[str, Any] = {"checked": False}
+    if telemetry_check.get("evidence_role") == "supporting":
+        attestation_check = _check_closeout_attestation(event_id)
+
+    decision = _attribute(telemetry_check, attestation_check, failure_check, execution_check)
+    genuine_failure = decision["genuine_failure"]
 
     result = {
         "event_id": event_id,
         "asset_id": asset_id,
         "telemetry_check": telemetry_check,
+        "attestation_check": attestation_check,
         "failure_check": failure_check,
         "execution_check": execution_check,
-        "genuine_failure": genuine_failure,
+        **decision,
         "action": "flagged_for_review" if genuine_failure else "no_action",
     }
 
@@ -92,7 +95,7 @@ def _check_telemetry_baseline(asset_id: str, event_id: str) -> dict[str, Any]:
         cov = asyncio.run(OtCoverageService(_supabase()).asset_coverage(asset_id))
     except Exception as exc:
         log.warning("attribution.coverage_unavailable", error=str(exc))
-        return {"primary_check": False, "failed": False, "reason": "coverage_unavailable"}
+        return {"evidence_role": "unavailable", "conclusive": False, "failed": False, "reason": "coverage_unavailable"}
 
     # Brownfield downgrade (architecture Layer 10). Without a directly instrumented component,
     # telemetry can only confirm the equipment is running — never that the specific failure mode
@@ -103,11 +106,11 @@ def _check_telemetry_baseline(asset_id: str, event_id: str) -> dict[str, Any]:
     # asset, so `coverage_percent == 0` never fired and telemetry was always treated as primary.
     if not cov.get("has_direct_sensors"):
         return {
-            "primary_check": False,
+            "evidence_role": "supporting",
+            "conclusive": False,
             "failed": False,
             "reason": "not_directly_instrumented",
             "coverage_type": cov.get("coverage_type", "none"),
-            "evidence_role": "supporting",
             "primary_evidence": "work_order_closeout_attestation",
         }
 
@@ -130,12 +133,12 @@ def _check_telemetry_baseline(asset_id: str, event_id: str) -> dict[str, Any]:
                        timeout=15).json()
     except Exception as exc:
         log.warning("attribution.historian_unreachable", error=str(exc))
-        return {"primary_check": False, "failed": False, "reason": "historian_unreachable"}
+        return {"evidence_role": "unavailable", "conclusive": False, "failed": False, "reason": "historian_unreachable"}
 
     data = ts.get("data", [])
     values = [float(p["value"]) for p in data if "value" in p]
     if len(values) < 10:
-        return {"primary_check": True, "failed": False, "reason": "insufficient_data", "point_count": len(values)}
+        return {"evidence_role": "primary", "conclusive": False, "failed": False, "reason": "insufficient_data", "point_count": len(values)}
 
     # First half = baseline, second half = post-maintenance window
     mid = len(values) // 2
@@ -149,12 +152,103 @@ def _check_telemetry_baseline(asset_id: str, event_id: str) -> dict[str, Any]:
     failed = abs(post_mean - baseline_mean) > threshold
 
     return {
-        "primary_check": True,
+        "evidence_role": "primary",
+        "conclusive": True,
         "failed": failed,
         "baseline_mean": round(baseline_mean, 4),
         "post_mean": round(post_mean, 4),
         "threshold_2sigma": round(threshold, 4),
         "tag": tag,
+    }
+
+
+_RUN_PHRASES = ("ran ", "run ", "running", "operated", "tested", "test run", "trial run",
+                "commissioned", "load test", "design load", "full load", "monitored")
+_NORMAL_PHRASES = ("no abnormal", "no unusual", "normal", "within spec", "within limits",
+                   "within range", "satisfactory", "stable", "no leak", "no vibration",
+                   "no noise", "acceptable")
+_NEGATIVE_PHRASES = ("still ", "persists", "recurred", "excessive", "failed again",
+                     "not resolved", "unresolved", "continues")
+
+
+def _classify_attestation(notes: str) -> dict[str, Any]:
+    """
+    Pure phrase logic over closeout notes. No DB — testable service-free.
+
+    ponytail: keyword heuristic with a known ceiling — it cannot read an attestation phrased
+    outside these lists. Upgrade path is a structured `operational_verification` field at
+    closeout, which the architecture already implies ("technicians are prompted to record");
+    parse that instead once it exists.
+    """
+    text = (notes or "").lower()
+    if not text.strip():
+        return {"conclusive": False, "repair_verified": False, "reason": "no_close_notes"}
+
+    negative = [p for p in _NEGATIVE_PHRASES if p in text]
+    if negative:
+        # Recorded as NOT right at closeout: the repair did not restore the asset, so a later
+        # recurrence is a repair/execution story rather than a recommendation one.
+        return {"conclusive": True, "repair_verified": False,
+                "reason": "attestation_negative", "matched": negative}
+
+    ran = [p for p in _RUN_PHRASES if p in text]
+    normal = [p for p in _NORMAL_PHRASES if p in text]
+    if ran and normal:
+        return {"conclusive": True, "repair_verified": True,
+                "reason": "attestation_positive", "matched": {"run": ran, "normal": normal}}
+
+    return {"conclusive": False, "repair_verified": False,
+            "reason": "no_operational_verification_recorded"}
+
+
+def _check_closeout_attestation(event_id: str) -> dict[str, Any]:
+    """
+    Human operational verification recorded at work-order closeout — the PRIMARY evidence on
+    assets with no direct instrumentation (architecture Layer 10).
+    """
+    try:
+        sb = _supabase()
+        row = sb.table("operational_events").select("payload").eq("event_id", event_id).single().execute()
+        payload = row.data.get("payload") or {}
+    except Exception as exc:
+        log.warning("attribution.attestation_query_failed", error=str(exc))
+        return {"conclusive": False, "repair_verified": False, "reason": "db_query_failed"}
+    return _classify_attestation(payload.get("close_notes") or "")
+
+
+def _attribute(telemetry: dict[str, Any], attestation: dict[str, Any],
+               failure: dict[str, Any], execution: dict[str, Any]) -> dict[str, Any]:
+    """
+    Decide whether a recurrence implicates the RECOMMENDATION. Pure — no DB, no network.
+
+    THE BUG THIS FIXES: the old aggregation ANDed `telemetry["failed"]` unconditionally. Every
+    uninstrumented asset returned `failed: False`, so `genuine_failure` was unreachable there and
+    the declared `work_order_closeout_attestation` primary evidence was never a decision input.
+    """
+    role = telemetry.get("evidence_role", "unavailable")
+
+    if role == "primary":
+        # "telemetry didn't recover" — the architecture's own wording for this condition.
+        implicated = telemetry.get("failed", False)
+        conclusive = telemetry.get("conclusive", False)
+        source = "telemetry_baseline"
+    elif role == "supporting":
+        # Verified working at closeout, same failure back anyway → the repair was sound, so the
+        # recommendation is what failed. A negative or missing attestation cannot implicate it.
+        implicated = attestation.get("repair_verified", False)
+        conclusive = attestation.get("conclusive", False) and implicated
+        source = "work_order_closeout_attestation"
+    else:
+        implicated, conclusive, source = False, False, "none"
+
+    return {
+        "primary_evidence": source,
+        "conclusive": conclusive,
+        "genuine_failure": bool(
+            conclusive and implicated
+            and failure.get("matched", False)
+            and execution.get("compliant", False)
+        ),
     }
 
 

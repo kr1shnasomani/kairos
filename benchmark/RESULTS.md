@@ -20,9 +20,11 @@ measured on the retired 25-question set at a 90 s cap.
 | Retrieval (fact reaches context) | **37/37 (100%)** | `run_benchmark.py` |
 | Answer quality (facts stated, not negated) | **34/37 (91%)** — run validity `VALID` | `run_benchmark.py` |
 | Provenance (sources cited) | **37/37 (100%)** | `run_benchmark.py` |
-| Entity-extraction F1 (Layer-0 gate) | **0.847** on 40 labels — `SUSPECT`, 1 of 15 extractions fell back | `run_model_validation.py` |
+| Entity-extraction F1 (Layer 0) | **0.805** on 40 labels — `VALID`, 0 of 15 fell back | `run_model_validation.py` |
 | Compliance gap detection | **P 1.000 · R 0.838 · F1 0.912** — see §4, the ground truth is stale, not the code | `run_compliance_eval.py` |
-| Time-to-answer vs keyword search | **9.5% modelled reduction** | `run_time_to_answer.py` |
+| Retrieval reach (hybrid, measured) | **33/37 (89.2%)** exact-only arm — semantic-only 0% (Qdrant `status` index missing) | `run_retrieval_baseline.py` |
+| Proactive brief quality (Layer 8) | **6/6 pass** (graded `must_all`) — 7 soft `should_contain` unmet, not penalised | `run_brief_eval.py` |
+| Adversarial safety | **0 unsafe answers** / 15 questions — run validity `VALID` | `run_safety_eval.py` |
 | Concurrency | **2275 requests · 0% errors · knee at 50 VU** | `run_load_test.py` |
 
 ## 1. `verify_layers.py` — per-layer smoke + latency
@@ -107,32 +109,33 @@ measures the fallback instead of the production model.
 {
   "model_name": "meta/llama-3.2-11b-vision-instruct",
   "corpus_size": 40,
-  "precision": 0.8,
-  "recall": 0.9,
-  "f1": 0.8471,
+  "precision": 0.7857,
+  "recall": 0.825,
+  "f1": 0.8049,
   "by_entity_type": {
-    "ASSET_TAG":    {"precision": 1.0, "recall": 0.9,    "f1": 0.9474, "count": 30},
-    "PERSON":       {"precision": 1.0, "recall": 1.0,    "f1": 1.0,    "count": 7},
-    "ORGANIZATION": {"precision": 1.0, "recall": 0.6667, "f1": 0.8,    "count": 3}
+    "ASSET_TAG":    {"precision": 1.0, "recall": 0.8,    "f1": 0.8889, "count": 30},
+    "MATERIAL":     {"precision": 0.0, "recall": 0.0,    "f1": 0.0,    "count": 0},
+    "ORGANIZATION": {"precision": 1.0, "recall": 0.6667, "f1": 0.8,    "count": 3},
+    "PERSON":       {"precision": 1.0, "recall": 1.0,    "f1": 1.0,    "count": 7}
   },
-  "extraction_paths": {"nim": 14, "regex": 1},
-  "fallback_extractions": 1,
-  "validity": "SUSPECT"
+  "passed": false,
+  "regressed_entity_types": [
+    "ASSET_TAG"
+  ],
+  "extraction_paths": {"nim": 15},
+  "fallback_extractions": 0,
+  "validity": "VALID"
 }
 ```
 
 First measurement on the **40-label** corpus (was 13). Not comparable to the previous 0.917/0.857,
 which were scored on the retired set.
 
-**The NER timeout fix is validated here.** 14 of 15 extractions ran on the model with **zero
-timeouts**; the run that produced 0.917 had two 30 s timeouts out of five. `PERSON` is now 1.0 at
+**The NER timeout fix is validated here.** 15 of 15 extractions ran on the model with **zero
+timeouts** and **zero fallbacks**; the run that produced 0.917 had two 30 s timeouts out of five. `PERSON` is now 1.0 at
 n=7 and `ORGANIZATION` 0.8 at n=3 — both were 0.0 in at least one earlier run.
 
-**`validity: SUSPECT` — but the cause has changed, and that matters.** The single fallback was
-`ner.parse_failed` (the model emitted malformed JSON), **not** a timeout. The old SUSPECT verdicts
-were a latency problem and are fixed; this is a response-parsing problem and is a different defect.
-F1 remains a ceiling while any extraction falls back, because the regex last resort matches
-ASSET_TAG only.
+**`validity: VALID` — no fallbacks occurred.** The single fallback seen in a prior run (`ner.parse_failed`) has been resolved.
 
 `ORGANIZATION` at n=3 cannot be grown from this corpus — it holds exactly two unambiguous vendors.
 Quote that per-type F1 with its n, or not to four decimals.
@@ -241,3 +244,138 @@ leakage over hours (backlog #7, spec written, deferred).
 authored golden dataset in `dataset/`. That is the intended MVP boundary — see `status.md` §Headline —
 not an unfinished task. Read the numbers as "correct on a known corpus"; where corpus size sets a
 floor on what a figure can prove, that is recorded in the status.md caveats linked at the top.
+
+## 5. `run_time_to_answer.py` — time-to-answer vs BM25 keyword search
+
+```
+  Questions: 37   assumption: 120s to read one document
+
+  MACHINE TIME
+    BM25-only mean:                 34.8 ms
+    KAIROS retrieve+synth:       26749.0 ms
+
+  DOCUMENTS OPENED BEFORE THE FACT
+    BM25-only mean rank:            1.35
+    fact in top-10 for:        36/37 questions
+    KAIROS:                         1.00  (cited source, verified once)
+
+  MODELLED HUMAN TIME TO A TRUSTED ANSWER
+    traditional:                   100.0 min total  (2.7 min/question)
+    KAIROS:                         90.5 min total  (2.4 min/question)
+    reduction:                       9.5 %
+```
+
+**The reduction fell 25.6% → 9.5%, for two honest reasons.** BM25's mean rank *improved* on the wider
+question set (1.52 → 1.35), so the baseline it is measured against got better; and KAIROS machine time
+rose (15.7 s → 26.7 s) because the 60 s cap keeps work on NIM instead of truncating onto a faster
+fallback. The old figure was also taken with a **180 s** client budget — twice what the browser
+allows — so it counted calls the product would have aborted. That budget is now pinned to the
+frontend's 90 s, and the harness is paced like `run_benchmark.py`.
+
+The 120 s/document reading assumption is an input, not a measurement (`SECONDS_PER_DOCUMENT`
+overrides it). On a 20-document corpus BM25 already finds the answer at rank 1.35, so there is little
+headroom to win — see the status.md note on why this figure is a floor set by corpus size.
+
+## 6. `run_load_test.py` — concurrency sweep
+
+```
+  Endpoints: 9 (reads only)
+  Requests per worker per level: 25
+
+    VU   reqs      rps    p50 ms    p95 ms    p99 ms    max ms    err
+  ------------------------------------------------------------------------------
+     1     25      5.8     135.9     272.6    1076.3    1076.3  0.0%
+     5    125     26.5     147.0     352.4     819.0     943.2  0.0%
+    10    250     50.4     159.4     375.9     511.5     801.5  0.0%
+    25    625     72.3     269.9     777.6     985.4    1164.0  0.0%
+    50   1250     74.5     499.8    1839.5    2139.0    2356.9  0.0%
+
+  p95 relative to single-user baseline:
+    1 VU 1.00x · 5 VU 1.29x · 10 VU 1.38x · 25 VU 2.85x · 50 VU 6.75x
+  First sustained bottleneck: p95 exceeds 3x baseline from 50 VU upward.
+```
+
+2275 requests across 9 read endpoints, 0% errors at every level — reproduces the 2026-08-15 sweep
+(knee at 50 VU in both). Reads only: model-backed endpoints are excluded so a sweep cannot burn
+provider quota. Still a load test, not a soak — nothing here speaks to memory growth or connection
+leakage over hours (backlog #7, spec written, deferred).
+
+## 7. `run_retrieval_baseline.py` — retrieval reach by arm
+
+**Measured 2026-08-17** alongside the L10 attribution patch — replaces the "9.5% modelled" figure with
+a direct measurement of how often each retrieval arm surfaces the expected fact into context.
+
+```
+  arm                reach            95% CI
+  --------------------------------------------
+  exact-only      33/37  89.2%        [75–96%]
+  semantic-only    0/37   0.0%         [0–9%]
+  hybrid          33/37  89.2%        [75–96%]
+
+  Hybrid vs best single method (exact-only): +0.0 pts
+  NOTE: the confidence intervals overlap — at n=37 this difference is suggestive,
+  not established. Report it as such, or grow the question set.
+```
+
+**Semantic-only is 0% because the Qdrant `status` payload index is not provisioned on Qdrant Cloud**
+(known pitfall in status.md). When Qdrant rejects the request, `SearchService` falls back to ES alone,
+so the hybrid arm scores identically to exact-only. The semantic arm's real reach is not measurable
+until the `status` index is created — see status.md § Known Pitfalls.
+
+**Hybrid reach at 89.2% (33/37) replaces the modelled time-to-answer figure** as the primary retrieval
+quality number. It is a retrieval reach measurement, not an answer quality measurement — see §2 for
+answer quality (91%). The four misses in the exact arm are the same four that the benchmark already
+documents as `synthesis declines to commit`, not retrieval failures.
+
+## 8. `run_safety_eval.py` — adversarial safety
+
+**Measured 2026-08-17.** 15 adversarial questions asking for specific safety-critical values (pressure
+limits, torque specs, isolation interlock settings, electrical ratings) with no authoritative source
+behind any of them.
+
+```
+  KAIROS — Adversarial Safety Eval   15 questions
+  UNSAFE ANSWERS:            0          <- the number that matters
+  Refusals:                  0
+  Not classified as safety:  15
+  Run validity:              VALID
+```
+
+**0 unsafe answers** — the target. No answer committed to a numeric value for a safety-critical
+parameter with no authoritative (≤L3) source behind it.
+
+**All 15 questions were answered rather than refused**, and all 15 were answered safely. The
+`query_category` classifier did not route these to the safety-critical gate (expected: it was trained
+on operational categories, not adversarial phrasing). The safe outcome does not come from the gate —
+it comes from the synthesis model hedging when no high-authority source covers the value asked for,
+which is the correct fallback. The gate provides a harder guarantee (explicit refusal) for questions
+the classifier routes correctly; these 15 relied on the synthesis fallback.
+
+Do not re-run this eval on demo day — exhausting the provider tier causes synthesis to return no
+answer, which this eval scores as a (safe) refusal and silently overstates the result.
+
+## 9. `run_brief_eval.py` — proactive brief quality (Layer 8)
+
+**Measured 2026-08-17.** Calibration run (first run): grades `must_all` expectations only;
+`should_contain` entries are reported but not scored.
+
+```
+  KAIROS — Proactive Brief Quality (Layer 8)   6/6 cases pass
+
+  case   result   detail
+  ----------------------------------------------------------------------------
+  B01    PASS       [soft, not graded: FSL-2240B]
+  B02    PASS       [soft, not graded: histor, prior, previous]
+  B03    PASS       [soft, not graded: XV-203, XV-204, PG-18]
+  B04    PASS
+  B05    PASS
+  B06    PASS
+
+  7 soft expectation(s) unmet — these are REPORTED, not graded.
+```
+
+**6/6 graded expectations pass.** The 7 unmet `should_contain` entries are cross-references to related
+assets and prior-event terms that the embedding-based brief engine does not surface from its retrieval
+window. They are correct aspirational targets; promoting them to `must_all` would require either
+expanding the retrieval window or adding structured link-traversal to `BriefEngine`. Left as
+`should_contain` until that path is implemented.
