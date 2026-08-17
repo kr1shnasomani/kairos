@@ -88,7 +88,7 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 Full list: `docs/INFRA.md §9`. Reset: `make nuke → dev → init-all → seed → load-dataset`. Gotcha rebuilds: `--no-deps --build kairos-frontend` (new npm deps) · `--force-recreate kairos-backend-api` (NIM env).
 
 **Tests — Docker only, never the host.** Host package resolution differs from the pinned images and produces false results.
-- Service-free tier (**188 tests**, no stack/secrets/network — CI's `unit` job):
+- Service-free tier (**199 tests**, 21 files, no stack/secrets/network — CI's `unit` job runs exactly this list):
   `docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ner_parse,superseded_filter,brief_signing,attribution_evidence,authz_boundary}.py`
 - Full suite (needs the stack; **local stores only, never cloud**): `docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120`
 
@@ -126,7 +126,8 @@ Full list: `docs/INFRA.md §9`. Reset: `make nuke → dev → init-all → seed 
 - EEMUA governor: `check_governor(user_id)` before every brief. ≤6/operator/hour. PTW always exempt.
 - Celery: lazy imports inside task body. 6 queues: `ingestion,extraction,attribution,transcription,elicitation,validation`.
 - Secrets: never hardcode. All via `api/config.py` Settings → env vars.
-- **Authz fails closed.** `_ask_opa` returns `self.debug` when OPA is unreachable — never bare `True`. Any `read_*` action added to `kairos.rego` must also go in `_sensitive_actions`, or the catch-all grants it to every role. Never gate `OPTIONS` (CORS preflight carries no token, and this middleware is outermost).
+- **Authz fails closed.** `_ask_opa` returns `self.debug` when OPA is unreachable — never bare `True`. Any `read_*` action added to `kairos.rego` must also go in `_sensitive_actions`, or the catch-all grants it to every role. Never gate `OPTIONS` (CORS preflight carries no token, and this middleware is outermost). Read grants mirror `frontend/src/components/use-role.ts` — a role that can open a page but not call its API is a broken page, not a closed boundary.
+- **One token verifier: `dependencies.resolve_token`.** Never decode a Supabase JWT by hand — this project issues **ES256**, so an HS256 decode silently rejects every token and degrades authz to the dev bypass. Verify by probing the live API with a restricted persona and confirming a **403**; policy tests alone cannot tell you the layer is reached.
 - **Site scope comes from the token, never the query string** — `dependencies.site_scope`. A blank `site_id` means *no* rows, not *all* rows.
 
 ### Both

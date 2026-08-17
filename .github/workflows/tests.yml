@@ -69,7 +69,15 @@ jobs:
 
       # Pure-logic suites: PII redaction, safety-critical query classification, retrieval
       # fusion, spreadsheet/email ingestion, NER span matching, P&ID parsing, auth cache,
-      # config guardrails. None of these touch a datastore or a model provider.
+      # config guardrails, the authorization boundary, and the conformance suites (PTW
+      # countersignature, topology verification, OT coverage, phase gate, extraction path,
+      # timestamp alignment, model-gate classes, NER parsing, superseded filter, brief
+      # signing, attribution evidence). None touch a datastore or a model provider.
+      #
+      # This list must stay identical to the service-free tier documented in AGENTS.md and
+      # docs/TESTS.md. It previously held only the first nine files, so eleven service-free
+      # suites — every conformance test among them — were documented as CI-gated but never
+      # actually ran on a push.
       - name: Run unit tests
         run: |
           docker compose run --rm --no-deps \
@@ -84,6 +92,17 @@ jobs:
               tests/test_pid.py \
               tests/test_auth_cache.py \
               tests/test_config_guardrail.py \
+              tests/test_briefs_countersign.py \
+              tests/test_topology_verify.py \
+              tests/test_ot_coverage.py \
+              tests/test_phase_gate.py \
+              tests/test_extraction_path.py \
+              tests/test_timestamp_alignment.py \
+              tests/test_model_gate_classes.py \
+              tests/test_ner_parse.py \
+              tests/test_superseded_filter.py \
+              tests/test_brief_signing.py \
+              tests/test_attribution_evidence.py \
               tests/test_authz_boundary.py
 
       # The benchmark grader is deterministic logic (negation handling, Wilson intervals, the

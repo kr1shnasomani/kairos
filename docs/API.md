@@ -39,10 +39,31 @@ Supabase issues ES256 JWTs. Tokens expire after 1 hour. Role is stored in `user_
 | `admin@kairos.local` | `KairosAdmin123!` | `admin` |
 | `engineer@kairos.local` | `KairosEngineer123!` | `engineer` |
 | `field_worker@kairos.local` | `KairosField123!` | `field_worker` |
+| `reliability@kairos.local` | `KairosReliability123!` | `reliability` |
+| `compliance@kairos.local` | `KairosCompliance123!` | `compliance` |
 
-**Dev mode:** When `APP_DEBUG=True` (default in dev), any request without an `Authorization` header is treated as `{user_id: "dev-user", role: "engineer", site_id: "SITE_001"}`.
+**Dev mode:** When `APP_DEBUG=True` **and** `APP_ENV != "production"`, any request without an `Authorization` header is treated as `{user_id: "dev-user", role: "engineer", site_id: "SITE_001"}`. Both conditions are required — see `Settings.dev_bypass_allowed`.
 
 **Service bypass:** Bearer token matching `INTERNAL_API_KEY` (default: `kairos-internal-dev-key`) returns a service admin account without calling Supabase. Used by the Go connector and Celery workers.
+
+**Token verification has exactly one implementation:** `dependencies.resolve_token`, which delegates to Supabase and is shared by the route dependency and the OPA middleware. Never decode these JWTs by hand — they are **ES256**, so an HS256 decode silently rejects every one of them.
+
+### Authorization — writes *and* sensitive reads
+
+`POST/PUT/PATCH/DELETE` are policy-checked, and since **2026-08-17** so are `GET`/`HEAD` on the sensitive read prefixes. Roles below mirror the frontend route table in `components/use-role.ts`.
+
+| Read prefix | OPA action | Roles allowed |
+|---|---|---|
+| `/audit-log` | `read_audit` | engineer · reliability · compliance · admin |
+| `/compliance` | `read_compliance` | engineer · reliability · compliance · admin |
+| `/governance/conflicts` · `/governance/quarantine` | `read_nonconformance` | engineer · reliability · compliance · admin |
+| `/governance` (everything else) | `read_governance` | engineer · reliability · admin |
+| `/documents` | `read_documents` | engineer · reliability · admin |
+| `/events` | `read_events` | engineer · reliability · compliance · admin |
+
+`field_worker` gets **403** on all six. `/search`, `/briefs`, `/assets`, `/elicitation` and `/annotations` reads stay open to every authenticated role. Two deliberate exemptions: **`OPTIONS`** is never gated (the CORS preflight carries no token, and this middleware is outermost), and **`/events/plant-state`** is exempt from `read_events` because every persona's app shell renders plant state.
+
+**Site scope is derived from the token, not the query string.** `site_id` on `GET /assets/` and the two `/compliance` reads narrows within the caller's own site; requesting another site is a **403**, and an account with no `site_id` gets nothing rather than everything. `admin` keeps the cross-site view.
 
 ---
 
@@ -2883,7 +2904,7 @@ curl http://localhost:8000/health/detailed
 curl -H "Authorization: Bearer kairos-internal-dev-key" \
   http://localhost:8000/assets/P-101
 
-# Dev shortcut: omit Authorization header when APP_DEBUG=True
+# Dev shortcut: omit Authorization header when APP_DEBUG=True and APP_ENV != production
 # Treated as {user_id: "dev-user", role: "engineer", site_id: "SITE_001"}
 curl http://localhost:8000/assets/P-101
 ```
@@ -2892,11 +2913,16 @@ curl http://localhost:8000/assets/P-101
 
 | Role | Can do |
 |------|--------|
-| `field_worker` | Read search, read briefs, ack briefs, post alarms |
-| `engineer` | Above + ingest documents, write assets, read/resolve governance, start offboarding |
-| `reliability` | Above (no asset write) + promote quarantine |
-| `compliance` | Read search, read compliance, read audit |
-| `admin` | Everything |
+| `field_worker` | Read search, read briefs, ack briefs, post alarms, plant state. **403 on audit-log, compliance, governance, documents and the events feed** |
+| `engineer` | Above + ingest documents, write assets, read/resolve governance, read documents + events + audit + compliance, start offboarding |
+| `reliability` | Engineer's reads + promote quarantine, countersign briefs (no asset write) |
+| `compliance` | Read search, compliance, audit, non-conformance (conflicts + quarantine) and events. **Not** the model gate, MoC, circuit breaker or documents |
+| `admin` | Everything, including the cross-site view |
+
+Verify the policy's decisions with `scripts/verify_authz_policy.sh` (34 cases against a throwaway
+OPA, safe to run while the stack is up). That checks the policy is *correct*; to check it is
+*reached*, probe the live API with a restricted persona and confirm a 403 —
+`curl -H "Authorization: Bearer $FIELD_TOKEN" localhost:8000/audit-log/` must not return 200.
 
 ---
 

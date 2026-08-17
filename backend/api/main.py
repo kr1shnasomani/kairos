@@ -90,8 +90,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         OPAMiddleware,
         opa_url=settings.OPA_URL,
-        jwt_secret=settings.SUPABASE_JWT_SECRET or settings.APP_SECRET_KEY,
-        internal_api_key=settings.INTERNAL_API_KEY,
+        settings=settings,
         debug=settings.dev_bypass_allowed,
     )
 

@@ -138,7 +138,7 @@ quarantine by design), and an MDM registration (probe assets purged from Supabas
 
 | Row | Why it is still open |
 |---|---|
-| 27 `/governance/model-gate` run | A ~2.5-minute Celery task costing ~15 NIM calls. Its *output* is already measured — `run_model_validation.py` produced F1 0.847 on 2026-08-16 — so triggering it again buys a UI observation for real quota. |
+| 27 `/governance/model-gate` run | A ~2.5-minute Celery task costing ~15 NIM calls. Its *output* is already measured — `run_model_validation.py` produced F1 **0.805 · `VALID`** (0 of 15 fell back) on the post-fix run — so triggering it again buys a UI observation for real quota. |
 | 38 `/field/voice` capture | Spends Groq transcription quota. The path is proven end-to-end elsewhere in this file (upload → SHA-256 dedup → vault → Whisper → quarantine `voice_note`, never auto-promoted). |
 | 110 horizontal scroll on the remaining routes | Genuinely a browser check — no API stands in for layout. Three routes were checked at 375 px; the rest were not. |
 

@@ -119,7 +119,7 @@ kairos/                          # repo root
 
 `create_app()` registers:
 1. CORS middleware (`CORS_ORIGINS` from settings)
-2. `OPAMiddleware` (enforces write-route RBAC via OPA)
+2. `OPAMiddleware` (enforces RBAC via OPA on writes **and** sensitive reads)
 3. OTEL instrumentation (`setup_telemetry(app)`)
 4. All routers with prefix/tag
 
@@ -911,20 +911,46 @@ skips them skips the point.
 | Role | Permissions |
 |------|-------------|
 | `field_worker` | `read_search`, `read_briefs`, `ack_brief` |
-| `engineer` | All above + `ingest_document`, `read_governance`, `resolve_admin_conflict`, `read_assets`, `write_assets` |
-| `reliability` | `read_search`, `read_briefs`, `ingest_document`, `read_governance`, `promote_quarantine`, **`countersign_brief`**, `resolve_admin_conflict`, `read_assets` |
-| `compliance` | `read_search`, `read_compliance`, `read_audit` |
+| `engineer` | All above + `ingest_document`, `read_governance`, `read_nonconformance`, `read_compliance`, `read_audit`, `read_documents`, `read_events`, `resolve_admin_conflict`, `read_assets`, `write_assets` |
+| `reliability` | Engineer's reads + `promote_quarantine`, **`countersign_brief`**, `resolve_admin_conflict` (no `ack_brief`, no `write_assets`) |
+| `compliance` | `read_search`, `read_compliance`, `read_audit`, `read_nonconformance`, `read_events` |
 | `admin` | `*` (all) |
 
 > **Engineers deliberately cannot `promote_quarantine` or `countersign_brief`.** That is what makes
 > the one-way quarantine gate and the PTW dual signature real: the second signature can never come
 > from the issuing role. `_sensitive_actions` in the policy lists both, plus
-> `resolve_admin_conflict`, `write_assets`, `ingest_document` — without that listing the catch-all
-> rule would grant them to every authenticated role.
+> `resolve_admin_conflict`, `write_assets`, `ingest_document` and all six `read_*` actions —
+> without that listing the catch-all rule would grant them to every authenticated role.
+
+> **`read_nonconformance` is narrower than `read_governance` on purpose.** The compliance auditor's
+> `/compliance/nonconformance` page reads `/governance/conflicts` + `/governance/quarantine`, so it
+> needs those two children without reaching the model gate, MoC approvals or the circuit breaker.
+> These grants mirror the frontend route table in `components/use-role.ts`; keep the two in step.
 
 ### OPA Middleware
 
-`OPAMiddleware` in `api/middleware/opa.py` intercepts all `POST/PUT/PATCH/DELETE` requests (except `/health`, `/auth`, `/docs`). Maps route prefix to OPA action name, calls `http://kairos-opa:8181/v1/data/kairos/authz/allow`. 403 if denied.
+`OPAMiddleware` in `api/middleware/opa.py` intercepts all `POST/PUT/PATCH/DELETE` requests **and
+`GET`/`HEAD` on the sensitive read prefixes** (`/audit-log`, `/compliance`, `/governance`,
+`/documents`, `/events`), except `/health`, `/auth`, `/docs`. Maps route prefix to OPA action name,
+calls `http://kairos-opa:8181/v1/data/kairos/authz/allow`. 403 if denied.
+
+Four things about it are load-bearing, each of which was a live defect before 2026-08-17:
+
+- **It fails closed.** `_ask_opa` returns `self.debug` when OPA is unreachable, never a bare `True`.
+- **It does not verify tokens itself** — it calls `dependencies.resolve_token`, the app's single
+  verifier. Supabase issues **ES256** here, so the old hand-rolled HS256 decode rejected every real
+  token and the middleware degraded to the dev pass-through.
+- **`OPA_URL` must be the compose service name.** `localhost:8181` inside the container is the API,
+  not OPA; combined with fail-open that made the policy decorative.
+- **`OPTIONS` is never gated.** This middleware is outermost, so it sees the CORS preflight — which
+  carries no `Authorization` header — before `CORSMiddleware` does.
+
+`/events/plant-state` is exempt from `read_events`: the app shell renders plant state for every
+persona, and a field worker who cannot see that the plant is in shutdown is a safety regression.
+
+Verify with `scripts/verify_authz_policy.sh` (34-case decision matrix against a throwaway OPA) —
+and separately confirm the layer is *reached*, by probing the live API with a restricted persona's
+token and checking for a 403.
 
 ### Rate-limit Middleware
 
@@ -932,7 +958,7 @@ skips them skips the point.
 
 ### Internal Service Auth
 
-Go connector and service-to-service calls use `Authorization: Bearer <INTERNAL_API_KEY>`. `get_current_user` recognizes this and returns a service admin account without calling Supabase.
+Go connector and service-to-service calls use `Authorization: Bearer <INTERNAL_API_KEY>`. `resolve_token` recognizes this and returns a service admin account without calling Supabase — which is also what keeps the fail-closed OPA middleware from 401ing every connector and Celery write, since the key is not a JWT.
 
 ---
 

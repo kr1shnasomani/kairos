@@ -8,9 +8,10 @@ import asyncio
 import pytest
 from fastapi import HTTPException
 
+from api import dependencies as deps
 from api.config import Settings
-from api.dependencies import site_scope
-from api.middleware.opa import OPAMiddleware, action_for, claims_to_user
+from api.dependencies import resolve_token, site_scope
+from api.middleware.opa import OPAMiddleware, action_for
 
 # =============================================================================
 # Which routes are policy-enforced
@@ -29,12 +30,26 @@ from api.middleware.opa import OPAMiddleware, action_for, claims_to_user
         ("GET", "/audit-log/", "read_audit"),
         ("GET", "/compliance/gaps", "read_compliance"),
         ("GET", "/compliance/dashboard", "read_compliance"),
-        ("GET", "/governance/quarantine", "read_governance"),
+        ("GET", "/documents/", "read_documents"),
+        ("GET", "/events/", "read_events"),
+        # the two /governance children the compliance auditor's non-conformance view reads —
+        # they must resolve BEFORE the generic /governance entry or compliance is locked out
+        ("GET", "/governance/conflicts", "read_nonconformance"),
+        ("GET", "/governance/quarantine", "read_nonconformance"),
+        ("GET", "/governance/model-gate/history", "read_governance"),
+        ("GET", "/governance/circuit-breaker", "read_governance"),
         # reads the UI treats as open to every authenticated role — must stay unenforced,
         # or the field-worker flows break without closing any boundary
         ("GET", "/search/", None),
         ("GET", "/briefs/", None),
         ("GET", "/assets/EQ-101", None),
+        ("GET", "/elicitation/questions", None),
+        ("GET", "/annotations/", None),
+        # shell context every persona renders — a field worker must still be able to see that
+        # the plant is in shutdown, even though the rest of /events is staff-only
+        ("GET", "/events/plant-state/SITE_001", None),
+        # ...but declaring a plant state is still a write and stays gated
+        ("POST", "/events/plant-state", "write_api"),
         # never enforced
         ("GET", "/health/", None),
         ("POST", "/auth/login", None),
@@ -54,25 +69,50 @@ def test_cors_preflight_is_never_gated():
 
 
 # =============================================================================
-# Claim mapping — the app role is in user_metadata, not the top-level `role`
+# One verification path — the middleware must not carry its own copy
 # =============================================================================
 
 
-def test_role_comes_from_user_metadata_not_postgres_role():
-    claims = {
-        "sub": "u-1",
-        "email": "e@example.test",
-        "role": "authenticated",  # Supabase's Postgres role — matches no rego role
-        "user_metadata": {"role": "engineer", "site_id": "SITE_001"},
-    }
-    user = claims_to_user(claims)
-    assert user["role"] == "engineer"
-    assert user["site_id"] == "SITE_001"
-    assert user["user_id"] == "u-1"
+def _settings(**over) -> Settings:
+    return Settings(INTERNAL_API_KEY="internal-test-key", AUTH_CACHE_TTL_SECONDS=60, **over)
 
 
-def test_missing_metadata_falls_back_to_least_privilege():
-    assert claims_to_user({"sub": "u-2"})["role"] == "field_worker"
+def test_middleware_and_dependency_share_one_verifier():
+    # Regression guard for the defect that made authorization inert: the middleware had a
+    # second, HS256-only implementation, but this project's Supabase issues ES256 tokens, so
+    # it rejected every real token and fell through to the dev bypass. There must be exactly
+    # one verifier, and the middleware must use it.
+    import inspect
+
+    from api.middleware import opa
+
+    assert not hasattr(opa, "jwt"), "middleware must not decode tokens itself"
+    assert "resolve_token" in inspect.getsource(opa.OPAMiddleware._user_from_request)
+
+
+def test_internal_service_key_resolves_without_a_round_trip():
+    user = asyncio.run(resolve_token("internal-test-key", _settings()))
+    assert user is not None and user["role"] == "admin"
+
+
+def test_cached_token_is_returned_without_calling_supabase(monkeypatch):
+    deps._auth_cache.clear()
+    monkeypatch.setattr(
+        deps, "create_client", lambda *a, **k: pytest.fail("must not re-verify a cached token")
+    )
+    deps._auth_cache_put("tok-live", {"user_id": "u9", "role": "compliance", "site_id": "S1"}, ttl=60)
+    assert asyncio.run(resolve_token("tok-live", _settings()))["role"] == "compliance"
+    deps._auth_cache.clear()
+
+
+def test_unverifiable_token_is_not_a_user(monkeypatch):
+    deps._auth_cache.clear()
+
+    def _boom(*a, **k):
+        raise RuntimeError("supabase says no")
+
+    monkeypatch.setattr(deps, "create_client", _boom)
+    assert asyncio.run(resolve_token("garbage", _settings())) is None
 
 
 # =============================================================================
@@ -82,9 +122,7 @@ def test_missing_metadata_falls_back_to_least_privilege():
 
 def _middleware(debug: bool) -> OPAMiddleware:
     # Port 1 on loopback refuses immediately — no egress, no waiting on a timeout.
-    return OPAMiddleware(
-        app=None, opa_url="http://127.0.0.1:1", jwt_secret="s", internal_api_key="k", debug=debug
-    )
+    return OPAMiddleware(app=None, opa_url="http://127.0.0.1:1", settings=_settings(), debug=debug)
 
 
 def test_unreachable_opa_denies_outside_dev():
@@ -97,23 +135,24 @@ def test_unreachable_opa_still_passes_through_in_dev():
     assert asyncio.run(mw._ask_opa({"role": "engineer"}, "write_assets", "/assets")) is True
 
 
-def test_internal_service_key_is_recognised_without_being_a_jwt():
+def test_internal_service_key_is_recognised_by_the_middleware():
+    # Fail-closed would otherwise 401 every Go-connector and Celery write.
     mw = _middleware(debug=False)
 
     class _Req:
-        headers = {"Authorization": "Bearer k"}
+        headers = {"Authorization": "Bearer internal-test-key"}
 
-    user = mw._user_from_request(_Req())
+    user = asyncio.run(mw._user_from_request(_Req()))
     assert user is not None and user["role"] == "admin"
 
 
-def test_garbage_token_is_not_a_user():
+def test_request_without_a_bearer_header_is_anonymous():
     mw = _middleware(debug=False)
 
     class _Req:
-        headers = {"Authorization": "Bearer not-a-jwt"}
+        headers = {}
 
-    assert mw._user_from_request(_Req()) is None
+    assert asyncio.run(mw._user_from_request(_Req())) is None
 
 
 # =============================================================================

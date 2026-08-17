@@ -37,7 +37,7 @@ All services run as Docker containers. Start with `make dev` (or `docker compose
 | `kairos-temporal` | temporalio/auto-setup:1.24.2 | `7233` | Durable workflow engine |
 | `kairos-temporal_ui` | temporalio/ui:2.26.2 | `8088` | Temporal dashboard |
 | `kairos-temporal_postgres` | postgres:14-alpine | — | Temporal internal DB |
-| `kairos-opa` | openpolicyagent/opa:0.65.0 | `8181` | Policy enforcement |
+| `kairos-opa` | openpolicyagent/opa:0.65.0 | `8181` | Policy enforcement — writes + sensitive reads. Reach it as `http://kairos-opa:8181`, **never `localhost`** (inside the API container that is the API itself). Policy is loaded at container start, so `docker compose restart kairos-opa` after editing `kairos.rego` |
 | `kairos-caddy` | caddy:2-alpine | `80`, `443` | HTTPS reverse proxy — **`--profile prod` only**, does not start in dev |
 
 > **Observability is CLOUD (Grafana Cloud).** The former local `kairos-otel-collector`, `kairos-tempo`,

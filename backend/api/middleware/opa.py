@@ -11,9 +11,10 @@ layer that answers "allow" when it is down is not an authorization layer.
 import httpx
 import structlog
 from fastapi.responses import JSONResponse
-from jose import JWTError, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+
+from api.dependencies import resolve_token
 
 log = structlog.get_logger(__name__)
 
@@ -33,18 +34,37 @@ _ACTION_MAP = (
     ("/assets", "write_assets"),
 )
 
+# Shell context every authenticated role needs, sitting under an otherwise-gated prefix.
+# `components/app-shell.tsx` renders plant state for *every* persona — a field worker who cannot
+# see that the plant is in shutdown is a safety regression, not a closed boundary. Checked first,
+# so it wins over the prefix map below. (Declaring a plant state is a POST and stays gated.)
+_READ_ALLOW_PREFIXES = ("/events/plant-state",)
+
 # Reads that leak governed material to roles the UI already refuses to show it to.
-# `use-role.ts` gates these three surfaces client-side; without this map the backend
-# enforced nothing, so the audit trail and the compliance cockpit were readable by any
-# authenticated role — including `field_worker` — by calling the API directly.
+# `use-role.ts` gates these surfaces client-side; without this map the backend enforced
+# nothing, so the audit trail and the compliance cockpit were readable by any authenticated
+# role — including `field_worker` — by calling the API directly.
 #
-# Deliberately narrow. `/search`, `/briefs` and `/assets` reads stay unenforced: the UI
-# already treats them as open to every authenticated role, so gating them here would break
-# the field-worker flows without closing a boundary.
+# Derived from the FE route table, not invented here: each action grants exactly the API
+# prefixes that the routes of that role group actually call. `read_nonconformance` is the one
+# split — `/compliance/nonconformance` reads conflicts + quarantine, so the compliance auditor
+# needs those two `/governance` children while still being kept out of the model gate, MoC
+# approvals and the circuit breaker.
+#
+# ORDER MATTERS: first prefix match wins, so the two `/governance` children must precede the
+# generic `/governance` entry or they would resolve to `read_governance` and lock compliance out.
+#
+# Deliberately narrow. `/search`, `/briefs`, `/assets`, `/elicitation` and `/annotations` reads
+# stay unenforced: the UI treats them as open to every authenticated role, so gating them would
+# break the field-worker flows without closing a boundary.
 _READ_ACTION_MAP = (
     ("/audit-log", "read_audit"),
     ("/compliance", "read_compliance"),
+    ("/governance/conflicts", "read_nonconformance"),
+    ("/governance/quarantine", "read_nonconformance"),
     ("/governance", "read_governance"),
+    ("/documents", "read_documents"),
+    ("/events", "read_events"),
 )
 
 
@@ -58,37 +78,19 @@ def action_for(method: str, path: str) -> str | None:
                 return name
         return "write_api"  # non-sensitive catch-all; allowed by rego for any authenticated role
     if method in _READ_METHODS:
+        if any(path.startswith(p) for p in _READ_ALLOW_PREFIXES):
+            return None
         for prefix, name in _READ_ACTION_MAP:
             if path.startswith(prefix):
                 return name
     return None
 
 
-def claims_to_user(claims: dict) -> dict:
-    """Map Supabase JWT claims onto the shape `kairos.rego` expects.
-
-    The app role lives in `user_metadata.role`. The token's **top-level** `role` is Postgres's
-    `"authenticated"`, which matches no entry in the rego role table — so reading it made
-    `user_permissions` undefined and `allow` false for every caller. That was invisible only
-    because the layer never actually ran: no-token requests took the dev pass-through, and
-    tokens that did arrive failed to decode (see `_user_from_request`). Mirrors the mapping in
-    `dependencies.get_current_user` so both halves of the trust boundary agree on who a user is.
-    """
-    meta = claims.get("user_metadata") or {}
-    return {
-        "user_id": claims.get("sub", ""),
-        "email": claims.get("email", ""),
-        "role": meta.get("role", "field_worker"),
-        "site_id": meta.get("site_id", ""),
-    }
-
-
 class OPAMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, opa_url: str, jwt_secret: str, internal_api_key: str, debug: bool = False):
+    def __init__(self, app, opa_url: str, settings, debug: bool = False):
         super().__init__(app)
         self.opa_url = f"{opa_url}/v1/data/kairos/authz/allow"
-        self.jwt_secret = jwt_secret
-        self.internal_api_key = internal_api_key
+        self.settings = settings
         self.debug = debug
 
     async def dispatch(self, request: Request, call_next):
@@ -96,7 +98,7 @@ class OPAMiddleware(BaseHTTPMiddleware):
         if action is None:
             return await call_next(request)
 
-        user = self._user_from_request(request)
+        user = await self._user_from_request(request)
         if user is None:
             if self.debug:
                 return await call_next(request)  # no token in dev → pass through
@@ -117,30 +119,19 @@ class OPAMiddleware(BaseHTTPMiddleware):
             )
         return await call_next(request)
 
-    def _user_from_request(self, request: Request) -> dict | None:
+    async def _user_from_request(self, request: Request) -> dict | None:
+        """Identify the caller using the app's ONE token-verification path.
+
+        This used to decode the JWT itself with a shared HS256 secret. Supabase issues **ES256**
+        tokens here, so that decode always failed, every caller looked anonymous, and the whole
+        middleware degraded to the dev pass-through — authorization that ran but never decided.
+        `resolve_token` delegates to Supabase (which owns the signing keys) and shares the auth
+        cache with `get_current_user`, so this costs no extra round-trip.
+        """
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return None
-        token = auth[7:]
-        # Internal service principal — the Go connector and the Celery workers authenticate with
-        # INTERNAL_API_KEY, which is not a JWT. Without this it decodes to None and, once the
-        # middleware stops failing open, every connector write is a 401. Same principal as
-        # `dependencies.get_current_user`.
-        if self.internal_api_key and token == self.internal_api_key:
-            return {"user_id": "service-kairos-connector", "role": "admin", "site_id": "SITE_001"}
-        try:
-            claims = jwt.decode(
-                token,
-                self.jwt_secret,
-                algorithms=["HS256"],
-                # Supabase stamps aud="authenticated"; python-jose rejects a token that carries
-                # an `aud` it was not given one to match, so leaving this on made *every* real
-                # token undecodable here.
-                options={"verify_exp": True, "verify_aud": False},
-            )
-        except JWTError:
-            return None
-        return claims_to_user(claims)
+        return await resolve_token(auth[7:], self.settings)
 
     async def _ask_opa(self, user: dict, action: str, resource: str) -> bool:
         try:

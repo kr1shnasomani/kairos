@@ -110,7 +110,7 @@ labels, `NVIDIA_NIM_TIMEOUT=60`). Raw output → [`../benchmark/RESULTS.md`](../
 | **Query answer quality** | Golden Q&A (37): answer states the correct fact, not negated, with sources | **34/37 (91%)**, 95% CI [79–97%]; run validity **VALID** (3 honest misses — see notes) |
 | **Provenance** | Does every non-refused answer cite `sources[]`? | **37/37 (100%)**, 95% CI [91–100%] |
 | **Retrieval quality** | Does the correct source surface for each question? | **37/37 (100%)**, 95% CI [91–100%] |
-| **Entity-extraction accuracy** | Layer-0 model gate: precision / recall / F1 per entity type | **F1 0.847** on 40 labels (P 0.800 / R 0.900); PERSON 1.0 (n=7), ASSET_TAG 0.947 (n=30), ORGANIZATION 0.8 (n=3). `SUSPECT` — 1 of 15 extractions fell back |
+| **Entity-extraction accuracy** | Layer-0 model gate: precision / recall / F1 per entity type | **F1 0.805** on 40 labels; PERSON 1.0 (n=7), ASSET_TAG 0.889 (n=30), ORGANIZATION 0.8 (n=3). **`VALID`** — 0 of 15 extractions fell back |
 | **Compliance gap detection** | Precision / recall / F1 vs an independently-derived truth table | **P 1.000 · R 0.838 · F1 0.912**, zero false positives |
 | **Cross-functional discovery** | Cross-site advisories | 🟦 fixture (single-site MVP, by design) |
 
@@ -198,10 +198,13 @@ growth or connection leakage over hours.
   real code smell — `NERService` can drop a regex-added `ASSET_TAG` when the model labels the same token
   `MATERIAL` (dedup collision); noted for a follow-up, out of benchmark scope.
 - **A `SUSPECT` entity-F1 is a ceiling, not a score.** Any extraction that falls back lands on the regex
-  path, which matches `ASSET_TAG` only. The 2026-08-16 run fell back once in 15 — and the cause has
-  *changed*: it was `ner.parse_failed` (malformed JSON from the model), not the 30 s timeout that caused
-  the earlier fallbacks. That timeout is fixed (`services/ner.py` now reads `NVIDIA_NIM_TIMEOUT`) and the
-  run recorded zero timeouts; the remaining fallback is a response-parsing defect.
+  path, which matches `ASSET_TAG` only, so a run with fallbacks reports a floor on the model's real
+  accuracy rather than measuring it. **The current run is `VALID`: 15 of 15 extractions ran on the NIM
+  model, zero timeouts and zero parse failures**, so 0.805 is the model's score and not a ceiling.
+  Both historical causes are closed — the 30 s timeout (`services/ner.py` now reads
+  `NVIDIA_NIM_TIMEOUT`) and the response-parsing defect (`max_tokens: 1024` truncated JSON on
+  entity-dense documents; `_salvage_objects` now recovers complete objects from a truncated array).
+  Keep this caveat: it is how to read a `SUSPECT` verdict if one reappears.
 - **Compliance F1 drifts downward as humans promote knowledge, and that is a property of the harness.**
   Its ground truth is derived from the static dataset manifest, so evidence a human promotes into the graph
   afterwards reads as a false negative. Five of the six FNs in the 2026-08-16 run are one such promotion on

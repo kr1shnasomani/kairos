@@ -196,6 +196,57 @@ def _auth_cache_put(token: str, user: dict, ttl: int) -> None:
     _auth_cache[hashlib.sha256(token.encode()).hexdigest()] = (time.monotonic() + ttl, user)
 
 
+async def resolve_token(token: str, settings: Settings) -> dict | None:
+    """Verify a bearer token and return the KAIROS user dict, or None if it is not valid.
+
+    **The single token-verification path.** The OPA middleware used to carry its own copy —
+    `jose.jwt.decode(..., algorithms=["HS256"])` against `SUPABASE_JWT_SECRET` — which could
+    never succeed: this project's Supabase issues **ES256** tokens signed with an asymmetric
+    JWT signing key, so every real token failed to decode, the middleware saw an anonymous
+    caller, and authorization silently did nothing. Verification belongs to Supabase, which
+    knows its own signing keys and rotation; duplicating it here meant one copy could be
+    (and was) wrong without anything failing loudly.
+
+    Returns None rather than raising, so the two callers can choose their own failure: the
+    dependency raises 401, the middleware denies or falls through in dev.
+    """
+    # Internal service bypass — Go connector and Celery workers call with INTERNAL_API_KEY
+    if settings.INTERNAL_API_KEY and token == settings.INTERNAL_API_KEY:
+        return {"user_id": "service-kairos-connector", "email": "connector@internal", "role": "admin", "site_id": "SITE_001", "sub": "service-connector"}
+
+    # Fast path: recently-verified token — skips the Supabase Auth round-trip. The middleware
+    # runs before the dependency, so it populates this and the dependency reads it back: one
+    # round-trip per token per TTL, not two.
+    cached = _auth_cache_get(token)
+    if cached is not None:
+        return cached
+
+    try:
+        # Use a fresh client with anon key for token verification — keeps the global
+        # service-role client's session clean (auth.get_user mutates client state).
+        verify_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+        result = await asyncio.to_thread(lambda: verify_client.auth.get_user(token))
+        user = result.user
+        if not user:
+            return None
+    except Exception as exc:
+        log.info("auth.token_rejected", error=str(exc))
+        return None
+
+    meta = user.user_metadata or {}
+    user_dict = {
+        "user_id": str(user.id),
+        "email": user.email,
+        # The app role lives in user_metadata. The token's top-level `role` is Supabase's
+        # Postgres role ("authenticated"), which matches no entry in kairos.rego.
+        "role": meta.get("role", "field_worker"),
+        "site_id": meta.get("site_id", ""),
+        "sub": str(user.id),
+    }
+    _auth_cache_put(token, user_dict, settings.AUTH_CACHE_TTL_SECONDS)
+    return user_dict
+
+
 async def get_current_user(
     settings: SettingsDep,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)] = None,
@@ -216,42 +267,14 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = credentials.credentials
-
-    # Internal service bypass — Go connector and Celery workers call with INTERNAL_API_KEY
-    if token == settings.INTERNAL_API_KEY:
-        return {"user_id": "service-kairos-connector", "email": "connector@internal", "role": "admin", "site_id": "SITE_001", "sub": "service-connector"}
-
-    # Fast path: recently-verified token — skips the Supabase Auth round-trip.
-    cached = _auth_cache_get(token)
-    if cached is not None:
-        return cached
-
-    try:
-        # Use a fresh client with anon key for token verification — keeps the global
-        # service-role client's session clean (auth.get_user mutates client state).
-        verify_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
-        result = await asyncio.to_thread(lambda: verify_client.auth.get_user(token))
-        user = result.user
-        if not user:
-            raise ValueError("No user returned")
-    except Exception as e:
+    user = await resolve_token(credentials.credentials, settings)
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid or expired token: {e}",
+            detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    meta = user.user_metadata or {}
-    user_dict = {
-        "user_id": str(user.id),
-        "email": user.email,
-        "role": meta.get("role", "field_worker"),
-        "site_id": meta.get("site_id", ""),
-        "sub": str(user.id),
-    }
-    _auth_cache_put(token, user_dict, settings.AUTH_CACHE_TTL_SECONDS)
-    return user_dict
+    return user
 
 
 CurrentUserDep = Annotated[dict, Depends(get_current_user)]

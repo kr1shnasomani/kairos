@@ -16,14 +16,22 @@ default allow := false
 # engineer       — full read + governance operations; cannot modify MDM without authority
 # reliability    — can promote quarantine items, resolve admin conflicts
 # admin          — full access
-# compliance     — read-only access to compliance cockpit and audit trail
+# compliance     — read-only access to compliance cockpit, non-conformance and audit trail
+#
+# The read_* grants mirror the frontend route table (`components/use-role.ts`) — each role holds
+# exactly the actions its permitted routes actually call. Keep the two in step: a route that a
+# role can open but whose API calls it cannot make is a broken page, not a closed boundary.
+#
+# read_nonconformance is narrower than read_governance on purpose: /compliance/nonconformance
+# reads conflicts + quarantine, so the compliance auditor needs those two /governance children
+# without reaching the model gate, MoC approvals or the circuit breaker.
 # =============================================================================
 
 roles := {
     "field_worker":  {"read_search", "read_briefs", "ack_brief"},
-    "engineer":      {"read_search", "read_briefs", "ack_brief", "ingest_document", "read_governance", "read_compliance", "read_audit", "resolve_admin_conflict", "read_assets", "write_assets"},
-    "reliability":   {"read_search", "read_briefs", "ingest_document", "read_governance", "read_compliance", "read_audit", "promote_quarantine", "countersign_brief", "resolve_admin_conflict", "read_assets"},
-    "compliance":    {"read_search", "read_compliance", "read_audit"},
+    "engineer":      {"read_search", "read_briefs", "ack_brief", "ingest_document", "read_governance", "read_nonconformance", "read_compliance", "read_audit", "read_documents", "read_events", "resolve_admin_conflict", "read_assets", "write_assets"},
+    "reliability":   {"read_search", "read_briefs", "ingest_document", "read_governance", "read_nonconformance", "read_compliance", "read_audit", "read_documents", "read_events", "promote_quarantine", "countersign_brief", "resolve_admin_conflict", "read_assets"},
+    "compliance":    {"read_search", "read_compliance", "read_audit", "read_nonconformance", "read_events"},
     "admin":         {"*"},
 }
 
@@ -115,6 +123,7 @@ can_countersign_brief if {
 _sensitive_actions := {
     "promote_quarantine", "countersign_brief", "resolve_admin_conflict", "write_assets",
     "ingest_document", "read_audit", "read_compliance", "read_governance",
+    "read_nonconformance", "read_documents", "read_events",
 }
 
 allow if {
