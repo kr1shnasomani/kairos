@@ -62,9 +62,10 @@ if os.Getenv("EAM_ODS_ENDPOINT") == "" {
 
 **Backend (Python API):** Live service unreachable → fixture JSON returned inline.
 
-**Frontend:** LIVE-ONLY (see §3). Read fetchers still return `{ data, source }`, but a `source: "demo"`
-result is never shown to the user — it is treated as a failure and surfaces a loading skeleton or an
-error+retry. The default read timeout is **4 s** (`getJson`), compliance gaps **5 s**.
+**Frontend:** LIVE-ONLY (see §3). Read fetchers return `{ data, source }`, but **`DataSource` is now a
+single member — `"live"` (`api.ts:250`)**. There is no `"demo"` value to return, so a fixture fallback
+cannot be reintroduced without a type error. Fetchers **throw** on failure. Read timeout **4 s**
+(`getJson`), writes **8 s** (`postJson`), `synthesize()` **90 s**.
 
 ---
 
@@ -137,10 +138,11 @@ error+retry. The default read timeout is **4 s** (`getJson`), compliance gaps **
 
 ## 3. Frontend Live-Only Policy
 
-**The web app never shows fabricated data.** A read fetcher in `api.ts` still returns `{ data, source }`,
-but the app no longer renders the `source: "demo"` path:
+**The web app never shows fabricated data**, and this is now enforced by the type system rather than by
+convention: `DataSource = "live"` is a single-member union, so a fetcher cannot return a fixture source
+at all. Fetchers **throw** on failure.
 
-- **Client pages (`useFetch`)** — `useFetch` maps a `demo` result to **error** → the page's error+retry state.
+- **Client pages (`useFetch`)** — a rejected fetcher becomes the page's error+retry state.
 - **Server pages** (assets, asset detail, briefs, documents, doc detail, off-boarding) — **`throw` on demo**
   → the shared `(app)/error.tsx` boundary + `(app)/loading.tsx` skeleton. (`(app)/layout.tsx` is
   `dynamic = "force-dynamic"` so these render per request, never prerendered at build.)
@@ -152,6 +154,12 @@ but the app no longer renders the `source: "demo"` path:
   substitutes a fixture on empty).
 
 So the net user experience everywhere is: **real data · loading skeleton · error+retry** — never a demo chip.
-The `<DemoChip>` primitive and the fixture modules (`lib/fixtures.ts`, `assets.ts`, `compliance.ts`,
-`copilot.ts`, `documents.ts`, `governance.ts`, `rca.ts`) remain in the tree but are effectively dead;
-removing them entirely is optional cleanup.
+
+**The cleanup is done, not optional.** `<DemoChip>` and its 10 render sites were deleted on
+2026-08-15, along with `lib/{fixtures,assets,compliance,documents,governance}.ts`. Verified
+2026-08-17: none of those files exist and `DemoChip` appears nowhere in `frontend/src`.
+
+Two files in that original list **survive deliberately, and are not fixture modules**:
+`lib/copilot.ts` (live types + the real `SUGGESTIONS` constants + `metaAnswer()`) and `lib/rca.ts`
+(live types + `RCA_PRESETS`, plus `rcaFor` which is **TEST-ONLY** and must never be imported by
+`api.ts`).

@@ -682,10 +682,15 @@ class BriefEngine:
             resp = await self.es.search(
                 index=self.settings.ELASTICSEARCH_INDEX_DOCUMENTS,
                 body={
-                    "query": {"bool": {"must": [
-                        {"term": {"asset_id": asset_id}},
-                        {"term": {"document_type": "procedure"}},
-                    ]}},
+                    "query": {"bool": {
+                        "must": [
+                            {"term": {"asset_id": asset_id}},
+                            {"term": {"document_type": "procedure"}},
+                        ],
+                        # A brief that cites a superseded procedure is worse than one that cites
+                        # none — the technician has no way to tell it was replaced.
+                        "must_not": [{"term": {"status": "superseded"}}],
+                    }},
                     "_source": ["document_id", "title", "authority_level"],
                     "size": 5,
                 },

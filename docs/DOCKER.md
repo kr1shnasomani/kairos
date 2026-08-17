@@ -67,9 +67,10 @@ merge — that single flag is the entire dev/prod switch.
 | `kairos-elasticsearch` | `elasticsearch:8.13.4` | 9200, 9300 | — | internal |
 | `kairos-redis` | `redis:7.2-alpine` | 6379 | — | internal |
 | `kairos-temporal` | `temporalio/auto-setup:1.24.2` | 7233 | — | internal |
-| `kairos-temporal-postgres` | `postgres:14-alpine` | — | — | internal |
-| `kairos-temporal-ui` | `temporalio/ui:2.26.2` | 8088 | — | internal |
+| `kairos-temporal_postgres` | `postgres:14-alpine` | — | — | internal |
+| `kairos-temporal_ui` | `temporalio/ui:2.26.2` | 8088 | — | internal |
 | `kairos-opa` | `openpolicyagent/opa:0.65.0` | 8181 | — | internal |
+| `kairos-caddy` | `caddy:2-alpine` | — | **80, 443** | edge · **`--profile prod` only** |
 
 > Observability containers (`kairos-otel-collector`, `kairos-tempo`, `kairos-grafana`) were **removed** —
 > the backend exports OTLP directly to **Grafana Cloud** (see INFRA.md §6).
@@ -124,7 +125,8 @@ override). **`runner`** serves the Next.js **standalone** build (`node server.js
 as non-root user `nextjs`. Requires `output: "standalone"` in `next.config.ts`.
 
 ### `backend/connectors/Dockerfile` — multi-stage, non-root
-`builder` compiles a static binary (also used for `go run` in dev). `release`
+`builder` (golang:1.25-alpine — bumped from 1.22 for `x/crypto` 0.52) compiles a static binary,
+also used for `go run` in dev. `release`
 is a tiny Alpine image with just the binary + `fixtures/`, running as non-root
 `kairos`.
 
@@ -233,9 +235,12 @@ docker compose -f docker-compose.yml config >/dev/null  # prod
 ### Image sizes (measured)
 | Image | Dev target | Prod target |
 |-------|-----------|-------------|
-| `kairos-backend:local` | ~986 MB | ~986 MB |
-| `kairos-frontend:local` | ~800 MB (`dev`, full node_modules) | ~250 MB (`runner`, standalone) |
-| `kairos-connector:local` | ~880 MB (`builder`, Go toolchain) | ~36 MB (`release`) |
+| `kairos-backend:local` | ~1.0 GB | ~1.0 GB |
+| `kairos-frontend:local` | ~1.2 GB (`dev`, full node_modules) | ~250 MB (`runner`, standalone) |
+| `kairos-connector:local` | ~878 MB (`builder`, Go toolchain) | ~36 MB (`release`) |
+
+Dev-target sizes re-measured 2026-08-17 (`docker images`); the prod `runner`/`release` figures are
+from the last prod build and are not re-measured on every change.
 
 The backend was ~2.88 GB originally; multi-stage stripped the build toolchain,
 and choosing **Path B** (cloud vision model) for the Layer 3 P&ID parser let the
@@ -260,7 +265,7 @@ local ML stack (`torch`/`torchvision`/`ultralytics`/`layoutparser`/`opencv`/
 | Neo4j data | anonymous volume (loss risk) | named volume `kairos-neo4j_data` |
 | Backend image | single-stage, root, build tools in runtime | multi-stage, non-root, slim runtime |
 | Frontend image | dev server only | multi-stage; standalone non-root prod |
-| Go connector (prod) | 880 MB builder stage | 15 MB non-root release stage |
+| Go connector (prod) | 880 MB builder stage | ~36 MB non-root release stage |
 | 4 Python services | 4 separate image builds | one shared image, built once |
 | Ports | all datastore ports published | only 3000 + 8000 in prod |
 | Networks | one flat network | edge / internal split |

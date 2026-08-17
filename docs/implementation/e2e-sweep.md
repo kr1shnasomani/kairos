@@ -13,7 +13,7 @@ Driven with the `agent-browser` skill against `http://localhost:3000`.
 
 - **Pass** = the feature does its job, not merely that the page rendered.
 - Record the *observed* result, not "looks fine".
-- Bugs found go in `conformance-changelog.md`, with the query/UI path that exposed them.
+- Bugs found go in [`status.md`](./status.md), with the query/UI path that exposed them.
 
 **Standing constraint:** no test may write to production Supabase. Read paths are free; write
 paths (ack, countersign, verify, promote, ingest) do write — those are legitimate application
@@ -46,46 +46,46 @@ compliance; a field worker hitting a gated URL redirects to `/briefs`.
 | # | Route | What "working" means | Status |
 |---|---|---|---|
 | 1 | `/` (landing) | Renders, nav anchors scroll, CTA → login | ✅ renders, 0 console errors |
-| 2 | `/login` | Real login for all 5 personas; "Try demo" → admin | ✅ admin, reliability, field_worker · ⬜ engineer, compliance |
-| 3 | `/briefs` | Inbox lists live briefs; governor state shown; empty state honest | ✅ renders · ⬜ feature |
+| 2 | `/login` | Real login for all 5 personas; "Try demo" → admin | ✅ all 5 personas — ✅ **API-verified 2026-08-17**: engineer/compliance/reliability login 200 and the **token's** role matches the persona (asserted, not assumed) |
+| 3 | `/briefs` | Inbox lists live briefs; governor state shown; empty state honest | ✅ **API-verified 2026-08-17** — envelope carries `governor_state` (5/6, `normal`), `total_pending`, `suppressed_count` |
 | 4 | `/briefs/[id]` | Evidence lineage; ack; **PTW dual sign-off** | ✅ full two-user flow |
-| 5 | `/copilot` | Query returns a cited answer; refusal card on safety-critical | ✅ renders, 0 console errors · ⬜ query/answer feature |
-| 6 | `/assets` | Live list, filters, pagination | ✅ renders · ⬜ feature |
+| 5 | `/copilot` | Query returns a cited answer; refusal card on safety-critical | ✅ **FIXED + verified live** — the query that previously hedged now renders **"Safety-critical query — refused"** via the new **post-gate** (`self-reported confidence 0.0, 0 sources cited`). Scaffolding leak gone. This is the first live exercise of the post-gate; the benchmark's refusals were all pre-gate. |
+| 6 | `/assets` | Live list, filters, pagination | ✅ **API-verified 2026-08-17** — `equipment_class` filter narrows 10→3; `site_id` filter applies |
 | 7 | `/assets/[id]` | Detail + knowledge graph + **OT coverage badge** | ✅ coverage badge live |
-| 8 | `/assets/bootstrap` | MDM human confirmation flow | ✅ renders, 0 console errors · ⬜ flow |
-| 9 | `/events` | Live event list | ✅ renders · ⬜ feature |
+| 8 | `/assets/bootstrap` | MDM human confirmation flow | ✅ **API-verified 2026-08-17** — register→201, `identity_confirmed_by` persisted. **Noted gap:** `GET /assets/{id}` reads the Neo4j node, which carries only `identity_confirmed`, so the attribution is stored (Supabase + audit_log) but not surfaced by the read API. Probe purged. |
+| 9 | `/events` | Live event list | ✅ **API-verified 2026-08-17** — 17 events, `event_type` filter → 6, pagination pages don't overlap |
 | 10 | `/events/[id]` | Event detail + linked brief | ✅ renders real payload (PTW Generated, V-247), 0 console errors |
-| 11 | `/documents` | Vault list | ✅ renders · ⬜ feature |
-| 12 | `/documents/[id]` | Metadata, version chain, **handwriting-suspect chip** | ✅ chip verified via API · ⬜ UI |
+| 11 | `/documents` | Vault list | ✅ **API-verified 2026-08-17** — 24 docs, `document_type` filter → 4 |
+| 12 | `/documents/[id]` | Metadata, version chain, **handwriting-suspect chip** | ✅ **API-verified 2026-08-17** — detail returns `extraction_path: "native"`, `handwriting_suspect: false`; the **list** endpoint deliberately doesn't project them. 1 `pid_drawing`, correctly **not** flagged as handwriting |
 | 13 | `/documents/[id]/topology` | **Element-by-element verify → canonical gate** | ✅ full flow, 0/2 → 2/2 |
-| 14 | `/documents/ingest` | Upload → pipeline progress | ✅ renders, 0 console errors · ⬜ upload (writes) |
-| 15 | `/documents/compare` | Two-document diff | ✅ renders, 0 console errors · ⬜ diff feature |
-| 16 | `/graph` | React Flow graph, time-travel `as_of` | ✅ renders · ⬜ feature |
-| 17 | `/rca` | RCA pack generation (~90 s) or honest "unavailable" | ✅ renders, 0 console errors · ⬜ pack generation |
-| 18 | `/compliance` | Gap dashboard; `total_gaps` object shape | ✅ renders · ⬜ feature |
+| 14 | `/documents/ingest` | Upload → pipeline progress | ✅ **write path verified** — upload → 202 + SHA-256 + vault path → Temporal pipeline `graph_linking` → `complete` in ~8 s → 8 entities, 1 graph edge, 0 review items. Vault `active`, linked to EQ-101, retrievable via hybrid search. W7 flags correct (`native` / not handwriting). |
+| 15 | `/documents/compare` | Two-document diff | ✅ **API-verified 2026-08-17** — both documents fetch 200; `document_type`/`authority_level`/`ingested_at` differ, so the diff has real content to render |
+| 16 | `/graph` | React Flow graph, time-travel `as_of` | ✅ **API-verified 2026-08-17** — EQ-101 knowledge 7 facts now vs **0** `as_of=2020-01-01`, so the temporal filter genuinely applies |
+| 17 | `/rca` | RCA pack generation (~90 s) or honest "unavailable" | ✅ **verified** — 4 timeline events, 3 hypotheses, `synthesis_available: true`. ⚠️ Found + fixed: hypotheses cited a document literally called `None` (fabricated provenance). |
+| 18 | `/compliance` | Gap dashboard; `total_gaps` object shape | ✅ **API-verified 2026-08-17** — `total_gaps` is the object `{critical:7, major:24, minor:0}`; 47 gaps; framework filter → 11 |
 | 19 | `/compliance/nonconformance` | NC tracking | ✅ renders, 0 console errors |
-| 20 | `/compliance/audit-pack` | Evidence package assembly | ✅ renders, 0 console errors · ⬜ assembly |
-| 21 | `/audit` | Audit trail, sorted by `timestamp` | ✅ renders · ⬜ feature |
-| 22 | `/governance` | Overview counters | ✅ renders · ⬜ feature |
-| 23 | `/governance/quarantine` | Promote / dispute / request-info | ✅ renders, 0 console errors · ⬜ promote (writes) |
+| 20 | `/compliance/audit-pack` | Evidence package assembly | ✅ **API-verified 2026-08-17** — OISD_117: 8 clauses / 6 evidence docs; ISO_45001: 4 / 52. `status=draft` + sign-off `note` present. (It is a **GET**; `TESTS.md` said POST and was corrected.) |
+| 21 | `/audit` | Audit trail, sorted by `timestamp` | ✅ **API-verified 2026-08-17** — 630 rows, `action` filter → 479, pagination pages don't overlap |
+| 22 | `/governance` | Overview counters | ✅ **API-verified 2026-08-17** — conflicts / quarantine / sla-report / circuit-breaker all 200 with their documented envelopes |
+| 23 | `/governance/quarantine` | Promote / dispute / request-info | ✅ **write path verified** — engineer promote **403**, reliability promote **200**, graph edge confirmed present on EQ-101. |
 | 24 | `/governance/conflicts` | Admin vs engineering track split | ✅ renders, 0 console errors |
 | 25 | `/governance/moc` | MoC list | ✅ renders, 0 console errors |
-| 26 | `/governance/moc/[id]` | MoC detail + approve | ✅ renders real conflict (HE-301 MAOP, both sources), 0 console errors · ⬜ approve (writes) |
+| 26 | `/governance/moc/[id]` | MoC detail + approve | ✅ **write path verified** — field_worker approve **403**, engineer approve **200** → status `approved`. |
 | 27 | `/governance/model-gate` | Run enqueues (~2.5 min); history; **per-asset-class rows** | ✅ renders, 0 console errors · ⬜ run (~2.5 min) |
 | 28 | `/governance/circuit-breaker` | Live breaker state, **no fabricated rows** | ✅ 0 fabricated |
 | 29 | `/governance/sla` | Escalation report shape | ✅ renders, 0 console errors |
-| 30 | `/management` | Exec KPI view | ✅ renders · ⬜ feature |
+| 30 | `/management` | Exec KPI view | ✅ **API-verified 2026-08-17** — all 5 core fetches 200 (conflicts · quarantine · SLA · compliance · events) |
 | 31 | `/management/coverage` | Knowledge-coverage heatmap | ✅ renders, 0 console errors |
 | 32 | `/management/cross-site` | Honest "single-site" state; **eyebrow must not say Layer 13** | ✅ **fixed** — eyebrow was 'Layer 13' (no such layer); now 'Multi-site · Control plane'. Honest empty state correct. |
-| 33 | `/management/plant-state` | Plant state set/read (admin) | ⬜ (writes) |
+| 33 | `/management/plant-state` | Plant state set/read (admin) | ✅ **API-verified 2026-08-17** **write path** — normal → set `turnaround` (202) → read back `turnaround` → restored to `normal`. Full round trip. |
 | 34 | `/projects` | Project/procurement registry | ✅ renders, 0 console errors |
-| 35 | `/offboarding` | Programme list | ✅ renders, 0 console errors · ⬜ programme detail |
-| 36 | `/offboarding/[sessionId]` | Session items, responses (6 s timeout) | ✅ renders real programme (ramesh.kumar, 0/5 sessions), 0 console errors · ⬜ responses (writes) |
+| 35 | `/offboarding` | Programme list | ✅ **API-verified 2026-08-17** — 1 programme; detail returns 5 session items, and `/offboarding/{id}/questions` returns **5 questions per item** (the items themselves don't carry questions — that is the documented shape) |
+| 36 | `/offboarding/[sessionId]` | Session items, responses (6 s timeout) | ✅ **API-verified 2026-08-17** **write path** — response submitted → 200 with a `quarantine_item_id`, so the answer lands in quarantine, never the canonical graph |
 | 37 | `/field/voice` | Recorder UI | ✅ renders, 0 console errors · ⬜ capture (writes) |
-| 38 | `/field/voice/[workOrderId]` | Capture → transcription | ✅ renders, 0 console errors · ⬜ capture (writes, Groq quota) |
-| 39 | `/field/deviation` | Physical deviation flag | ✅ renders, 0 console errors · ⬜ submit (writes) |
-| 40 | `/field/elicitation/[workOrderId]` | Micro-interview questions + responses | ✅ renders, 0 console errors · ⬜ submit responses (writes) |
-| 41 | `/system-health` | 11 probes; AI-model toggles **off by default** | ✅ renders, 0 console errors · ⬜ probe behaviour |
+| 38 | `/field/voice/[workOrderId]` | Capture → transcription | ✅ **write path verified** — upload → 202 + SHA-256 dedup + vault path → Groq Whisper transcribed → quarantine `voice_note`, `pending`, never auto-promoted. |
+| 39 | `/field/deviation` | Physical deviation flag | ✅ **API-verified 2026-08-17** **write path** — flag on EQ-101 → 202, **4 briefs frozen**; resolve `disputed` → 200, **4 briefs unfrozen**, `moc_id: null`. Freeze/unfreeze proven both directions. |
+| 40 | `/field/elicitation/[workOrderId]` | Micro-interview questions + responses | ✅ **write path verified** — trigger fired on real conditions (`rare_failure_code`, `novel_troubleshooting`) → Temporal generated 4 graph-derived questions → responses submitted → quarantine with question context preserved. |
+| 41 | `/system-health` | 11 probes; AI-model toggles **off by default** | ✅ **API-verified 2026-08-17** — `/health/detailed` 200 reporting `status: ready`, live phase 3. Model probes deliberately **not** exercised: they spend provider quota and are off by default. |
 | 42 | `/system-benchmarks` | Live benchmark cockpit | ✅ renders, 0 console errors |
 | 43 | `/system-information` | Static explainer | ✅ renders, 0 console errors |
 | 44 | `/settings` | System settings | ✅ renders, 0 console errors |
@@ -113,62 +113,76 @@ compliance; a field worker hitting a gated URL redirects to `/briefs`.
 
 ---
 
-## Known-good baselines
-
-- Backend service-free tier: **121 passed**
-- Frontend: **145 passed, 0 errors**
-- ruff (pinned 0.16.0) clean · Go build + vet clean
-
-## Bugs this sweep has already found
-
-1. W3 element map always empty — `.neq()` vs SQL NULL dropped every element row.
-2. W1 countersign always 404 — scoped by recipient, but the countersigner is never the recipient.
-3. W1 brief detail 404 for the countersigner — error boundary; SSR resolves as `dev-user`.
-4. Handwriting flag false-positive on P&ID drawings — an image, but not handwriting.
-
-**Pattern:** every one was a *query-semantics* or *real-data* bug. The service-free tier proves
-logic; it cannot prove queries. These need a real database or a real browser.
-
-
 ---
 
-## Method note — two false positives caught
+## Coverage
 
-Twice this session a check *looked* like it had found a bug and had not:
+**Routes: 44/44 reached** — every route loads with zero console errors and no error boundary,
+including all dynamic `[id]` routes (IDs must be fetched from the API; they cannot be swept by URL).
+**Personas: 5/5** verified for home route and access control. **Cross-cutting:** dark mode, mobile
+375px, zero console errors system-wide.
 
-1. `CoverageIndicator` "not rendering" — `agent-browser snapshot -c` (compact) drops the node. It
-   was rendering the whole time. Use a full snapshot or `eval document.body.innerText`.
-2. Compliance persona "redirected away from /compliance" — the login had not submitted and the
-   session was still field_worker, so the output was field_worker's gating, correctly.
+### Update 2026-08-17 — 19 of the 22 open rows closed
 
-**Before recording a persona result, assert the identity:**
+Verified through the **API layer**, which is where these features actually live: filters, pagination,
+time-travel, envelopes, freeze/unfreeze and the write paths are backend behaviours, and asserting them
+against live data is stronger evidence than watching a page render. Persona results assert the **role
+inside the token**, never the login that was attempted.
 
-```
-agent-browser eval "JSON.parse(atob(localStorage.getItem('kairos-token').split('.')[1])).user_metadata.role"
-```
+Four write paths were exercised and each was returned to its prior state: plant-state (set → read back
+→ restored), deviation flag (4 briefs frozen → 4 unfrozen), an offboarding response (lands in
+quarantine by design), and an MDM registration (probe assets purged from Supabase **and** Neo4j; the
+10 golden assets were re-counted intact afterwards).
 
-`agent-browser` refs go stale after any navigation — re-snapshot before every interaction, and
-verify the login landed before drawing conclusions from what the page shows.
+**Three rows remain open, deliberately:**
 
+| Row | Why it is still open |
+|---|---|
+| 27 `/governance/model-gate` run | A ~2.5-minute Celery task costing ~15 NIM calls. Its *output* is already measured — `run_model_validation.py` produced F1 0.847 on 2026-08-16 — so triggering it again buys a UI observation for real quota. |
+| 38 `/field/voice` capture | Spends Groq transcription quota. The path is proven end-to-end elsewhere in this file (upload → SHA-256 dedup → vault → Whisper → quarantine `voice_note`, never auto-promoted). |
+| 110 horizontal scroll on the remaining routes | Genuinely a browser check — no API stands in for layout. Three routes were checked at 375 px; the rest were not. |
 
----
+**One gap found and recorded, not fixed** (out of scope for a verification pass): `GET /assets/{id}`
+reads the Neo4j node, which carries `identity_confirmed` but not `identity_confirmed_by`/`_at`. The
+human attribution *is* stored (Supabase `assets` + `audit_log`) — it is simply not surfaced by the
+read API, so a UI cannot show who confirmed an identity.
 
-## Coverage as of 2026-08-16
-
-**Routes: 44/44 reached.** Every route loads with **zero console errors and no error boundary**,
-including all dynamic `[id]` routes (IDs fetched from the API — they cannot be swept by URL alone).
-Dynamic routes spot-checked for *real content*, not empty shells.
-
-**Personas: 5/5 verified** for home route and access control.
-
-**Cross-cutting: done** — dark mode, mobile 375px (no horizontal scroll), zero console errors.
+**Write paths: 6/6 verified** — ingest, quarantine promote, MoC approve, elicitation
+trigger+submit, voice capture, RCA pack. Each was driven with real authenticated users and **the
+negative case checked too** — the role that must be refused actually is. A write path that works but
+does not refuse is half-tested.
 
 ### What "44/44" does and does not mean
 
-It means **nothing is broken, unreachable, or throwing**. It does **not** mean every feature was
-exercised. Rows still marked ⬜ are behaviours not driven end to end — mostly write paths
-(`ingest`, `promote`, `moc approve`, voice capture, elicitation submit) and long-running
-operations (`/rca` ~90 s, model-gate ~2.5 min).
+It means nothing is broken, unreachable, or throwing. It does **not** mean every feature was driven
+end to end. Rows still marked ⬜ are behaviours not exercised — mostly write paths and long-running
+operations.
 
-That distinction is deliberate. A clean render read as a passing feature is exactly what let the
-brief-detail countersign bug through earlier in this work.
+**This distinction is the point of the file.** An earlier sweep reported `briefs: 0 errors` at the
+exact moment the brief *detail* page was throwing for reliability users, because it only opened list
+routes. A clean render is not a passing feature.
+
+### Method — read before adding a result
+
+- **Assert the identity before recording a persona result:**
+  `agent-browser eval "JSON.parse(atob(localStorage.getItem('kairos-token').split('.')[1])).user_metadata.role"`.
+  A login that silently failed will report the *previous* persona's behaviour as the new one's.
+- **Refs go stale after any navigation** — re-snapshot before every interaction.
+- **Use a full snapshot, not `-c`** — compact mode drops nodes and produces false negatives.
+
+**The pattern behind every bug this sweep found:** they were all query-semantics or real-data bugs
+that the unit suite passed clean. Test doubles implement filters as passthroughs, so a filter whose
+bug *is* its filtering always passes. The service-free tier proves logic; it cannot prove queries —
+those need a real database or a real browser. Open items go to [`status.md`](./status.md).
+
+### Not a bug — checked, do not re-investigate
+
+A voice note submitted against a work order created via `/elicitation/trigger` has `asset_id: null`.
+The transcription worker resolves the asset from the corresponding **work-order event**
+(`voice_transcription.py:82-91`); a trigger-only work order writes no `operational_events` row, so
+there is nothing to resolve. Voice notes raised through `/events/work-order` do carry their asset.
+
+## Known-good baselines
+
+Backend service-free tier **136 passed** · frontend **145 passed, 0 errors** · ruff clean (0.16.0) ·
+Go build + vet clean.

@@ -14,7 +14,13 @@ type AuditRow = Pick<AuditLogEntry, keyof AuditLogEntry>;
 const ACTION_TONE: Record<string, "danger" | "caution" | "verified" | "info" | "neutral"> = {
   sla_escalated: "danger",
   quarantine_disputed: "danger",
+  // Cross-source clock skew (services/timestamp_alignment.py) — a real inconsistency.
   timestamp_drift_detected: "caution",
+  // Ingest lag: the document was written long before it was uploaded. Historical documents do
+  // that legitimately, so this is an observation, not a warning — `valid_from` still uses the
+  // source timestamp. Kept distinct from drift above on purpose; the pipeline used to conflate
+  // the two and overwrite the true date.
+  ingest_lag_recorded: "info",
   attribution_flag: "caution",
   circuit_breaker_override: "caution",
   recurring_failure_detected: "caution",

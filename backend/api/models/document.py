@@ -30,6 +30,21 @@ class SynthesizeResponse(BaseModel):
     # a benchmark scores the difference as poor answer quality. `LLMService` has always set this on
     # its result dict; the response model simply dropped it on the way out.
     rate_limited: bool = False
+    # Open engineering-track conflicts awaiting MoC resolution that touch an asset cited in this
+    # answer. ARCHITECTURE.md Layer 7 / Flow C: "every query touching that fact displays an
+    # explicit warning banner identifying the pending MoC by number" — the graph is not updated
+    # until the MoC is signed, so an answer drawn from that asset must say the value is contested.
+    pending_moc: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AnswerFeedbackRequest(BaseModel):
+    """Phase-2 single-tap rating on a synthesized answer (Layer 12 trust loop)."""
+
+    query: str
+    rating: str = Field(..., pattern="^(accurate|missing_context|incorrect)$")
+    note: str | None = None
+    sources_used: list[int] = Field(default_factory=list)
+    model: str | None = None
 
 
 class RCAPackRequest(BaseModel):

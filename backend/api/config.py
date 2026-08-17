@@ -206,7 +206,10 @@ class Settings(BaseSettings):
     # Ships report-only: drift is logged and surfaced, but no conflict row is opened until
     # TIMESTAMP_DRIFT_ENFORCE is turned on deliberately.
     # -------------------------------------------------------------------------
-    TIMESTAMP_DRIFT_TOLERANCE_MINUTES: int = 60
+    # The tolerance itself is declared once under "Ingestion pipeline" below — both the
+    # cross-source check (services/timestamp_alignment.py) and the pipeline's own check read
+    # the same field. It used to be declared here as well; Pydantic keeps the last definition,
+    # so editing this copy silently did nothing.
     TIMESTAMP_DRIFT_ENFORCE: bool = False
 
     # -------------------------------------------------------------------------
@@ -256,6 +259,9 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     # Ingestion pipeline
     # -------------------------------------------------------------------------
+    # Two consumers: workflows/document_pipeline.py (occurred_at vs ingested_at) and
+    # services/timestamp_alignment.py (same event across source systems). Sole declaration —
+    # see the note beside TIMESTAMP_DRIFT_ENFORCE above.
     TIMESTAMP_DRIFT_TOLERANCE_MINUTES: int = 60
 
     @model_validator(mode="after")

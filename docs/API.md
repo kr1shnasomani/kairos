@@ -274,6 +274,36 @@ List all registered assets.
 
 ---
 
+### `GET /assets/coverage`
+
+Knowledge-coverage matrix across **all** assets — what backs the `/management/coverage` heatmap.
+Per asset: facts held, how many are authoritative, how many are human-verified, linked documents
+and pending quarantine items.
+
+Read-only and **model-free** — no OCR/NER/embedding call, so it spends no provider quota.
+
+> Declared **before** `/assets/{asset_id}` in `routers/assets.py` on purpose: FastAPI matches in
+> declaration order, so the reverse would make `coverage` resolve as an `asset_id`.
+
+**Response `200`:**
+```json
+{
+  "items": [
+    {
+      "asset_id": "EQ-101",
+      "fact_count": 5,
+      "authoritative_count": 2,
+      "verified_count": 1,
+      "document_count": 4,
+      "quarantine_pending": 21
+    }
+  ],
+  "total": 10
+}
+```
+
+---
+
 ### `GET /assets/{asset_id}`
 
 Get a single asset by its canonical ID. Enriched with 3-parallel live counts.
@@ -316,6 +346,33 @@ List all known tag aliases (alternate tag numbers, legacy names) for an asset.
   }
 ]
 ```
+
+Aliases proposed by the extraction pipeline arrive `confirmed: false`. Only **confirmed** aliases
+resolve a tag to its canonical asset, so an unconfirmed candidate is inert until a human signs it
+off with the endpoint below.
+
+---
+
+### `POST /assets/{asset_id}/aliases/{alias}/confirm`
+
+Confirm a tag alias the NER pipeline proposed, making it usable for tag resolution. This is the
+human half of Layer 1's rule that AI-assisted linking is permitted **only after** human
+confirmation.
+
+**Auth required:** Yes (`engineer` or `admin`)
+
+**Response `200`:**
+```json
+{
+  "status": "confirmed",
+  "alias": "PUMP-101",
+  "canonical_asset_id": "P-101",
+  "confirmed_by": "user-uuid"
+}
+```
+
+Idempotent — re-confirming returns `{"status": "already_confirmed", ...}` rather than an error.
+`404` if no such alias was proposed for that asset. Writes an `asset_alias_confirmed` audit row.
 
 ---
 
@@ -717,23 +774,36 @@ Mark a document as superseded by a newer version. Closes `valid_to` on all Neo4j
 
 **Auth required:** Yes (`engineer` or `admin`)
 
+Also flags the old version `status: "superseded"` in **Elasticsearch and every Qdrant chunk**, so it
+stops surfacing in default retrieval (ARCHITECTURE.md §8). Nothing is deleted from either store — a
+time-travel query (`as_of`) still reaches it.
+
 **Request body:**
 ```json
 {
-  "superseded_by_document_id": "doc-new-uuid",
-  "reason": "Rev D issued 2024-03-01"
+  "new_document_id": "doc-new-uuid"
 }
 ```
 
 **Response `200`:**
 ```json
 {
-  "document_id": "doc-old-uuid",
   "status": "superseded",
-  "superseded_by": "doc-new-uuid",
-  "edges_closed": 8
+  "old_document_id": "doc-old-uuid",
+  "new_document_id": "doc-new-uuid",
+  "edges_closed": 8,
+  "blast_radius": { "document_id": "doc-old-uuid", "affected_count": 6, "affected": [] },
+  "moc_required": true,
+  "moc_id": "MOC-A1B2C3D4",
+  "index_errors": []
 }
 ```
+
+`moc_id` is non-null when any affected edge carried `authority_level <= 3`.
+
+**`index_errors` is the one field to check.** Non-empty means the vault row is superseded but a
+search index still serves the old version as current — re-run the supersede once that store is
+reachable. It is reported rather than raised because Supabase is the source of truth.
 
 ---
 
@@ -852,6 +922,20 @@ but no `confidence` — a confidence-only gate read those as `0.0` and would ref
 safety-critical query. On refusal the response carries `refused: true`, `answer: null`, and
 the retrieved sources for direct verification.
 
+Only **relevant, same-asset** evidence may clear the gate. An authoritative document about a
+*different* asset cannot vouch for this answer — pass `relevance_score` on each context item to get
+that tighter behaviour; context without it keeps the looser rule, so hand-assembled callers are not
+silently re-scoped.
+
+**The gate runs twice — once on the evidence, once on the result.** The pre-gate above cannot know
+whether the model actually found the parameter. Observed live: a torque query for a non-existent
+asset retrieved an unrelated authority-3 bulletin, cleared the pre-gate, and the model honestly
+answered *"not specified in the provided source documents"* — which rendered as a **hedged
+low-confidence answer**, the one outcome the architecture forbids for a safety-critical parameter.
+So a synthesized answer whose *own* self-reported `CONFIDENCE:` is below threshold is converted into
+a refusal. A response with no parse markers carries no self-assessment and is **not** refused —
+a false refusal is its own safety failure, because it trains operators to route around the gate.
+
 **Safety-critical categories (refusal when confidence < 0.7):**
 `max_allowable_pressure` · `isolation_interlock_sequence` · `torque_specification` · `electrical_rating` · `pressure_relief_setting` · `safety_shutdown_setpoint`
 
@@ -864,9 +948,43 @@ the retrieved sources for direct verification.
   "refused": false,
   "safety_critical": true,
   "sources_used": [0],
-  "model": "meta/llama-3.1-70b-instruct"
+  "uncertainty": "No post-2024 revision of OISD-117 §6.4 was found in the vault.",
+  "model": "meta/llama-3.1-70b-instruct",
+  "rate_limited": false,
+  "pending_moc": []
 }
 ```
+
+`uncertainty` carries the model's own statement of what it could not establish; `rate_limited` is
+`true` only when **every** provider tier returned HTTP 429 (see above). `model` names the tier that
+actually answered — `meta/llama-3.1-70b-instruct` from NIM or OpenRouter, which serve the same
+model, or the Gemini model id if the cascade fell through to tier 3.
+
+**`pending_moc` — the change-under-review warning.** Non-empty when an asset cited in the answer has
+an open engineering-track conflict awaiting MoC sign-off. While a conflict sits in the MoC queue the
+canonical graph is deliberately **not** updated, so the answer may be reporting a value that is under
+formal dispute — architecture Layer 7 and Flow C both require the query to say so:
+
+```json
+"pending_moc": [
+  {
+    "conflict_id": "uuid",
+    "asset_id": "HE-301",
+    "parameter": "max_operating_pressure",
+    "severity": "major",
+    "moc_id": "MOC-A1B2C3D4",
+    "moc_status": "pending_approval"
+  }
+]
+```
+
+Populated on refusals too, so a refusal that hands back source documents still discloses that those
+documents are contested. The copilot renders it as a banner **above** the answer — after it, a
+technician has already read the number. `moc_id` is null when a conflict is flagged but no MoC draft
+has been raised yet.
+
+*Scope:* currently returned by `POST /search/synthesize` only, not by `GET /search/` or
+`POST /search/rca-pack`.
 
 **Response `200` — refused:**
 ```json
@@ -880,6 +998,37 @@ the retrieved sources for direct verification.
 ```
 
 An `audit_log` entry is written on every synthesis call.
+
+---
+
+### `POST /search/feedback`
+
+Record the single-tap rating on a synthesized answer. Architecture Layer 12 Phase 2 treats this as
+**direct input to outcome attribution and Layer 0 validation**, not UX research — it is the
+trust-building mechanism the phase is built around.
+
+**Auth required:** Yes
+
+**Request body:**
+```json
+{
+  "query": "What is the maximum allowable pressure for P-101?",
+  "rating": "accurate",
+  "note": "Matches the bulletin we have on file.",
+  "sources_used": [0],
+  "model": "meta/llama-3.1-70b-instruct"
+}
+```
+
+`rating` must be one of `accurate` · `missing_context` · `incorrect`. `note`, `sources_used` and
+`model` are optional.
+
+**Response `200`:** `{"status": "recorded", "rating": "accurate"}`
+
+Written to `audit_log` as action `synthesis_feedback`, alongside the `synthesis` row the query
+already writes — no separate table. The copilot calls this fire-and-forget: a failed rating never
+surfaces as an error over the answer, and the UI clears the selection rather than claiming a save
+that did not happen.
 
 ---
 
@@ -958,6 +1107,21 @@ Event ingestion for CMMS work orders, Permit-to-Work, shift handovers, DCS alarm
 2. Written to `operational_events` (Supabase)
 3. Published to the appropriate Redis Stream
 4. Trigger brief assembly asynchronously
+
+---
+
+### `GET /events/`
+
+Paginated operational-event feed (the `/events` workspace reads this).
+
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `event_type` | string | — | Optional filter, e.g. `work_order_created` |
+| `limit` | int | `50` | 1–200 |
+| `offset` | int | `0` | ≥ 0 |
+
+Ordered by `occurred_at` descending. Returns `event_id`, `event_type`, `event_subtype`, `asset_id`,
+`site_id`, `occurred_at` and `payload` per item, with an exact `total`.
 
 ---
 
@@ -1436,20 +1600,29 @@ Acknowledge a brief. Required for PTW briefs and any brief with `requires_counte
 
 **Auth required:** Yes
 
-**Request body:**
-```json
-{
-  "user_id": "tech-uuid",
-  "signature": "John Smith",
-  "notes": "Understood, proceeding with isolation check"
-}
-```
+**No request body.** The signer is the authenticated caller — accepting a `user_id` in the body
+would let one user sign as another, which is exactly what an acknowledgment record must prevent.
 
 For PTW briefs (`requires_countersignature: true`) this records the **first** signature only.
 `acknowledged_at` is deliberately left null and the response status is `pending_countersignature` —
 the brief is not complete until a second, distinct authority countersigns (see below).
 
-**Response `200`:** `{"brief_id": "...", "status": "acknowledged" | "pending_countersignature", "acknowledged_by": "..."}`
+**Response `200`:**
+```json
+{
+  "brief_id": "...",
+  "status": "acknowledged",
+  "acknowledged_by": "tech-uuid",
+  "signature": "9f2c…"
+}
+```
+
+**`signature` is an HMAC-SHA256** over `brief_id | user_id | action | timestamp`, keyed by
+`APP_SECRET_KEY` — the "cryptographically signed with the user's identity" requirement in
+architecture Layer 8. It is stored in the immutable `audit_log` row (with `signature_alg`), not on
+the `briefs` table, so the signed record lives where the audit trail already is and no schema
+migration is needed. Changing any one bound fact produces a different signature, so an
+acknowledgment captured on one brief cannot be replayed onto another.
 
 ---
 
@@ -1480,6 +1653,10 @@ deliberately cannot countersign, so both signatures can never come from the issu
   "countersigned_at": "2026-08-16T09:12:00Z"
 }
 ```
+
+Writes its own HMAC to the `brief_countersigned` audit row, computed over the `countersigned`
+action so it can never collide with the acknowledger's signature. The two signatures together are
+the dual sign-off evidence for the permit.
 
 ---
 
@@ -2192,20 +2369,24 @@ Get generated interview questions (available after workflow reaches `status=ques
 **Response `200`:**
 ```json
 {
-  "session_id": "session-uuid",
   "work_order_id": "WO-2024-001",
   "status": "questions_ready",
   "questions": [
-    {
-      "question_id": "q-1",
-      "text": "When did you first notice the seal leak? Was there any change in operating conditions beforehand?",
-      "type": "open_ended"
-    }
+    "The previous two failures on this asset were attributed to lubrication intervals. Did the component condition suggest a different root cause this time?",
+    "Were there operating changes in the days before the leak was noticed?"
   ]
 }
 ```
 
-Returns `404` if no session exists yet.
+> **Questions are a plain `string[]`**, not objects. Corrected 2026-08-16 — this block previously
+> showed `{question_id, text, type}` objects, which the endpoint has never returned. The question
+> *text* is therefore the identifier when submitting answers (see `POST …/responses` below).
+
+An empty `questions` array means the Temporal workflow is still generating them — it makes a model
+call per session, so poll rather than treating the first empty response as "no questions".
+
+Returns `404` if no session exists yet. Sessions are **event-triggered** (`POST /elicitation/trigger`);
+there is no session for an arbitrary work order id.
 
 ---
 
@@ -2218,23 +2399,35 @@ Submit Q&A responses. Stored in `quarantine_items` for expert review before grap
 **Request body:**
 ```json
 {
-  "session_id": "session-uuid",
   "responses": [
-    {"question_id": "q-1", "answer": "Started 3 days ago, no operating changes"},
-    {"question_id": "q-2", "answer": "Yes, replaced twice in 2022"}
-  ]
+    {"question": "Did the bearing housing show thermal cycling?", "answer": "Yes — discolouration on the outboard face."},
+    {"question_index": 1, "answer": "Shares the discharge header with EQ-102."}
+  ],
+  "submitted_by": "field_worker@kairos.local"
 }
 ```
+
+Questions are a `string[]`, so the question **text** is the identifier. `question_index` is
+accepted as an alternative for callers holding the position instead; supply one or the other.
+`submitted_by` is **optional** — it defaults to the authenticated user, matching
+`POST /elicitation/offboarding/{session_id}/responses`.
+
+> Corrected 2026-08-16. This block previously documented `session_id` and `question_id`, neither of
+> which the endpoint has ever accepted. The request model was also an untyped `list[dict[str, str]]`,
+> so a caller passing an integer got `"Input should be a valid string"` pointing at a key they had
+> invented, with nothing indicating the real one. It is now a typed `ElicitationAnswer` model.
 
 **Response `200`:**
 ```json
 {
-  "session_id": "session-uuid",
-  "status": "completed",
-  "quarantine_item_id": "q-item-uuid",
-  "message": "Responses stored in quarantine for expert review"
+  "item_id": "q-item-uuid",
+  "status": "quarantined"
 }
 ```
+
+Responses land in **quarantine**, never the canonical graph — elicitation output requires human
+promotion (architecture Layer 9). The question context is stored alongside the answers so a
+reviewer can see exactly what was asked.
 
 ---
 
@@ -2607,24 +2800,6 @@ Query historian time-series. Uses `PIWebAPIClient` if `PI_WEBAPI_BASE_URL` is co
 
 ---
 
-### `GET /ot/coverage/:asset_id`
-
-Check whether an asset has knowledge graph coverage. Calls FastAPI `GET /assets/{asset_id}/knowledge` with internal service key.
-
-**Response `200`:**
-```json
-{
-  "asset_id": "P-101",
-  "coverage_percent": 100,
-  "source": "knowledge_graph",
-  "fact_count": 4
-}
-```
-
-`source: "mock"` when FastAPI returns no facts or is unreachable.
-
----
-
 ### `POST /eam/sync`
 
 Sync EAM assets into KAIROS. Reads `fixtures/sample_assets.json` if `EAM_ODS_ENDPOINT` is not configured (5 assets: P-101, V-201, HX-301, C-401, T-501). POSTs each to FastAPI `POST /assets`.
@@ -2663,7 +2838,7 @@ Proxy an EAM work order into KAIROS event ingestion. Forwards raw body to FastAP
 | `404` | Resource not found |
 | `409` | Conflict (duplicate asset_id, document already superseded) |
 | `422` | Pydantic validation error (field type mismatch) |
-| `500` | Internal server error — check `docker logs kairos-backend-api 2>&1 | tail -30` |
+| `500` | Internal server error — check `docker logs kairos-backend-api 2>&1 \| tail -30` |
 
 **OPA 403 response shape:**
 ```json

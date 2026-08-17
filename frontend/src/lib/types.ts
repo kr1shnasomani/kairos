@@ -416,6 +416,21 @@ export interface ModelGateResult {
   model_name?: string;
   /** Per-entity-type breakdown — shows which entity types a model actually fails on. */
   by_entity_type?: Record<string, EntityTypeScore>;
+  /**
+   * Whether this run may be read as a measurement of the model.
+   *
+   * `SUSPECT` means some extractions fell back to the regex path, which matches ASSET_TAG only —
+   * so the F1 is a **ceiling**, not a score for the model named in the row. Without this the trend
+   * plots a fallback-contaminated run identically to a clean one.
+   *
+   * Optional on purpose: the Celery gate (`workers/model_validation.py`) writes `details: result`
+   * without these fields, and every row before 2026-08-15 predates them.
+   */
+  validity?: "VALID" | "SUSPECT";
+  /** Extraction path counts, e.g. `{nim: 15}` or `{nim: 3, regex: 2}`. */
+  extraction_paths?: Record<string, number>;
+  /** Extractions that did NOT come from the model under test. */
+  fallback_extractions?: number;
 }
 
 export interface ModelGateHistory {

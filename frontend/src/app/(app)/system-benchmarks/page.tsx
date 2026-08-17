@@ -84,7 +84,13 @@ export default function SystemBenchmarksPage() {
           label="Latest model-gate F1"
           value={latest ? f3(latest.f1) : null}
           tone={latest ? (latest.passed ? "verified" : "danger") : "neutral"}
-          sub={latest ? (latest.passed ? "Gate passed" : "Gate failed") : "No run recorded"}
+          // The headline is the most misleading place for a fallback-contaminated run: a SUSPECT
+          // F1 is a ceiling, and shown bare it reads as the model's score.
+          sub={
+            latest
+              ? `${latest.passed ? "Gate passed" : "Gate failed"}${latest.validity === "SUSPECT" ? " · SUSPECT — ceiling, not a measurement" : ""}`
+              : "No run recorded"
+          }
           loading={gate.status === "loading"}
         />
         <KpiCard
@@ -225,6 +231,24 @@ export default function SystemBenchmarksPage() {
                   <StatusBadge tone={r.passed ? "verified" : "danger"}>{r.passed ? "Passed" : "Failed"}</StatusBadge>
                 ),
               },
+              {
+                // A SUSPECT run had extractions fall back to the regex path, which matches
+                // ASSET_TAG only — its F1 is a ceiling, not a score for the model in the row.
+                // Untagged rows (Celery gate, anything before 2026-08-15) carry no verdict and
+                // must not be dressed up as clean ones, so they render as "—".
+                key: "validity",
+                label: "Validity",
+                render: (r) =>
+                  r.validity ? (
+                    <StatusBadge tone={r.validity === "VALID" ? "verified" : "caution"}>
+                      {r.validity === "VALID"
+                        ? "Valid"
+                        : `Suspect${r.fallback_extractions ? ` · ${r.fallback_extractions} fallback` : ""}`}
+                    </StatusBadge>
+                  ) : (
+                    <span className="text-muted">—</span>
+                  ),
+              },
             ]}
           />
         )}
@@ -239,10 +263,18 @@ export default function SystemBenchmarksPage() {
           a static file as live data. Run the harnesses to refresh them.
         </p>
         <p className="mt-2 text-caption text-muted">
-          Latest recorded: retrieval <strong className="text-ink">25/25</strong> · answer quality{" "}
-          <strong className="text-ink">22–24/25</strong> (±2 run-to-run) · provenance{" "}
-          <strong className="text-ink">25/25</strong> · compliance gap F1{" "}
-          <strong className="text-ink">0.986</strong> · load <strong className="text-ink">0% errors to 25 VU</strong>.
+          Latest recorded (2026-08-16, 37 questions at the shipping 60 s cap): retrieval{" "}
+          <strong className="text-ink">37/37</strong> · answer quality{" "}
+          <strong className="text-ink">34/37</strong> (95% CI 79–97%, run validity{" "}
+          <strong className="text-ink">VALID</strong>) · provenance <strong className="text-ink">37/37</strong>{" "}
+          · compliance gap F1 <strong className="text-ink">0.912</strong> · load{" "}
+          <strong className="text-ink">0% errors to 50 VU</strong>.
+        </p>
+        <p className="mt-2 text-caption text-muted">
+          Compliance fell from 0.986 because a human promoted a quarantined procedure onto EQ-101 after
+          the truth table was authored, so five clauses it lists as gaps are now genuinely covered. The
+          truth table is deliberately not amended — grading a system against its own output measures
+          nothing. Precision stays 1.000 with zero false positives.
         </p>
         <Link
           href="/governance/model-gate"

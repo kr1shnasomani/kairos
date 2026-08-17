@@ -53,6 +53,15 @@ SECONDS_PER_DOCUMENT = float(os.getenv("SECONDS_PER_DOCUMENT", "120"))
 # Cap on how deep a human would plausibly go before giving up / asking a colleague.
 MAX_DOCS_SCANNED = 10
 
+# Mirrors the frontend's budget for POST /search/synthesize, exactly as run_benchmark.py does.
+# This client used to allow 180 s — twice what the browser tolerates — so it recorded a
+# time-to-answer no user could ever experience, and scored calls the product would have aborted
+# as successes.
+SYNTH_TIMEOUT = float(os.getenv("BENCHMARK_SYNTH_TIMEOUT", "90"))
+
+# Seconds between questions. Default matches run_benchmark.py's --delay.
+DELAY = float(os.getenv("BENCHMARK_DELAY", "15"))
+
 
 def _hit(text: str, expect_any: list[str]) -> bool:
     low = (text or "").lower()
@@ -94,9 +103,9 @@ async def main() -> int:
     index = settings.ELASTICSEARCH_INDEX_DOCUMENTS
 
     rows = []
-    async with httpx.AsyncClient(timeout=180.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=SYNTH_TIMEOUT, follow_redirects=True) as client:
         headers = {"Authorization": f"Bearer {KEY}"}
-        for q in questions:
+        for qi, q in enumerate(questions):
             expect_any = q.get("expect_any", [])
 
             rank, bm25_ms = await _bm25_rank(es, index, q["question"], expect_any)
@@ -106,22 +115,29 @@ async def main() -> int:
             params = {"q": q["question"], "limit": 6}
             if q.get("asset_id"):
                 params["asset_id"] = q["asset_id"]
-            search = await client.get(f"{API}/search", headers=headers, params=params)
-            ctx = [
-                {
-                    "text": r.get("snippet", ""),
-                    "document_id": r.get("document_id"),
-                    "authority_level": r.get("authority_level", 5),
-                }
-                for r in (search.json().get("results", []) if search.status_code == 200 else [])
-            ]
+            ctx = []
             answered = False
-            if ctx:
-                syn = await client.post(
-                    f"{API}/search/synthesize", headers=headers, json={"query": q["question"], "context": ctx}
-                )
-                body = syn.json() if syn.status_code == 200 else {}
-                answered = bool(body.get("answer")) or bool(body.get("refused"))
+            try:
+                search = await client.get(f"{API}/search", headers=headers, params=params)
+                ctx = [
+                    {
+                        "text": r.get("snippet", ""),
+                        "document_id": r.get("document_id"),
+                        "authority_level": r.get("authority_level", 5),
+                    }
+                    for r in (search.json().get("results", []) if search.status_code == 200 else [])
+                ]
+                if ctx:
+                    syn = await client.post(
+                        f"{API}/search/synthesize", headers=headers, json={"query": q["question"], "context": ctx}
+                    )
+                    body = syn.json() if syn.status_code == 200 else {}
+                    answered = bool(body.get("answer")) or bool(body.get("refused"))
+            except (httpx.TimeoutException, httpx.HTTPError) as e:
+                # A call the product would have aborted is a MISS, not a crashed run. Letting this
+                # propagate discarded every question already measured — the same defect that cost
+                # run_benchmark.py 21 of 37 questions on 2026-08-16.
+                print(f"  {q['id']:<5} {type(e).__name__} — counted as unanswered", flush=True)
             kairos_ms = (time.perf_counter() - t) * 1000
 
             docs_opened = rank if rank else MAX_DOCS_SCANNED
@@ -145,6 +161,12 @@ async def main() -> int:
                 f" | kairos {kairos_ms:8.1f}ms {'ans' if answered else 'MISS':<4}"
                 f" | human {trad_human_s/60:5.1f}m -> {kairos_human_s/60:4.1f}m"
             )
+
+            # Pace the next synthesis call, for the same reason run_benchmark.py does: NVIDIA's
+            # shared endpoint degrades under back-to-back load, so an unpaced sweep measures the
+            # queue rather than the system, and multiplies fallthrough onto the free Gemini tier.
+            if DELAY and qi < len(questions) - 1:
+                await asyncio.sleep(DELAY)
 
     await es.close()
 

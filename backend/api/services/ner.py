@@ -123,14 +123,84 @@ class NERService:
             log.warning("ner.ollama_failed", error=str(exc), exc_type=type(exc).__name__)
             return None
 
+    @staticmethod
+    def _salvage_objects(content: str) -> list[dict[str, Any]]:
+        """
+        Recover the complete `{...}` objects from a truncated or trailing-garbage JSON array.
+
+        `max_tokens` is 1024, so an entity-dense document runs out of budget mid-array and the
+        response ends part-way through an object. `json.loads` then rejects the **entire**
+        response, and a document the model had almost finished extracting fell through to the
+        regex last resort — which matches `ASSET_TAG` only, so PERSON/ORGANIZATION silently
+        vanish from that document. Observed 2026-08-16: 1 of 15 corpus documents failed exactly
+        this way (`Expecting value: line 38 column 77 (char 2893)`), and it is what kept the
+        Layer-0 F1 flagged `SUSPECT` after the timeout cause was fixed.
+
+        Salvaging beats raising `max_tokens`: a bigger budget only moves the cliff, while this
+        degrades proportionally at any limit. The partial result is flagged, never passed off as
+        a complete extraction.
+
+        ponytail: a depth counter, not a JSON parser. It only has to find object boundaries in a
+        flat array of flat objects, which is the shape the prompt pins.
+        """
+        objects: list[dict[str, Any]] = []
+        depth = 0
+        start = -1
+        in_string = False
+        escaped = False
+        for i, ch in enumerate(content):
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and start != -1:
+                    try:
+                        obj = json.loads(content[start : i + 1])
+                    except json.JSONDecodeError:
+                        pass
+                    else:
+                        if isinstance(obj, dict):
+                            objects.append(obj)
+                    start = -1
+                elif depth < 0:      # stray closer — resynchronise
+                    depth = 0
+                    start = -1
+        return objects
+
     def _parse_response(self, content: str, source: str) -> dict[str, Any] | None:
+        recovered = False
         try:
             # Strip markdown code fences if present
             content = re.sub(r"```(?:json)?|```", "", content).strip()
             raw = json.loads(content)
             if not isinstance(raw, list):
                 return None
+        except (json.JSONDecodeError, ValueError) as exc:
+            raw = self._salvage_objects(content)
+            if not raw:
+                log.warning("ner.parse_failed", source=source, error=str(exc))
+                return None
+            recovered = True
+            log.warning(
+                "ner.parse_recovered",
+                source=source,
+                error=str(exc),
+                salvaged_objects=len(raw),
+            )
 
+        try:
             entities = []
             low_confidence = []
             for item in raw:
@@ -149,15 +219,20 @@ class NERService:
                 if confidence < 0.7:
                     low_confidence.append(entity)
 
-            log.info("ner.complete", source=source, entity_count=len(entities))
+            log.info("ner.complete", source=source, entity_count=len(entities), recovered=recovered)
             return {
                 "entities": entities,
                 "low_confidence_spans": low_confidence,
                 "requires_annotation": len(low_confidence) > 0,
                 "total_entities": len(entities),
                 "model": source,
+                # True when the response was truncated and only the complete objects were kept,
+                # so recall for this document is a floor. `model` still names the real source —
+                # the model did produce these entities — but a consumer reporting extraction
+                # quality must not treat a recovered document as a clean one.
+                "parse_recovered": recovered,
             }
-        except (json.JSONDecodeError, ValueError) as exc:
+        except ValueError as exc:
             log.warning("ner.parse_failed", source=source, error=str(exc))
             return None
 

@@ -17,7 +17,14 @@ from api.dependencies import (
     SettingsDep,
     SupabaseDep,
 )
-from api.models.document import RCAPackRequest, RCAPackResponse, SearchResponse, SynthesizeRequest, SynthesizeResponse
+from api.models.document import (
+    AnswerFeedbackRequest,
+    RCAPackRequest,
+    RCAPackResponse,
+    SearchResponse,
+    SynthesizeRequest,
+    SynthesizeResponse,
+)
 from api.services.graph import GraphService
 from api.services.llm import SAFETY_CRITICAL_CATEGORIES, LLMService
 from api.services.search_engine import SearchEngineService
@@ -27,6 +34,58 @@ from api.services.vector_store import VectorStoreService
 log = structlog.get_logger(__name__)
 
 router = APIRouter()
+
+
+async def pending_moc_warnings(supabase, sources: list[dict]) -> list[dict]:
+    """
+    Open engineering-track conflicts awaiting MoC resolution for any asset cited in an answer.
+
+    ARCHITECTURE.md Layer 7 and Flow C both require it: while a parameter conflict is in the MoC
+    queue the canonical graph is deliberately NOT updated, so an answer drawn from that asset is
+    reporting a value that is under formal dispute. Without this the user sees a confident answer
+    and no indication that engineering is actively resolving a contradiction on it.
+
+    Returns [] on any lookup failure — a warning that cannot be fetched must not take the answer
+    down with it, but the failure is logged rather than hidden.
+    """
+    asset_ids = sorted({s.get("asset_id") for s in sources if s.get("asset_id")})
+    if not asset_ids:
+        return []
+    try:
+        conflicts = await asyncio.to_thread(
+            lambda: supabase.table("knowledge_conflicts")
+            .select("conflict_id, asset_id, parameter, severity, sla_deadline")
+            .eq("status", "pending_moc")
+            .in_("asset_id", asset_ids)
+            .execute()
+        )
+        rows = conflicts.data or []
+        if not rows:
+            return []
+
+        # Identify the MoC "by number" — moc_items.conflict_id is the link.
+        mocs = await asyncio.to_thread(
+            lambda: supabase.table("moc_items")
+            .select("moc_id, conflict_id, status")
+            .in_("conflict_id", [r["conflict_id"] for r in rows])
+            .execute()
+        )
+        by_conflict = {m["conflict_id"]: m for m in (mocs.data or [])}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("synthesis.pending_moc_lookup_failed", error=str(exc))
+        return []
+
+    return [
+        {
+            "conflict_id": r["conflict_id"],
+            "asset_id": r["asset_id"],
+            "parameter": r["parameter"],
+            "severity": r["severity"],
+            "moc_id": (by_conflict.get(r["conflict_id"]) or {}).get("moc_id"),
+            "moc_status": (by_conflict.get(r["conflict_id"]) or {}).get("status"),
+        }
+        for r in rows
+    ]
 
 
 @router.get("/", response_model=SearchResponse, summary="Hybrid knowledge search")
@@ -163,6 +222,10 @@ async def synthesize(
     refused = bool(result.get("refused"))
     safety_critical = category in SAFETY_CRITICAL_CATEGORIES if category else False
 
+    # Computed from the sources actually returned (refusals include them too), so a refusal
+    # that hands back source documents still says those documents are under MoC dispute.
+    pending_moc = await pending_moc_warnings(supabase, result.get("sources", []) or [])
+
     try:
         await asyncio.to_thread(
             lambda: supabase.table("audit_log").insert({
@@ -193,7 +256,43 @@ async def synthesize(
         model=result.get("model"),
         message=result.get("message"),
         rate_limited=bool(result.get("rate_limited")),
+        pending_moc=pending_moc,
     )
+
+
+@router.post("/feedback", summary="Rate a synthesized answer (Phase 2 trust loop)")
+async def submit_answer_feedback(
+    payload: AnswerFeedbackRequest,
+    current_user: CurrentUserDep,
+    supabase: SupabaseDep,
+) -> dict:
+    """
+    Records the single-tap rating on a synthesized answer: accurate / missing_context / incorrect.
+
+    ARCHITECTURE.md Layer 12, Phase 2 calls this "direct input to the outcome attribution system
+    and Layer 0 validation", not UX research. The copilot rendered these buttons but never sent
+    the result anywhere, so the trust loop the phase is built around ended at local state.
+
+    Written to `audit_log` alongside the `synthesis` row the same query already writes — no new
+    table, and the pair (query, rating) is recoverable by `performed_by` + query text.
+    """
+    user_id = current_user.get("user_id", "unknown")
+    await asyncio.to_thread(
+        lambda: supabase.table("audit_log").insert({
+            "action": "synthesis_feedback",
+            "entity_type": "query",
+            "performed_by": user_id,
+            "details": {
+                "query": payload.query,
+                "rating": payload.rating,
+                "note": payload.note,
+                "sources_used": payload.sources_used,
+                "model": payload.model,
+            },
+        }).execute()
+    )
+    log.info("synthesis.feedback_recorded", rating=payload.rating, user_id=user_id)
+    return {"status": "recorded", "rating": payload.rating}
 
 
 @router.post("/rca-pack", response_model=RCAPackResponse, summary="Generate RCA pack for an asset incident")

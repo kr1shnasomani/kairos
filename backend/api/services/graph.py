@@ -515,14 +515,27 @@ class GraphService:
             return {"document_id": document_id, "affected_count": len(affected), "affected": affected}
 
     async def get_last_inspection_date(self, asset_id: str) -> str | None:
-        """Returns the most recent inspection Event occurred_at for an asset, or None."""
+        """
+        Most recent inspection date for an asset, from the `INSPECTION_RECORD` edge.
+
+        This used to `MATCH (e:Event)`. **No `Event` node is ever written** — events live in
+        Supabase `operational_events`, and only Asset / Document / Concept are materialised in
+        the graph (the L4 divergence in `implementation/status.md`). So the query matched
+        nothing and the asset-detail `last_inspection_date` was **always null**: it degraded
+        cleanly, which is exactly why it went unnoticed.
+
+        The real record is the `INSPECTION_RECORD` relationship written by
+        `POST /events/inspection-complete` (`routers/events.py`), whose `valid_from` is the
+        inspection time. Reading the edge that is actually written makes the field work without
+        materialising Event nodes.
+
+        Superseded edges are excluded — a retracted inspection must not read as the latest one.
+        """
         cypher = """
-        MATCH (e:Event)
-        WHERE (e.asset_id = $asset_id
-               OR EXISTS { MATCH (a:Asset {asset_id: $asset_id})-[]->(e) })
-          AND e.event_type = 'inspection'
-        RETURN e.occurred_at AS inspection_date
-        ORDER BY e.occurred_at DESC LIMIT 1
+        MATCH (a:Asset {asset_id: $asset_id})-[r:INSPECTION_RECORD]->(:Document)
+        WHERE r.verification_status <> 'superseded'
+        RETURN r.valid_from AS inspection_date
+        ORDER BY r.valid_from DESC LIMIT 1
         """
         async with self.driver.session(database=self.database) as session:
             result = await session.run(cypher, asset_id=asset_id)

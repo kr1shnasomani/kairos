@@ -235,12 +235,24 @@ class EventBusService:
 
         return compound_id
 
-    async def is_duplicate(self, asset_id: str, event_type: str) -> bool:
+    async def is_duplicate(
+        self,
+        asset_id: str,
+        event_type: str,
+        business_id: str | None = None,
+    ) -> bool:
         """
         Checks if a semantically identical event was published within the dedup window.
         Dedup window default: 10 minutes (DEDUP_WINDOW_MINUTES).
+
+        `business_id` (work_order_id, ptw_id) scopes the key when the event carries one. The
+        architecture asks dedup to collapse "the same real-world event arriving from multiple
+        source systems" — keying on (asset, type) alone instead collapses *two different permits
+        on one asset* into one, and the second technician never receives a brief. On a turnaround,
+        two permits for the same asset inside ten minutes is routine, not a duplicate.
         """
-        dedup_key = f"kairos:dedup:{asset_id}:{event_type}"
+        scope = business_id or asset_id
+        dedup_key = f"kairos:dedup:{event_type}:{scope}"
         exists = await self.redis.exists(dedup_key)
         if not exists:
             ttl = self.settings.DEDUP_WINDOW_MINUTES * 60

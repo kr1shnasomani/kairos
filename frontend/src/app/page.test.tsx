@@ -41,24 +41,24 @@ describe("Home", () => {
   it("quotes the measured benchmark figures, including the answer-quality range", () => {
     render(<Home />);
 
-    // benchmark/RESULTS.md is explicit that the range must be quoted rather
+    // benchmark/RESULTS.md is explicit that uncertainty must be quoted rather
     // than a single flattering number, and that grading is deterministic.
-    // The chart shows a single figure, but the real spread must still be
+    // The chart shows a point estimate, so the interval must still be
     // disclosed in the caption rather than quietly dropped.
-    expect(screen.getByText("92%")).toBeInTheDocument();
-    expect(screen.getByText("23/25")).toBeInTheDocument();
+    expect(screen.getByText("91%")).toBeInTheDocument();
+    expect(screen.getByText("34/37")).toBeInTheDocument();
     expect(screen.getAllByText("100%")).toHaveLength(2);
     // Scoped to the <p>: a bare regex also matches every ancestor's textContent.
-    expect(screen.getByText(/twenty-five domain-expert questions/i, { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText(/thirty-seven domain-expert questions/i, { selector: "p" })).toBeInTheDocument();
     // Stated twice: in the evals copy and in the opening FAQ answer.
     expect(screen.getAllByText(/graded deterministically/i, { selector: "p" })).toHaveLength(2);
     // The spread and the layer checks are stated, not rounded away.
-    expect(screen.getByText(/22 to 24 of 25/i, { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText(/34 of 37/i, { selector: "p" })).toBeInTheDocument();
     // The other five harnesses are on the page too, with their real figures.
     expect(screen.getByText("13 / 13")).toBeInTheDocument();
     expect(screen.getByText("F1 0.986")).toBeInTheDocument();
-    expect(screen.getByText("F1 0.857")).toBeInTheDocument();
-    expect(screen.getByText("−25.6%")).toBeInTheDocument();
+    expect(screen.getByText("F1 0.847")).toBeInTheDocument();
+    expect(screen.getByText("−9.5%")).toBeInTheDocument();
     expect(screen.getByText("0% errors")).toBeInTheDocument();
     // …and so are the limits, which is the point of stating them.
     expect(screen.getByText(/soak and sustained load/i)).toBeInTheDocument();

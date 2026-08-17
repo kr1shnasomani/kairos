@@ -92,11 +92,45 @@ async def _run(model_name: str, persist: bool = True) -> dict:
         print(f"Evaluating {len(corpus)} corpus entries for model: {model_name}", file=sys.stderr)
         metrics = await evaluate(ner, es, corpus, settings)
 
+        # Regression check against the incumbent, mirroring workers/model_validation.py.
+        # Fetched BEFORE _persist so the run cannot be compared against itself.
+        #
+        # Without this, `passed` was only ever set on the empty-corpus path, so
+        # `result.get("passed")` was None on every real run and main() always exited 1 — a gate
+        # that fails a *passing* model cannot be wired into a deploy, which is why it never was.
+        # No baseline (first ever run) = pass: that run establishes the baseline.
+        passed = True
+        regressed: list[str] = []
+        try:
+            baseline_result = await asyncio.to_thread(
+                lambda: supabase.table("audit_log")
+                .select("details")
+                .eq("action", "model_gate_result")
+                .order("timestamp", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if baseline_result.data:
+                baseline_types = (baseline_result.data[0].get("details") or {}).get("by_entity_type", {})
+                for etype, scores in metrics["by_entity_type"].items():
+                    prior = baseline_types.get(etype, {}).get("f1")
+                    if prior is not None and scores["f1"] < prior:
+                        regressed.append(etype)
+                passed = not regressed
+        except Exception as exc:  # noqa: BLE001
+            # An unreachable baseline must not read as "passed" — that would wave through a
+            # regression on the one check whose whole job is to catch it.
+            print(f"ERROR: baseline lookup failed ({type(exc).__name__}: {exc}) — failing closed",
+                  file=sys.stderr)
+            passed = False
+
         fallbacks = ner.fallback_count
         result = {
             "model_name": model_name,
             "corpus_size": len(corpus),
             **metrics,
+            "passed": passed,
+            "regressed_entity_types": regressed,
             "extraction_paths": dict(ner.paths),
             "fallback_extractions": fallbacks,
             # A fallback contributes regex output (ASSET_TAG only) to a model-attributed score, so

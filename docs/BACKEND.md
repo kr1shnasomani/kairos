@@ -183,7 +183,7 @@ All models live in `backend/api/models/`.
 |-------|---------|
 | `Brief` | Full brief with headline, body, action_items, warnings, sources |
 | `SourceCitation` | `{document_id, document_type, title, authority_level, relevant_excerpt, vault_url, is_quarantine}` |
-| `BriefFeedback` | `rating` (`accurate | missing_context | incorrect`) + optional `notes`. No `brief_id` — that comes from the URL path. |
+| `BriefFeedback` | `rating` (`accurate` \| `missing_context` \| `incorrect`) + optional `notes`. No `brief_id` — that comes from the URL path. |
 
 ### Event (`models/event.py`)
 
@@ -199,8 +199,8 @@ All events inherit from `BaseEvent` (`event_id`, `source_system`, `site_id`, `oc
 | `InspectionCompleteEvent` | `asset_id`, `inspection_type`, `result`, `performed_by`, `findings`, `document_id`, `confidence` | Field/QA |
 | `EventAck` | `user_id`, `role`, `signature`, `notes` | API client |
 | `DeviationFlagEvent` | `asset_id`, `description`, `reported_by`, `affected_topology_path` | Field inspector |
-| `DeviationFlagResolveRequest` | `resolution` (`promoted|disputed`), `moc_warranted`, `notes` | Engineer/admin |
-| `PlantStateEvent` | `site_id`, `state` (`normal|turnaround|shutdown|emergency`), `expires_at` | Engineer/admin |
+| `DeviationFlagResolveRequest` | `resolution` (`promoted` \| `disputed`), `moc_warranted`, `notes` | Engineer/admin |
+| `PlantStateEvent` | `site_id`, `state` (`normal` \| `turnaround` \| `shutdown` \| `emergency`), `expires_at` | Engineer/admin |
 
 `close_notes` on `WorkOrderEvent` is used by the attribution worker for execution compliance keyword matching.
 
@@ -275,21 +275,33 @@ Covered by `tests/test_search_fusion.py`.
 
 Wraps Elasticsearch.
 - `ensure_indices()` — creates `kairos_documents`, `kairos_assets`, and `kairos_events` indices on startup
-- `search_documents(query, asset_id, limit)` — ES full-text search with highlight
+- `search(query, index, asset_id, limit, include_superseded=False)` — ES full-text search with highlight
 - `index_document(doc_id, content, metadata)` — index a document chunk
+
+**Superseded documents are excluded by default** (`must_not` on `status: "superseded"`).
+It is `must_not superseded` rather than `must active` deliberately: the query also spans
+`kairos_assets`, whose documents carry no `status` field, and requiring `active` would drop
+every asset hit. Time-travel callers pass `include_superseded=True`.
 
 ### `VectorStoreService` (`services/vector_store.py`)
 
 Wraps Qdrant.
 - `ensure_collections()` — creates `kairos_documents` and `kairos_knowledge` on startup
-- `upsert_point(collection, point_id, vector, payload)` — upsert a single vector
-- `search(collection, query_vector, asset_id, limit)` — ANN search with optional asset filter
+- `upsert(collection, point_id, vector, payload)` — upsert a single vector
+- `search(collection, query_vector, asset_id, limit, include_superseded=False)` — ANN search with optional asset filter
+- `mark_superseded(collection, document_id)` — payload update flagging every chunk of a document
+  superseded. Never a delete: the vault is immutable and time-travel still has to reach the chunks.
+
+Same `must_not` reasoning as ES — points indexed before `status` existed have no such key, and
+Qdrant treats a missing key as non-matching, so requiring `active` would silently drop them.
 
 ### `LLMService` (`services/llm.py`)
 
 LLM synthesis + embedding. Never originates knowledge — only assembles retrieved context.
 
-- `synthesize(query, context, query_category)` — NIM `meta/llama-3.1-70b-instruct`
+- `synthesize(query, context, query_category)` — NIM `meta/llama-3.1-70b-instruct`, falling through
+  the cascade below. A safety gate runs **twice**: on the evidence before synthesis, and on the
+  result after it (an honest "not specified in the sources" must not render as a hedged answer).
 - `rca_synthesize(query, context)` — RCA-specific prompt, returns timeline + hypotheses
 - `embed(text, task)` — Jina `jina-embeddings-v3` (1024-dim), **bounded LRU cached** (`_LRU`,
   512 entries, keyed on `(task, text)`). Every search embeds its query before touching Qdrant,
@@ -310,7 +322,7 @@ LLM synthesis + embedding. Never originates knowledge — only assembles retriev
 > working — configure Ollama as a genuine third tier, move Gemini to paid, or drop the cascade
 > so a NIM failure surfaces as an honest error.
 >
-> **Provider cascade (`_synthesize_cascade`): NIM → Gemini → Ollama.** Each tier is tried only if
+> **Provider cascade (`_synthesize_cascade`): NIM → OpenRouter → Gemini → Ollama.** Each tier is tried only if
 > configured and falls through to the next on failure (a NIM timeout counts as failure → auto-falls to
 > Gemini). Defaults ship with **only `NVIDIA_NIM_API_KEY` set, so it is NIM-only** — identical to before.
 > Fill `GEMINI_API_KEY` (Google's OpenAI-compatible endpoint, `_synthesize_gemini`) to add a generous
@@ -345,7 +357,10 @@ Redis Streams producer + EEMUA 191 push governor.
 
 - `publish(stream, payload)` — `XADD` to any stream
 - `publish_work_order(payload)` / `publish_ptw(payload)` — typed publish helpers
-- `is_duplicate(asset_id, event_type)` — Redis TTL key check (`DEDUP_WINDOW_MINUTES` window)
+- `is_duplicate(asset_id, event_type, business_id=None)` — Redis TTL key check (`DEDUP_WINDOW_MINUTES` window).
+  **Pass `business_id`** (`work_order_id`, `ptw_id`, `alarm_id`) wherever the event has one. Keyed on
+  `(asset_id, event_type)` alone it collapses *two different permits on one asset* into one and the
+  second technician never gets a brief — routine during a turnaround. Wired on all six event routes.
 - `correlate_events(asset_id, event_id, occurred_at, supabase)` — assigns shared `compound_event_id` to same-asset events within the dedup window
 - `check_governor(user_id, priority, site_id, supabase)` — returns True if brief can be sent. PTW (`priority="critical"`) always passes. Checks plant state gate then hourly rolling counter.
 - `get_plant_state(site_id, supabase)` — queries `plant_operating_states`, checks `expires_at`
@@ -357,6 +372,45 @@ Redis Streams producer + EEMUA 191 push governor.
 Lazy, inline SLA escalation. Called at the top of `GET /governance/conflicts` and `GET /governance/quarantine`. No Celery Beat, no scheduled worker.
 
 - `check_and_escalate(supabase)` — idempotent (guarded by `escalated_at IS NULL`). Queries overdue conflicts (`sla_deadline < NOW()`) and quarantine items (`sla_due_at < NOW()`). Writes `escalated_at` and appends `audit_log` entry with `action=sla_escalated` for each. Returns `{conflicts_escalated, quarantine_escalated, checked_at}`.
+
+### `TopologyVerificationService` (`services/topology.py`)
+
+Layer 3 → Layer 7 gate. Derives per-element verification status from each element's
+`quarantine_items.review_status`, rolls it up per drawing, and applies engineer decisions.
+
+- `SAFETY_CRITICAL_GROUPS = {isolation_boundaries, instrumentation_loops}` — `canonical_ready`
+  requires all of them confirmed and none disputed.
+- Confirming an element **promotes the `CONTAINS_TOPOLOGY_ELEMENT` edge the pipeline already
+  wrote**; it does not create edges.
+- The manifest row is filtered **in Python, not in the query** — element rows carry no
+  `element_type` key, so `.neq("session_context->>element_type", …)` compares against SQL NULL and
+  silently drops every element row.
+
+### `OtCoverageService` (`services/ot_coverage.py`)
+
+Layer 5 instrumentation coverage, derived from **engineer-verified** P&ID topology only: verified
+`instrumentation_loops[].instruments[]` are the sensor tags. Supabase-only, so the Celery
+attribution worker uses it directly without an HTTP hop.
+
+`coverage_type: "none"` means *no verified drawing establishes instrumentation* — **not** "this
+equipment has no sensors". `unverified_topology_present` separates review backlog from real absence.
+
+> Replaces a Go handler that returned hardcoded `{asset}-VIBE` / `{asset}-TEMP` / `75%` for every
+> asset. Because `attribution.py` gated its telemetry check on `coverage_percent == 0`, that value
+> made the check always run and Layer 10's brownfield downgrade unreachable.
+
+### `TimestampAlignmentService` (`services/timestamp_alignment.py`)
+
+Layer 4 clock alignment. Compares the **same correlated event as reported by different source
+systems**, reusing Layer 8's `compound_event_id` grouping. Normalises to the best-synchronised clock
+(the historian is site-canonical).
+
+**Not** `occurred_at` vs `ingested_at` — a historical document legitimately occurs months before
+ingestion, so that comparison flags the whole corpus. The ingestion pipeline still performs that
+other comparison. **Resolved 2026-08-17:** the pipeline now treats that gap as *ingest lag* — it
+records `ingest_lag_recorded` and **never touches `valid_from`**, which uses the source timestamp.
+
+Report-only while `TIMESTAMP_DRIFT_ENFORCE=False`.
 
 ### `CircuitBreakerService` (`services/circuit_breaker.py`)
 
@@ -497,7 +551,9 @@ Seven sequential activities:
 
 `index_vectors` and `index_text` run in parallel.
 
-**Timestamp drift detection** (in `mark_complete`): if `occurred_at` supplied at ingest and drift from `ingested_at` exceeds `TIMESTAMP_DRIFT_TOLERANCE_MINUTES`, sets `extraction_jobs.timestamp_drift_detected=True` and writes `audit_log` entry with `action=timestamp_drift_detected`. KNOWLEDGE_EDGE `valid_from` uses `ingested_at` on drift.
+**Canonical `valid_from` + ingest lag** (in `mark_complete`): `KNOWLEDGE_EDGE.valid_from` uses the document's **`occurred_at`** whenever it is parseable and not future-dated, falling back to `ingested_at`. A gap beyond `TIMESTAMP_DRIFT_TOLERANCE_MINUTES` is recorded as `audit_log action=ingest_lag_recorded` — an **observation only**.
+
+> Until 2026-08-17 this block called the gap "drift" and **overwrote `valid_from` with `ingested_at`** past the tolerance, which would have rewritten every historical document's true date to its upload time and corrupted the validity windows Layer-4 time-travel depends on. It never fired only because `occurred_at` is NULL across the corpus. Real drift is the *same* event seen by two source systems — `services/timestamp_alignment.py`, surfaced at `GET /governance/timestamp-drift` — and `extraction_jobs.timestamp_drift_detected` now means only that.
 
 **vault_path safety**: workflow gracefully exits with `{"status": "failed", "reason": "missing vault_path"}` if `vault_path` is absent from params (guards against stale workflow history replays).
 
@@ -647,7 +703,7 @@ All 16 historical migrations (001–016) are folded into `db/schema.sql` — app
 | `audit_log` | Immutable audit trail | `action`, `entity_type`, `entity_id`, `performed_by`, `details` (JSONB), `timestamp` (NOT `created_at`) |
 | `elicitation_sessions` | Micro-interview Q&A sessions | `session_id`, `work_order_id`, `questions` (JSONB), `status` |
 | `ner_annotations` | Human NER correction annotations | `annotation_id`, `document_id`, `entity_type`, `original_value`, `corrected_value`, `is_correct`, `submitted_by` |
-| `knowledge_conflict_overrides` | Circuit breaker override log | `id`, `entity_type`, `override_type`, `document_id`, `recorded_at` |
+| `extraction_overrides` | Circuit breaker override log (SPC z-score per asset class) | `id`, `asset_class`, `document_id`, `override_type` (CHECK: `manual_correction\|quarantine_rejection\|annotation_correction`), `created_at` |
 | `plant_operating_states` | Site plant state history | `id`, `site_id`, `state` (CHECK: `normal\|turnaround\|shutdown\|emergency`), `set_by`, `set_at`, `expires_at` |
 | `offboarding_sessions` | Off-boarding interview programme headers | `id`, `personnel_id`, `personnel_email`, `retirement_date`, `total_sessions`, `session_interval_days`, `status`, `created_by` |
 | `offboarding_session_items` | Individual session items per equipment family | `id`, `session_id`, `session_number`, `equipment_family`, `status`, `questions` (JSONB), `scheduled_for`, `completed_at` |
@@ -769,7 +825,11 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 | `JINA_EMBED_MODEL` | `jina-embeddings-v3` | 1024-dim output, primary embeddings |
 | `GROQ_API_KEY` | `""` | Required for voice transcription |
 | `GROQ_WHISPER_MODEL` | `whisper-large-v3` | STT via Groq API |
-| `GEMINI_API_KEY` | `""` | Optional LLM fallback (Google OpenAI-compatible). Empty ⇒ disabled; cascade stays NIM-only. |
+| `OPENROUTER_API_KEY` | `""` | **Tier 2 of the cascade.** Empty ⇒ skipped. |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-compatible endpoint |
+| `OPENROUTER_MODEL` | `meta-llama/llama-3.1-70b-instruct` | **The same model NIM serves**, which is the whole point: a fallthrough here does not change which model answered, so it cannot confound a benchmark. Gemini (tier 3) is a different family and does. |
+| `OPENROUTER_TIMEOUT` | `60.0` | Its own cap rather than reusing `NVIDIA_NIM_TIMEOUT`, so tuning NVIDIA's ceiling cannot silently retime a different vendor. |
+| `GEMINI_API_KEY` | `""` | Optional LLM fallback, **tier 3** (Google OpenAI-compatible). Empty ⇒ disabled. |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` | Gemini OpenAI-compatible endpoint |
 | `GEMINI_MODEL` | `gemini-2.5-flash-lite` | Gemini fallback model (15 RPM / 1000 RPD free tier) |
 | `OLLAMA_BASE_URL` | **`""` (empty in `.env`)** | Local fallback LLM/NER/embeddings — **disabled**: empty URL ⇒ `ollama_available` is False, so all inference stays cloud-only. Set a URL only to re-enable the local path. |
@@ -794,7 +854,10 @@ All settings in `api/config.py` via `pydantic-settings`. Source: `.env` file.
 | `DEDUP_WINDOW_MINUTES` | `10` | Event dedup window + event correlation window |
 | `LATE_ARRIVAL_WINDOW_MINUTES` | `5` | Countdown before delayed brief assembly fires |
 | `PLANT_STATE_DEFAULT` | `normal` | Fallback plant state |
-| `TIMESTAMP_DRIFT_TOLERANCE_MINUTES` | `60` | Max drift before flagging |
+| `TIMESTAMP_DRIFT_TOLERANCE_MINUTES` | `60` | Max drift before flagging. **Read by two different checks** — the ingestion-pipeline `occurred_at` vs `ingested_at` comparison, and the Layer 4 cross-source `TimestampAlignmentService`. Declared **once** in `config.py` (it used to be declared twice, and Pydantic silently kept the last one). The conflict between the two checks is tracked in `implementation/status.md` § Pending. |
+| `TIMESTAMP_DRIFT_ENFORCE` | `False` | When false, cross-source drift is logged and surfaced but opens no conflict row. **Report-only by design — leave off unless deliberately enabled.** |
+| `MODEL_GATE_ENFORCE` | `False` | When true, a per-asset-class Layer 0 regression halts extraction for that class via the circuit breaker. **Off by default**: on a small corpus a class can fail on noise, and an enforcing gate would halt extraction mid-demo. |
+| `KAIROS_PHASE` | `3` | Layer 12 deployment phase. `1` = retrieval only (no synthesis), `2` = synthesis on / proactive push off, `3` = everything. **Default 3, so behaviour is unchanged unless a deployment deliberately steps back.** |
 
 ### Go Connector
 
@@ -836,16 +899,28 @@ Created by `docker exec kairos-backend-api python scripts/seed_users.py`.
 | `admin@kairos.local` | `KairosAdmin123!` | `admin` |
 | `engineer@kairos.local` | `KairosEngineer123!` | `engineer` |
 | `field_worker@kairos.local` | `KairosField123!` | `field_worker` |
+| `reliability@kairos.local` | `KairosReliability123!` | `reliability` |
+| `compliance@kairos.local` | `KairosCompliance123!` | `compliance` |
+
+All five roles in the OPA policy are loginable. `reliability` and `compliance` are the two personas
+that actually demonstrate governance — quarantine promotion and read-only audit — so a demo that
+skips them skips the point.
 
 ### Role Permissions (OPA Policy `policies/kairos.rego`)
 
 | Role | Permissions |
 |------|-------------|
 | `field_worker` | `read_search`, `read_briefs`, `ack_brief` |
-| `engineer` | All above + `ingest_document`, `read_governance`, `resolve_admin_conflict`, `read_assets`, `write_assets`, `start_offboarding` |
-| `reliability` | `read_search`, `read_briefs`, `ingest_document`, `read_governance`, `promote_quarantine`, `resolve_admin_conflict`, `read_assets` |
+| `engineer` | All above + `ingest_document`, `read_governance`, `resolve_admin_conflict`, `read_assets`, `write_assets` |
+| `reliability` | `read_search`, `read_briefs`, `ingest_document`, `read_governance`, `promote_quarantine`, **`countersign_brief`**, `resolve_admin_conflict`, `read_assets` |
 | `compliance` | `read_search`, `read_compliance`, `read_audit` |
 | `admin` | `*` (all) |
+
+> **Engineers deliberately cannot `promote_quarantine` or `countersign_brief`.** That is what makes
+> the one-way quarantine gate and the PTW dual signature real: the second signature can never come
+> from the issuing role. `_sensitive_actions` in the policy lists both, plus
+> `resolve_admin_conflict`, `write_assets`, `ingest_document` — without that listing the catch-all
+> rule would grant them to every authenticated role.
 
 ### OPA Middleware
 
@@ -882,7 +957,8 @@ All logs via `structlog`. Never use `print()` or stdlib `logging`. Notable log e
 - `ingest.complete` — document_id, sha256, job_id
 - `event_bus.compound_event_linked` — compound_event_id, event_ids
 - `events.ptw_revoked_pending_brief` — asset_id, revoked task ID
-- `timestamp_drift_detected` — document_id, drift_minutes
+- `activity.ingest_lag_recorded` — document_id, lag_minutes (observation; `valid_from` unaffected)
+- `activity.occurred_at_in_future` / `activity.occurred_at_unparseable` — fall back to ingest time
 - `rca_pack.generated` — asset_id, failure_code, timeline_count
 - `document_pipeline.missing_vault_path` — document_id (graceful early exit)
 - `offboarding.programme_created` — session_id, personnel_id, sessions

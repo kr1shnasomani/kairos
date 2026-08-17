@@ -29,7 +29,7 @@ All services run as Docker containers. Start with `make dev` (or `docker compose
 | `kairos-celery-worker` | Python 3.12 (local build) | — | Celery workers (ingestion, extraction, attribution, elicitation, transcription, validation) |
 | `kairos-temporal-activity-worker` | Python 3.12 (local build) | — | Temporal activity worker (document pipeline) |
 | `kairos-elicitation-worker` | Python 3.12 (local build) | — | Temporal worker (elicitation workflows) |
-| `kairos-backend-go` | Go 1.22 | `8090` | OT historian + EAM connector |
+| `kairos-backend-go` | Go 1.25 (local build) | `8090` | OT historian + EAM connector. Go was bumped 1.22 → 1.25 because `golang.org/x/crypto` 0.52 (4 CRITICAL advisories) requires it. |
 | `kairos-neo4j` | neo4j:5.20-community | `7474`, `7687` | Temporal knowledge graph — **CLOUD (Neo4j Aura) by default**; local container is profile-gated (`--profile local-stores`) |
 | `kairos-qdrant` | qdrant:v1.9.4 | `6333`, `6334` | Vector store — **CLOUD (Qdrant Cloud) by default**; local container is profile-gated |
 | `kairos-elasticsearch` | elasticsearch:8.13.4 | `9200` | Full-text search (local container) |
@@ -38,6 +38,7 @@ All services run as Docker containers. Start with `make dev` (or `docker compose
 | `kairos-temporal_ui` | temporalio/ui:2.26.2 | `8088` | Temporal dashboard |
 | `kairos-temporal_postgres` | postgres:14-alpine | — | Temporal internal DB |
 | `kairos-opa` | openpolicyagent/opa:0.65.0 | `8181` | Policy enforcement |
+| `kairos-caddy` | caddy:2-alpine | `80`, `443` | HTTPS reverse proxy — **`--profile prod` only**, does not start in dev |
 
 > **Observability is CLOUD (Grafana Cloud).** The former local `kairos-otel-collector`, `kairos-tempo`,
 > and `kairos-grafana` containers were **removed** — the backend exports traces/metrics directly to the
@@ -146,16 +147,18 @@ URL-decoded (`%20` → space) before use. The whole block no-ops if `OTEL_EXPORT
 
 **FastAPI auto-instrumentation:** `FastAPIInstrumentor`, `RedisInstrumentor`, `HTTPXClientInstrumentor`.
 
-### Custom Metrics (Prometheus)
+### Custom Metrics
 
-All exported at `http://localhost:8889/metrics`.
+Defined in `api/services/metrics.py` and exported over OTLP to Grafana Cloud — **there is no local
+scrape endpoint**. The `:8889/metrics` address documented here previously belonged to the
+`kairos-otel-collector` container, which was removed when observability moved to Cloud.
 
-| Prometheus Name | Type | Labels |
-|----------------|------|--------|
-| `kairos_briefs_delivered_total` | Counter | `priority`, `trigger_event_type` |
-| `kairos_governor_suppressed_total` | Counter | `user_id` |
-| `kairos_ingestion_duration_seconds` | Histogram | `document_type` |
-| `kairos_conflicts_open` | Gauge | `track` |
+| OTEL instrument | Prometheus name | Instrument type | Labels |
+|---|---|---|---|
+| `kairos.briefs.delivered` | `kairos_briefs_delivered_total` | Counter | `priority`, `trigger_event_type` |
+| `kairos.governor.suppressed` | `kairos_governor_suppressed_total` | Counter | `user_id` |
+| `kairos.ingestion.duration` | `kairos_ingestion_duration_seconds` | Histogram | `document_type` |
+| `kairos.conflicts.open` | `kairos_conflicts_open` | UpDownCounter (renders as a Prometheus gauge) | `track` |
 
 ---
 
@@ -198,10 +201,10 @@ datasource picker on the import screen.
 | `infra/caddy/Caddyfile` | HTTPS reverse proxy (prod) | **Active** under `--profile prod` |
 | `infra/grafana/provisioning/dashboards/*.json` | Grafana dashboard definitions | **Legacy** — not mounted (obs is Grafana Cloud); **keep** — importable into Grafana Cloud |
 | `infra/grafana/provisioning/datasources/`, `infra/otel/otel-config.yaml`, `infra/tempo/tempo.yaml` | Local Grafana/OTEL-collector/Tempo configs | **Dead** — their containers were removed; no runtime use |
-| `docker-compose.yml` | All service definitions, volumes, networks |
-| `backend/.dockerignore` | Strips `__pycache__`, `.pyc`, `.pytest_cache`, `connectors/` from backend build context. Keeps `tests/` + `scripts/` (run inside container). |
-| `backend/connectors/.dockerignore` | Strips Go test artifacts and vendor dir from the Go build context. |
-| `frontend/.dockerignore` | Strips `node_modules`, `.next`, `*.md`, secrets from frontend build context. |
+| `docker-compose.yml` + `docker-compose.override.yml` | Base (prod-safe) + auto-loaded dev override | **Active** |
+| `backend/.dockerignore` | Strips `__pycache__`, `.pyc`, `.pytest_cache`, `connectors/` from the backend build context. Keeps `tests/` + `scripts/` (run inside the container). | **Active** |
+| `backend/connectors/.dockerignore` | Strips Go test artifacts and vendor dir from the Go build context. | **Active** |
+| `frontend/.dockerignore` | Strips `node_modules`, `.next`, `*.md`, secrets from the frontend build context. | **Active** |
 
 ---
 
@@ -218,6 +221,7 @@ make seed         # seed_regulations.py + seed_users.py
 make load-dataset # Load dataset/ through the real pipeline (ARGS=--fast to skip docs)
 make purge-test-data  # Delete ASSET-TEST/DEDUP/EV/ACK-*, WO-*, DOC-* from every store
 make verify        # Per-layer smoke + latency (PASS/FAIL table); ARGS=--full adds LLM/VLM checks
+make model-gate MODEL=<model-id>   # Layer-0 deployment gate; exits non-zero on regression
 
 # Rebuild specific containers
 docker compose up -d --no-deps --build kairos-frontend          # new npm deps only
@@ -236,13 +240,13 @@ docker exec kairos-backend-api python scripts/seed_regulations.py
 # Run tests — full suite (needs the stack up; use local stores, never cloud)
 docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120
 
-# Run the service-free tests with NO stack running at all (65 tests, no secrets, no network).
-# This is what CI's tier-1 `unit` job runs.
+# Run the service-free tests with NO stack running at all (146 tests, no secrets, no network).
+# This is what CI's tier-1 `unit` job runs. Re-measured 2026-08-17.
 docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api \
-  pytest -q --timeout=120 tests/test_pii.py tests/test_query_category.py \
-  tests/test_search_fusion.py tests/test_ingestion_formats.py tests/test_http_pool.py \
-  tests/test_model_validation.py tests/test_pid.py tests/test_auth_cache.py \
-  tests/test_config_guardrail.py
+  pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,\
+model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,\
+ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ner_parse,\
+superseded_filter,brief_signing}.py
 
 # Lint the backend exactly as CI does (pinned ruff + backend/ruff.toml)
 docker run --rm -v "$(pwd)/backend:/b" -w /b ghcr.io/astral-sh/ruff:0.16.0 check .

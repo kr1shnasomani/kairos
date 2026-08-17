@@ -66,12 +66,13 @@ frontend/
 │   │   ├── use-role.ts              # useRole() + ADMIN_ROLES / PROMOTE_ROLES / RESOLVE_ROLES / FIELD_ROLES
 │   │   └── ui.tsx                   # Primitives: AuthorityBadge, StatusBadge, FilterTabs, Modal, Button, RefusalCard
 │   └── lib/
-│       ├── api.ts                   # All fetch helpers — SSR-aware API_BASE, live+fixture fetchers, response normalizers
+│       ├── api.ts                   # All fetch helpers — SSR-aware API_BASE, live-only fetchers, response normalizers
 │       ├── auth.ts                  # login(), getMe(), logout() — Supabase token lifecycle (kairos-token key)
 │       ├── types.ts                 # All API-derived TypeScript types (single source of truth)
+│       ├── use-fetch.ts             # useFetch() — loading / live / error+retry state machine
 │       ├── idb.ts                   # IndexedDB offline write-queue (OfflineQueue) — flushed on reconnect
-│       ├── utils.ts                 # cn(), relativeTime(), nowMs(), slaCountdown(), overdueHours(), etc.
-│       ├── fixtures.ts · assets.ts · compliance.ts · copilot.ts · documents.ts · governance.ts · rca.ts   # demo fallbacks
+│       ├── utils.ts · format.ts · motion.ts · user-initials.ts · search-shortcut.ts · graph-theme.tsx
+│       └── copilot.ts · rca.ts      # live types + real constants (SUGGESTIONS, RCA_PRESETS); rca.ts `rcaFor` is TEST-ONLY
 ├── Dockerfile                       # node:20-alpine; NEXT_TELEMETRY_DISABLED=1; npm ci at build
 ├── DESIGN.md                        # Design system (read before building UI)
 └── package.json
@@ -87,7 +88,7 @@ frontend/
 | `/login` | Email + password login | Live (real auth) |
 | `/briefs` | Brief inbox | Live |
 | `/briefs/[id]` | Brief detail + ack + feedback | Live |
-| `/copilot` | Knowledge Q&A chat | Live |
+| `/copilot` | Knowledge Q&A chat + answer rating + pending-MoC banner | Live |
 | `/assets` | Asset list | Live |
 | `/assets/[id]` | Asset detail + aliases + knowledge | Live |
 | `/rca` | RCA pack generator | Live |
@@ -116,8 +117,12 @@ frontend/
 | `/events/[id]` | Event detail + ack + correlation | Live |
 | `/offboarding` · `/offboarding/[sessionId]` | Retiring-expert knowledge-transfer sessions | Live (role-gated engineer/admin) |
 | `/management` | Plant overview — KPIs, alerts, system health | Live |
-| `/management/cross-site` | Cross-site pattern alerts | Demo fixture (Layer-13 API in roadmap) |
+| `/management/cross-site` | Cross-site pattern alerts | Honest "no data in single-site deployment" state — **no fixture** (see §16) |
 | `/management/plant-state` | Plant operating-state control | Live (admin-gated write) |
+| `/management/coverage` | Knowledge-coverage matrix (`GET /assets/coverage`) | Live |
+| `/system-health` | Live probes: 11 API surfaces + 5 datastores + opt-in model probes | Live (**admin-only**) |
+| `/system-information` | Static architecture explainer (pipeline, 13 layers, stack) | Live (all roles) |
+| `/settings` | System settings | Live |
 | `/field/deviation` | Physical deviation flag (freezes affected asset briefs) | Live (mobile field capture) |
 | `/field/elicitation/[workOrderId]` | Knowledge-capture micro-interview | Live (mobile) |
 | `/field/voice` | Ad-hoc voice note — tag an asset/WO, record → quarantine | Live (mobile field capture) |
@@ -128,8 +133,8 @@ frontend/
 > `/compliance`, `/governance`, `/audit`, `/documents`, `/projects`, `/offboarding`) require
 > engineer/reliability/admin; `/system-health` is **admin-only**. A field worker who navigates to a
 > gated URL is redirected to `/briefs`. Open-to-all routes (briefs, copilot, assets, `/field/*`,
-> `/settings`, `/system-information`) are unlisted. Field routes render at mobile width; the field
-> bottom-tab nav is gated to `field_worker` (see §4).
+> `/settings`, `/system-information`) are unlisted. Field routes render at mobile width; **there is no
+> mobile bottom tab bar** — mobile navigates via the hamburger sidebar (see §4).
 
 > Client-only components that must not SSR (React Flow graph, blast-radius, supersede action) are
 > loaded via `dynamic(..., { ssr: false })` from the `"use client"` module `components/lazy.tsx` —
@@ -215,6 +220,8 @@ back to the engineer dev-default — that used to read as a surprise role downgr
 | `admin@kairos.local` | `KairosAdmin123!` | admin |
 | `engineer@kairos.local` | `KairosEngineer123!` | engineer |
 | `field_worker@kairos.local` | `KairosField123!` | field_worker |
+| `reliability@kairos.local` | `KairosReliability123!` | reliability |
+| `compliance@kairos.local` | `KairosCompliance123!` | compliance |
 
 Seed with: `docker exec kairos-backend-api python scripts/seed_users.py`
 
@@ -267,6 +274,7 @@ export const API_BASE =
 | `getRcaPack(assetId, code)` | `POST /search/rca-pack` |
 | `ackBrief(id, body)` | `POST /briefs/{id}/ack` |
 | `sendBriefFeedback(id, rating, notes)` | `POST /briefs/{id}/feedback` |
+| `submitAnswerFeedback({query, rating, …})` | `POST /search/feedback` |
 | `getMoc(id)` | `GET /governance/moc/{id}` |
 | `getMocs()` | `GET /governance/moc` |
 | `approveMoc(id, note?)` | `POST /governance/moc/{id}/approve` |
@@ -315,12 +323,13 @@ with boolean `halted`; `ValidationCorpusStats` is `{total_corpus_size,by_entity_
 
 ### Live-only data policy (no fabricated data)
 
-The app **never renders a fixture**. Read fetchers still return `{ data, source }` and a fixture is still
-computed on failure, but the UI discards the `source: "demo"` path — the user always sees **real data**, a
-**loading skeleton**, or an **error + retry**:
+The app **never renders a fixture**, and this is enforced by the type system rather than by convention:
+`DataSource` is a **single-member union** (`"live"`, `api.ts:250`), so no fetcher can return a fixture
+source. Fetchers **throw** on failure. The user always sees **real data**, a **loading skeleton**, or an
+**error + retry**:
 
-- **`useFetch` maps `demo` → `error`** (client pages) → their error+retry state; loading → skeleton.
-- **Server pages `throw` on `demo`** → shared `(app)/error.tsx` + `(app)/loading.tsx`. `(app)/layout.tsx`
+- **`useFetch`** turns a rejected fetcher into the page's error+retry state; loading → skeleton.
+- **Server pages `throw`** → shared `(app)/error.tsx` + `(app)/loading.tsx`. `(app)/layout.tsx`
   exports `dynamic = "force-dynamic"` so these render per request (a build-time prerender would otherwise
   hit the throw with no backend).
 - **Custom-client pages** show an inline "unavailable — retry".
@@ -336,6 +345,15 @@ computed on failure, but the UI discards the `source: "demo"` path — the user 
   `topology_source: "demo_fixture"`. That returns `source: "live"` with plausible-looking elements,
   so it used to render as if the drawing had been parsed. `getDocumentTopology` now carries the flag
   through and the page badges it **"Fixture — vision model unavailable"**.
+
+- **`submitAnswerFeedback()` is deliberately fire-and-forget** — it resolves `false` instead of
+  throwing. A failed rating must never surface as an error over the answer the user is reading, so
+  the control clears its selection and shows "Rating not saved" rather than claiming a save that did
+  not happen. This is the one fetcher whose failure is *not* an error state, and it is exempt from
+  the throw rule because it returns a bare `boolean`, not `Fetched<>`.
+- **`/copilot` renders `pending_moc` above the answer.** `POST /search/synthesize` returns open
+  engineering conflicts awaiting MoC sign-off for any cited asset; the banner sits above the prose
+  because after it a technician has already read the number.
 
 Default read timeout is **4 s** (`getJson`); `synthesize()` gets **90 s**, which the backend's
 `NVIDIA_NIM_TIMEOUT` must stay under. Guard array reads defensively — `x?.arr.length` still throws when
@@ -358,7 +376,7 @@ Key types:
 
 | Type | Description |
 |------|-------------|
-| `Role` | `"admin" \| "engineer" \| "reliability" \| "field_worker"` |
+| `Role` | `"admin" \| "engineer" \| "field_worker" \| "reliability" \| "compliance"` — `compliance` is the read-only auditor persona |
 | `AuthorityLevel` | `1–5` (lower = higher authority, per Architecture Layer 4) |
 | `Brief` | Full brief shape including sources, warnings, countersignature flag, freeze state |
 | `BriefsResponse` | Brief list + `governor_state` + `suppressed_count` + `next_delivery_allowed_at` |
@@ -398,32 +416,26 @@ Key types:
 
 ---
 
-## 9. Fixture Data
+## 9. Frontend fixtures — none remain
 
-> **⚠️ Live-only (see §6).** These fixture modules are **no longer rendered** — the app shows real data, a
-> skeleton, or an error+retry. They remain in the tree as dead code (optional cleanup). Listed here for
-> reference only.
->
-> **Exceptions to the list below:** `copilot.ts` no longer contains fixtures at all — the `SEAL`,
-> `PRESSURE_REFUSAL`, `ISOLATION`, `GENERIC` answers and `answerFor()` were deleted, leaving types and
-> `SUGGESTIONS`. `rca.ts` keeps `rcaFor()` and its packs but they are **TEST-ONLY** (mocking
-> `getRcaPack` in `rca/page.test.tsx`); importing them from `api.ts` would reintroduce fabricated
-> hypotheses on failure.
+**The frontend fixture system was deleted on 2026-08-15 and cannot come back without a type error.**
+`lib/{fixtures,assets,compliance,documents,governance}.ts` and the `<DemoChip>` primitive (with all 10
+render sites) are gone; `DataSource` narrowed to the single member `"live"`. Verified 2026-08-17: none of
+those files exist and `DemoChip` appears nowhere in `frontend/src`.
 
-All fixture modules mirror the exact API shapes.
+Three of those paths were **not** dead when removed — `getEvents`, `governance/moc` and
+`governance/model-gate` were rendering fabricated data on *successful* requests, not just on failure.
 
-| Module | Stands in for |
-|--------|--------------|
-| `fixtures.ts` | `GET /briefs/` |
-| `assets.ts` | `GET /assets/`, `GET /assets/{id}`, `GET /assets/{id}/knowledge` |
-| `compliance.ts` | `GET /compliance/gaps`, `GET /compliance/dashboard` |
-| `copilot.ts` | `POST /search/synthesize` |
-| `documents.ts` | `GET /documents/`, `GET /documents/{id}` |
-| `governance.ts` | `GET /governance/conflicts`, `GET /governance/quarantine` |
-| `rca.ts` | `POST /search/rca-pack` |
+**Two files survive deliberately and are not fixture modules:**
 
-Fixture assets (legacy; the golden dataset uses `EQ-101`, `HE-301`, `V-247`, `PG-18` — some fixtures were
-realigned to those canonical tags, `P-101` is a confirmed alias of `EQ-101`).
+| File | Why it stays |
+|---|---|
+| `lib/copilot.ts` | Live types, the real `SUGGESTIONS` constants, and `metaAnswer()` (handles "what can you do?" locally, with **no API call**, rendered as a labelled "About Kairos" card carrying no sources — it is not retrieved knowledge and must never look like a governed claim) |
+| `lib/rca.ts` | Live types + `RCA_PRESETS`, plus `rcaFor` which is **TEST-ONLY** (mocks `getRcaPack` in `rca/page.test.tsx`). Importing it from `api.ts` would reintroduce fabricated hypotheses on failure. |
+
+**Backend fixtures are a separate matter** and are mock-by-design — see [`FIXTURES.md`](./FIXTURES.md).
+The P&ID vision fallback (`fixtures/pid_topology_mock.json`) is live and **must be disclosed in the UI**
+(§6).
 
 ---
 
@@ -510,18 +522,18 @@ UI changes so the marketing page does not drift from the product.
 
 ## 12. Docker
 
-```dockerfile
-FROM node:20-alpine
-ENV NEXT_TELEMETRY_DISABLED=1
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci                      # deps installed at image build time
-COPY . .
-EXPOSE 3000
-CMD ["npm", "run", "dev"]       # Next.js dev server with HMR
-```
+`frontend/Dockerfile` is **4-stage**: `deps → dev → builder → runner`.
 
-**docker-compose mounts** (hot-reload without reinstalling deps):
+| Stage | Role |
+|---|---|
+| `deps` | `npm ci` from the lockfile — the cached dependency layer |
+| `dev` | `next dev` with HMR; this is the target the compose **override** builds |
+| `builder` | `next build` (needs `output: "standalone"` in `next.config.ts`) |
+| `runner` | serves the standalone build as non-root user `nextjs` — the **prod** target |
+
+Full build-system detail: [`DOCKER.md`](./DOCKER.md).
+
+**docker-compose mounts** (dev override only — the base file bakes code into the image):
 ```yaml
 volumes:
   - ./frontend/src:/app/src
@@ -572,7 +584,8 @@ All four jobs run in parallel on `ubuntu-latest` with `node:20` and `npm ci` fro
 | `h-screen` → `h-dvh` | ✅ converted |
 | Token colors only (no `bg-white`, `text-gray-*`) | ✅ clean |
 | `@xyflow/react` in `package-lock.json` | ✅ resolved |
-| All 36 FE tasks TypeScript-clean | ✅ verified in container |
+| Test suite | ✅ **145 passed / 57 files** (vitest, in-container 2026-08-17) |
+| eslint | ✅ 0 errors (3 pre-existing unused-var warnings) |
 
 ---
 
@@ -596,22 +609,21 @@ These are deliberate decisions, not open gaps — the UI handles each honestly t
 
 | Item | Decision |
 |------|----------|
-| `/management/cross-site` live data | Cross-site pattern aggregation is a **Layer-13 roadmap** feature and needs multi-site data. This is a single-site deployment, so the page shows an honest **"No cross-site data in this deployment"** empty state — no fabricated alerts. |
+| `/management/cross-site` live data | Cross-site pattern aggregation is a **roadmap** feature needing multi-site data (the architecture defines layers 0–12; the old "Layer 13" label was wrong and was corrected in the UI too). This is a single-site deployment, so the page shows an honest **"No cross-site data in this deployment"** empty state — no fabricated alerts. |
 | SSR bearer token | Server components use the backend **dev-bypass** on purpose (fast, demo-friendly). Wire `getToken()` through SSR only if a strict-auth deployment needs it. |
 | Offline app-shell | **Prod-only by design** — the service worker is disabled in dev (it fought HMR). The IndexedDB write-queue (`idb.ts`) works in dev. |
 
 **Browser verification:** ✅ complete. Every desktop route + all field routes verified against the golden
 dataset (admin + `field_worker` sessions). Seven live-data crashes were found and fixed during the sweep
-(now guarded by `tests/test_contract.py`) — see the response-normalizer note in §6 and `AGENTS.md`
-"Known Pitfalls".
+(now guarded by `tests/test_contract.py`) — see the response-normalizer note in §6 and
+[`implementation/status.md` § Known Pitfalls](./implementation/status.md#known-pitfalls).
 
 
 ---
 
 ## Conformance updates — 2026-08-16
 
-UI changes landed with the architecture-conformance work. Detail and undo steps in
-[`implementation/conformance-changelog.md`](./implementation/conformance-changelog.md).
+UI changes landed with the architecture-conformance work.
 
 | Surface | Change |
 |---|---|

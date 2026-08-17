@@ -225,3 +225,150 @@ async def test_context_without_relevance_scores_keeps_previous_behaviour(monkeyp
            {"document_id": "DOC-REG", "text": "regulation", "authority_level": 1}]
     result = await _synth(llm, "isolation boundary for V-247", ctx)
     assert not result.get("refused")
+
+
+# --- Post-synthesis safety gate + parse-contract leak (found live 2026-08-16) -----------------
+
+from api.services.llm import LLMService  # noqa: E402
+
+
+def test_parser_recovers_answer_when_the_model_omits_the_ANSWER_marker():
+    """
+    Regression: models often start with the prose and omit `ANSWER:`. The parser returned
+    answer=None, the caller fell back to the raw text, and the user was shown the parse contract
+    itself — "…CONFIDENCE: 0.0 UNCERTAINTY: … SOURCES_USED: None" — as the answer.
+    """
+    raw = (
+        "The torque specification for the EQ-999 flange bolts is not specified in the sources.\n"
+        "CONFIDENCE: 0.0\n"
+        "UNCERTAINTY: Not mentioned in any provided document.\n"
+        "SOURCES_USED: None"
+    )
+    parsed = LLMService.parse_synthesis_response(raw)
+
+    assert parsed["answer"] is not None
+    assert "CONFIDENCE:" not in parsed["answer"]
+    assert "SOURCES_USED:" not in parsed["answer"]
+    assert parsed["confidence"] == 0.0
+    assert parsed["sources_used"] == []
+
+
+def test_well_formed_response_still_parses_unchanged():
+    raw = "ANSWER: Torque is 120 Nm.\nCONFIDENCE: 0.92\nUNCERTAINTY: none\nSOURCES_USED: 1, 2"
+    parsed = LLMService.parse_synthesis_response(raw)
+
+    assert parsed["answer"] == "Torque is 120 Nm."
+    assert parsed["confidence"] == 0.92
+    assert parsed["sources_used"] == [1, 2]
+
+
+async def test_safety_critical_low_self_confidence_refuses_rather_than_hedges(monkeypatch):
+    """
+    Regression, found live in the UI: a torque query for a non-existent asset retrieved an
+    unrelated L3 OEM bulletin, cleared the *pre*-gate on authority, and the model honestly replied
+    "not specified" with CONFIDENCE 0.0 — which rendered as a hedged low-confidence answer.
+
+    For a safety-critical parameter that is the forbidden outcome: a hedge reads as confirmation
+    to a technician under time pressure. The gate now also inspects the result, not just the
+    evidence.
+    """
+    from api.config import settings
+
+    llm = LLMService(settings)
+    monkeypatch.setattr(
+        llm, "_synthesize_cascade",
+        lambda prompt, ctx: _answer({
+            "answer": "Not specified in the provided sources.\nCONFIDENCE: 0.0\nSOURCES_USED: None",
+            "sources": ctx,
+        }),
+    )
+    result = await llm.synthesize(
+        query="torque specification for EQ-999 flange bolts",
+        retrieved_context=[{"document_id": "OEM-1", "text": "EQ-1xx seal spec", "authority_level": 3}],
+        query_category="torque_specification",
+    )
+
+    assert result["refused"] is True
+    assert result["answer"] is None
+    assert "does not hedge" in result["refusal_reason"]
+
+
+async def test_safety_critical_high_self_confidence_is_not_refused(monkeypatch):
+    """The post-gate must not fire on a well-supported answer — a false refusal trains operators
+    to route around the gate, which is its own safety failure."""
+    from api.config import settings
+
+    llm = LLMService(settings)
+    monkeypatch.setattr(
+        llm, "_synthesize_cascade",
+        lambda prompt, ctx: _answer({
+            "answer": "ANSWER: Torque is 120 Nm.\nCONFIDENCE: 0.93\nSOURCES_USED: 1",
+            "sources": ctx,
+        }),
+    )
+    result = await llm.synthesize(
+        query="torque specification for EQ-101 flange bolts",
+        retrieved_context=[{"document_id": "OEM-1", "text": "120 Nm", "authority_level": 3}],
+        query_category="torque_specification",
+    )
+
+    assert not result.get("refused")
+    assert "120 Nm" in result["answer"]
+
+
+def test_parser_handles_the_whole_contract_on_one_line():
+    """
+    Root cause of the live copilot hedge. NIM returned the contract inline —
+    "…not in the sources. CONFIDENCE: 0.0 UNCERTAINTY: … SOURCES_USED: None" — with no newlines.
+    The old `^KEY:` (MULTILINE) anchor matched nothing, so confidence/uncertainty/sources_used all
+    came back empty. Two consequences: the raw contract leaked to the user as the answer, and the
+    post-synthesis safety gate never fired because it had no confidence to judge.
+    """
+    raw = ("The torque specification for the EQ-999 flange bolts is not mentioned in the provided "
+           "source documents. CONFIDENCE: 0.0 UNCERTAINTY: Not stated anywhere. SOURCES_USED: None")
+    parsed = LLMService.parse_synthesis_response(raw)
+
+    assert parsed["confidence"] == 0.0
+    assert parsed["uncertainty"] == "Not stated anywhere."
+    assert parsed["sources_used"] == []
+    assert "CONFIDENCE:" not in parsed["answer"]
+    assert parsed["answer"].endswith("source documents.")
+
+
+def test_parser_handles_inline_markers_with_real_sources():
+    raw = "ANSWER: Torque is 120 Nm. CONFIDENCE: 0.91 UNCERTAINTY: none SOURCES_USED: 1, 3"
+    parsed = LLMService.parse_synthesis_response(raw)
+
+    assert parsed["answer"] == "Torque is 120 Nm."
+    assert parsed["confidence"] == 0.91
+    assert parsed["sources_used"] == [1, 3]
+
+
+def test_rca_hypotheses_never_cite_a_document_called_none():
+    """
+    Found live: RCA returned three hypotheses each with sources ['None'] — the model's
+    "SOURCES_USED: None" taken literally as a document id. That is a fabricated provenance chip on
+    a surface whose rule is that no claim appears without provenance; citing nothing is honest,
+    citing "None" is not.
+    """
+    raw = (
+        "HYPOTHESES:\n"
+        "1. Seal failure from improper installation | evidence_weight: 0.5 | sources: None\n"
+        "2. Wear from prolonged operation | evidence_weight: 0.4 | sources: DOC-A, DOC-B\n"
+        "3. Manufacturing defect | evidence_weight: 0.1 | sources: N/A\n"
+        "4. Thermal cycling | evidence_weight: 0.2 | "
+        "sources: [No specific document_id, inferred from work_order_created: seal failure]\n"
+        "5. Vibration | evidence_weight: 0.3 | sources: speculative\n"
+    )
+    out = LLMService.parse_rca_response(raw) if hasattr(LLMService, "parse_rca_response") else None
+    if out is None:
+        import pytest
+        pytest.skip("parse_rca_response not exposed as a static helper")
+    hyps = out["hypotheses"]
+    assert hyps[0]["sources"] == []
+    assert hyps[1]["sources"] == ["DOC-A", "DOC-B"]
+    assert hyps[2]["sources"] == []
+    # Prose masquerading as a citation must not become several fake document ids.
+    assert hyps[3]["sources"] == []
+    # A bare English word is not a document id — every real one carries a digit or hyphen.
+    assert hyps[4]["sources"] == []

@@ -92,7 +92,7 @@ Every relationship written to Neo4j uses the `KNOWLEDGE_EDGE` type. Six properti
 | `KNOWLEDGE_EDGE` | Any → Any | All domain knowledge relationships |
 | `PARENT_OF` | Asset → Asset | Physical hierarchy (Production Line → Pump) |
 | `DOCUMENTED_BY` | Asset → Document | Asset backed by a document |
-| `CAUSED_BY` | Event → Event | Causal chain between events |
+| `CAUSED_BY` | Event → Event | **Designed, not implemented** — written nowhere in the codebase, and `Event` nodes are never created either (see the L4 divergence in `implementation/status.md`). Causal chains run through `operational_events.compound_event_id` in Supabase instead. |
 | `INSPECTION_RECORD` | Asset → Document | Inspection completion with result |
 
 ### Constraints and Indices
@@ -234,7 +234,9 @@ entity_count    INTEGER
 graph_edges     INTEGER
 review_pending  INTEGER DEFAULT 0
 error           TEXT
-timestamp_drift_detected BOOLEAN DEFAULT FALSE  -- migration 009
+timestamp_drift_detected BOOLEAN DEFAULT FALSE  -- migration 009; cross-source skew only.
+                                               -- The pipeline stopped setting it 2026-08-17: an
+                                               -- occurred_at/ingested_at gap is ingest lag, not drift.
 started_at      TIMESTAMPTZ
 completed_at    TIMESTAMPTZ
 created_at      TIMESTAMPTZ DEFAULT NOW()

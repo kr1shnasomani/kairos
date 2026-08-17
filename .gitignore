@@ -74,12 +74,6 @@ yarn-error.log*
 .yarn/cache
 .pnp.*
 
-# --- Docker ---
-# docker-compose.yml (prod base) and docker-compose.override.yml (dev) are BOTH
-# tracked — the override is the reproducible dev config, not a local secret file.
-# Personal, machine-local overrides go in docker-compose.local.yml (ignored).
-docker-compose.local.yml
-
 # --- Database ---
 # Local Neo4j data (managed by Docker volumes, not tracked)
 /data/neo4j/
@@ -91,11 +85,6 @@ docker-compose.local.yml
 # --- IDE / OS ---
 .DS_Store
 .DS_Store?
-
-# Demo video (47 MB). Deliverables in demo/ are committed EXCEPT the video — a binary that
-# size lives in git history permanently and every clone pays for it. Share it via the
-# submission portal / a release asset, or track it with Git LFS if it must be in-repo.
-demo/*.mp4
 ._*
 .Spotlight-V100
 .Trashes
@@ -153,10 +142,6 @@ logs/
 # Local .env backups (may contain secrets)
 .env.bak.*
 
-# --- Local-only working material (not part of the product) ---
-# Landing-page screenshot capture tooling: re-run locally when the UI changes,
-# see the header of the script for usage. The screenshots it produces
-# (frontend/public/shots/) ARE committed, because the landing page imports them.
-/scripts/
-# Competition/research scratch notes.
-/comparsion/
+# Benchmark run logs + checkpoints (durable across container recreation; not source)
+backend/.benchmark_runs/
+scripts/

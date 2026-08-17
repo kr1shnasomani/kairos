@@ -464,6 +464,7 @@ export async function synthesize(query: string, asOf?: string): Promise<CopilotA
       refusal_reason?: string;
       safety_critical: boolean;
       model?: string;
+      pending_moc?: CopilotAnswer["pending_moc"];
     }>("/search/synthesize", asOf ? { query, context, as_of: asOf } : { query, context }, 90000);
 
     // Genuine safety refusal is kept. Empty answer despite context → surface the retrieved sources
@@ -492,12 +493,45 @@ export async function synthesize(query: string, asOf?: string): Promise<CopilotA
       refusal_reason: live.refusal_reason,
       safety_critical: !!live.safety_critical,
       model: live.model,
+      pending_moc: live.pending_moc ?? [],
     };
   } catch (e) {
     // Live-only policy: the copilot must never render fabricated content. A failed
     // retrieval or synthesis surfaces as an error the caller shows with a retry —
     // returning a fixture here would present invented sources as governed evidence.
     throw e instanceof Error ? e : new Error("Copilot synthesis failed");
+  }
+}
+
+/**
+ * Phase-2 trust loop: record the single-tap rating on a synthesized answer.
+ *
+ * Fire-and-forget by design — a failed rating must never surface as an error over the answer
+ * the user is reading. It resolves to false instead, so the caller can leave the control in its
+ * un-sent state rather than claiming a save that did not happen.
+ */
+export async function submitAnswerFeedback(input: {
+  query: string;
+  rating: "accurate" | "missing_context" | "incorrect";
+  note?: string;
+  sourcesUsed?: number[];
+  model?: string;
+}): Promise<boolean> {
+  try {
+    await postJson<{ status: string }>(
+      "/search/feedback",
+      {
+        query: input.query,
+        rating: input.rating,
+        note: input.note,
+        sources_used: input.sourcesUsed ?? [],
+        model: input.model,
+      },
+      8000,
+    );
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -659,6 +693,11 @@ interface RawGateRow {
      *  by this adapter, which is why no surface could show which entity types the model
      *  actually fails on. */
     by_entity_type?: Record<string, { precision?: number; recall?: number; f1?: number; count?: number }>;
+    /** Written by the CLI gate (scripts/run_model_validation.py). Absent on Celery rows and on
+     *  every row before 2026-08-15 — a run with no verdict renders without one. */
+    validity?: "VALID" | "SUSPECT";
+    extraction_paths?: Record<string, number>;
+    fallback_extractions?: number;
   } | null;
   timestamp?: string;
 }
@@ -682,6 +721,9 @@ export async function getModelGateHistory(): Promise<Fetched<ModelGateHistory>> 
         // entity_id is the model the gate was asked about; details.model_name agrees with it.
         model_name: r.details!.model_name ?? r.entity_id ?? undefined,
         by_entity_type: r.details!.by_entity_type ?? undefined,
+        validity: r.details!.validity ?? undefined,
+        extraction_paths: r.details!.extraction_paths ?? undefined,
+        fallback_extractions: r.details!.fallback_extractions ?? undefined,
       }));
     return { data: { history }, source: "live" };
   } catch (e) {

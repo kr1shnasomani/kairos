@@ -16,7 +16,8 @@ Self-contained evaluation harness + evidence, in `benchmark/` (mounted into the 
 | `run_compliance_eval.py` | **Compliance gap-detection precision / recall / F1** vs ground truth derived from the dataset manifest |
 | `run_time_to_answer.py` | **Time-to-answer vs BM25-only keyword search** — machine time, documents opened, modelled human time |
 | `run_load_test.py` | **Concurrency sweep** — p50/p95/p99, throughput, error rate, first-bottleneck detection |
-| `questions.json` | 25 domain-expert Q&A across 15 categories, grounded in `dataset/00_Reference/00_KAIROS_CANON.md` |
+| `questions.json` | **37** domain-expert Q&A across 15 categories, grounded in `dataset/00_Reference/00_KAIROS_CANON.md` |
+| `scripts/run_model_validation.py` | **Layer-0 entity-extraction F1** vs `validation_corpus`, per entity type, with extraction-path counts and a `VALID`/`SUSPECT` verdict |
 | `RESULTS.md` | Raw output of the scripts (results only — this file holds the interpretation) |
 | `scripts/seed_validation_corpus.py` | Seeds the Layer-0 NER ground-truth set (`validation_corpus`) that `scripts/run_model_validation.py` scores. **40 labels** (was 13) as of 2026-08-15 — every one verified present in that document's *indexed* text before being added |
 
@@ -29,10 +30,21 @@ Self-contained evaluation harness + evidence, in `benchmark/` (mounted into the 
 > punishes a defensible answer is worse than a smaller one. That n=3 is a property of the dataset,
 > not of the labelling effort.
 
-The last three harnesses cover evaluation criteria that previously had **no number attached** —
-compliance gap accuracy and time-to-answer are named in the problem statement, and scalability
-had only single-user sequential figures behind it. They are written and import-verified but
-**have not yet been run against a loaded stack**; nothing in `RESULTS.md` comes from them.
+`run_compliance_eval.py`, `run_time_to_answer.py` and `run_load_test.py` cover evaluation criteria
+that once had **no number attached** — compliance gap accuracy and time-to-answer are named in the
+problem statement, and scalability had only single-user sequential figures behind it. All three
+have since been run against a loaded stack and their raw output is in `RESULTS.md` §4–§6.
+
+> Two harness defects were found by running them rather than reading them, both fixed 2026-08-17:
+> `run_benchmark.py` had no error handling around its retrieval calls, so one slow `/search` raised
+> `ReadTimeout` out of `main()` and **discarded 21 of 37 already-graded questions** — ~20 minutes of
+> paced synthesis for zero output. It now degrades a single question's context instead, and
+> `--checkpoint` records each graded question as it lands so a crash costs the remainder, not the
+> run. `run_time_to_answer.py` fired synthesis **back-to-back with no pacing** (the pattern that
+> drives NIM into its timeout tail and drains the free Gemini tier) and allowed **180 s** per call —
+> twice the browser's budget — so it recorded latencies no user could experience and scored calls
+> the product would have aborted as successes. Both now match `run_benchmark.py`: 15 s pacing, 90 s
+> cap.
 
 ## Methodology (fully deterministic — no LLM-as-judge)
 
@@ -88,17 +100,23 @@ docker exec kairos-backend-api python scripts/run_model_validation.py --model-na
 
 ## Results
 
-Measured 2026-07-14 (raw output → [`../benchmark/RESULTS.md`](../benchmark/RESULTS.md)).
+Measured **2026-08-16** — the first full sweep on the shipping configuration (37 questions, 40 NER
+labels, `NVIDIA_NIM_TIMEOUT=60`). Raw output → [`../benchmark/RESULTS.md`](../benchmark/RESULTS.md).
 
 | PS "Evaluation Focus" criterion | KAIROS metric | Result |
 |---|---|---|
-| **Time-to-answer** | Per-layer latency + synthesis percentiles | **13/13 layers PASS**; retrieval **~1.4 s**; synthesis **p50 8.3 s · p95 37 s** (NIM 70B) |
-| **KG linkage completeness** | Assets linked into the graph + edge verification (Cypher) | **10/10 canonical assets linked (100%)**, **105 knowledge edges**; **0% auto-verified** — *by design* (see note) |
-| **Query answer quality** | Golden Q&A (25): answer states the correct fact, not negated, with sources | **23/25 (92%)**, 95% CI [75–98%] (2 honest misses — see notes) |
-| **Provenance** | Does every non-refused answer cite `sources[]`? | **25/25 (100%)**, 95% CI [87–100%] |
-| **Retrieval quality** | Does the correct source surface for each question? | **25/25 (100%)**, 95% CI [87–100%] |
-| **Entity-extraction accuracy** | Layer-0 model gate: precision / recall / F1 per entity type | **F1 ≈ 0.96** (P 1.0 / R 0.92); ASSET_TAG & PERSON 1.0; range 0.89–0.96 across runs |
+| **Time-to-answer** | Per-layer latency + synthesis percentiles | **13/13 layers PASS**; synthesis **p50 32.3 s · p95 65.0 s** (NIM 70B at the 60 s cap) |
+| **KG linkage completeness** | Assets linked into the graph + edge verification (Cypher) | **10/10 canonical assets linked (100%)**, **45 knowledge edges** (2 verified by human promotion; near-0% auto-verified is *by design* — see note) |
+| **Query answer quality** | Golden Q&A (37): answer states the correct fact, not negated, with sources | **34/37 (91%)**, 95% CI [79–97%]; run validity **VALID** (3 honest misses — see notes) |
+| **Provenance** | Does every non-refused answer cite `sources[]`? | **37/37 (100%)**, 95% CI [91–100%] |
+| **Retrieval quality** | Does the correct source surface for each question? | **37/37 (100%)**, 95% CI [91–100%] |
+| **Entity-extraction accuracy** | Layer-0 model gate: precision / recall / F1 per entity type | **F1 0.847** on 40 labels (P 0.800 / R 0.900); PERSON 1.0 (n=7), ASSET_TAG 0.947 (n=30), ORGANIZATION 0.8 (n=3). `SUSPECT` — 1 of 15 extractions fell back |
+| **Compliance gap detection** | Precision / recall / F1 vs an independently-derived truth table | **P 1.000 · R 0.838 · F1 0.912**, zero false positives |
 | **Cross-functional discovery** | Cross-site advisories | 🟦 fixture (single-site MVP, by design) |
+
+> **Comparing against the older 23/25 or 24/25 is comparing different tests.** Those were 25
+> questions with eight categories at n=1; this is 37 with none below n=2. Read per-category rates
+> with the n attached — at n=2 a single flip moves a category by 50%.
 
 Per-category breakdown (15 categories) and per-question output: [`../benchmark/RESULTS.md`](../benchmark/RESULTS.md).
 
@@ -160,18 +178,35 @@ growth or connection leakage over hours.
 
 ## Notes (honest reading of the numbers)
 
-- **The 2 answer misses are honest, not benchmark bugs.** Q05 (Meridian OEM) and Q09 (EQ-101 failure count)
-  both *retrieve* correctly but the synthesis LLM declines to commit — Q05 because the name arrives as a
-  fragmented highlight and the model won't infer beyond sources; Q09 because EQ-101's full failure history
-  lives in a family CSV scoped to EQ-102 (one `asset_id` per document). Left visible on purpose; gaming them
-  to 25/25 would defeat a reproducible benchmark.
-- **The `VIA` column records the answering provider per question.** NIM answers nearly all; Gemini is the
-  automatic fallback (e.g. Q08 in the recorded run, when a NIM call was slow).
-- **Entity-F1 uses partial-match on a canon-grounded set.** `ASSET_TAG` (safety-critical equipment tags) is
-  consistently perfect; `ORGANIZATION` is canon-limited to 2 samples (Fischer, Meridian), so a single stochastic
-  miss swings its per-type rate. The benchmark also surfaced a real code smell — `NERService` can drop a
-  regex-added `ASSET_TAG` when the model labels the same token `MATERIAL` (dedup collision); noted for a
-  follow-up, out of benchmark scope.
+- **The 3 answer misses are honest, not benchmark bugs.** Q09 (`aggregation` — EQ-101 failure count),
+  Q29 (`blast-radius`) and Q35 (`traceability`) all *retrieve* correctly and cite sources; the synthesis
+  declines to commit. Q09 has missed since the 25-question era — EQ-101's full failure history lives in a
+  family CSV scoped to EQ-102 (one `asset_id` per document) — so it is a standing weakness, not a new one.
+  Left visible on purpose; gaming them to 37/37 would defeat a reproducible benchmark.
+- **All 3 refusals are genuine, and were audited rather than assumed.** The grader counts a refusal as a
+  correct outcome, which means a gate that over-refuses would silently *raise* the score. Each refusal
+  (Q07, Q19, Q25) was checked against the graph: no asset involved carries an authoritative (≤L3) source
+  for the safety-critical parameter asked. Q25 is the instructive case — the bulletin revising the HE-3xx
+  limit to 16.2 bar is linked to **HE-301**, while Q25 asks about **HE-302/303**, so answering would mean
+  extrapolating a pressure limit onto assets no source covers. Raw and adjusted scores are identical.
+- **The `VIA` column records the answering provider per question.** NIM answers most; **OpenRouter** is
+  tier 2 and serves the *same* `llama-3.1-70b`, so a fallthrough does not change which model answered —
+  11 of 34 answers came from it and the run is still `VALID`. Only Gemini (tier 3, a different model
+  family) triggers `SUSPECT`.
+- **Entity-F1 uses partial-match on a canon-grounded set.** `ORGANIZATION` is canon-limited to 3 samples,
+  so a single stochastic miss swings its per-type rate — quote it with the n. The benchmark also surfaced a
+  real code smell — `NERService` can drop a regex-added `ASSET_TAG` when the model labels the same token
+  `MATERIAL` (dedup collision); noted for a follow-up, out of benchmark scope.
+- **A `SUSPECT` entity-F1 is a ceiling, not a score.** Any extraction that falls back lands on the regex
+  path, which matches `ASSET_TAG` only. The 2026-08-16 run fell back once in 15 — and the cause has
+  *changed*: it was `ner.parse_failed` (malformed JSON from the model), not the 30 s timeout that caused
+  the earlier fallbacks. That timeout is fixed (`services/ner.py` now reads `NVIDIA_NIM_TIMEOUT`) and the
+  run recorded zero timeouts; the remaining fallback is a response-parsing defect.
+- **Compliance F1 drifts downward as humans promote knowledge, and that is a property of the harness.**
+  Its ground truth is derived from the static dataset manifest, so evidence a human promotes into the graph
+  afterwards reads as a false negative. Five of the six FNs in the 2026-08-16 run are one such promotion on
+  EQ-101. The truth table is **not** amended to match — that would destroy the independence that makes the
+  number meaningful. Precision, the safety-relevant direction, stays 1.000.
 - **"0% verified" edges is a safety feature, not a gap.** Every edge is `unverified` until a human promotes
   it (quarantine one-way gate); 0% auto-verified proves the governance gate is enforced.
 - **10/10 counts the canonical golden assets** (P-101, HE-301…); integration-test rows are excluded from the

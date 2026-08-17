@@ -6,17 +6,22 @@ All tests run **inside Docker**. There is no host shortcut: host package resolut
 the pinned images and produces false results — `auth.test.ts` and `api.test.ts` fail on the host
 and pass in the container. A host run will lie to you.
 
-### Tier 1 — service-free (121 tests, no stack, no secrets, no network)
+### Tier 1 — service-free (146 tests, no stack, no secrets, no network)
 
 These need nothing running. This is what CI's `unit` job executes on every push.
 
 ```bash
 docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api \
-  pytest -q --timeout=120 \
-    tests/test_pii.py tests/test_query_category.py tests/test_search_fusion.py \
-    tests/test_ingestion_formats.py tests/test_http_pool.py \
-    tests/test_model_validation.py tests/test_pid.py tests/test_auth_cache.py \
-    tests/test_config_guardrail.py
+  pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,\
+model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,\
+ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ner_parse,\
+superseded_filter,brief_signing}.py
+```
+
+All **19** files, **146 tests**. The seven conformance files (`briefs_countersign` … `model_gate_classes`)
+are part of this tier — an earlier version of this command listed only the first nine and undercounted it.
+
+```bash
 ```
 
 ### Tier 2 — full integration suite (needs the stack)
@@ -51,7 +56,7 @@ docker exec kairos-backend-api python scripts/seed_users.py
 
 | Job | Needs | Behaviour |
 |---|---|---|
-| `unit` | nothing | Runs the 68 service-free tests on every push and fork PR, plus the benchmark grader selftest. Must stay green. |
+| `unit` | nothing | Runs the 146 service-free tests on every push and fork PR, plus the benchmark grader selftest. Must stay green. |
 | `integration` | `--profile local-stores` + a **throwaway** `CI_SUPABASE_*` project | Runs the full suite. **Skips with exit 0** when `CI_SUPABASE_URL` is unset, so a missing optional credential is never a red build. |
 
 Neo4j, Qdrant, Elasticsearch and Redis run as local containers in CI, so Aura and Qdrant Cloud
@@ -71,11 +76,11 @@ gh secret set GROQ_API_KEY
 ```
 
 > **Recommended: leave the integration job disabled.** Enabling it costs **~20 provider calls
-> per push** — every `/search` embeds the query via Jina, `/search/synthesize` hits NIM then
-> Gemini, and elicitation calls the LLM. Gemini's free tier is a few hundred requests/day and
+> per push** — every `/search` embeds the query via Jina, `/search/synthesize` walks the
+> NIM → OpenRouter → Gemini cascade, and elicitation calls the LLM. Gemini's free tier is a few hundred requests/day and
 > is shared with the benchmark harnesses, so a busy day of pushes exhausts it; once it 429s,
 > synthesis silently returns no answer and *measured answer quality collapses* (observed:
-> 24/25 → 13/25). Tier-1 gives 68 green tests with **zero** provider calls, which is the
+> 24/25 → 13/25). Tier-1 gives 146 green tests with **zero** provider calls, which is the
 > signal CI should be providing. Enable tier 2 only for a deliberate pre-release run, against
 > a throwaway Supabase project.
 
@@ -109,14 +114,35 @@ tests/                        ← project root (NOT inside backend/)
   test_pid.py                 ← P&ID topology JSON parsing (pure logic)
   test_search.py
   test_contract.py            ← response-shape contract tests for endpoints that historically drift
+  # service-free tier (no stack, no secrets, no network — CI's `unit` job)
+  test_pii.py                 ← PII redaction at the export boundary
+  test_query_category.py      ← safety classification + both refusal gates + parse regressions
+  test_search_fusion.py       ← RRF retrieval fusion
+  test_ingestion_formats.py   ← spreadsheet + email ingestion
+  test_http_pool.py           ← per-event-loop client + embedding LRU
+  test_auth_cache.py          ← verified-token cache
+  test_config_guardrail.py    ← fail-closed secret guardrail
+  test_briefs_countersign.py  ← PTW dual sign-off
+  test_topology_verify.py     ← P&ID element-by-element gate
+  test_ot_coverage.py         ← coverage from verified topology only
+  test_phase_gate.py          ← deployment phase gating
+  test_extraction_path.py     ← extraction_path / handwriting_suspect flags
+  test_timestamp_alignment.py ← cross-source drift
+  test_model_gate_classes.py  ← per-asset-class model gate
+  test_ner_parse.py           ← NER truncation recovery (max_tokens cliff)
+  test_superseded_filter.py   ← superseded docs excluded from default retrieval
+  test_brief_signing.py       ← HMAC acknowledgment signatures
 pytest.ini                    ← project root
 ```
 
-Latest full run: **~175 passed · 3 skipped — *stale: not re-measured since 2026-08-16; ~53 tests added, so treat this as a floor* · 1 known transient flake**
+Suite size: **309 tests collected** (`pytest tests/ --collect-only`, 2026-08-17). The last full green
+run was ~175 passed · 3 skipped before ~116 tests were added, so that figure is superseded — re-run
+tier 2 against local stores for a current pass count. **1 known transient flake**
 (`test_briefs.py::test_attribution_worker_queues_recheck` — a work-order POST occasionally 500s under
 concurrent load; passes deterministically in isolation).
 
-**Volume mounts** (in `docker-compose.yml` under `kairos-backend-api`):
+**Volume mounts** (in `docker-compose.override.yml` under `kairos-backend-api` — they are dev-only;
+the base `docker-compose.yml` bakes code into the image and mounts no source):
 
 ```yaml
 volumes:
@@ -212,6 +238,34 @@ Elasticsearch.
 ---
 
 ## Test files and coverage
+
+### Conformance workstreams — service-free (added 2026-08-16)
+
+These run with **no stack, no secrets, no network** and are part of CI's `unit` job. They were
+written service-free deliberately: Supabase has no local counterpart, so a write-heavy test would
+have to hit the production project.
+
+| File | Covers | Cases |
+|---|---|---|
+| `test_briefs_countersign.py` | PTW dual sign-off — two distinct signers required, self-countersign rejected, double-countersign rejected. Includes the regression for scoping the read by recipient, which made every real countersign 404. | 7 |
+| `test_topology_verify.py` | P&ID element-by-element gate — partial confirmation does not promote, one disputed element blocks canonical, confirming promotes the existing edge. Includes the `.neq()`-vs-NULL regression that emptied the element map. | 11 |
+| `test_ot_coverage.py` | Coverage from **verified** topology only; unverified topology is not coverage; no linked drawing → `none`, never a fabricated tag. | 6 |
+| `test_phase_gate.py` | Deployment phases — default is 3 (inert), phase 1 disables synthesis, phase < 3 persists a brief but suppresses the push. | 6 |
+| `test_extraction_path.py` | `extraction_path` / `handwriting_suspect` on every OCR envelope; engineering drawings excluded; confidence untouched by the flag. | 8 |
+| `test_timestamp_alignment.py` | Cross-**source-system** drift only; same-source events are not drift; unparseable timestamps skipped rather than read as epoch-zero. | 9 |
+| `test_model_gate_classes.py` | Per-asset-class gate — a regressed class is blocked, others unaffected, enforcement off by default, lookup failure fails **open**. | 6 |
+| `test_superseded_filter.py` | **Superseded documents must not read as current.** ES and Qdrant both exclude them by default; the exclusion is `must_not superseded`, never `must active`, because `kairos_assets` docs and pre-existing Qdrant points carry no `status` at all and would otherwise vanish. Time-travel (`as_of`) re-includes them. Covers the `Filter(must=…) or None` regression that dropped the exclusion when no other condition existed. | 7 |
+| `test_brief_signing.py` | **HMAC acknowledgment signatures.** Deterministic, and bound to every fact it claims — brief, signer, action, timestamp, key. A signature captured on one brief cannot be replayed onto another, and ack vs countersign never collide. | 3 |
+| `test_ner_parse.py` | **NER truncation recovery.** `max_tokens: 1024` truncates the JSON on entity-dense documents; `json.loads` rejected the whole response and the document fell to the regex path (ASSET_TAG only). Salvage keeps the complete objects and flags `parse_recovered`; unrecoverable garbage still returns `None`. | 8 |
+
+`test_query_category.py` also gained the post-synthesis safety gate cases and the
+`parse_synthesis_response` regressions (missing `ANSWER:` marker; RCA citing a document called
+`None`).
+
+> **What these cannot catch.** Every bug this project's unit suite has missed was a *query
+> semantics* bug — `.neq()` against a NULL JSONB key, `.in_()` against a set the fake ignores. Test
+> doubles implement filters as passthroughs, so a filter whose bug *is* its filtering always passes.
+> Those need a real database or a real browser; see `implementation/e2e-sweep.md`.
 
 ### `test_health.py` — Stack liveness (3 tests)
 | Test | What it verifies |
@@ -356,7 +410,7 @@ Queries Neo4j, Qdrant, and Elasticsearch directly after the document pipeline co
 
 > **LLM timeouts:** Synthesize and RCA pack tests use `timeout=120.0` per-request — LLM calls can be slow.
 
-### `test_governance.py` — Governance Layer (Tasks 21-25, 34, Layer 7, 22 tests)
+### `test_governance.py` — Governance Layer (Tasks 21-25, 34, Layer 7, 23 tests)
 | Test | What it verifies |
 |---|---|
 | `test_list_conflicts_shape` | Conflicts list → items/total envelope |
@@ -382,14 +436,14 @@ Queries Neo4j, Qdrant, and Elasticsearch directly after the document pipeline co
 | `test_model_gate_history` | GET /governance/model-gate/history → items/total |
 | `test_model_gate_run_requires_admin` | field_worker → 403; admin → 200 with `task_id` |
 
-### `test_compliance.py` — Compliance (Task 26, Layer 7, 7 tests)
+### `test_compliance.py` — Compliance (Task 26, Layer 7, 9 tests)
 | Test | What it verifies |
 |---|---|
 | `test_list_frameworks` | GET /compliance/frameworks → list of regulatory frameworks |
 | `test_compliance_dashboard_shape` | GET /compliance/dashboard → gap counts by framework |
 | `test_list_gaps` | GET /compliance/gaps → items/total envelope |
 | `test_list_gaps_filter_framework` | `?framework=` filter works |
-| `test_audit_pack_shape` | POST /compliance/audit-pack → `status=draft`, `note` contains sign-off warning |
+| `test_audit_pack_shape` | GET /compliance/audit-pack → `status=draft`, `note` contains sign-off warning |
 | `test_audit_pack_oisd_117` | OISD_117 audit pack generated without error |
 | `test_gaps_reduce_after_document_promotion` | Promoting a procedure clears its compliance gaps |
 
@@ -450,7 +504,7 @@ Hits the **Go service at port 8090** (`http://kairos-backend-go:8090` inside Doc
 | `test_clean_text_is_returned_unchanged` | No PII → identical text, `pii_found=False` |
 | `test_spans_reference_original_offsets` | Span offsets index the original text, not the masked output |
 
-### `test_query_category.py` — Safety-critical classification + refusal gate (17 tests, **no services**)
+### `test_query_category.py` — Safety-critical classification + refusal gate (32 tests, **no services**)
 
 | Test | Asserts |
 |---|---|
@@ -460,7 +514,7 @@ Hits the **Go service at port 8090** (`http://kairos-backend-go:8090` inside Doc
 | `test_refuses_safety_query_on_unauthoritative_evidence` | Level-5 field observation only → `refused=True`, `answer=None`, sources still returned |
 | `test_authoritative_evidence_clears_the_gate` | Level-3 OEM evidence with no `confidence` field → **not** refused (cascade stubbed) |
 
-### `test_search_fusion.py` — RRF retrieval fusion (7 tests, **no services**)
+### `test_search_fusion.py` — RRF retrieval fusion (6 tests, **no services**)
 
 | Test | Asserts |
 |---|---|
@@ -530,6 +584,8 @@ Seeded by `docker exec kairos-backend-api python scripts/seed_users.py`:
 | `admin@kairos.local` | `KairosAdmin123!` | admin |
 | `engineer@kairos.local` | `KairosEngineer123!` | engineer |
 | `field_worker@kairos.local` | `KairosField123!` | field_worker |
+| `reliability@kairos.local` | `KairosReliability123!` | reliability |
+| `compliance@kairos.local` | `KairosCompliance123!` | compliance |
 
 > **Admin client in tests:** `admin_client` does NOT use Supabase JWT. It uses `INTERNAL_API_KEY` (`kairos-internal-dev-key`) which never expires. This eliminates mid-run JWT expiry failures on long test suite runs.
 

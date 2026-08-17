@@ -127,6 +127,12 @@ verify:
 benchmark:
 	docker compose exec kairos-backend-api python benchmark/run_benchmark.py $(ARGS)
 
+# Layer-0 deployment gate. Exits non-zero when the candidate model regresses against the
+# incumbent baseline, so it can gate a release:  make model-gate MODEL=meta/llama-3.2-11b-vision-instruct
+# Reports only — halting extraction per asset class additionally requires MODEL_GATE_ENFORCE=true.
+model-gate:
+	docker compose exec kairos-backend-api python scripts/run_model_validation.py --model-name $(MODEL) $(ARGS)
+
 # =============================================================================
 # Quality (Executes inside containers)
 # =============================================================================

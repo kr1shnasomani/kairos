@@ -46,9 +46,14 @@ class SearchEngineService:
         index: str | None = None,
         asset_id: str | None = None,
         limit: int = 10,
+        include_superseded: bool = False,
     ) -> list[dict[str, Any]]:
         """
         Exact and full-text search. Prioritizes exact tag number matches.
+
+        `include_superseded=False` (the default) drops superseded documents — ARCHITECTURE.md §8:
+        they "never appear in default query results as if they were current". Time-travel callers
+        pass True, because a document active at the as-of date is a correct hit for that date.
         """
         indices = index or f"{self.settings.ELASTICSEARCH_INDEX_DOCUMENTS},{self.settings.ELASTICSEARCH_INDEX_ASSETS}"
 
@@ -64,8 +69,15 @@ class SearchEngineService:
         if asset_id:
             must_clauses.append({"term": {"asset_id": asset_id}})
 
+        bool_query: dict[str, Any] = {"must": must_clauses}
+        if not include_superseded:
+            # must_not, not must status=active: this query also spans kairos_assets, whose
+            # documents carry no `status` field at all. Requiring "active" would exclude every
+            # asset hit; excluding "superseded" leaves them untouched.
+            bool_query["must_not"] = [{"term": {"status": "superseded"}}]
+
         body = {
-            "query": {"bool": {"must": must_clauses}},
+            "query": {"bool": bool_query},
             "size": limit,
             # Many fragments spanning the whole doc so the snippet captures facts far from the
             # query terms (e.g. an OISD/PESO list under a "regulatory standards" header the query
@@ -90,6 +102,7 @@ class SearchEngineService:
                     "snippet": " … ".join(h.get("highlight", {}).get("content", [])) or (h["_source"].get("content", "")[:220]),
                     "score": h["_score"],
                     "authority_level": h["_source"].get("authority_level", 5),
+                    "status": h["_source"].get("status", "active"),
                 }
                 for h in hits
             ]

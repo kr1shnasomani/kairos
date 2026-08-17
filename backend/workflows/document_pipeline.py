@@ -513,8 +513,23 @@ async def link_to_graph(
 
     now = datetime.now(UTC)
 
-    # Timestamp normalization: canonical_valid_from = ingested_at by default;
-    # use source occurred_at only when drift is within tolerance
+    # ------------------------------------------------------------------------------------
+    # Canonical valid_from, and ingest lag as an observation only.
+    #
+    # `valid_from` is when the fact *became true*, which is the source document's own date.
+    # A 2019 maintenance report ingested in 2026 is valid from 2019 — that is history, not
+    # skew, and Layer 4's time-travel queries depend on it.
+    #
+    # This block used to treat `occurred_at` vs `ingested_at` as clock drift and, beyond a
+    # 60-minute tolerance, **overwrite `valid_from` with `ingested_at`** — silently rewriting
+    # the true date of every historical document to its upload time. It never fired only
+    # because `occurred_at` is NULL across the current corpus (measured 2026-08-17: 0 of 24);
+    # it would have corrupted the validity windows the moment real source dates arrived.
+    #
+    # Real drift is the *same* event reported by two source systems at two different times —
+    # `services/timestamp_alignment.py`, surfaced at `GET /governance/timestamp-drift`. The
+    # gap measured here is **ingest lag**: worth recording, never a reason to move `valid_from`.
+    # ------------------------------------------------------------------------------------
     _ingested_str = doc_row.get("ingested_at")
     _occurred_str = doc_row.get("occurred_at")
     _ingested_dt = (
@@ -524,37 +539,48 @@ async def link_to_graph(
     canonical_valid_from = _ingested_dt
 
     if _occurred_str:
-        _tol = int(os.environ.get("TIMESTAMP_DRIFT_TOLERANCE_MINUTES", "60"))
-        _source_dt = datetime.fromisoformat(_occurred_str.replace("Z", "+00:00"))
-        _drift = abs((_source_dt - _ingested_dt).total_seconds() / 60)
-        if _drift > _tol:
-            await asyncio.to_thread(
-                lambda: supabase.table("audit_log").insert({
-                    "action": "timestamp_drift_detected",
-                    "entity_type": "document",
-                    "entity_id": document_id,
-                    "performed_by": "extraction_pipeline",
-                    "details": {
-                        "source_ts": _occurred_str,
-                        "ingested_ts": _ingested_str,
-                        "drift_minutes": round(_drift, 2),
-                    },
-                }).execute()
-            )
-            await asyncio.to_thread(
-                lambda: supabase.table("extraction_jobs")
-                .update({"timestamp_drift_detected": True})
-                .eq("job_id", job_id)
-                .execute()
-            )
-            log.warning(
-                "activity.timestamp_drift_detected",
-                document_id=document_id,
-                drift_minutes=round(_drift, 2),
-                source_ts=_occurred_str,
-            )
-        else:
-            canonical_valid_from = _source_dt
+        try:
+            _source_dt = datetime.fromisoformat(_occurred_str.replace("Z", "+00:00"))
+        except ValueError:
+            _source_dt = None
+            log.warning("activity.occurred_at_unparseable", document_id=document_id, value=_occurred_str)
+
+        if _source_dt is not None:
+            # A future-dated source timestamp is the one genuinely unsafe case: the authority
+            # pre-filter is `r.valid_from <= $as_of`, so a year-3000 date would hide the edge
+            # from every present-day query. Fall back to ingest time and say so.
+            if _source_dt > now:
+                log.warning(
+                    "activity.occurred_at_in_future",
+                    document_id=document_id,
+                    source_ts=_occurred_str,
+                )
+            else:
+                canonical_valid_from = _source_dt
+
+                _lag = (_ingested_dt - _source_dt).total_seconds() / 60
+                _tol = int(os.environ.get("TIMESTAMP_DRIFT_TOLERANCE_MINUTES", "60"))
+                if abs(_lag) > _tol:
+                    await asyncio.to_thread(
+                        lambda: supabase.table("audit_log").insert({
+                            "action": "ingest_lag_recorded",
+                            "entity_type": "document",
+                            "entity_id": document_id,
+                            "performed_by": "extraction_pipeline",
+                            "details": {
+                                "source_ts": _occurred_str,
+                                "ingested_ts": _ingested_str,
+                                "lag_minutes": round(_lag, 2),
+                                "note": "observation only — valid_from uses the source timestamp",
+                            },
+                        }).execute()
+                    )
+                    log.info(
+                        "activity.ingest_lag_recorded",
+                        document_id=document_id,
+                        lag_minutes=round(_lag, 2),
+                        source_ts=_occurred_str,
+                    )
 
     edges_created = 0
     quarantine_count = 0
@@ -742,6 +768,9 @@ async def index_vectors(
                 "chunk_index": idx,
                 "authority_level": authority_level,
                 "is_quarantine": False,
+                # Mirrors the vault status so retrieval can drop superseded chunks without a
+                # Supabase round-trip per hit. Flipped by POST /documents/{id}/supersede.
+                "status": "active",
                 "text": chunk_text,
             },
         )

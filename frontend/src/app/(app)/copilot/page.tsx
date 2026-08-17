@@ -193,7 +193,7 @@ export default function CopilotPage() {
                       {t.error ? (
                         <AnswerError message={t.error} onRetry={() => run(t.id, t.query, t.asOf)} />
                       ) : t.answer ? (
-                        <Answer data={t.answer} />
+                        <Answer data={t.answer} query={t.query} />
                       ) : (
                         <Thinking />
                       )}

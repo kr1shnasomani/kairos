@@ -63,6 +63,19 @@ class VectorStoreService:
             points=[PointStruct(id=point_id, vector=vector, payload=payload)],
         )
 
+    async def mark_superseded(self, collection: str, document_id: str) -> None:
+        """
+        Flags every chunk of a document as superseded so it drops out of default retrieval.
+
+        Payload update, never a delete: the vault is immutable and a time-travel query still
+        has to be able to reach these chunks.
+        """
+        await self.client.set_payload(
+            collection_name=collection,
+            payload={"status": "superseded"},
+            points=Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]),
+        )
+
     async def search(
         self,
         collection: str,
@@ -72,11 +85,17 @@ class VectorStoreService:
         authority_min: int = 5,
         include_quarantine: bool = False,
         quarantine_only: bool = False,
+        include_superseded: bool = False,
     ) -> list[dict[str, Any]]:
         """
         Semantic search with optional payload filtering.
-        Filters: asset_id, authority_level <= authority_min, quarantine status.
+        Filters: asset_id, authority_level <= authority_min, quarantine status, document status.
         quarantine_only=True: return only quarantine items (for explicit quarantine retrieval pass).
+
+        `include_superseded=False` (the default) drops chunks whose document has been superseded —
+        ARCHITECTURE.md §8: superseded documents "never appear in default query results as if they
+        were current". Callers doing a time-travel query pass True, because a document that was
+        active at the as-of date is a correct hit for that date.
         """
         must_conditions = []
 
@@ -87,7 +106,20 @@ class VectorStoreService:
         elif not include_quarantine:
             must_conditions.append(FieldCondition(key="is_quarantine", match=MatchValue(value=False)))
 
-        query_filter = Filter(must=must_conditions) if must_conditions else None
+        # must_not, not must status="active": points indexed before `status` was added to the
+        # payload have no such key, and Qdrant treats a missing key as non-matching. Requiring
+        # "active" would silently drop every pre-existing chunk; excluding "superseded" keeps
+        # them visible and still removes the ones that were explicitly closed.
+        must_not_conditions = (
+            [] if include_superseded
+            else [FieldCondition(key="status", match=MatchValue(value="superseded"))]
+        )
+
+        query_filter = (
+            Filter(must=must_conditions, must_not=must_not_conditions)
+            if (must_conditions or must_not_conditions)
+            else None
+        )
 
         results = await self.client.search(
             collection_name=collection,

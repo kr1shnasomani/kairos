@@ -25,6 +25,16 @@ export interface ExtractedEntity {
   span_end?: number;
 }
 
+/** An engineering conflict on a cited asset that is awaiting MoC sign-off. */
+export interface PendingMoc {
+  conflict_id: string;
+  asset_id: string;
+  parameter: string;
+  severity: string;
+  moc_id: string | null;
+  moc_status: string | null;
+}
+
 export interface CopilotAnswer {
   answer: string | null;
   sources: CopilotSource[];
@@ -34,6 +44,8 @@ export interface CopilotAnswer {
   safety_critical: boolean;
   model?: string;
   entities?: ExtractedEntity[];
+  /** Non-empty → the answer touches a parameter under formal dispute; the UI must say so. */
+  pending_moc?: PendingMoc[];
 }
 
 export const SUGGESTIONS = [

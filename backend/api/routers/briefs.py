@@ -4,11 +4,14 @@ EEMUA 191 governor: ≤6 push events/operator/hour; PTW (critical) briefs always
 """
 
 import asyncio
+import hashlib
+import hmac
 from datetime import UTC
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from api.config import settings as app_settings
 from api.dependencies import CurrentUserDep, RedisDep, SettingsDep, SupabaseDep, require_role
 from api.models.brief import BriefFeedback
 from api.services.event_bus import EventBusService
@@ -16,6 +19,22 @@ from api.services.event_bus import EventBusService
 log = structlog.get_logger(__name__)
 
 router = APIRouter()
+
+
+def _sign_acknowledgment(secret: str, brief_id: str, user_id: str, action: str, at: str) -> str:
+    """
+    HMAC-SHA256 over the acknowledgment facts, keyed by APP_SECRET_KEY.
+
+    ARCHITECTURE.md Layer 8 requires the acknowledgment to be "cryptographically signed with the
+    user's identity" — this endpoint's docstring already claimed it was, but only a plain
+    audit_log row was written, which anyone with table access could forge after the fact. The
+    signature is stored in the immutable audit_log rather than on `briefs`, so no schema change
+    is needed and the signed record lands where the audit trail already lives.
+
+    Same construction as the MoC webhook verifier in routers/governance.py.
+    """
+    message = f"{brief_id}|{user_id}|{action}|{at}"
+    return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
 
 
 def _brief_recipients(current_user: dict) -> list[str]:
@@ -100,7 +119,18 @@ async def get_my_briefs(
             )
             normal = []
 
-    delivered = critical + normal
+    # Priority order within what is delivered (architecture Layer 8, trigger governance): PTW
+    # safety briefs first, then recurring-failure detections ahead of first-occurrence, then
+    # everything else. Previously the split was only critical-vs-rest and the remainder kept
+    # created_at order, so a routine brief could sit above a recurring-failure one.
+    _RANK = {"critical": 0, "high": 1, "normal": 2, "medium": 2, "low": 3}
+
+    def _priority_rank(b: dict) -> tuple[int, int]:
+        rank = _RANK.get(b.get("priority") or "normal", 2)
+        recurring = 0 if b.get("trigger_event_type") == "recurring_failure_detected" else 1
+        return (rank, recurring)
+
+    delivered = sorted(critical + normal, key=_priority_rank)
 
     # Each brief counts against the EEMUA governor exactly ONCE per rolling hour.
     # record_push_once is idempotent per brief_id, so re-opening the inbox (a page
@@ -219,19 +249,26 @@ async def ack_brief(
     await asyncio.to_thread(
         lambda: supabase.table("briefs").update(update).eq("brief_id", brief_id).execute()
     )
+    signature = _sign_acknowledgment(app_settings.APP_SECRET_KEY, brief_id, user_id, "acknowledged", now)
     await asyncio.to_thread(
         lambda: supabase.table("audit_log").insert({
             "action": "brief_acknowledged",
             "entity_type": "brief",
             "entity_id": brief_id,
             "performed_by": user_id,
-            "details": {"acknowledged_at": now, "requires_countersignature": requires_cs},
+            "details": {
+                "acknowledged_at": now,
+                "requires_countersignature": requires_cs,
+                "signature": signature,
+                "signature_alg": "HMAC-SHA256",
+            },
         }).execute()
     )
     return {
         "status": "acknowledged" if not requires_cs else "pending_countersignature",
         "brief_id": brief_id,
         "acknowledged_by": user_id,
+        "signature": signature,
     }
 
 
@@ -306,6 +343,9 @@ async def countersign_brief(
             "acknowledged_at": now,  # both signatures now present
         }).eq("brief_id", brief_id).execute()
     )
+    countersignature = _sign_acknowledgment(
+        app_settings.APP_SECRET_KEY, brief_id, user_id, "countersigned", now
+    )
     await asyncio.to_thread(
         lambda: supabase.table("audit_log").insert({
             "action": "brief_countersigned",
@@ -316,6 +356,10 @@ async def countersign_brief(
                 "countersigned_at": now,
                 "acknowledged_by": acknowledged_by,
                 "acknowledged_at": now,
+                # Distinct from the acknowledger's signature: the two together are the
+                # dual sign-off evidence for a PTW brief (Flow B).
+                "signature": countersignature,
+                "signature_alg": "HMAC-SHA256",
             },
         }).execute()
     )

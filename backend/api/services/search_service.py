@@ -53,9 +53,17 @@ class SearchService:
         """
         query_vector = await self.llm.embed(query, task="retrieval.query")
 
+        # Time-travel: a document superseded *today* was the current one at an earlier as_of, so
+        # excluding it would answer the wrong question. Only the default (as_of=None, "what is
+        # true now") filters superseded out.
+        include_superseded = as_of is not None
+
         coros: list[Any] = [
-            self.engine.search(query, asset_id=asset_id, limit=limit),
-            self.vector.search(collection, query_vector, limit=limit, asset_id=asset_id, authority_min=authority_min),
+            self.engine.search(query, asset_id=asset_id, limit=limit, include_superseded=include_superseded),
+            self.vector.search(
+                collection, query_vector, limit=limit, asset_id=asset_id,
+                authority_min=authority_min, include_superseded=include_superseded,
+            ),
         ]
         if asset_id:
             coros.append(self.graph.get_asset_knowledge_at(asset_id, as_of=as_of, authority_min=authority_min))
@@ -64,6 +72,7 @@ class SearchService:
                 self.vector.search(
                     collection, query_vector, limit=limit, asset_id=asset_id,
                     authority_min=authority_min, quarantine_only=True,
+                    include_superseded=include_superseded,
                 )
             )
 
@@ -164,7 +173,9 @@ class SearchService:
                 title=h.get("title") or "",
                 snippet=h.get("snippet") or "",
                 authority_level=h.get("authority_level", 5),
-                status="active",
+                # Real indexed status, not a hardcoded "active" — a superseded document reached
+                # via time-travel must say so rather than presenting itself as current.
+                status=h.get("status") or "active",
                 relevance_score=float(h.get("score") or 0),
                 retrieval_method="exact",
                 is_quarantine=False,
@@ -181,7 +192,7 @@ class SearchService:
                 title="",
                 snippet=(p.get("text") or "")[:1800],  # full semantic chunk so synthesis sees facts not near the query terms
                 authority_level=p.get("authority_level", 5),
-                status="active",
+                status=p.get("status") or "active",
                 relevance_score=float(h.get("score") or 0),
                 retrieval_method="semantic",
                 is_quarantine=is_quarantine,

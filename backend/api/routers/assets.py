@@ -223,6 +223,62 @@ async def get_asset_aliases(
     return result.data or []
 
 
+@router.post("/{asset_id}/aliases/{alias}/confirm", summary="Confirm a learned tag alias (Layer 1)")
+async def confirm_asset_alias(
+    asset_id: str,
+    alias: str,
+    supabase: SupabaseDep,
+    current_user: dict = Depends(require_role("admin", "engineer")),
+) -> dict:
+    """
+    Human authority confirms an alias candidate the extraction pipeline proposed.
+
+    The NER path writes unresolved tags as `confirmed: False` candidates
+    (`workflows/document_pipeline.py`), and `resolve_canonical_asset_id` only ever reads
+    **confirmed** rows — so without this endpoint a learned alias could never become usable and
+    candidates accumulated forever. This is the human half of "AI-assisted linking is allowed only
+    after human confirmation" (ARCHITECTURE.md Layer 1).
+
+    Idempotent: re-confirming an already-confirmed alias is a no-op, not an error.
+    """
+    existing = await asyncio.to_thread(
+        lambda: supabase.table("asset_alias_map")
+        .select("alias, canonical_asset_id, confirmed")
+        .eq("alias", alias)
+        .eq("canonical_asset_id", asset_id)
+        .limit(1)
+        .execute()
+    )
+    if not existing.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No alias '{alias}' proposed for asset '{asset_id}'.",
+        )
+    if existing.data[0]["confirmed"]:
+        return {"status": "already_confirmed", "alias": alias, "canonical_asset_id": asset_id}
+
+    confirmed_by = current_user.get("user_id", "unknown")
+    await asyncio.to_thread(
+        lambda: supabase.table("asset_alias_map")
+        .update({"confirmed": True, "confirmed_by": confirmed_by})
+        .eq("alias", alias)
+        .eq("canonical_asset_id", asset_id)
+        .execute()
+    )
+    await asyncio.to_thread(
+        lambda: supabase.table("audit_log").insert({
+            "action": "asset_alias_confirmed",
+            "entity_type": "asset",
+            "entity_id": asset_id,
+            "performed_by": confirmed_by,
+            "details": {"alias": alias},
+        }).execute()
+    )
+
+    log.info("asset.alias_confirmed", asset_id=asset_id, alias=alias, confirmed_by=confirmed_by)
+    return {"status": "confirmed", "alias": alias, "canonical_asset_id": asset_id, "confirmed_by": confirmed_by}
+
+
 @router.get("/{asset_id}/hierarchy", summary="Get asset parent-child hierarchy")
 async def get_asset_hierarchy(
     asset_id: str,

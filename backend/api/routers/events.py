@@ -61,7 +61,9 @@ async def ingest_work_order(
     """
     bus = EventBusService(redis, settings)
 
-    if await bus.is_duplicate(payload.asset_id, payload.event_type):
+    # Scoped by work_order_id: two *different* work orders on one asset inside the window are
+    # two real events, not a duplicate — collapsing them loses the second technician's brief.
+    if await bus.is_duplicate(payload.asset_id, payload.event_type, business_id=payload.work_order_id):
         log.info("events.work_order_deduplicated", event_id=payload.event_id, asset_id=payload.asset_id)
         return {"status": "deduplicated", "event_id": payload.event_id,
                 "message": "Identical event received within dedup window."}
@@ -206,6 +208,13 @@ async def ingest_ptw(
     event_dict = payload.model_dump(mode="json")
     primary_asset_id = payload.asset_ids[0] if payload.asset_ids else None
 
+    # Keyed on ptw_id, never on the asset: two distinct permits covering one asset during a
+    # turnaround are both real, and dropping the second would drop a safety brief. Only the
+    # *same permit* re-reported by a second source system is a duplicate here.
+    if await bus.is_duplicate(primary_asset_id or "", payload.event_type, business_id=payload.ptw_id):
+        log.info("events.ptw_deduplicated", event_id=payload.event_id, ptw_id=payload.ptw_id)
+        return {"status": "deduplicated", "event_id": payload.event_id, "ptw_id": payload.ptw_id}
+
     # PTW is always critical/immediate. Revoke any pending delayed brief for this asset
     # so we generate ONE brief (PTW's) with context from both events already in the DB.
     if primary_asset_id:
@@ -268,6 +277,18 @@ async def ingest_shift_handover(
 ) -> dict:
     """Triggers a shift handover brief for the incoming crew."""
     bus = EventBusService(redis, settings)
+
+    # Handovers carry no asset. The crew pair plus the handover time identifies the event, so
+    # the same handover posted by both the DCS and the CMMS collapses, while the next shift's
+    # handover does not.
+    handover_key = (
+        f"{payload.outgoing_shift_lead_id}:{payload.incoming_shift_lead_id}:"
+        f"{payload.handover_time.isoformat()}"
+    )
+    if await bus.is_duplicate("", payload.event_type, business_id=handover_key):
+        log.info("events.shift_handover_deduplicated", event_id=payload.event_id)
+        return {"status": "deduplicated", "event_id": payload.event_id}
+
     event_dict = payload.model_dump(mode="json")
 
     await asyncio.to_thread(
@@ -319,6 +340,13 @@ async def ingest_alarm(
 ) -> dict:
     """Received when an operator acknowledges a DCS process alarm."""
     bus = EventBusService(redis, settings)
+
+    # Keyed on alarm_id: a chattering instrument raising two *distinct* alarms on one asset is
+    # two events; the same alarm relayed by DCS and CMMS is one.
+    if await bus.is_duplicate(payload.asset_id, payload.event_type, business_id=payload.alarm_id):
+        log.info("events.alarm_deduplicated", event_id=payload.event_id, alarm_id=payload.alarm_id)
+        return {"status": "deduplicated", "event_id": payload.event_id, "alarm_id": payload.alarm_id}
+
     event_dict = payload.model_dump(mode="json")
 
     await asyncio.to_thread(
@@ -655,6 +683,15 @@ async def ingest_inspection_complete(
     or non-empty findings. Correlates with other events for the same asset.
     """
     from api.services.graph import GraphService
+
+    # Scoped by inspection_type so a statutory and a routine inspection closing on the same
+    # asset within the window are both recorded; only the same inspection re-reported collapses.
+    if await EventBusService(redis, settings).is_duplicate(
+        payload.asset_id, payload.event_type, business_id=f"{payload.asset_id}:{payload.inspection_type}"
+    ):
+        log.info("events.inspection_deduplicated", event_id=payload.event_id, asset_id=payload.asset_id)
+        return {"status": "deduplicated", "event_id": payload.event_id}
+
     now = datetime.now(UTC)
     event_dict = payload.model_dump(mode="json")
 

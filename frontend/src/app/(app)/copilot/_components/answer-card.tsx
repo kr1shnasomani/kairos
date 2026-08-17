@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { submitAnswerFeedback } from "@/lib/api";
 import { META_MODEL, type CopilotAnswer } from "@/lib/copilot";
 import { AuthorityBadge, SourceChip, StatusBadge, ConfidenceMeter } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -41,8 +42,24 @@ export function AnswerError({ message, onRetry }: { message: string; onRetry: ()
   );
 }
 
-export function Answer({ data }: { data: CopilotAnswer }) {
+export function Answer({ data, query = "" }: { data: CopilotAnswer; query?: string }) {
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedbackFailed, setFeedbackFailed] = useState(false);
+
+  // Phase-2 trust loop. These buttons used to set local state only, so the rating the
+  // architecture calls "direct input to outcome attribution and Layer 0" went nowhere.
+  async function rate(rating: "accurate" | "missing_context" | "incorrect") {
+    setFeedback(rating);
+    setFeedbackFailed(false);
+    const ok = await submitAnswerFeedback({ query, rating, model: data.model });
+    if (!ok) {
+      // Never claim a save that did not happen — clear the selection and say so.
+      setFeedback(null);
+      setFeedbackFailed(true);
+    }
+  }
+
+  const pendingMoc = data.pending_moc ?? [];
 
   const hasQuarantine = data.sources.some((s) => s.is_quarantine);
   // Non-safety, non-refused, low confidence — show uncertainty block.
@@ -75,6 +92,31 @@ export function Answer({ data }: { data: CopilotAnswer }) {
 
   return (
     <div className="space-y-3.5 rounded-2xl rounded-bl-sm border border-line bg-surface p-4">
+      {/* Pending-MoC banner. Architecture Layer 7 / Flow C: while an engineering conflict is in
+          the MoC queue the canonical graph is deliberately NOT updated, so this answer may be
+          reporting a value that is under formal dispute. Rendered ABOVE the answer — after it,
+          a technician has already read and acted on the number. */}
+      {pendingMoc.length > 0 && (
+        <div
+          role="alert"
+          data-testid="pending-moc-banner"
+          className="rounded-lg border border-[color-mix(in_srgb,var(--caution)_45%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_10%,var(--surface))] px-3 py-2.5 text-caption text-caution"
+        >
+          <p className="font-semibold">
+            Change under review — {pendingMoc.length === 1 ? "a parameter" : "parameters"} in this
+            answer {pendingMoc.length === 1 ? "is" : "are"} awaiting Management of Change sign-off.
+          </p>
+          <ul className="mt-1.5 space-y-0.5">
+            {pendingMoc.map((m) => (
+              <li key={m.conflict_id} className="tabular">
+                {m.moc_id ?? "MoC pending assignment"} — {m.parameter} on {m.asset_id}
+                {m.moc_status ? ` (${m.moc_status.replace(/_/g, " ")})` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Quarantine dependency banner */}
       {hasQuarantine && (
         <div className="flex items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_8%,var(--surface))] px-3 py-2 text-caption text-caution">
@@ -198,10 +240,15 @@ export function Answer({ data }: { data: CopilotAnswer }) {
               <span className="max-w-[200px] truncate tabular">{data.model}</span>
             )}
             <div className="ml-auto flex items-center gap-1.5">
+              {feedbackFailed && (
+                <span role="status" className="text-label text-caution">
+                  Rating not saved
+                </span>
+              )}
               {(["accurate", "missing_context", "incorrect"] as const).map((r) => (
                 <button
                   key={r}
-                  onClick={() => setFeedback(r)}
+                  onClick={() => void rate(r)}
                   aria-pressed={feedback === r}
                   className={cn(
                     "rounded-md border px-2 py-1 text-label font-medium capitalize transition-colors",

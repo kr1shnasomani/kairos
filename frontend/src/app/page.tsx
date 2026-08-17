@@ -109,9 +109,9 @@ type EvalBar = {
   hero: boolean;
 };
 const evalBars: EvalBar[] = [
-  { label: "Retrieval", note: "Fact reaches context", value: 100, display: "100%", badge: "25/25", sub: "deterministic", hero: false },
-  { label: "Provenance", note: "Sources cited", value: 100, display: "100%", badge: "25/25", sub: "every answer cited", hero: true },
-  { label: "Answer quality", note: "Median of 3 runs", value: 92, display: "92%", badge: "23/25", sub: "spread 22 to 24", hero: false },
+  { label: "Retrieval", note: "Fact reaches context", value: 100, display: "100%", badge: "37/37", sub: "deterministic", hero: false },
+  { label: "Provenance", note: "Sources cited", value: 100, display: "100%", badge: "37/37", sub: "every answer cited", hero: true },
+  { label: "Answer quality", note: "Single VALID run", value: 91, display: "91%", badge: "34/37", sub: "95% CI 79 to 97", hero: false },
 ];
 
 // The five harnesses beyond the Q&A grading, all from benchmark/RESULTS.md.
@@ -129,41 +129,41 @@ const evalSuites: {
   },
   {
     name: "Entity extraction · Layer 0",
-    headline: "F1 0.857",
-    headlineNote: "13-entity corpus, too small for 4 decimals",
-    rows: [["Precision", "0.800"], ["Recall", "0.923"], ["ASSET_TAG F1", "1.000 (n=9)"], ["ORGANIZATION F1", "0.667 (n=2)"]],
+    headline: "F1 0.847",
+    headlineNote: "40 labels; a ceiling — one extraction fell back",
+    rows: [["Precision", "0.800"], ["Recall", "0.900"], ["PERSON F1", "1.000 (n=7)"], ["ORGANIZATION F1", "0.800 (n=3)"]],
   },
   {
     name: "Per-layer smoke",
     headline: "13 / 13",
     headlineNote: "Every layer answered on the live stack",
-    rows: [["Slowest read", "quarantine 7.7 s"], ["Search", "2.2 s"], ["Graph / MDM", "153 / 233 ms"], ["Failures", "0"]],
+    rows: [["Slowest read", "search 3.7 s"], ["Assets", "1.7 s"], ["Graph / Vault", "212 / 163 ms"], ["Failures", "0"]],
   },
   {
     name: "Time to a trusted answer",
-    headline: "−25.6%",
+    headline: "−9.5%",
     headlineNote: "Modelled, against BM25 keyword search",
-    rows: [["Traditional", "76.0 min / 25 q"], ["Kairos", "56.5 min / 25 q"], ["Docs opened", "1.00 vs 1.52"], ["Raw machine time", "loses: 15.7 s vs 16 ms"]],
+    rows: [["Traditional", "100.0 min / 37 q"], ["Kairos", "90.5 min / 37 q"], ["Docs opened", "1.00 vs 1.35"], ["Raw machine time", "loses: 26.7 s vs 35 ms"]],
   },
   {
     name: "Concurrency sweep",
     headline: "0% errors",
-    headlineNote: "840 requests, 9 read endpoints, to 25 VU",
-    rows: [["p50 · 1 → 25 VU", "152 → 277 ms"], ["p95 at 25 VU", "809 ms"], ["Throughput", "4.7 → 72.7 rps"], ["p95 vs baseline", "within 3×"]],
+    headlineNote: "2275 requests, 9 read endpoints, to 50 VU",
+    rows: [["p50 · 1 → 50 VU", "136 → 500 ms"], ["p95 at 50 VU", "1840 ms"], ["Throughput", "5.8 → 74.5 rps"], ["First knee", "50 VU (6.75× baseline)"]],
   },
   {
     name: "Synthesis latency",
-    headline: "p50 10.5 s",
-    headlineNote: "NIM 70B, quoted with its tail",
-    rows: [["p95", "45.8 s"], ["Mean", "14.2 s"], ["Graded questions", "25"], ["Retrieval share", "≈2.2 s"]],
+    headline: "p50 32.3 s",
+    headlineNote: "NIM 70B at the 60 s cap, quoted with its tail",
+    rows: [["p95", "65.0 s"], ["Mean", "35.4 s"], ["Graded questions", "37"], ["Answered by", "nim 23 · openrouter 11"]],
   },
 ];
 
 // Stated plainly rather than buried. RESULTS.md tracks these as open gaps.
 const notMeasured: [string, string][] = [
   ["Soak and sustained load", "Not tested. No evidence here about memory growth or connection leakage over hours."],
-  ["Validation corpus size", "13 entities, ORGANIZATION at n=2. One miss swings a per-type rate."],
-  ["Scale", "25 virtual users against a demo-scale dataset is not evidence for a 10,000-asset deployment."],
+  ["Validation corpus size", "40 labels, ORGANIZATION at n=3 — the golden corpus holds only two unambiguous vendors, so raising it needs new source documents, not more labelling. Quote that per-type F1 with its n."],
+  ["Scale", "50 virtual users against a demo-scale dataset is not evidence for a 10,000-asset deployment."],
 ];
 
 const edgeProperties = [
@@ -211,8 +211,8 @@ const faqGroups = [
   {
     name: "Evidence",
     items: [
-      ["How was it evaluated?", "Twenty-five domain-expert questions across fifteen categories, graded deterministically. Retrieval, answer quality and provenance are scored separately, and a refusal counts as a correct outcome where refusing was right."],
-      ["Why quote a range for answer quality?", "Because run-to-run variance is real. Retrieval and provenance are deterministic and held at 25/25 in every run; answer quality moved between 22 and 24 out of 25 across three runs, so that is what we show."],
+      ["How was it evaluated?", "Thirty-seven domain-expert questions across fifteen categories, graded deterministically. Retrieval, answer quality and provenance are scored separately, and a refusal counts as a correct outcome where refusing was right."],
+      ["Why quote a confidence interval for answer quality?", "Because 34 out of 37 is a sample, not a constant. The interval says the honest thing a bare percentage hides: on this corpus the true rate sits somewhere around 79 to 97 percent. Retrieval and provenance are deterministic and held at 37/37. Every run also carries a validity verdict, and a run served by a fallback model is not quoted at all."],
       ["Can we see the failures too?", "Yes. The harness, the question set and the raw numbers all live in the repository, including the runs where answers were wrong."],
     ],
   },
@@ -1148,13 +1148,13 @@ export default function Home() {
               <Box fill>Provenance at 100%.</Box>
             </h2>
             <p className="mt-6 max-w-xl text-[16px] leading-6 text-(--lp-dark-muted)">
-              Twenty-five domain-expert questions across fifteen categories, graded deterministically
-              rather than by another model. Measured 25 July 2026 on the live stack. Higher is better.
+              Thirty-seven domain-expert questions across fifteen categories, graded deterministically
+              rather than by another model. Measured 16 August 2026 on the live stack. Higher is better.
             </p>
           </div>
 
           <div data-reveal className="mt-14">
-            <p className="text-[11px] uppercase tracking-[0.12em] text-(--lp-dark-muted)">Graded outcomes · 25 questions</p>
+            <p className="text-[11px] uppercase tracking-[0.12em] text-(--lp-dark-muted)">Graded outcomes · 37 questions</p>
 
             {/* pt-24 reserves room for the badge, value and sub-line stacked
                 above each bar; a 100% bar would otherwise push them off. */}
@@ -1214,11 +1214,13 @@ export default function Home() {
               ))}
             </div>
             <p className="mt-8 max-w-2xl text-[13px] leading-5 text-(--lp-dark-muted)">
-              Answer quality is the median of three runs. The true spread was 22 to 24 of 25,
-              because run-to-run variance is real and worth stating. Retrieval and provenance are
-              deterministic and held at 25/25 every time. Three of the answers are legitimate
-              safety-gate refusals, each carrying its own sources, and a correct refusal counts as
-              a correct outcome.
+              One run, reported with its confidence interval rather than a median that hides the
+              spread: 34 of 37, 95% CI 79 to 97. The run carries a validity verdict — every answer
+              came from the same Llama 3.1 70B, none from a different fallback model, or it would
+              not be quoted here. Retrieval and provenance are deterministic and held at 37/37.
+              Three answers are safety-gate refusals, each carrying its own sources; a correct
+              refusal counts as a correct outcome, so each was checked against the graph to confirm
+              no authoritative source existed for the parameter asked.
             </p>
           </div>
 

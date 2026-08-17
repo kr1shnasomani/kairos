@@ -19,6 +19,8 @@ from api.dependencies import (
     CurrentUserDep,
     ElasticsearchDep,
     Neo4jDep,
+    QdrantDep,
+    SettingsDep,
     SupabaseDep,
     TemporalDep,
     require_role,
@@ -29,6 +31,7 @@ from api.services.metrics import ingestion_duration
 from api.services.ner import NERService
 from api.services.pii import PIIService
 from api.services.topology import TopologyVerificationService
+from api.services.vector_store import VectorStoreService
 from workflows.document_pipeline import DocumentIngestionWorkflow
 
 log = structlog.get_logger(__name__)
@@ -647,6 +650,9 @@ async def supersede_document(
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
     driver: Neo4jDep,
+    es: ElasticsearchDep,
+    qdrant: QdrantDep,
+    settings_dep: SettingsDep,
     new_document_id: str = Body(..., embed=True, description="document_id of the replacement document"),
 ) -> dict:
     """
@@ -655,6 +661,9 @@ async def supersede_document(
 
     Side effects:
     - All Neo4j edges referencing this document have their valid_to window closed.
+    - The ES document and every Qdrant chunk are flagged `status: superseded`, so the old
+      version stops surfacing in default retrieval (ARCHITECTURE.md §8). Neither is deleted —
+      a time-travel query still has to reach them.
     - Blast-radius analysis is computed and returned.
     - If any affected edge carried authority_level <= 3 (OEM/Engineering/Regulatory),
       a MoC draft is created in moc_items for engineering review.
@@ -703,6 +712,28 @@ async def supersede_document(
     # Close all active Neo4j knowledge edges that reference the old document
     graph = GraphService(driver)
     closed_count = await graph.close_validity_windows_for_document(document_id, now)
+
+    # Propagate the status to the retrieval indexes. Supabase stays the source of truth, so a
+    # failure here is reported rather than raised — but it is NOT swallowed: an un-flagged index
+    # keeps serving the old version as current, which is the exact §8 failure this closes.
+    index_errors: list[str] = []
+    try:
+        await es.update(
+            index=settings_dep.ELASTICSEARCH_INDEX_DOCUMENTS,
+            id=document_id,
+            body={"doc": {"status": "superseded"}},
+        )
+    except Exception as exc:
+        index_errors.append(f"elasticsearch: {exc}")
+        log.warning("document.supersede_es_update_failed", document_id=document_id, error=str(exc))
+
+    try:
+        await VectorStoreService(qdrant, settings_dep).mark_superseded(
+            settings_dep.QDRANT_COLLECTION_DOCUMENTS, document_id
+        )
+    except Exception as exc:
+        index_errors.append(f"qdrant: {exc}")
+        log.warning("document.supersede_qdrant_update_failed", document_id=document_id, error=str(exc))
 
     # Blast-radius analysis
     blast = await graph.get_blast_radius(document_id)
@@ -753,6 +784,7 @@ async def supersede_document(
         edges_closed=closed_count,
         blast_radius=blast["affected_count"],
         moc_id=moc_id,
+        index_errors=index_errors,
     )
     return {
         "status": "superseded",
@@ -762,4 +794,7 @@ async def supersede_document(
         "blast_radius": blast,
         "moc_required": moc_required,
         "moc_id": moc_id,
+        # Non-empty means the vault is superseded but an index still serves the old version as
+        # current — re-run the supersede once the store is reachable.
+        "index_errors": index_errors,
     }

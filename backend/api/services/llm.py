@@ -253,8 +253,60 @@ class LLMService:
         context_block = self._format_context(retrieved_context)
         prompt = self._build_synthesis_prompt(query, context_block)
 
-        # Provider cascade: NIM → Gemini → Ollama
-        return await self._synthesize_cascade(prompt, retrieved_context)
+        # Provider cascade: NIM → OpenRouter → Gemini → Ollama
+        result = await self._synthesize_cascade(prompt, retrieved_context)
+
+        # ---------------------------------------------------------------------
+        # Post-synthesis safety gate.
+        #
+        # The pre-gate above inspects the *evidence* and clears on `authority <= 3`. That is
+        # correct as far as it goes, but it cannot know whether the model actually found the
+        # parameter. Observed live: a torque-spec query for a non-existent asset retrieved an
+        # unrelated L3 OEM bulletin, cleared the pre-gate on authority, and the model then
+        # honestly answered "not specified in the provided source documents" — which the UI
+        # rendered as a *hedged low-confidence answer*.
+        #
+        # For a safety-critical parameter that is precisely the outcome the architecture forbids:
+        # "a hedged partial answer in a safety-critical context is more dangerous than no answer,
+        # because a technician under time pressure will treat ambiguity as confirmation."
+        #
+        # So the gate is applied twice: once to the evidence, once to the result.
+        # ---------------------------------------------------------------------
+        if query_category in SAFETY_CRITICAL_CATEGORIES and result.get("answer"):
+            parsed = self.parse_synthesis_response(result["answer"])
+            answer_confidence = parsed.get("confidence")
+            cited = parsed.get("sources_used") or []
+            # Only judge a response that actually followed the contract. A bare answer with no
+            # markers carries no self-assessment, and treating that as "zero sources cited" would
+            # refuse every well-formed answer that simply omitted the scaffolding — a false
+            # refusal is its own safety failure, because it trains operators to route around the
+            # gate. Refuse on an *explicit* low self-confidence only.
+            unsupported = answer_confidence is not None and answer_confidence < confidence_threshold
+
+            if unsupported:
+                log.info(
+                    "synthesis.safety_critical_refusal_post",
+                    query_category=query_category,
+                    answer_confidence=answer_confidence,
+                    sources_cited=len(cited),
+                )
+                return {
+                    "answer": None,
+                    "refused": True,
+                    "refusal_reason": (
+                        f"Safety-critical parameter query for '{query_category}' — synthesis could not "
+                        f"support an answer from the retrieved evidence "
+                        f"(self-reported confidence {answer_confidence if answer_confidence is not None else 'none'}, "
+                        f"{len(cited)} source(s) cited). "
+                        "KAIROS does not hedge on safety-critical parameters. Verify directly against the "
+                        "source documents below and consult the responsible engineering authority."
+                    ),
+                    "sources": retrieved_context,
+                    "confidence": answer_confidence or 0.0,
+                    "model": result.get("model"),
+                }
+
+        return result
 
     def _format_context(self, context: list[dict[str, Any]]) -> str:
         """Formats retrieved chunks into a structured context block."""
@@ -447,15 +499,36 @@ SOURCES_USED: [comma-separated source numbers]"""
           SOURCES_USED: 1, 2, 3
         """
         out: dict[str, Any] = {"answer": None, "confidence": None, "uncertainty": None, "sources_used": []}
+
+        # Markers are matched **anywhere**, not just at line start. Models routinely emit the whole
+        # contract on a single line — "…not in the sources. CONFIDENCE: 0.0 UNCERTAINTY: … " — and
+        # the previous `^KEY:` (MULTILINE) anchor then matched nothing at all: confidence,
+        # uncertainty and sources_used all came back empty. Two consequences, both observed live on
+        # a safety-critical query: the raw contract leaked to the user as the answer, and the
+        # post-synthesis safety gate never fired because it had no confidence to judge.
+        _MARKERS = ("ANSWER", "CONFIDENCE", "UNCERTAINTY", "SOURCES_USED")
+        _next_marker = r"(?=\s*(?:" + "|".join(_MARKERS) + r"):|$)"
         for key, field in [
             ("ANSWER", "answer"),
             ("CONFIDENCE", "confidence"),
             ("UNCERTAINTY", "uncertainty"),
             ("SOURCES_USED", "sources_used"),
         ]:
-            m = re.search(rf"^{key}:\s*(.+?)(?=\n[A-Z_]+:|$)", text, re.MULTILINE | re.DOTALL)
+            m = re.search(rf"\b{key}:\s*(.+?){_next_marker}", text, re.DOTALL)
             if m:
                 out[field] = m.group(1).strip()
+        # Models frequently omit the leading `ANSWER:` marker and start with the prose, then emit
+        # the remaining markers. `out["answer"]` then stays None, the caller falls back to the raw
+        # text, and the user is shown the parse contract itself —
+        # "…CONFIDENCE: 0.0 UNCERTAINTY: … SOURCES_USED: None" — as if it were the answer.
+        # Observed live on a safety-critical query. Recover the prose that precedes the first
+        # marker instead.
+        if out["answer"] is None:
+            head = re.split(r"\b(?:CONFIDENCE|UNCERTAINTY|SOURCES_USED):", text, maxsplit=1)[0]
+            head = head.strip()
+            if head:
+                out["answer"] = head
+
         try:
             out["confidence"] = float(out["confidence"]) if out["confidence"] else None
         except (ValueError, TypeError):
@@ -538,7 +611,28 @@ UNCERTAINTY: [what is not yet known or requires further investigation]"""
                                 pass
                     elif "sources" in part:
                         raw = part.split(":", 1)[-1].strip()
-                        sources = [s.strip() for s in raw.split(",") if s.strip()]
+                        # Drop the model's own "no sources" placeholders. Taken literally they
+                        # became a source id — RCA rendered three hypotheses each citing a
+                        # document called "None", which is worse than citing nothing: it is a
+                        # fabricated provenance chip on a page whose rule is that no claim
+                        # appears without provenance.
+                        # A source must look like a *document id*, not prose. The model does not
+                        # reliably leave the field empty when it has no citation — it writes
+                        # "None", or a sentence like "[No specific document_id, inferred from
+                        # work_order_created: …]", which comma-splits into several fake ids.
+                        # Rendered, each became a provenance chip on a surface whose rule is that
+                        # no claim appears without provenance. Citing nothing is honest; citing an
+                        # invented id is not.
+                        # Must additionally contain a digit or a hyphen. Every document id in this
+                        # corpus does (DOC-…, EQ-101, FP-MAN-EQ1XX-SEAL); a bare English word like
+                        # "speculative" or "unknown" does not, and those are what the model reaches
+                        # for when it has no citation to give.
+                        sources = [
+                            tok for tok in (s.strip().strip("[]").strip() for s in raw.split(","))
+                            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._\-]{2,}", tok or "")
+                            and re.search(r"[\d\-]", tok or "")
+                            and (tok or "").lower() not in {"none", "null", "n/a"}
+                        ]
                 if hyp_text:
                     hypotheses.append({"hypothesis": hyp_text, "evidence_weight": weight, "sources": sources})
 

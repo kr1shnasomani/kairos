@@ -34,9 +34,28 @@ class ElicitationTriggerRequest(BaseModel):
     triggered_by: str = "system"
 
 
+class ElicitationAnswer(BaseModel):
+    """
+    One answer in a micro-interview.
+
+    Typed explicitly because the previous `list[dict[str, str]]` gave callers no contract: an
+    integer index produced `"Input should be a valid string"` pointing at a key the caller had
+    invented, with nothing to say what the real key was. `question` carries the question *text*
+    (the questions are a `string[]`, so the text is the identifier); `question_index` is accepted
+    as an alternative for callers that held the position instead.
+    """
+
+    answer: str
+    question: str | None = None
+    question_index: int | None = None
+
+
 class ElicitationResponseRequest(BaseModel):
-    responses: list[dict[str, str]]  # [{question, answer}, ...]
-    submitted_by: str
+    responses: list[ElicitationAnswer]
+    # Optional, defaulting to the authenticated user — matching the off-boarding responses
+    # endpoint below. Requiring it here meant the same action had two different contracts, and
+    # the value is knowable from the session anyway.
+    submitted_by: str | None = None
 
 
 @router.post("/trigger", summary="Trigger micro-interview if elicitation conditions are met")
@@ -162,8 +181,9 @@ async def submit_responses(
         {
             "work_order_id": work_order_id,
             "asset_id": asset_id,
-            "responses": payload.responses,
-            "submitted_by": payload.submitted_by,
+            # Workflow input must be plain JSON, not Pydantic models.
+            "responses": [r.model_dump(exclude_none=True) for r in payload.responses],
+            "submitted_by": payload.submitted_by or current_user.get("user_id", "unknown"),
             "questions": questions,
         },
         id=workflow_id,

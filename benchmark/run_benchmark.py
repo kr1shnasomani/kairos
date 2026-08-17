@@ -57,6 +57,9 @@ QUESTIONS = os.getenv("BENCHMARK_FILE", "/app/benchmark/questions.json")
 # failures. Keep these two numbers in step; a call that exceeds it is recorded as `timeout`, which
 # the validity verdict then flags.
 SYNTH_TIMEOUT = float(os.getenv("BENCHMARK_SYNTH_TIMEOUT", "90"))
+# Retrieval is cheap relative to synthesis, but `/search` embeds via Jina and fans out to ES,
+# Qdrant and Neo4j, so its tail is longer than the 30 s client default that used to apply here.
+RETRIEVAL_TIMEOUT = float(os.getenv("BENCHMARK_RETRIEVAL_TIMEOUT", "60"))
 
 
 
@@ -117,6 +120,30 @@ def _wilson(k: int, n: int) -> tuple[float, float]:
     return (max(0.0, centre - half), min(1.0, centre + half))
 
 
+async def _get(c: httpx.AsyncClient, url: str, h: dict, params: dict | None = None) -> dict | list | None:
+    """
+    One retrieval GET. Returns the decoded body on 200, else None.
+
+    A retrieval failure must degrade *this question's context* — never end the run. The three
+    calls below used to invoke `c.get` directly, so a single slow `/search` (Jina embed + ES +
+    Qdrant + Neo4j all sit behind it) raised `ReadTimeout` out of `main()` and discarded every
+    question already graded. Observed 2026-08-16: the run died on Q22 and threw away 21 questions
+    of paced synthesis — ~20 minutes of provider quota for zero output. A question that loses its
+    context scores as a retrieval miss, which is the honest outcome; the run continues.
+
+    One helper rather than three try/except blocks: the guard belongs where the request is made.
+    """
+    try:
+        r = await c.get(url, headers=h, params=params, timeout=RETRIEVAL_TIMEOUT)
+        if r.status_code != 200:
+            print(f"  ! retrieval HTTP {r.status_code} on {url}", flush=True)
+            return None
+        return r.json()
+    except (httpx.TimeoutException, httpx.HTTPError) as e:
+        print(f"  ! retrieval failed ({type(e).__name__}) on {url}", flush=True)
+        return None
+
+
 async def _gather_context(c: httpx.AsyncClient, h: dict, q: dict) -> list[dict]:
     """Route the question to its proper source(s) and return synthesis context items."""
     sources = q.get("context_sources", ["search"])
@@ -127,21 +154,21 @@ async def _gather_context(c: httpx.AsyncClient, h: dict, q: dict) -> list[dict]:
         params = {"q": q["question"], "limit": 5}
         if aid:
             params["asset_id"] = aid
-        r = await c.get(f"{API}/search", headers=h, params=params)
-        if r.status_code == 200:
-            ctx += r.json().get("results", [])
+        body = await _get(c, f"{API}/search", h, params)
+        if body:
+            ctx += body.get("results", [])
 
     if aid and "knowledge" in sources:
-        r = await c.get(f"{API}/assets/{aid}/knowledge", headers=h)
-        if r.status_code == 200:
-            for f in r.json().get("facts", [])[:8]:
+        body = await _get(c, f"{API}/assets/{aid}/knowledge", h)
+        if body:
+            for f in body.get("facts", [])[:8]:
                 edge = f.get("edge") or {}
                 ctx.append({"text": json.dumps(f)[:400], "document_id": edge.get("document_id", "graph"), "authority_level": edge.get("authority_level", 3)})
 
     if aid and "aliases" in sources:
-        r = await c.get(f"{API}/assets/{aid}/aliases", headers=h)
-        if r.status_code == 200:
-            aliases = [a.get("alias") for a in r.json() if a.get("alias")]
+        body = await _get(c, f"{API}/assets/{aid}/aliases", h)
+        if body:
+            aliases = [a.get("alias") for a in body if a.get("alias")]
             if aliases:
                 ctx.append({"text": f"Known aliases for {aid}: {', '.join(aliases)}", "document_id": "alias_map", "authority_level": 1})
 
@@ -188,12 +215,55 @@ def _selftest() -> None:
     print("selftest: OK")
 
 
-async def main(retrieval_only: bool, delay: float = 0.0, limit: int = 0) -> None:
+def _load_checkpoint(path: str) -> dict[str, dict]:
+    """Rows already graded by an earlier attempt, keyed by question id.
+
+    Insurance, not a cache: a full sweep is ~30 minutes of *paced* synthesis, and losing it to one
+    slow call means re-spending the whole provider budget to learn the same thing. Rows are
+    disclosed in the summary, never silently merged — a resumed run is two points in time and the
+    reader has to be able to see that.
+    """
+    rows: dict[str, dict] = {}
+    if not path or not os.path.exists(path):
+        return rows
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue          # a torn last line from a killed process — ignore it
+            if row.get("id"):
+                rows[row["id"]] = row
+    return rows
+
+
+def _append_checkpoint(path: str, row: dict) -> None:
+    """Record one graded question immediately, so a later crash cannot un-spend it."""
+    if not path:
+        return
+    try:
+        with open(path, "a") as f:
+            f.write(json.dumps(row) + "\n")
+    except OSError as e:  # a checkpoint failure must never discard a good measurement
+        print(f"  ! checkpoint write failed ({type(e).__name__}: {e})", flush=True)
+
+
+async def main(retrieval_only: bool, delay: float = 0.0, limit: int = 0, checkpoint: str = "") -> None:
     with open(QUESTIONS) as f:
         questions = json.load(f)["questions"]
     if limit:
         questions = questions[:limit]
     n = len(questions)
+
+    # Checkpointing only applies to a full run; --retrieval-only is ~2 minutes and costs nothing
+    # to repeat, so there is nothing to protect.
+    checkpoint = "" if retrieval_only else checkpoint
+    done = _load_checkpoint(checkpoint)
+    if done:
+        print(f"\n  Resuming: {len(done)} question(s) already graded in {checkpoint}", flush=True)
 
     print(f"\n  KAIROS — Domain Benchmark  ({n} questions)")
     print("  " + "=" * 84)
@@ -220,31 +290,46 @@ async def main(retrieval_only: bool, delay: float = 0.0, limit: int = 0) -> None
         for qi, q in enumerate(questions):
             cat = q.get("category", "uncategorized")
             cats[cat]["n"] += 1
-            ctx = await _gather_context(c, h, q)
-            r_hit = _kw_hit(json.dumps(ctx), q["expect_any"])
+            prior = done.get(q["id"])
+            spent = False     # did this question cost a synthesis call in *this* attempt?
+
+            if prior:
+                r_hit = bool(prior["retr"])
+            else:
+                ctx = await _gather_context(c, h, q)
+                r_hit = _kw_hit(json.dumps(ctx), q["expect_any"])
             retr_hits += r_hit
             cats[cat]["retr"] += r_hit
             line = f"  {q['id']:<5}{q['question'][:44]:<46}{'HIT' if r_hit else 'miss':<6}"
 
             if not retrieval_only:
                 correct, sourced, prov, ms = False, False, "-", 0.0
-                t = time.perf_counter()
-                try:
-                    syn = await c.post(f"{API}/search/synthesize", headers=h, json={"query": q["question"], "context": ctx[:8]}, timeout=SYNTH_TIMEOUT)
-                    ms = (time.perf_counter() - t) * 1000
-                    body = syn.json() if syn.status_code == 200 else {}
-                    refused = bool(body.get("refused"))
-                    prov = body.get("model") or ("refused" if refused else "-")
-                    # Correct = facts stated (not negated) AND provenance present. Refusal is a valid,
-                    # correct outcome (safety gate) and carries its own sources.
-                    sourced = refused or bool(body.get("sources"))
-                    correct = (refused or _grade_answer(body.get("answer") or "", q)) and sourced
-                    if body.get("rate_limited"):
-                        prov, consecutive_429 = "429", consecutive_429 + 1
-                    else:
-                        consecutive_429 = 0
-                except (httpx.TimeoutException, httpx.HTTPError):
-                    ms, prov = (time.perf_counter() - t) * 1000, "timeout"
+                if prior:
+                    correct, sourced, prov, ms = bool(prior["correct"]), bool(prior["prov"]), prior["via"], float(prior["ms"])
+                else:
+                    spent = True
+                    t = time.perf_counter()
+                    try:
+                        syn = await c.post(f"{API}/search/synthesize", headers=h, json={"query": q["question"], "context": ctx[:8]}, timeout=SYNTH_TIMEOUT)
+                        ms = (time.perf_counter() - t) * 1000
+                        body = syn.json() if syn.status_code == 200 else {}
+                        refused = bool(body.get("refused"))
+                        prov = body.get("model") or ("refused" if refused else "-")
+                        # Correct = facts stated (not negated) AND provenance present. Refusal is a valid,
+                        # correct outcome (safety gate) and carries its own sources.
+                        sourced = refused or bool(body.get("sources"))
+                        correct = (refused or _grade_answer(body.get("answer") or "", q)) and sourced
+                        if body.get("rate_limited"):
+                            prov, consecutive_429 = "429", consecutive_429 + 1
+                        else:
+                            consecutive_429 = 0
+                    except (httpx.TimeoutException, httpx.HTTPError):
+                        ms, prov = (time.perf_counter() - t) * 1000, "timeout"
+                    _append_checkpoint(checkpoint, {
+                        "id": q["id"], "retr": int(r_hit), "correct": int(correct),
+                        "prov": int(sourced), "via": prov, "ms": round(ms),
+                        "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    })
                 syn_ms.append(ms)
                 via_counts[prov] += 1
                 graded += 1
@@ -253,6 +338,8 @@ async def main(retrieval_only: bool, delay: float = 0.0, limit: int = 0) -> None
                 cats[cat]["correct"] += correct
                 cats[cat]["prov"] += sourced
                 line += f"  {'YES' if correct else 'no':<8}{'✓' if sourced else '·':<5}{prov:<9}{ms:>6.0f}"
+                if prior:
+                    line += "  (resumed)"
 
             print(line, flush=True)
 
@@ -267,7 +354,9 @@ async def main(retrieval_only: bool, delay: float = 0.0, limit: int = 0) -> None
 
             # Pace the next synthesis call. See the module docstring: back-to-back calls are
             # what push NIM into its timeout tail and spill the run onto the free Gemini tier.
-            if delay and not retrieval_only and qi < n - 1:
+            # A resumed row made no call, so there is nothing to pace away from — sleeping there
+            # would add 15 s per already-graded question for no benefit.
+            if delay and spent and qi < n - 1:
                 await asyncio.sleep(delay)
 
     def _rate(k: int, tot: int) -> str:
@@ -284,6 +373,13 @@ async def main(retrieval_only: bool, delay: float = 0.0, limit: int = 0) -> None
         print(f"  Synthesis latency:                   p50 {_pct(syn_ms,50):.0f} ms · p95 {_pct(syn_ms,95):.0f} ms · avg {sum(syn_ms)/len(syn_ms):.0f} ms")
         print(f"  Answered by:                         {_provider_mix(via_counts)}")
         print(f"  Run validity:                        {_validity(via_counts, graded, n, aborted)}")
+        # Disclosed, never silent: a resumed run is two points in time, and a reader quoting the
+        # headline is entitled to know that before treating it as one sitting.
+        resumed = sum(1 for q in questions if q["id"] in done)
+        if resumed:
+            stamps = sorted({done[q["id"]].get("at", "?") for q in questions if q["id"] in done})
+            print(f"  Resumed rows:                        {resumed}/{graded} carried from an earlier "
+                  f"attempt ({stamps[0]} … {stamps[-1]})")
 
     print("\n  By category" + (" (retrieval · answer · provenance)" if not retrieval_only else " (retrieval)"))
     for cat in sorted(cats):
@@ -373,8 +469,16 @@ if __name__ == "__main__":
     ap.add_argument("--limit", type=int, default=0,
                     help="grade only the first N questions — a cheap calibration run to check the "
                          "provider mix before spending a full sweep. 0 = all.")
+    ap.add_argument("--checkpoint", default="",
+                    help="append each graded question to this JSONL and skip questions it already "
+                         "holds. A full sweep is ~30 min of paced synthesis; without this, one slow "
+                         "call re-spends the entire provider budget. Resumed rows are disclosed in "
+                         "the summary. Delete the file to force a clean run. "
+                         "PUT IT ON A HOST-MOUNTED PATH — /app/.benchmark_runs/ is bind-mounted, "
+                         "/tmp is not: a container rebuild mid-run wiped /tmp and destroyed a "
+                         "completed 37-question sweep on 2026-08-16.")
     args = ap.parse_args()
     if args.selftest:
         _selftest()
     else:
-        asyncio.run(main(args.retrieval_only, args.delay, args.limit))
+        asyncio.run(main(args.retrieval_only, args.delay, args.limit, args.checkpoint))
