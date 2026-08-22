@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getConflicts, getQuarantine } from "@/lib/api";
-import { KpiCard, PageHeader, StatusBadge } from "@/components/ui";
+import { KpiCard, PageHeader, StatusBadge, statusTone } from "@/components/ui";
 
 type SurfaceKey = "conflicts" | "quarantine" | "moc" | "sla" | "circuit-breaker" | "model-gate";
 
@@ -90,13 +90,25 @@ export default function GovernancePage() {
   // First load = no data yet and no error → show skeletons, not em-dashes.
   const loading = overview === null && !failed;
   const value = (key: keyof Overview) => overview?.[key] ?? "—";
-  const statusFor = (key: SurfaceKey): { label: string; tone: "danger" | "caution" | "neutral" } => {
+  // Review item 26: the tone comes from statusTone() so this page cannot drift from
+  // the app-wide STATUS_TONE map. A zero count stays neutral on purpose — nothing
+  // pending is not a state worth colouring.
+  const statusFor = (key: SurfaceKey): { label: string; tone: ReturnType<typeof statusTone> } => {
     if (loading) return { label: "···", tone: "neutral" };
-    if (key === "conflicts") return { label: `${value("openConflicts")} open`, tone: overview?.openConflicts ? "danger" : "neutral" };
-    if (key === "quarantine") return { label: `${value("pendingQuarantine")} pending`, tone: overview?.pendingQuarantine ? "caution" : "neutral" };
-    if (key === "moc") return { label: `${value("pendingMoc")} pending`, tone: overview?.pendingMoc ? "caution" : "neutral" };
-    if (key === "sla") return { label: `${value("overdue")} overdue`, tone: overview?.overdue ? "danger" : "neutral" };
-    return { label: key === "circuit-breaker" ? "Monitor" : "Validation", tone: "neutral" };
+    if (key === "conflicts") return { label: `${value("openConflicts")} open`, tone: overview?.openConflicts ? statusTone("open") : "neutral" };
+    if (key === "quarantine") return { label: `${value("pendingQuarantine")} pending`, tone: overview?.pendingQuarantine ? statusTone("pending") : "neutral" };
+    if (key === "moc") return { label: `${value("pendingMoc")} pending`, tone: overview?.pendingMoc ? statusTone("pending") : "neutral" };
+    if (key === "sla") return { label: `${value("overdue")} overdue`, tone: overview?.overdue ? statusTone("overdue") : "neutral" };
+    return key === "circuit-breaker"
+      ? { label: "Monitor", tone: statusTone("monitor") }
+      : { label: "Validation", tone: statusTone("validation") };
+  };
+  const ctaFor = (key: SurfaceKey, status: ReturnType<typeof statusFor>) => {
+    if (key === "conflicts") return `Review ${status.label} conflicts`;
+    if (key === "quarantine") return `Review ${status.label} inputs`;
+    if (key === "moc") return `Review ${status.label} changes`;
+    if (key === "sla") return `Inspect ${status.label} decisions`;
+    return key === "circuit-breaker" ? "Inspect anomaly gates" : "Review model validation";
   };
 
   return (
@@ -136,6 +148,7 @@ export default function GovernancePage() {
       <div data-testid="governance-surfaces" className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {SURFACES.map((surface) => {
           const status = statusFor(surface.key);
+          const cta = ctaFor(surface.key, status);
           return (
             <Link
               key={surface.key}
@@ -149,7 +162,7 @@ export default function GovernancePage() {
               </div>
               <h3 className="mt-4 text-subtitle font-semibold text-ink">{surface.title}</h3>
               <p className="mt-1.5 text-body leading-relaxed text-muted">{surface.desc}</p>
-              <span className="mt-auto pt-4 text-caption font-semibold text-accent">Open control <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span></span>
+              <span className="mt-auto pt-4 text-caption font-semibold text-accent">{cta} <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span></span>
             </Link>
           );
         })}

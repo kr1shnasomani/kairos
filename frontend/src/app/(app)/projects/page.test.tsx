@@ -9,7 +9,7 @@ vi.mock("@/lib/api", () => ({
     { asset_id: "V-247", name: "Isolation valve", equipment_class: "control_valve", criticality: "non_critical" },
   ] }, source: "api" }),
   getDocuments: vi.fn().mockResolvedValue({ data: { items: [
-    { document_id: "DOC-PUMP-R2", file_name: "pump-r2.pdf", document_type: "oem_manual", authority_level: 3, source_system: "OEM", status: "active", ingested_at: "2026-07-14T10:00:00Z", ingested_by: "engineer", asset_links: ["P-101"] },
+    { document_id: "DOC-PUMP-R2", file_name: "seal_series_MS44_service_bulletin_r3.pdf", document_type: "oem_manual", authority_level: 3, source_system: "OEM_portal", status: "active", ingested_at: "2026-07-14T10:00:00Z", ingested_by: "engineer", asset_links: ["P-101"] },
     { document_id: "DOC-PUMP-R1", file_name: "pump-r1.pdf", document_type: "oem_manual", authority_level: 3, source_system: "OEM", status: "superseded", ingested_at: "2025-07-14T10:00:00Z", ingested_by: "engineer", asset_links: ["P-101"], version_chain: "DOC-PUMP-R2" },
     { document_id: "DOC-VALVE", file_name: "valve.pdf", document_type: "procedure", authority_level: 4, source_system: "manual_upload", status: "active", ingested_at: "2026-07-13T10:00:00Z", ingested_by: "engineer", asset_links: ["V-247"] },
   ] }, source: "api" }),
@@ -41,5 +41,26 @@ describe("ProjectsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Control Valve/ }));
     await waitFor(() => expect(screen.queryByTestId("project-class-centrifugal-pump")).not.toBeInTheDocument());
     expect(screen.getByTestId("project-class-control-valve")).toBeInTheDocument();
+  });
+
+  it("renders evidence ids as links, not in the brand accent", async () => {
+    render(<ProjectsPage />);
+
+    const evidenceId = await screen.findAllByTestId("evidence-id");
+    expect(evidenceId[0]).toHaveClass("text-link");
+    expect(evidenceId[0]).not.toHaveClass("text-accent");
+  });
+
+  it("pluralises correctly", async () => {
+    render(<ProjectsPage />);
+
+    await screen.findByTestId("projects-portfolio-pulse");
+    expect(screen.queryByText(/^1 signals$/)).not.toBeInTheDocument();
+  });
+
+  it("shows the whole filename", async () => {
+    render(<ProjectsPage />);
+
+    expect(await screen.findByTitle("seal_series_MS44_service_bulletin_r3.pdf · OEM_portal")).toBeInTheDocument();
   });
 });

@@ -26,13 +26,13 @@ const truncate = (text: string | null | undefined, width: string) =>
   text ? <span title={text} className={`block truncate ${width}`}>{text}</span> : "—";
 
 const COLUMNS: TableColumn<GapRow>[] = [
-  { key: "framework", label: "Framework", sortable: true, render: (g) => <span className="tabular font-semibold text-accent">{fwLabel(g.framework)}</span> },
+  { key: "framework", label: "Framework", sortable: true, render: (g) => <span className="tabular font-semibold text-ink">{fwLabel(g.framework)}</span> },
   { key: "clause_id", label: "Clause", render: (g) => <span className="tabular text-muted">§{g.clause_id}</span> },
   {
     key: "asset",
     label: "Asset",
     render: (g) => (
-      <Link href={`/assets/${g.asset_id}`} className="tabular font-semibold text-ink hover:text-accent hover:underline">
+      <Link href={`/assets/${g.asset_id}`} className="tabular font-semibold text-link hover:underline">
         {g.tag_number ?? g.asset_id}
       </Link>
     ),
@@ -160,9 +160,10 @@ export default function CompliancePage() {
               </Card>
               <Card className="p-4">
                 <h2 className="text-body font-semibold text-ink">Severity mix</h2>
-                <p className="mt-0.5 text-caption text-muted">Share of open gaps by severity</p>
+                {/* Clicking a segment filters the register below; clicking the active one clears. */}
+                <p className="mt-0.5 text-caption text-muted">Share of open gaps by severity — select a segment to filter</p>
                 <div className="mt-3">
-                  {loading ? <ChartSkeleton height={220} /> : slices.length > 0 ? <Donut data={slices} centerLabel="total gaps" height={220} /> : <EmptyState message="No gaps found ✓" />}
+                  {loading ? <ChartSkeleton height={220} /> : slices.length > 0 ? <Donut data={slices} centerLabel="total gaps" height={220} activeLabel={severity === "all" ? null : severity} onSliceClick={(d) => setSeverity((cur) => (cur === d.label.toLowerCase() ? "all" : d.label.toLowerCase()))} /> : <EmptyState message="No gaps found ✓" />}
                 </div>
               </Card>
             </div>

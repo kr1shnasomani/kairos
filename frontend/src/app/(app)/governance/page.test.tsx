@@ -38,4 +38,35 @@ describe("GovernancePage", () => {
     expect(screen.getByTestId("governance-surface-moc")).toHaveAttribute("href", "/governance/moc");
     expect(screen.getByTestId("governance-surface-model-gate")).toHaveAttribute("href", "/governance/model-gate");
   });
+
+  it("names each card's destination without nesting another interactive control", async () => {
+    render(<GovernancePage />);
+
+    await waitFor(() => expect(screen.getByTestId("governance-surface-conflicts")).toHaveTextContent("2 open"));
+
+    const surfaces = [
+      "conflicts",
+      "quarantine",
+      "moc",
+      "sla",
+      "circuit-breaker",
+      "model-gate",
+    ].map((key) => screen.getByTestId(`governance-surface-${key}`));
+    const ctas = surfaces.map((surface) => surface.lastElementChild?.textContent?.trim());
+
+    expect(ctas).toEqual([
+      "Review 2 open conflicts →",
+      "Review 2 pending inputs →",
+      "Review 1 pending changes →",
+      "Inspect 2 overdue decisions →",
+      "Inspect anomaly gates →",
+      "Review model validation →",
+    ]);
+    expect(new Set(ctas).size).toBe(surfaces.length);
+    for (const surface of surfaces) {
+      expect(surface).toHaveProperty("tagName", "A");
+      expect(surface).not.toHaveAttribute("tabindex", "-1");
+      expect(surface.querySelectorAll("a, button")).toHaveLength(0);
+    }
+  });
 });

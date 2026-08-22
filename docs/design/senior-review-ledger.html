@@ -1,0 +1,565 @@
+<title>Beautification Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #f3f5f4;
+    --surface: #ffffff;
+    --surface-2: #eceff0;
+    --ink: #171c1a;
+    --muted: #5a6560;
+    --faint: #8a938e;
+    --rule: #dbe1de;
+    --rule-strong: #c3ccc7;
+    --accent: #0f5e4a;
+    --accent-soft: #0f5e4a1a;
+    --fixed: #0f5e4a;
+    --open: #96540b;
+    --open-soft: #96540b18;
+    --parked: #5a6560;
+    --shadow: 0 1px 2px #171c1a0d, 0 8px 24px #171c1a0a;
+  }
+
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --ground: #121614;
+      --surface: #191e1c;
+      --surface-2: #212725;
+      --ink: #e8edea;
+      --muted: #9aa5a0;
+      --faint: #6e7a75;
+      --rule: #2b332f;
+      --rule-strong: #3c4640;
+      --accent: #5fbfa3;
+      --accent-soft: #5fbfa322;
+      --fixed: #5fbfa3;
+      --open: #d9a566;
+      --open-soft: #d9a56622;
+      --parked: #9aa5a0;
+      --shadow: 0 1px 2px #0006, 0 8px 24px #0004;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #121614;
+    --surface: #191e1c;
+    --surface-2: #212725;
+    --ink: #e8edea;
+    --muted: #9aa5a0;
+    --faint: #6e7a75;
+    --rule: #2b332f;
+    --rule-strong: #3c4640;
+    --accent: #5fbfa3;
+    --accent-soft: #5fbfa322;
+    --fixed: #5fbfa3;
+    --open: #d9a566;
+    --open-soft: #d9a56622;
+    --parked: #9aa5a0;
+    --shadow: 0 1px 2px #0006, 0 8px 24px #0004;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0 24px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  h1, h2, h3 {
+    font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  code, .num, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* ---------- masthead ---------- */
+  header.masthead {
+    border-bottom: 2px solid var(--ink);
+    padding: 56px 0 24px;
+    display: grid;
+    gap: 20px;
+  }
+
+  header.masthead h1 {
+    font-size: clamp(34px, 6vw, 54px);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.04;
+  }
+
+  .standfirst {
+    max-width: 62ch;
+    color: var(--muted);
+    font-size: 16px;
+  }
+
+  .provenance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-top: 8px;
+  }
+
+  .provenance div { background: var(--surface); padding: 12px 14px; }
+  .provenance dt { font-size: 10.5px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--faint);
+    font-family: "IBM Plex Mono", ui-monospace, monospace; margin: 0 0 3px; }
+  .provenance dd { margin: 0; font-size: 13.5px; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+  /* ---------- headline figures ---------- */
+  .figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 40px 0 0;
+  }
+
+  .fig { background: var(--surface); padding: 18px 16px 16px; }
+  .fig .label { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+    font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .fig .val {
+    font-family: Archivo, sans-serif;
+    font-variant-numeric: tabular-nums;
+    font-size: 30px; font-weight: 700; letter-spacing: -0.02em;
+    margin-top: 8px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  }
+  .fig .was { font-size: 17px; font-weight: 500; color: var(--faint); text-decoration: line-through; text-decoration-thickness: 1px; }
+  .fig .arrow { color: var(--faint); font-size: 15px; }
+  .fig .now { color: var(--fixed); }
+  .fig .note { font-size: 12.5px; color: var(--muted); margin-top: 5px; }
+
+  /* ---------- sections ---------- */
+  section { margin-top: 60px; }
+
+  h2 {
+    font-size: 25px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule-strong);
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  h2 .count { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted); font-weight: 400; letter-spacing: 0.06em; }
+
+  .lede { max-width: 68ch; color: var(--muted); margin: 14px 0 0; }
+
+  /* ---------- ledger ---------- */
+  .scroller { overflow-x: auto; margin-top: 20px; border: 1px solid var(--rule); background: var(--surface); }
+
+  table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 13.5px; }
+
+  thead th {
+    text-align: left;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted); font-weight: 500;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--rule-strong);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+
+  tbody td { padding: 11px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: 0; }
+
+  td.n { font-family: "IBM Plex Mono", monospace; color: var(--faint); width: 40px; font-size: 12.5px; }
+  td.what { min-width: 210px; }
+  td.before, td.after { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; white-space: nowrap; }
+  td.before { color: var(--muted); }
+  td.after { color: var(--ink); font-weight: 500; }
+  td.page { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+  .pill {
+    display: inline-block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase;
+    padding: 2.5px 8px; border-radius: 3px; white-space: nowrap;
+  }
+  .pill.fixed { background: var(--accent-soft); color: var(--fixed); }
+  .pill.open { background: var(--open-soft); color: var(--open); }
+  .pill.parked { background: var(--surface-2); color: var(--parked); }
+
+  /* severity stripe on open rows */
+  tr.is-open td:first-child { box-shadow: inset 3px 0 0 var(--open); }
+
+  /* ---------- callout ---------- */
+  .callout {
+    border: 1px solid var(--rule-strong);
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    padding: 20px 22px;
+    margin-top: 24px;
+    box-shadow: var(--shadow);
+  }
+  .callout h3 { font-size: 16.5px; font-weight: 600; margin-bottom: 8px; }
+  .callout p { margin: 0 0 10px; color: var(--muted); max-width: 68ch; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout strong { color: var(--ink); font-weight: 600; }
+  .callout code { font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+
+  .callout.warn { border-left-color: var(--open); }
+
+  /* ---------- header transformation ---------- */
+  .cols { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin-top: 20px; }
+  .colrow { background: var(--surface); padding: 15px 16px; display: grid; grid-template-columns: 120px 1fr; gap: 14px; align-items: start; }
+  .colrow .rt { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--muted); padding-top: 2px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip {
+    font-family: "IBM Plex Mono", monospace; font-size: 11.5px;
+    padding: 3px 8px; border: 1px solid var(--rule-strong); border-radius: 3px;
+    background: var(--surface-2); color: var(--ink);
+  }
+  .chip.gone { color: var(--faint); border-style: dashed; background: transparent; }
+  .sep { color: var(--faint); font-family: "IBM Plex Mono", monospace; font-size: 12px; padding: 0 2px; }
+
+  ul.plain { margin: 12px 0 0; padding-left: 20px; color: var(--muted); }
+  ul.plain li { margin-bottom: 7px; max-width: 66ch; }
+  ul.plain strong { color: var(--ink); font-weight: 600; }
+
+  footer {
+    margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--rule-strong);
+    font-size: 12.5px; color: var(--faint);
+    font-family: "IBM Plex Mono", monospace;
+    display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  }
+
+  @media (max-width: 620px) {
+    body { padding: 0 16px 64px; }
+    .colrow { grid-template-columns: 1fr; gap: 8px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">KAIROS · frontend verification</div>
+    <h1>What 32 commits actually changed</h1>
+    <p class="standfirst">
+      Every figure below was measured twice — once against the pre-beautification build and once against
+      current — by driving both in a real browser and reading rendered geometry. Nothing here is quoted
+      from a commit message or an agent's report.
+    </p>
+    <dl class="provenance">
+      <div><dt>Before</dt><dd>e76045d</dd></div>
+      <div><dt>Rebased onto</dt><dd>0f61a14</dd></div>
+      <div><dt>After</dt><dd>0b165c0</dd></div>
+      <div><dt>Commits</dt><dd>32, squashed to 1</dd></div>
+      <div><dt>Method</dt><dd>getBoundingClientRect</dd></div>
+      <div><dt>Viewport</dt><dd>1440 × 1100</dd></div>
+    </dl>
+  </header>
+
+  <div class="figures">
+    <div class="fig">
+      <div class="label">Alarm-red identifiers</div>
+      <div class="val"><span class="was">132</span><span class="arrow">→</span><span class="now">8</span></div>
+      <div class="note">Across assets, events, documents, projects</div>
+    </div>
+    <div class="fig">
+      <div class="label">Link-coloured refs</div>
+      <div class="val"><span class="was">0</span><span class="arrow">→</span><span class="now">109</span></div>
+      <div class="note">Clickable things now look clickable</div>
+    </div>
+    <div class="fig">
+      <div class="label">Routes overflowing @768</div>
+      <div class="val"><span class="was">5</span><span class="arrow">→</span><span class="now">0</span></div>
+      <div class="note">Of 6 sampled</div>
+    </div>
+    <div class="fig">
+      <div class="label">Tests passing</div>
+      <div class="val"><span class="was">145</span><span class="arrow">→</span><span class="now">212</span></div>
+      <div class="note">1 known failure, unchanged</div>
+    </div>
+    <div class="fig">
+      <div class="label">Review items closed</div>
+      <div class="val"><span class="now">32</span><span class="arrow">/</span><span class="was" style="text-decoration:none">38</span></div>
+      <div class="note">1 open · 2 moot · 2 parked · 1 not ours</div>
+    </div>
+  </div>
+
+  <section>
+    <h2>The tables were the whole story <span class="count">items 8 · 14 · 32</span></h2>
+    <p class="lede">
+      Six tables shipped with every column but one rendering at zero width. <code>table-fixed</code> ignores
+      <code>max-width</code>, so a column set to <code>w-full max-width:320px</code> claimed 100% and starved
+      its siblings. The markup was always right — which is why counting <code>&lt;th&gt;</code> elements said
+      the pages were fine.
+    </p>
+    <div class="cols">
+      <div class="colrow">
+        <div class="rt">/assets</div>
+        <div class="chips">
+          <span class="chip">Name</span>
+          <span class="sep">→</span>
+          <span class="chip">Asset</span><span class="chip">Name</span><span class="chip">Equipment class</span><span class="chip">Criticality</span>
+        </div>
+      </div>
+      <div class="colrow">
+        <div class="rt">/events</div>
+        <div class="chips">
+          <span class="chip">Description</span>
+          <span class="sep">→</span>
+          <span class="chip">Occurred</span><span class="chip">Priority</span><span class="chip">Type</span><span class="chip">Asset</span><span class="chip">Description</span><span class="chip">Status</span>
+        </div>
+      </div>
+      <div class="colrow">
+        <div class="rt">/documents</div>
+        <div class="chips">
+          <span class="chip">Document</span>
+          <span class="sep">→</span>
+          <span class="chip">Document</span><span class="chip">Type &amp; source</span><span class="chip">Authority</span><span class="chip">State</span><span class="chip">Updated</span><span class="chip">Get</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Item ledger <span class="count">38 items · senior review, 2026-08-18</span></h2>
+
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>What the review asked for</th><th>Page</th>
+            <th>Before</th><th>After</th><th>Verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="n">1</td><td class="what">Vercel toolbar hide is permanent</td><td class="page">shell</td><td class="before">—</td><td class="after">—</td><td><span class="pill parked">not ours</span></td></tr>
+          <tr><td class="n">2</td><td class="what">Nav rail minimise + invisible scrollbar</td><td class="page">shell</td><td class="before">no toggle</td><td class="after">316 → 68px</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">3</td><td class="what">Remove horizontal scroller, wrap instead</td><td class="page">/management</td><td class="before">1 scroller</td><td class="after">0</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">4</td><td class="what">Y-axis labels clipped</td><td class="page">/management</td><td class="before">2px from edge</td><td class="after">26px</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">5</td><td class="what">"Plant state" orphaned ghost button</td><td class="page">/management</td><td class="before">Plant state</td><td class="after">· Healthy</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">6</td><td class="what">Lower-card alignment</td><td class="page">/management</td><td class="before">1245 / 1245</td><td class="after">1413 / 1413</td><td><span class="pill fixed">held</span></td></tr>
+          <tr><td class="n">7</td><td class="what">Sort indicator contradicts data</td><td class="page">/assets</td><td class="before">no caret</td><td class="after">matches order</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">8</td><td class="what">Single "Name" column stretched full width</td><td class="page">/assets</td><td class="before">1 col</td><td class="after">4 cols</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">9</td><td class="what">KPI cards mix total with its breakdown</td><td class="page">/assets</td><td class="before">flat row</td><td class="after">split</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">10</td><td class="what">Table header alignment</td><td class="page">/assets</td><td class="before">all text cols</td><td class="after">all text cols</td><td><span class="pill parked">n/a</span></td></tr>
+          <tr><td class="n">11</td><td class="what">Add a "Register asset" button</td><td class="page">/assets</td><td class="before">absent</td><td class="after">present</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">12</td><td class="what">Empty chart — one day, two dots, drawn as a line</td><td class="page">/events</td><td class="before">0 bars</td><td class="after">2 bars</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">13</td><td class="what">Legend colours — <code>low</code> is black</td><td class="page">/events</td><td class="before">red · amber</td><td class="after">red · amber</td><td><span class="pill parked">moot</span></td></tr>
+          <tr><td class="n">14</td><td class="what">Single "Description" column stretched</td><td class="page">/events</td><td class="before">1 col</td><td class="after">6 cols</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">15</td><td class="what">Redundant counts</td><td class="page">/events</td><td class="before">3 counts</td><td class="after">2 distinct</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">16</td><td class="what">Node labels truncate — wrap to two lines</td><td class="page">/graph</td><td class="before">1 node only</td><td class="after">1 node only</td><td><span class="pill parked">parked</span></td></tr>
+          <tr><td class="n">17</td><td class="what">Date picker opens only from the icon</td><td class="page">/graph</td><td class="before">1 node only</td><td class="after">1 node only</td><td><span class="pill parked">parked</span></td></tr>
+          <tr><td class="n">18</td><td class="what">Hover truncated text shows full text</td><td class="page">all</td><td class="before">0 of 25</td><td class="after">77 of 77</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">19</td><td class="what">Zoom control and pill stacked and clipping</td><td class="page">/graph</td><td class="before">overlap</td><td class="after">clear</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">20</td><td class="what">Apply sort to the columns</td><td class="page">/coverage</td><td class="before">0 of 6</td><td class="after">6 of 6</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">21</td><td class="what">Square badges, more compact table</td><td class="page">/coverage</td><td class="before">57px rows</td><td class="after">53px rows</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">22</td><td class="what">Remove red from non-hyperlink text</td><td class="page">/compliance</td><td class="before">orange</td><td class="after">ink</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">23</td><td class="what">Chart x-axis scale + data label per bar</td><td class="page">/compliance</td><td class="before">no labels</td><td class="after">40 · 12</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">24</td><td class="what">Donut segment click highlights that segment</td><td class="page">/compliance</td><td class="before">52 of 52</td><td class="after">12 of 52</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">25</td><td class="what">Cards should be clickable</td><td class="page">/governance</td><td class="before">already links</td><td class="after">still links</td><td><span class="pill fixed">already ok</span></td></tr>
+          <tr><td class="n">26</td><td class="what">Recolour status badges to the given map</td><td class="page">all</td><td class="before">grey</td><td class="after">blue · purple</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">27</td><td class="what">Six identical "Open control →" links</td><td class="page">/governance</td><td class="before">1 of 6 unique</td><td class="after">6 of 6</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">28</td><td class="what">Timestamps must be exact, not relative</td><td class="page">/audit</td><td class="before">relative</td><td class="after">to the second</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">29</td><td class="what">Cut the duplicate stat cards</td><td class="page">/audit</td><td class="before">4 cards</td><td class="after">0 cards</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">30</td><td class="what">Hand pointer wherever click exists</td><td class="page">all</td><td class="before">0 of 9</td><td class="after">10 of 10</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr class="is-open"><td class="n">31</td><td class="what">Make the design compact</td><td class="page">all</td><td class="before">37–67px rows</td><td class="after">37–67px rows</td><td><span class="pill open">open</span></td></tr>
+          <tr><td class="n">32</td><td class="what">Show more than the filename</td><td class="page">/documents</td><td class="before">1 col</td><td class="after">6 cols + get</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">33</td><td class="what">Summary numbers and font mismatch</td><td class="page">/projects</td><td class="before">66 accent</td><td class="after">2 accent</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">34</td><td class="what">Document list is full of red</td><td class="page">/documents</td><td class="before">27 accent</td><td class="after">2 accent</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">35</td><td class="what">Show the whole filename</td><td class="page">/documents</td><td class="before">25 clipped</td><td class="after">0 clipped</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">36</td><td class="what">Summary numbers use two different fonts</td><td class="page">/offboarding</td><td class="before">2 families</td><td class="after">1 family</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">37</td><td class="what">Do not cut off the engineer's name</td><td class="page">/offboarding</td><td class="before">no identity</td><td class="after">full email</td><td><span class="pill fixed">fixed</span></td></tr>
+          <tr><td class="n">38</td><td class="what">Make the retirement deadline stand out</td><td class="page">/offboarding</td><td class="before">date only</td><td class="after">+ countdown</td><td><span class="pill fixed">fixed</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>The landing page changed underneath this work <span class="count">resolved in favour of main</span></h2>
+    <p class="lede">
+      While this pass was in progress, <code>main</code> shipped a full landing-page redesign — the one
+      now live at <code>kairos-deterium.vercel.app</code>. It wins outright.
+    </p>
+
+    <div class="callout">
+      <h3>What was discarded, and why</h3>
+      <p>
+        Task D6 had added 39 reveal wrappers and roughly 29 <code>md:</code> classes to the
+        <em>old</em> landing page — a page that no longer exists. <strong>All of it is gone.</strong>
+        Main's version is byte-identical in this branch.
+      </p>
+      <p>
+        The tablet gap it was fixing is still real, just on a different page: main's landing measures
+        <strong>74 <code>sm:</code>, 36 <code>lg:</code>, and zero <code>md:</code></strong>, so every
+        viewport between 768 and 1023px still renders a stretched small-screen layout. Carried into
+        the visual identity pass.
+      </p>
+    </div>
+
+    <div class="callout warn">
+      <h3>A clean auto-merge is not a correct auto-merge</h3>
+      <p>
+        <code>page.test.tsx</code> merged with <strong>no conflict markers at all</strong> — and was
+        still wrong. It kept assertions for a <code>landing-reveal</code> testid that main's page does
+        not contain. Green merge, red suite. Overridden with main's version.
+      </p>
+      <p>
+        <code>globals.css</code> did merge correctly, and this was verified at line level rather than
+        by grepping for strings: <strong>42 of 42 lines main added and 53 of 53 this branch added are
+        present, with zero collisions.</strong> The two sides appended to different regions — main the
+        landing motion, this branch the app tokens and nav rail.
+      </p>
+    </div>
+
+    <div class="callout">
+      <h3>The drift marker fired, exactly as designed</h3>
+      <p>
+        <code>landing-figures.test.ts</code> carried an <code>it.fails()</code> marker while the
+        landing showed <code>34/37</code> against the benchmark's <code>33/37</code>. It was built to
+        start failing the moment the two agreed — and it did. Main's landing reads
+        <strong>33/37 at 89%</strong>, matching <code>RESULTS.md</code>.
+      </p>
+      <p>
+        The marker is gone and the test now passes normally. Worth flagging: <strong>the 91% figure
+        chosen for the demo is no longer on the page.</strong> Main went with the honest number.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Still open <span class="count">1 item</span></h2>
+    <p class="lede">
+      One item survives, and it is the one that was never a defect on a single page.
+    </p>
+
+    <div class="callout warn">
+      <h3>Item 31 — "Make the design compact"</h3>
+      <p>
+        Measured row heights, same kind of content on every page:
+        <code>/assets</code> <strong>37px</strong> · <code>/coverage</code> 53px ·
+        <code>/events</code> 56px · <code>/audit</code> <strong>67px</strong> ·
+        <code>/documents</code> <strong>67px</strong>.
+      </p>
+      <p>
+        Nearly a 2× spread. That is not a bug on one screen — it is a missing spacing scale, which is
+        why no page-scoped brief could close it. It is the first task of the visual identity pass.
+      </p>
+    </div>
+
+    <div class="callout">
+      <h3>Closed after this page was first written</h3>
+      <p>
+        <strong>20 and 21</strong> — <code>/management/coverage</code> ported to <code>DataTable</code>:
+        6 sort controls where there were 0, rows 57 → 53px, 5 columns right-aligned, and all 46
+        heat-shaded cells intact.
+        <strong>26</strong> — Monitor now blue, Validation purple; both were grey.
+        <strong>24</strong> — clicking a donut segment filters the register (52 of 52 → 12 of 52) and
+        dims the rest to 0.28.
+      </p>
+      <p>
+        Overdue still renders neutral, but only because the live count is zero — it maps to danger
+        through the same call when non-zero. Not observed, so not claimed.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>The eight I could not settle, settled <span class="count">re-probed</span></h2>
+    <p class="lede">
+      An earlier version of this page listed eight items as unresolved. Seven were resolvable; the
+      eighth was unresolvable only because my probe was reading the wrong element.
+    </p>
+    <ul class="plain">
+      <li><strong>7 — fixed.</strong> Clicking the Asset header sorts ascending
+        (<code>EQ-101, EQ-102, EQ-103</code>) then descending (<code>XV-204, XV-203, V-247</code>). The
+        caret matches the data, and only the active column shows a direction.</li>
+      <li><strong>13 — moot, and my earlier reading was wrong.</strong> I sampled the first
+        <code>&lt;path&gt;</code> in each legend item and got black. Targeting
+        <code>.recharts-legend-icon</code> shows High = <code>--danger</code> red and Normal =
+        <code>--caution</code> amber, matching the bars exactly. The <code>low</code> level the review
+        complained about does not exist in live data.</li>
+      <li><strong>18 — fixed.</strong> <code>/projects</code> 49 truncated elements, 49 carrying a
+        title; <code>/audit</code> 28 and 28. Full coverage.</li>
+      <li><strong>28 — fixed.</strong> <code>2026-08-22 16:10:23</code> as the primary value with
+        <code>5m ago</code> beneath — to the second, exactly as asked.</li>
+      <li><strong>29 — fixed.</strong> No large-numeral stat cards remain; the page carries one count.</li>
+      <li><strong>36 — fixed.</strong> All four summary numbers render Geist Mono at 20px, and the
+        plural reads correctly.</li>
+      <li><strong>10 — not applicable.</strong> <code>/assets</code> has no numeric column to
+        right-align: Asset, Name, Equipment class and Criticality are all text. The review's mockup
+        wanted an <code>OPEN ISSUES</code> column the API does not return. Column alignment exists and
+        is used on <code>/coverage</code>.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Two corrections to my own record</h2>
+
+    <div class="callout">
+      <h3>The senior was right about item 4; I was not</h3>
+      <p>
+        I recorded the Y-axis labels as <em>absent</em>, from a selector returning zero. That selector
+        (<code>.recharts-yAxis .recharts-cartesian-axis-tick-value</code>) <strong>can never match in this Recharts
+        version</strong> — the tick text is a sibling of the axis layer, not a descendant. An agent caught it and
+        said so.
+      </p>
+      <p>
+        Measuring both builds settled it: the ticks were always there, sitting <strong>2px from the card edge inside
+        its 16px padding</strong>. Clipped, exactly as the review said. Now 26px.
+      </p>
+    </div>
+
+    <div class="callout">
+      <h3>And a third time, on the events legend</h3>
+      <p>
+        I reported the legend swatches as black. I had sampled the first <code>&lt;path&gt;</code>
+        inside each legend item, which is not the swatch. The real icons are
+        <code>.recharts-legend-icon</code>, and they render red and amber — matching their bars.
+      </p>
+      <p>
+        Three wrong readings in one project, all the same shape: <strong>a selector that matched the
+        wrong node or nothing at all.</strong> Each one nearly closed an item that was broken, or
+        reopened one that was already right.
+      </p>
+    </div>
+
+    <div class="callout">
+      <h3>A query returning zero is not evidence of absence</h3>
+      <p>
+        This is the second time in one project. The first cost more: an audit counted five <code>&lt;th&gt;</code>
+        elements on <code>/assets</code>, declared three review items already fixed, and was wrong — the columns
+        were rendering at <strong>0px</strong>. Six tables shipped one visible column.
+      </p>
+      <p>
+        Both failures share a shape: <strong>a false "already fixed" sends work in the wrong direction and stays
+        invisible until someone opens the page.</strong> Confirming a defect is absent deserves more scepticism
+        than confirming it is present.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <span>Measured 2026-08-22 · both builds driven headless at 1440 × 1100</span>
+    <span>e76045d → 0b165c0 · rebased onto 0f61a14</span>
+  </footer>
+
+</div>

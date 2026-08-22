@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AssetSummary } from "@/lib/types";
+import { label } from "@/lib/labels";
 import { criticalityMeta } from "@/lib/utils";
 import { DataTable, EmptyState, type TableColumn } from "@/components/ui";
 
@@ -21,10 +22,9 @@ function matchesCriticality(value: string, filter: CriticalityFilter) {
 const CRIT_RANK: Record<string, number> = { safety_critical: 0, high: 0, critical: 1, medium: 1, non_critical: 2, low: 2 };
 
 const COLUMNS: TableColumn<AssetRow>[] = [
-  { key: "asset_id", label: "Asset", sortable: true, render: (r) => <span className="tabular whitespace-nowrap font-semibold text-accent">{r.asset_id}</span> },
-  { key: "name", label: "Name", sortable: true, className: "w-full max-w-[280px]", render: (r) => <span className="block truncate font-medium text-ink">{r.name}</span> },
-  { key: "equipment_class", label: "Equipment class", sortable: true, render: (r) => <span className="block truncate text-caption text-muted">{r.equipment_class}</span> },
-  { key: "site_id", label: "Site", sortValue: (r) => r.site_id ?? "", render: (r) => <span className="tabular whitespace-nowrap text-caption text-muted">{r.site_id ?? "—"}</span> },
+  { key: "asset_id", label: "Asset", sortable: true, render: (r) => <span className="tabular whitespace-nowrap font-semibold text-link">{r.asset_id}</span> },
+  { key: "name", label: "Name", sortable: true, className: "w-[38%]", render: (r) => <span className="block truncate font-medium text-ink">{r.name}</span> },
+  { key: "equipment_class", label: "Equipment class", sortable: true, render: (r) => <span className="block truncate text-caption text-muted">{label(r.equipment_class)}</span> },
   {
     key: "criticality", label: "Criticality", sortValue: (r) => CRIT_RANK[r.criticality] ?? 9,
     render: (r) => {
@@ -82,7 +82,7 @@ export function AssetRegistry({ assets }: { assets: AssetSummary[] }) {
           <span className="sr-only">Equipment class</span>
           <select value={equipmentClass} onChange={(event) => setEquipmentClass(event.target.value)} className="h-9 rounded-lg border border-line bg-page px-3 text-body text-ink outline-none focus:border-accent">
             <option value="all">All equipment classes</option>
-            {equipmentClasses.map((value) => <option key={value} value={value}>{value}</option>)}
+            {equipmentClasses.map((value) => <option key={value} value={value}>{label(value)}</option>)}
           </select>
         </label>
         <label>

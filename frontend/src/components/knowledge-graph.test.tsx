@@ -75,4 +75,24 @@ describe("KnowledgeGraph", () => {
     expect(panel).toHaveClass("inset-x-3", "bottom-3", "sm:right-3", "sm:top-3", "sm:w-72");
     expect(screen.getByRole("button", { name: "Close panel" })).toHaveClass("min-h-11", "min-w-11");
   });
+
+  it("keeps the coverage indicator clear of the lower-left zoom controls", async () => {
+    mocks.getKnowledgeGraph.mockResolvedValue({
+      source: "live",
+      data: {
+        asset_id: "P-101",
+        as_of: "2026-07-15T00:00:00Z",
+        nodes: [{ id: "P-101", label: "Pump P-101", kind: "Asset", properties: {} }],
+        edges: [],
+      },
+    });
+    mocks.getOtCoverage.mockResolvedValue({
+      source: "live",
+      data: { coverage_type: "none", sensor_tags: [] },
+    });
+
+    render(<KnowledgeGraph assetId="P-101" />);
+
+    expect((await screen.findByText("No sensor coverage")).parentElement).toHaveClass("bottom-12", "left-14");
+  });
 });

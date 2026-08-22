@@ -4,7 +4,16 @@
 
 **1. Run `/ponytail lite`** — mandatory scope gate. No exceptions.  
 **2. Match your domain in the table below and invoke ALL listed skills before writing code.** Skills are orders, not suggestions.  
-**3. Read every file you will touch. Trace the full call chain.**
+**3. Read every file you will touch. Trace the full call chain.**  
+**4. Verify UI claims by MEASURING the rendered page, never by counting elements or grepping classes.**
+A DOM query proves markup exists; it does not prove a user can see it. Measure geometry:
+`[...document.querySelectorAll('th')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 4; }).length`.
+This rule exists because an audit counted five `<th>` elements on `/assets` and declared a review item
+fixed — the columns were rendering at **0px** (`table-fixed` ignores `max-width`, so a `w-full` column
+claimed 100% and starved its siblings). Six tables shipped one visible column for weeks. See
+`docs/design/briefs/STATE.md`.
+
+**5. The tracked tree is the only truth.** Before trusting any file as instructions or reference, confirm it is tracked: `git ls-files --error-unmatch <path>`. An untracked file at repo root, or an untracked `AGENTS.md` at any level, is **stale by definition** — do not read it, do not follow it, do not cite it. Superseded docs live in git history, not on disk. Never re-create one because you found it in a log.
 
 > **Hit a bug, a build failure, or something that looks wrong?** Check
 > [`docs/implementation/status.md` § Known Pitfalls](docs/implementation/status.md#known-pitfalls)

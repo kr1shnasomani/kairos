@@ -3,28 +3,29 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { VaultDocument } from "@/lib/types";
-import { authorityLabel, relativeTime, triggerLabel } from "@/lib/utils";
-import { DataTable, EmptyState, FilterTabs, StatusBadge, type TableColumn } from "@/components/ui";
+import { authorityLabel } from "@/lib/utils";
+import { label } from "@/lib/labels";
+import { DataTable, EmptyState, FilterTabs, StatusBadge, statusTone, Timestamp, Truncate, type TableColumn } from "@/components/ui";
 
 /** VaultDocument re-mapped so it satisfies DataTable's Record constraint. */
 type DocRow = Pick<VaultDocument, keyof VaultDocument>;
 
 const COLUMNS: TableColumn<DocRow>[] = [
   {
-    key: "file_name", label: "Document", sortable: true, className: "w-full max-w-[320px]",
+    key: "file_name", label: "Document", sortable: true, className: "w-[38%]",
     render: (r) => (
       <span className="block min-w-0">
-        <span className="block truncate font-semibold text-ink">{r.file_name}</span>
-        <span className="tabular block truncate text-label font-medium text-accent">{r.document_id}</span>
+        <Truncate text={r.file_name} className="font-semibold text-ink" />
+        <span className="tabular block truncate text-label font-medium text-muted">{r.document_id}</span>
       </span>
     ),
   },
   {
-    key: "document_type", label: "Type & source", sortValue: (r) => triggerLabel(r.document_type),
+    key: "document_type", label: "Type & source", sortValue: (r) => label(r.document_type),
     render: (r) => (
       <span className="block min-w-0">
-        <span className="block whitespace-nowrap text-caption font-medium text-ink">{triggerLabel(r.document_type)}</span>
-        <span className="block truncate text-label text-muted">{r.source_system?.replace(/_/g, " ") ?? "—"}</span>
+        <span className="block whitespace-nowrap text-caption font-medium text-ink">{label(r.document_type)}</span>
+        <span className="block truncate text-label text-muted">{label(r.source_system)}</span>
       </span>
     ),
   },
@@ -39,11 +40,19 @@ const COLUMNS: TableColumn<DocRow>[] = [
   },
   {
     key: "status", label: "State", sortable: true,
-    render: (r) => <StatusBadge tone={r.status === "active" ? "verified" : "neutral"}>{r.status}</StatusBadge>,
+    render: (r) => <StatusBadge tone={statusTone(r.status)}>{label(r.status)}</StatusBadge>,
   },
   {
     key: "ingested_at", label: "Updated", sortValue: (r) => Date.parse(r.ingested_at),
-    render: (r) => <span className="tabular whitespace-nowrap text-caption text-muted" title={r.ingested_at}>{relativeTime(r.ingested_at)}</span>,
+    render: (r) => <Timestamp value={r.ingested_at} />,
+  },
+  {
+    key: "download", label: "Get", align: "right",
+    render: (r) => r.vault_url ? (
+      <a href={r.vault_url} className="text-link" onClick={(event) => event.stopPropagation()}>
+        Download
+      </a>
+    ) : null,
   },
 ];
 

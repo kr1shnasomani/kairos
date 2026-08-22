@@ -4,7 +4,12 @@ Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · Docker
 
 **Local:** `http://localhost:3000` — served by `kairos-frontend` container.
 
-**Design system:** `frontend/DESIGN.md` — Paper theme, colour tokens, typography, component conventions, Refero borrow map. Read before building any new UI component.
+**Design system:** **`frontend/DESIGN.md`** — principles, the token system (including the 2026-08-21
+`--danger` shift and the new `--link` / `--validation` tokens), type scale, data-display rules, the 17
+primitives, and per-archetype layout contracts. **Read it before building any new UI component.**
+Supporting material lives in `docs/design/`: `SENIOR-REVIEW.md` (the 38-item review it answers),
+`DATA-CONTRACT.md` (what the UI is allowed to render), `ARCHETYPES.md`, and `screens/` (98 captures of
+the running app).
 
 ---
 
@@ -74,7 +79,7 @@ frontend/
 │       ├── utils.ts · format.ts · motion.ts · user-initials.ts · search-shortcut.ts · graph-theme.tsx
 │       └── copilot.ts · rca.ts      # live types + real constants (SUGGESTIONS, RCA_PRESETS); rca.ts `rcaFor` is TEST-ONLY
 ├── Dockerfile                       # node:20-alpine; NEXT_TELEMETRY_DISABLED=1; npm ci at build
-├── DESIGN.md                        # Design system (read before building UI)
+├── DESIGN.md                        # Design system — READ BEFORE BUILDING UI
 └── package.json
 ```
 

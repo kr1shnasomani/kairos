@@ -7,9 +7,10 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { AXIS, ChartCard, GRID, TOOLTIP } from "@/components/charts";
-import { MetricCard, PageHeader } from "@/components/ui";
+import { MetricCard, PageHeader, StatusBadge } from "@/components/ui";
 import type { Fetched } from "@/lib/api";
 import { getComplianceDashboard, getConflicts, getEvents, getHealthDetailed, getQuarantine, getSlaReport } from "@/lib/api";
+import { label } from "@/lib/labels";
 import { useScrollReveal } from "@/lib/motion";
 import type { ComplianceDashboard, OperationalEvent, SlaReport } from "@/lib/types";
 import { useFetch } from "@/lib/use-fetch";
@@ -78,6 +79,8 @@ export default function ManagementPage() {
   const healthState = useFetch(getHealthDetailed);
   const health = healthState.status === "live" ? healthState.data : null;
   const healthLoading = healthState.status === "loading";
+  const plantState = health?.overall ? label(health.overall) : healthState.status === "error" ? "Unavailable" : null;
+  const plantTone = health?.overall === "healthy" ? "verified" : health?.overall === "degraded" ? "caution" : health?.overall === "down" ? "danger" : "info";
 
   const trend = useMemo(() => (data ? dailyCounts(data.events, nowMs()) : null), [data]);
   // All-zero series draws a misleading flat line — show nothing instead.
@@ -104,9 +107,9 @@ export default function ManagementPage() {
           <>
             <Link
               href="/management/plant-state"
-              className="inline-flex min-h-11 items-center rounded-lg border border-line bg-surface px-3 text-caption font-medium text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+              className="inline-flex min-h-11 items-center rounded-lg outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent"
             >
-              Plant state
+              <StatusBadge tone={plantTone}>Plant state{plantState ? ` · ${plantState}` : ""}</StatusBadge>
             </Link>
           </>
         }
@@ -143,7 +146,7 @@ export default function ManagementPage() {
               loading={trend === null}
               empty={trend !== null && trend.every((b) => b.count === 0) && "No events in this window."}
             >
-              <AreaChart data={trend ?? []} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+              <AreaChart data={trend ?? []} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="event-fill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.25} />

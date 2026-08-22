@@ -63,4 +63,37 @@ describe("DocumentsPage", () => {
     expect(screen.getByText("No documents ingested")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ingest a document" })).toHaveAttribute("href", "/documents/ingest");
   });
+
+  it("renders document ids quietly, not in the brand accent", async () => {
+    respond([doc(1)]);
+
+    render(await DocumentsPage());
+
+    expect(screen.getByText("DOC-1")).not.toHaveClass("text-accent");
+    expect(screen.getByText("DOC-1")).toHaveClass("text-muted", "tabular");
+  });
+
+  it("gives each row a download action", async () => {
+    respond([doc(1, { vault_url: "https://vault.example/doc-1" })]);
+
+    render(await DocumentsPage());
+
+    expect(screen.getByRole("link", { name: /download/i })).toHaveAttribute("href", "https://vault.example/doc-1");
+  });
+
+  it("shows the exact ingest timestamp", async () => {
+    respond([doc(1)]);
+
+    render(await DocumentsPage());
+
+    expect(screen.getByText("2026-07-12 10:00:00")).toBeInTheDocument();
+  });
+
+  it("does not render the raw ingested_by UUID", async () => {
+    respond([doc(1, { ingested_by: "123e4567-e89b-12d3-a456-426614174000" })]);
+
+    render(await DocumentsPage());
+
+    expect(screen.queryByText(/^[0-9a-f]{8}-/)).not.toBeInTheDocument();
+  });
 });

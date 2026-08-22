@@ -2,13 +2,14 @@
 import Link from "next/link";
 import { getOffboardingList } from "@/lib/api";
 import { PageHeader, StatusBadge } from "@/components/ui";
+import { label, plural } from "@/lib/labels";
 
 function progressBar(done: number, total: number) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
     <div className="mt-4">
       <div className="mb-1.5 flex items-center justify-between gap-3 text-label text-muted">
-        <span className="tabular">{done} of {total} sessions</span>
+        <span className="tabular">{done} of {total} {total === 1 ? "session" : "sessions"}</span>
         <span className="tabular font-semibold text-ink">{pct}%</span>
       </div>
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
@@ -21,9 +22,53 @@ function progressBar(done: number, total: number) {
   );
 }
 
-function emailInitials(email: string) {
-  const parts = email.split("@")[0].split(/[^a-z0-9]+/i).filter(Boolean);
-  return (parts.length > 1 ? parts.map((part) => part[0]).join("") : parts[0]?.slice(0, 2) || "?").slice(0, 2).toUpperCase();
+// This page is a server component, so it cannot CALL statusTone() — that lives in
+// the "use client" ui.tsx, and a client function can only be rendered as a
+// component or passed as a prop, never invoked from the server. StatusBadge is a
+// component and crosses the boundary fine; the tone mapping is local instead.
+// Live data is `scheduled` for all 17 programmes; the rest mirror ui.tsx's
+// STATUS_TONE so the two never disagree if the backend widens the domain.
+type BadgeTone = "info" | "verified" | "caution" | "danger" | "neutral";
+const PROGRAMME_TONE: Record<string, BadgeTone> = {
+  scheduled: "info",
+  in_progress: "info",
+  completed: "verified",
+  cancelled: "neutral",
+  overdue: "danger",
+};
+function programmeTone(status: string | null | undefined): BadgeTone {
+  if (!status) return "neutral";
+  return PROGRAMME_TONE[status.toLowerCase()] ?? "neutral";
+}
+
+function programmeIdentifier({ personnel_email, personnel_id }: { personnel_email?: string | null; personnel_id?: string | null }) {
+  return personnel_email?.trim() || personnel_id?.trim() || "No identifier available";
+}
+
+function retirementTiming(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const today = new Date();
+  const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const days = Math.round((date.getTime() - todayUtc) / 86_400_000);
+  return {
+    absolute: date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }),
+    relative: days < 0 ? `Retired ${plural(Math.abs(days), "day")} ago` : days === 0 ? "Retires today" : `Retires in ${plural(days, "day")}`,
+    urgent: days >= 0 && days <= 30,
+  };
+}
+
+function RetirementDate({ value }: { value: string | null | undefined }) {
+  const timing = retirementTiming(value);
+  if (!timing) return <p className="mt-0.5 text-label text-muted">Retirement date unavailable</p>;
+  return (
+    <div className="mt-0.5 flex flex-wrap gap-x-2 text-label">
+      <time dateTime={value ?? undefined} title={value ?? undefined} className="text-muted">Retires {timing.absolute}</time>
+      <span className={timing.urgent ? "text-caution" : "text-muted"}>{timing.relative}</span>
+    </div>
+  );
 }
 
 export default async function OffboardingPage() {
@@ -70,7 +115,7 @@ export default async function OffboardingPage() {
           {programmes.map((p) => {
             const done = p.sessions_completed ?? 0;
             const total = p.total_sessions;
-            const allDone = total > 0 && done === total;
+            const identifier = programmeIdentifier(p);
             return (
               <Link
                 key={p.id}
@@ -79,23 +124,11 @@ export default async function OffboardingPage() {
                 className="group flex min-w-0 flex-col rounded-xl border border-line bg-surface p-5 shadow-sm transition-[border-color,transform] hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))]"
               >
                 <div className="flex items-start gap-3">
-                  <span className="tabular grid size-11 shrink-0 place-items-center rounded-full bg-accent-soft text-caption font-bold text-accent">{emailInitials(p.personnel_email)}</span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-body font-semibold text-ink">{p.personnel_email}</p>
-                    <p className="mt-0.5 text-label text-muted">
-                      Retires{" "}
-                      {new Date(p.retirement_date).toLocaleDateString("en-IN", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </p>
+                    <p className="truncate text-body font-semibold text-link" title={identifier}>{identifier}</p>
+                    <RetirementDate value={p.retirement_date} />
                   </div>
-                  {allDone ? (
-                    <StatusBadge tone="verified">Complete</StatusBadge>
-                  ) : (
-                    <StatusBadge tone="info">In progress</StatusBadge>
-                  )}
+                  <StatusBadge tone={programmeTone(p.status)}>{label(p.status)}</StatusBadge>
                 </div>
                 {progressBar(done, total)}
                 <span className="mt-4 text-caption font-semibold text-accent group-hover:underline">Open handover →</span>

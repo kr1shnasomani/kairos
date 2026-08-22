@@ -22,10 +22,12 @@
   --on-accent: #ffffff;
 
   /* semantic status — authority / verification / severity */
-  --danger: #b42318;
+  --danger: #a81f28;      /* 356.1deg - 18.3deg off --accent so alarm != brand; 7.26:1 on white */
   --caution: #9a5b00;
   --verified: #216d3b;
   --info: #1d4ed8;
+  --link: #1d4ed8;        /* clickable identifiers - never --accent, never --danger */
+  --validation: #6d28d9;  /* under validation / review */
 
   --radius: 8px;
   --radius-lg: 12px;
@@ -44,10 +46,12 @@
   --accent-soft: #3a1b0d;
   --on-accent: #ffffff;
 
-  --danger: #e4574c;
+  --danger: #e85a63;      /* 356.2deg - 23.9deg off --accent; 5.33:1 on --surface */
   --caution: #f5a623;
   --verified: #4fa96b;
   --info: #5b8def;
+  --link: #7aa2f7;
+  --validation: #a78bfa;
 }
 
 /* Map tokens → Tailwind v4 utilities (bg-surface, text-ink, border-line, …) */
@@ -66,6 +70,8 @@
   --color-caution: var(--caution);
   --color-verified: var(--verified);
   --color-info: var(--info);
+  --color-link: var(--link);
+  --color-validation: var(--validation);
 
   --font-sans: var(--font-dm), var(--font-noto-devanagari), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-instrument), var(--font-noto-devanagari), ui-sans-serif, system-ui, sans-serif;
@@ -223,6 +229,8 @@ h1, h2, h3, .font-display {
   --caution: #c07808;
   --verified: #1e6030;
   --info: #1a50c8;
+  --link: #0b3fb5;
+  --validation: #5b21b6;
 }
 
 [data-contrast="high"][data-theme="dark"] {
@@ -273,6 +281,8 @@ h1, h2, h3, .font-display {
   --muted: var(--sidebar-muted);
   --accent: var(--sidebar-accent);
   --accent-soft: var(--sidebar-active);
+  --link: #7aa2f7;
+  --validation: #a78bfa;
   background: var(--sidebar);
   color: var(--sidebar-fg);
 }
@@ -370,6 +380,12 @@ h1, h2, h3, .font-display {
 /* Tailwind v4's preflight leaves buttons at cursor:default, so every button on
    the page felt unclickable next to the links. Fixed once here rather than
    sprinkling cursor-pointer through the markup. */
+/* Tailwind v4 leaves <button> at cursor:default. App-wide, not just .landing. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
 .landing button:not(:disabled) {
   cursor: pointer;
 }
@@ -613,4 +629,64 @@ h1, h2, h3, .font-display {
 @keyframes drawer-in {
   from { transform: translateX(-100%); }
   to { transform: translateX(0); }
+}
+
+/* ---------------------------------------------------------------------------
+   Nav rail — collapsible (senior review item 2)
+
+   Width and the collapsed presentation are driven by `data-nav` on <html>,
+   which layout.tsx sets BEFORE first paint from localStorage. Doing it in CSS
+   rather than React state is what keeps a collapsed rail from flashing wide on
+   every navigation; the React state only owns the toggle button and writes the
+   preference back.
+
+   Every collapsed-state selector is scoped under `[data-rail]`, which only the
+   desktop aside carries. The mobile drawer renders the same component and must
+   keep its labels regardless of the desktop preference.
+--------------------------------------------------------------------------- */
+:root {
+  --rail-w: 316px;
+}
+:root[data-nav="collapsed"] {
+  --rail-w: 68px;
+}
+
+/* Hiding with display:none also removes the text from the accessibility tree,
+   which is why every rail link carries its own aria-label. */
+:root[data-nav="collapsed"] [data-rail] .rail-label {
+  display: none;
+}
+:root[data-nav="collapsed"] [data-rail] .rail-link {
+  justify-content: center;
+}
+:root[data-nav="collapsed"] [data-rail] .rail-group-header {
+  display: none;
+}
+/* Section rhythm collapses with the labels — without this the icon column
+   inherits gaps sized for headings that are no longer there. */
+:root[data-nav="collapsed"] [data-rail] .rail-nav {
+  --rail-section-gap: 0.5rem;
+}
+:root[data-nav="collapsed"] [data-rail] .rail-brand {
+  justify-content: center;
+  padding-inline: 0;
+}
+/* The auth-gate rail renders BrandLink without the shell around it. */
+:root[data-nav="collapsed"] [data-rail] .rail-brand > img {
+  margin-inline: auto;
+}
+:root[data-nav="collapsed"] [data-rail] .rail-brand-row {
+  flex-direction: column;
+  justify-content: flex-start;
+  padding-inline: 0.5rem;
+}
+
+/* The rail scrolls; the scrollbar never shows. Review item 2, second half. */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }

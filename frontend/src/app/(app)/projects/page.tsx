@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { VaultDocument, AssetSummary, OperationalEvent } from "@/lib/types";
 import { getDocuments, getAssets, getEvents } from "@/lib/api";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { plural } from "@/lib/labels";
 import { triggerLabel } from "@/lib/utils";
 import { ClassSection, FAILURE_TYPES, type ClassGroup } from "./_components/class-section";
 
@@ -84,7 +85,7 @@ export default function ProjectsPage() {
             <p className="text-label font-semibold uppercase tracking-[0.1em] text-muted">Portfolio coverage</p>
           </div>
           <p className="tabular mt-1 text-title font-semibold text-ink">{classNames.length} equipment classes</p>
-          <p className="mt-1 text-label text-muted">{revisionCount} retained revisions across the procurement record</p>
+          <p className="mt-1 text-label text-muted">{plural(revisionCount, "retained revision")} across the procurement record</p>
         </div>
         <PortfolioMetric value={assets.length} label="assets" className="sm:border-r lg:border-l" />
         <PortfolioMetric value={documents.length} label="documents" />

@@ -45,7 +45,9 @@ The frontend is a Next.js 16 / React 19 / Tailwind v4 app (`frontend/`) with **a
 - Each task tags its **architecture layer(s)** and, where scope is cut for the MVP, carries a `ponytail:` note naming the leaner choice and the upgrade path.
 - **Phase mapping:** the interface must reflect the trust arc — Phase 1 (retrieval), Phase 2 (assisted synthesis + feedback), Phase 3 (governed proactive). Features gate on phase where the architecture says so.
 - **No new dependency** unless a task names it. The only pre-approved addition is a graph renderer (React Flow) for Task 15; charts are pure SVG/CSS; voice uses the native `MediaRecorder` API; offline uses the native Service Worker + IndexedDB — no libraries.
-- **`frontend/` ownership:** this plan is the authorization to work in `frontend/`. Follow `frontend/DESIGN.md` for every visual decision; reuse `ui.tsx` primitives; never build a "dark version" of a component.
+- **`frontend/` ownership:** this plan is the authorization to work in `frontend/`. Follow
+  **`frontend/DESIGN.md`** for every visual decision, and `docs/design/DATA-CONTRACT.md` for what may
+  be rendered. Reuse `ui.tsx` primitives; never build a "dark version" of a component.
 
 ---
 
