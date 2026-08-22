@@ -12,7 +12,7 @@ type MobileAppHeaderProps = {
 
 export function MobileAppHeader({ onOpenMenu, onOpenSearch, onOpenCalendar, calendarOpen, onCreate, onOpenBriefs, onOpenUser, userInitial, notificationCount }: MobileAppHeaderProps) {
   return (
-    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-1.5 border-b border-line bg-surface px-2 shadow-sm sm:gap-3 sm:px-4 md:hidden print:hidden">
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-1.5 border-b border-line bg-surface px-2 shadow-sm sm:gap-3 sm:px-4 lg:hidden print:hidden">
       <button type="button" onClick={onOpenMenu} aria-label="Open menu" className="grid size-10 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
         <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
       </button>

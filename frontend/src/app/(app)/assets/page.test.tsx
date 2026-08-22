@@ -57,11 +57,48 @@ describe("AssetsPage", () => {
     expect(mocks.push).toHaveBeenCalledWith("/assets/V-247");
   });
 
+  it("humanises equipment class rather than printing the raw key", async () => {
+    respond([asset(1, { equipment_class: "he-3xx_series" })]);
+
+    render(await AssetsPage());
+
+    expect(screen.queryByText(/he-3xx_series/)).not.toBeInTheDocument();
+    expect(screen.getAllByText("HE-3xx series").length).toBeGreaterThan(0);
+  });
+
+  it("renders the asset id as a link colour, not the brand accent", async () => {
+    respond([asset(1, { asset_id: "HE-301" })]);
+
+    render(await AssetsPage());
+
+    expect(screen.getByText("HE-301")).toHaveClass("text-link");
+    expect(screen.getByText("HE-301")).not.toHaveClass("text-accent");
+  });
+
+  it("separates the registered total from the per-class breakdown", async () => {
+    respond([asset(1), asset(2, { equipment_class: "Valve" })]);
+
+    render(await AssetsPage());
+
+    expect(screen.getByTestId("kpi-total")).toHaveTextContent("Registered assets");
+    expect(screen.getByTestId("kpi-total")).toHaveTextContent("2");
+    expect(screen.getByTestId("kpi-total")).not.toHaveTextContent("By equipment class");
+  });
+
+  it("does not render a single-value Site column", async () => {
+    respond([asset(1)]);
+
+    render(await AssetsPage());
+
+    expect(screen.queryByRole("columnheader", { name: /^site$/i })).not.toBeInTheDocument();
+  });
+
   it("shows the tailored empty state and a route error surface with retry", async () => {
     respond([]);
     render(await AssetsPage());
     expect(screen.getByText("No assets bootstrapped")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Bootstrap assets" })).toHaveAttribute("href", "/assets/bootstrap");
+    expect(screen.getByRole("link", { name: "Register asset" })).toHaveAttribute("href", "/assets/bootstrap");
     cleanup();
 
     const reset = vi.fn();

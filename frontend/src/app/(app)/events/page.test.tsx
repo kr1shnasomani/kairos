@@ -24,9 +24,9 @@ window.matchMedia = ((query: string) => ({
 })) as unknown as typeof window.matchMedia;
 
 const events = [
-  { event_id: "EV-1", event_type: "alarm", event_subtype: null, asset_id: "P-101", site_id: "SITE-A", occurred_at: "2026-07-14T10:00:00Z", priority: "critical", payload: { alarm_description: "High pressure on pump" }, correlated_event_ids: [], acknowledged: false },
+  { event_id: "EV-1", event_type: "alarm", event_subtype: null, asset_id: "P-101", site_id: "SITE-A", occurred_at: "2026-07-14T10:00:00Z", priority: "high", payload: { alarm_description: "High pressure on pump" }, correlated_event_ids: [], acknowledged: false },
   { event_id: "EV-2", event_type: "inspection_complete", event_subtype: "recurring", asset_id: "HX-2", site_id: "SITE-A", occurred_at: "2026-07-14T09:00:00Z", priority: "normal", payload: {}, correlated_event_ids: ["EV-8"], acknowledged: true },
-  { event_id: "EV-3", event_type: "shift_handover", event_subtype: null, asset_id: null, site_id: "SITE-A", occurred_at: "2026-07-13T08:00:00Z", priority: "low", payload: {}, correlated_event_ids: [], acknowledged: false },
+  { event_id: "EV-3", event_type: "shift_handover", event_subtype: null, asset_id: null, site_id: "SITE-A", occurred_at: "2026-07-13T08:00:00Z", priority: "normal", payload: {}, correlated_event_ids: [], acknowledged: false },
 ];
 
 function mockLoaded(source = "live") {
@@ -52,8 +52,6 @@ describe("EventsPage", () => {
     expect(screen.getByText("High pressure on pump")).toBeInTheDocument();
     expect(screen.getByText("HX-2")).toBeInTheDocument();
     expect(screen.getByText("acknowledged")).toBeInTheDocument();
-    // Footer honesty line: 3 loaded of 12 on the server.
-    expect(screen.getByText("3 of 12 loaded")).toBeInTheDocument();
     // getEvents params unchanged (spec §10.4).
     expect(mocks.getEvents).toHaveBeenCalledWith({ limit: 50 });
   });
@@ -76,10 +74,39 @@ describe("EventsPage", () => {
     expect(screen.queryByText("P-101")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search events" }), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: /Critical/ }));
+    fireEvent.click(screen.getByRole("button", { name: /High/ }));
     expect(screen.getByText("1 of 3 events")).toBeInTheDocument();
     expect(screen.getByText("P-101")).toBeInTheDocument();
     expect(screen.queryByText("HX-2")).not.toBeInTheDocument();
+  });
+
+  it("shows the record count exactly once", async () => {
+    mocks.getMe.mockResolvedValue(null);
+    mocks.getEvents.mockResolvedValue({ data: { items: events, total: 3, limit: 50, offset: 0 }, source: "live" });
+    render(<EventsPage />);
+
+    await screen.findByText("High pressure on pump");
+    expect(screen.getAllByText(/\d+ of \d+/)).toHaveLength(1);
+  });
+
+  it("derives priority filter options from the data, not a fixed list", async () => {
+    mockLoaded();
+    render(<EventsPage />);
+
+    await screen.findByText("High pressure on pump");
+    expect(screen.getByRole("button", { name: /High/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Normal/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Critical/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Low/ })).not.toBeInTheDocument();
+  });
+
+  it("renders asset references as links, not in the brand accent", async () => {
+    mockLoaded();
+    render(<EventsPage />);
+
+    const asset = await screen.findByRole("link", { name: "P-101" });
+    expect(asset).toHaveAttribute("href", "/assets/P-101");
+    expect(asset).not.toHaveClass("text-accent");
   });
 
   it("navigates to the detail page on row click", async () => {

@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getOffboardingList } from "@/lib/api";
 import OffboardingPage from "./page";
 
 vi.mock("@/lib/api", () => ({
@@ -26,9 +27,28 @@ describe("OffboardingPage", () => {
     expect(screen.getByTestId("offboarding-programmes")).toHaveClass("md:grid-cols-2");
 
     const priya = screen.getByTestId("offboarding-programme-P-1");
-    expect(priya).toHaveTextContent("PS");
     expect(priya).toHaveTextContent("priya.sharma@plant.in");
     expect(priya).toHaveTextContent("60%");
     expect(priya).toHaveAttribute("href", "/offboarding/P-1");
+  });
+
+  it("keeps identifiers honest and makes retirement timing explicit", async () => {
+    vi.mocked(getOffboardingList).mockResolvedValueOnce({
+      data: [
+        { id: "P-email", personnel_id: "EXPERT-1", personnel_email: "resp_F001AE52@kairos.local", retirement_date: "2026-09-21", total_sessions: 6, sessions_completed: 0, status: "active", created_at: "2026-01-01" },
+        { id: "P-id", personnel_id: "EXPERT-2", personnel_email: "", retirement_date: "invalid", total_sessions: 1, sessions_completed: 0, status: "active", created_at: "2026-01-01" },
+        { id: "P-past", personnel_id: "EXPERT-3", personnel_email: "departed@kairos.local", retirement_date: "2020-01-01", total_sessions: 1, sessions_completed: 1, status: "completed", created_at: "2026-01-01" },
+      ],
+      source: "live",
+    });
+
+    render(await OffboardingPage());
+
+    expect(screen.getByTestId("offboarding-programme-P-email")).toHaveTextContent("resp_F001AE52@kairos.local");
+    expect(screen.getByTestId("offboarding-programme-P-email")).toHaveTextContent(/Retires 21 Sept 2026/);
+    expect(screen.getByTestId("offboarding-programme-P-email")).toHaveTextContent(/Retires in \d+ days/);
+    expect(screen.getByTestId("offboarding-programme-P-id")).toHaveTextContent("EXPERT-2");
+    expect(screen.getByTestId("offboarding-programme-P-id")).toHaveTextContent("Retirement date unavailable");
+    expect(screen.getByTestId("offboarding-programme-P-past")).toHaveTextContent(/Retired \d+ days ago/);
   });
 });

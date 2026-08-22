@@ -25,7 +25,7 @@ export function buildColumns(nowMs: number, busy: string | null, onResolve: (c: 
     { key: "track", label: "Track", sortable: true, render: (r) => <StatusBadge tone={r.track === "engineering" ? "danger" : "info"} dot={false}>{r.track}</StatusBadge> },
     { key: "severity", label: "Severity", sortable: true, render: (r) => <StatusBadge tone={SEV_TONE[r.severity] ?? "neutral"}>{r.severity}</StatusBadge> },
     {
-      key: "parameter", label: "Contradiction", className: "w-full max-w-[280px]",
+      key: "parameter", label: "Contradiction", className: "w-[38%]",
       render: (r) => (
         <span className="block min-w-0">
           <span className="block truncate font-medium text-ink">{r.parameter.replace(/_/g, " ")}</span>

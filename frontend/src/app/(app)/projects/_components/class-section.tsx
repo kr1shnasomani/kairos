@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { VaultDocument, AssetSummary, OperationalEvent } from "@/lib/types";
-import { AuthorityBadge, StatusBadge } from "@/components/ui";
+import { AuthorityBadge, StatusBadge, Truncate } from "@/components/ui";
+import { plural } from "@/lib/labels";
 import { triggerLabel, relativeTime } from "@/lib/utils";
 
 export const FAILURE_TYPES = new Set(["work_order_created", "recurring_failure_detected", "alarm_acknowledged", "equipment_tag_out"]);
@@ -31,10 +32,10 @@ export function ClassSection({ group }: { group: ClassGroup }) {
       <div className="p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-label font-semibold uppercase tracking-[0.1em] text-accent">{triggerLabel(group.equipment_class)}</p>
+            <p className="text-label font-semibold uppercase tracking-[0.1em] text-muted">{triggerLabel(group.equipment_class)}</p>
             <h2 className="mt-1 text-subtitle font-semibold text-ink">Equipment procurement record</h2>
           </div>
-          {failures.length > 0 ? <StatusBadge tone="caution">{failures.length} signals</StatusBadge> : <StatusBadge tone="verified">Current</StatusBadge>}
+          {failures.length > 0 ? <StatusBadge tone="caution">{plural(failures.length, "signal")}</StatusBadge> : <StatusBadge tone="verified">Current</StatusBadge>}
         </div>
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-caption text-muted">
           <span><b className="tabular text-ink">{group.assets.length}</b> assets</span>
@@ -58,11 +59,10 @@ export function ClassSection({ group }: { group: ClassGroup }) {
             <ul className="divide-y divide-line rounded-lg border border-line">
               {docs.map((d) => (
                 <li key={d.document_id} className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-caption">
-                  <Link href={`/documents/${d.document_id}`} className="tabular font-medium text-accent underline hover:no-underline">
+                  <Link data-testid="evidence-id" href={`/documents/${d.document_id}`} className="tabular font-medium text-link hover:underline">
                     {d.document_id}
                   </Link>
-                  <span className="min-w-0 flex-1 truncate text-ink">{d.file_name}</span>
-                  <span className="hidden text-label text-muted sm:inline">{d.source_system}</span>
+                  <Truncate text={`${d.file_name} · ${d.source_system}`} className="min-w-0 flex-1 text-ink" />
                   <AuthorityBadge level={d.authority_level} />
                   {d.version_chain
                     ? <StatusBadge tone="info" dot={false}>rev</StatusBadge>
@@ -89,7 +89,7 @@ export function ClassSection({ group }: { group: ClassGroup }) {
             <ul className="mt-3 divide-y divide-line">
             {failures.slice(0, 8).map((e) => (
               <li key={e.event_id} className="flex flex-wrap items-center gap-2 py-2.5 text-caption">
-                <span className="tabular text-accent">{e.asset_id}</span>
+                <span className="tabular text-ink">{e.asset_id}</span>
                 <span className="text-ink">{triggerLabel(e.event_type)}</span>
                 {typeof e.payload?.failure_code === "string" && (
                   <span className="text-muted">{e.payload.failure_code as string}</span>

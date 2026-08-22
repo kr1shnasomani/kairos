@@ -1,30 +1,32 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { getArtifactUrl } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import type { VaultDocument } from "@/lib/types";
-import { authorityLabel, relativeTime, triggerLabel } from "@/lib/utils";
-import { DataTable, EmptyState, FilterTabs, StatusBadge, type TableColumn } from "@/components/ui";
+import { authorityLabel } from "@/lib/utils";
+import { label } from "@/lib/labels";
+import { DataTable, EmptyState, FilterTabs, StatusBadge, statusTone, Timestamp, Truncate, type TableColumn } from "@/components/ui";
 
 /** VaultDocument re-mapped so it satisfies DataTable's Record constraint. */
 type DocRow = Pick<VaultDocument, keyof VaultDocument>;
 
 const COLUMNS: TableColumn<DocRow>[] = [
   {
-    key: "file_name", label: "Document", sortable: true, className: "w-full max-w-[320px]",
+    key: "file_name", label: "Document", sortable: true, className: "w-[38%]",
     render: (r) => (
       <span className="block min-w-0">
-        <span className="block truncate font-semibold text-ink">{r.file_name}</span>
-        <span className="tabular block truncate text-label font-medium text-accent">{r.document_id}</span>
+        <Truncate text={r.file_name} className="font-semibold text-ink" />
+        <span className="tabular block truncate text-label font-medium text-muted">{r.document_id}</span>
       </span>
     ),
   },
   {
-    key: "document_type", label: "Type & source", sortValue: (r) => triggerLabel(r.document_type),
+    key: "document_type", label: "Type & source", sortValue: (r) => label(r.document_type),
     render: (r) => (
       <span className="block min-w-0">
-        <span className="block whitespace-nowrap text-caption font-medium text-ink">{triggerLabel(r.document_type)}</span>
-        <span className="block truncate text-label text-muted">{r.source_system?.replace(/_/g, " ") ?? "—"}</span>
+        <span className="block whitespace-nowrap text-caption font-medium text-ink">{label(r.document_type)}</span>
+        <span className="block truncate text-label text-muted">{label(r.source_system)}</span>
       </span>
     ),
   },
@@ -39,13 +41,48 @@ const COLUMNS: TableColumn<DocRow>[] = [
   },
   {
     key: "status", label: "State", sortable: true,
-    render: (r) => <StatusBadge tone={r.status === "active" ? "verified" : "neutral"}>{r.status}</StatusBadge>,
+    render: (r) => <StatusBadge tone={statusTone(r.status)}>{label(r.status)}</StatusBadge>,
   },
   {
     key: "ingested_at", label: "Updated", sortValue: (r) => Date.parse(r.ingested_at),
-    render: (r) => <span className="tabular whitespace-nowrap text-caption text-muted" title={r.ingested_at}>{relativeTime(r.ingested_at)}</span>,
+    render: (r) => <Timestamp value={r.ingested_at} />,
+  },
+  {
+    key: "download", label: "Get", align: "right",
+    render: (r) => (r.vault_url ? <DownloadCell documentId={r.document_id} /> : null),
   },
 ];
+
+/** `vault_url` is Supabase's `/object/authenticated/` endpoint: a plain <a> click
+ *  cannot send the Authorization header it requires, so the browser gets a 400
+ *  (see the docstring on GET /documents/{id}/artifact-url). Fetch a short-lived
+ *  signed URL instead — the token rides in the query string. Same contract as
+ *  documents/[id]/open-artifact.tsx; this used to bypass it and every Download
+ *  link 400'd. */
+function DownloadCell({ documentId }: { documentId: string }) {
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  return (
+    <button
+      type="button"
+      disabled={status === "loading"}
+      onClick={async (event) => {
+        // The row itself navigates; this control must not trigger that.
+        event.stopPropagation();
+        setStatus("loading");
+        const url = await getArtifactUrl(documentId);
+        if (url) {
+          setStatus("idle");
+          window.open(url, "_blank", "noopener,noreferrer");
+        } else {
+          setStatus("error");
+        }
+      }}
+      className="text-link transition-opacity hover:underline disabled:opacity-60"
+    >
+      {status === "loading" ? "Opening…" : status === "error" ? "Retry" : "Download"}
+    </button>
+  );
+}
 
 export function DocumentsTable({ items }: { items: VaultDocument[] }) {
   const router = useRouter();

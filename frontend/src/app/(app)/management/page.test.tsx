@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getConflicts } from "@/lib/api";
+import { getConflicts, getHealthDetailed } from "@/lib/api";
 import ManagementPage from "./page";
 
 vi.mock("@/lib/api", () => ({
@@ -49,6 +49,7 @@ describe("ManagementPage", () => {
     expect(screen.getByTestId("overview-kpis")).toHaveClass("grid-cols-2", "lg:grid-cols-4");
     expect(screen.getByTestId("overview-priority-layout")).toHaveClass("lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]");
     expect(screen.getByTestId("overview-health")).toHaveTextContent("Degraded");
+    expect(screen.getByRole("link", { name: /plant state.*degraded/i })).toHaveAttribute("href", "/management/plant-state");
 
     // KPI deep links (spec §4).
     expect(screen.getByRole("link", { name: /open conflicts/i })).toHaveAttribute("href", "/governance/conflicts");
@@ -64,6 +65,7 @@ describe("ManagementPage", () => {
     // Signals feed rows deep-link to the event.
     const signals = screen.getByTestId("overview-recent-signals");
     expect(signals.querySelector('a[href="/events/e1"]')).not.toBeNull();
+    expect(signals.querySelector('a[href="/events/e1"] span[title="Work Order Created"]')).toHaveClass("whitespace-normal", "break-words");
   });
 
   it("surfaces a retry-able error card when the load fails outright", async () => {
@@ -72,5 +74,12 @@ describe("ManagementPage", () => {
 
     await waitFor(() => expect(screen.getByTestId("overview-error")).toHaveTextContent("backend unreachable"));
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("distinguishes unavailable plant health from a healthy state", async () => {
+    vi.mocked(getHealthDetailed).mockRejectedValueOnce(new Error("health unavailable"));
+    render(<ManagementPage />);
+
+    await waitFor(() => expect(screen.getByRole("link", { name: /plant state.*unavailable/i })).toBeInTheDocument());
   });
 });
