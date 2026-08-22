@@ -4,17 +4,145 @@ import Link from "next/link";
 import type { AuthorityLevel, AuditLogEntry, BriefSource } from "@/lib/types";
 import { getHealthDetailed } from "@/lib/api";
 import { authorityLabel, cn } from "@/lib/utils";
+import { fmtRelTime } from "@/lib/format";
 import { useCountUp } from "@/lib/motion";
 import { MetricCardSkeleton, TableSkeleton } from "@/components/skeleton";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
-type Tone = "danger" | "caution" | "verified" | "info" | "neutral";
+type Tone = "danger" | "caution" | "verified" | "info" | "validation" | "neutral";
+
+/**
+ * DESIGN.md §5.1 — exact value primary, relative time as the hint beneath.
+ * Review item 28: "1d ago" is not enough for a compliance audit. Every
+ * endpoint returns ISO-8601 with microsecond precision, so this is pure
+ * formatting.
+ */
+export function Timestamp({
+  value,
+  relative = true,
+  className,
+}: {
+  value: string | null | undefined;
+  relative?: boolean;
+  className?: string;
+}) {
+  if (!value) return <span className="text-muted">—</span>;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return <span className="text-muted">—</span>;
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const exact =
+    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+
+  return (
+    <span title={value} className={cn("inline-flex flex-col leading-tight", className)}>
+      <span className="tabular text-body text-ink">{exact}</span>
+      {relative && <span className="text-caption text-muted">{fmtRelTime(value)}</span>}
+    </span>
+  );
+}
+
+/**
+ * status string -> Tone. DESIGN.md 2.3, review items 13 and 26.
+ *
+ * Callers used to hand-pick a tone per call site, which is how `low` ended
+ * up rendered in black — giving the least-severe level the most visual
+ * weight. Severity now maps in one place.
+ */
+export function statusTone(status: string | null | undefined): Tone {
+  if (!status) return "neutral";
+  return STATUS_TONE[status.toLowerCase()] ?? "neutral";
+}
+
+const STATUS_TONE: Record<string, Tone> = {
+  // fault / refusal / missed deadline
+  open: "danger", overdue: "danger", critical: "danger", failed: "danger",
+  disputed: "danger", rejected: "danger", safety_critical: "danger", refused: "danger",
+  // awaiting action or review
+  pending: "caution", pending_approval: "caution", pending_moc: "caution",
+  quarantined: "caution", unverified: "caution", high: "caution", major: "caution",
+  draft: "caution",
+  // under monitoring / in flight
+  monitor: "info", in_progress: "info", scheduled: "info", normal: "info",
+  // under validation
+  validation: "validation", under_review: "validation", questions_ready: "validation",
+  // settled / healthy
+  verified: "verified", approved: "verified", promoted: "verified",
+  active: "verified", completed: "verified", resolved: "verified",
+  // least weight — never danger
+  low: "neutral", non_critical: "neutral", archived: "neutral",
+  superseded: "neutral", cancelled: "neutral", decommissioned: "neutral",
+};
+
+/**
+ * DESIGN.md 5.2 — truncate only when necessary, always expose the full value.
+ * Review items 16, 18, 35, 37: truncation currently hides the one field that
+ * identifies the record.
+ */
+export function Truncate({
+  text,
+  lines = 1,
+  className,
+}: {
+  text: string | null | undefined;
+  lines?: 1 | 2;
+  className?: string;
+}) {
+  if (!text) return <span className="text-muted">—</span>;
+  return (
+    <span
+      title={text}
+      className={cn(lines === 2 ? "line-clamp-2" : "block truncate", "min-w-0", className)}
+    >
+      {text}
+    </span>
+  );
+}
+
+/**
+ * A total and its own breakdown are distinct groups, not inline siblings.
+ * Review item 9: /assets showed "Registered 4" beside the per-class counts
+ * that sum to it, so the total read as just another class.
+ */
+export function KpiGroup({
+  total,
+  breakdown,
+  breakdownLabel,
+}: {
+  total: { label: string; value: React.ReactNode };
+  breakdown: { label: string; value: React.ReactNode }[];
+  breakdownLabel?: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-stretch overflow-hidden rounded-lg border border-line bg-surface">
+      <div data-testid="kpi-total" className="border-line px-5 py-4 sm:border-r">
+        <div className="text-label uppercase tracking-wide text-muted">{total.label}</div>
+        <div className="tabular text-display font-semibold leading-none text-ink">{total.value}</div>
+      </div>
+      <div data-testid="kpi-breakdown" className="flex min-w-0 flex-1 flex-col px-5 py-4">
+        {breakdownLabel && (
+          <div className="mb-2 text-label uppercase tracking-wide text-muted">{breakdownLabel}</div>
+        )}
+        <div className="flex flex-wrap gap-x-8 gap-y-3">
+          {breakdown.map((b) => (
+            <div key={b.label} className="min-w-0">
+              <Truncate text={b.label} className="text-caption text-muted" />
+              <div className="tabular text-subtitle font-semibold text-ink">{b.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const TONE_STYLE: Record<Tone, string> = {
   danger: "text-danger bg-[color-mix(in_srgb,var(--danger)_14%,transparent)]",
   caution: "text-caution bg-[color-mix(in_srgb,var(--caution)_16%,transparent)]",
   verified: "text-verified bg-[color-mix(in_srgb,var(--verified)_15%,transparent)]",
   info: "text-info bg-[color-mix(in_srgb,var(--info)_14%,transparent)]",
+  validation: "text-validation bg-[color-mix(in_srgb,var(--validation)_14%,transparent)]",
   neutral: "text-muted bg-surface-2 border border-line",
 };
 
@@ -399,6 +527,15 @@ export interface TableColumn<T> {
   /** Enables the sort toggle; sorts on this value (defaults to row[key]). */
   sortValue?: (row: T) => string | number;
   sortable?: boolean;
+  /** Numeric columns right-align in BOTH header and cell (review item 10). */
+  align?: "left" | "right";
+  /**
+   * TRAP: the table is `table-fixed`, where `max-width` on a cell is IGNORED and
+   * only `width` counts. A `w-full` here means width:100%, so that column claims
+   * the whole table and every sibling collapses to 0px -- the DOM still reports
+   * five headers while the user sees one. This silently hid columns on six
+   * tables (review items 8, 14, 32). Use an explicit percentage (`w-[38%]`).
+   */
 }
 
 /** Dense data table — optional tri-state column sort, client pagination
@@ -471,18 +608,31 @@ export function DataTable<T extends Record<string, unknown>>({
               <th
                 key={col.key}
                 aria-sort={sort?.key === col.key ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
-                className={cn("sticky top-0 bg-surface-2 px-3 py-2.5 text-left text-caption font-semibold text-muted overflow-hidden", col.className)}
+                className={cn(
+                  "sticky top-0 bg-surface-2 px-3 py-2.5 text-caption font-semibold text-muted overflow-hidden",
+                  col.align === "right" ? "text-right" : "text-left",
+                  col.className,
+                )}
               >
                 {col.sortable || col.sortValue ? (
                   <button
                     type="button"
                     onClick={() => toggleSort(col.key)}
-                    className="inline-flex items-center gap-1 hover:text-ink"
+                    className={cn("inline-flex items-center gap-1 hover:text-ink", col.align === "right" && "flex-row-reverse")}
                   >
                     {col.label}
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={cn("transition-opacity", sort?.key === col.key ? "opacity-100" : "opacity-30")}>
-                      {sort?.key === col.key && sort.dir === "desc" ? <path d="M6 9l6 6 6-6" /> : <path d="M6 15l6-6 6 6" />}
-                    </svg>
+                    {/* Review item 7: an up-caret on an unsorted column reads as
+                        "sorted ascending". Inactive columns get a neutral
+                        two-way glyph; only the sorted one claims a direction. */}
+                    {sort?.key === col.key ? (
+                      <svg data-sort-dir={sort.dir} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        {sort.dir === "desc" ? <path d="M6 9l6 6 6-6" /> : <path d="M6 15l6-6 6 6" />}
+                      </svg>
+                    ) : (
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="opacity-25">
+                        <path d="M8 9l4-4 4 4" /><path d="M8 15l4 4 4-4" />
+                      </svg>
+                    )}
                   </button>
                 ) : (
                   col.label
@@ -502,7 +652,7 @@ export function DataTable<T extends Record<string, unknown>>({
               )}
             >
               {columns.map((col) => (
-                <td key={col.key} className={cn("px-3 py-2 align-top overflow-hidden", col.className)}>
+                <td key={col.key} className={cn("px-3 py-2 align-top overflow-hidden", col.align === "right" && "text-right", col.className)}>
                   {col.render ? col.render(row) : String(row[col.key] ?? "")}
                 </td>
               ))}

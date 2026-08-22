@@ -16,7 +16,7 @@ export function AppHeader({ name, role, onOpenSearch, onOpenCalendar, calendarOp
   const shortcut = getSearchShortcut(typeof navigator === "undefined" ? undefined : navigator.platform);
 
   return (
-    <header className="sticky top-0 z-30 hidden h-16 shrink-0 items-center gap-3 border-b border-line bg-surface px-8 shadow-sm md:flex print:hidden">
+    <header className="sticky top-0 z-30 hidden h-16 shrink-0 items-center gap-3 border-b border-line bg-surface px-8 shadow-sm lg:flex print:hidden">
       <button type="button" onClick={onOpenSearch} aria-label="Search workspace" className="flex h-9 w-full max-w-sm items-center gap-2 rounded-lg border border-line bg-page px-3 text-sm text-muted transition-colors hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--line))] hover:text-ink">
         <svg className="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></svg>
         <span>Search workspace</span>

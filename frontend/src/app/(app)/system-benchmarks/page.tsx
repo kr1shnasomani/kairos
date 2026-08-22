@@ -130,7 +130,7 @@ export default function SystemBenchmarksPage() {
           empty={runs.length === 0 ? "No model-gate runs recorded yet." : false}
         >
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={runs} margin={{ top: 8, right: 12, bottom: 0, left: -18 }}>
+            <LineChart data={runs} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
               <CartesianGrid {...GRID} />
               <XAxis
                 dataKey="run_at"

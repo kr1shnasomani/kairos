@@ -30,7 +30,7 @@ function buildColumns(framework: string): TableColumn<ClauseRow>[] {
   return [
     { key: "clause_id", label: "Clause", sortable: true, render: (r) => <span className="tabular whitespace-nowrap font-semibold text-accent">{framework} §{r.clause_id}</span> },
     {
-      key: "requirement_text", label: "Requirement", className: "w-full max-w-[340px]",
+      key: "requirement_text", label: "Requirement", className: "w-[38%]",
       render: (r) => (
         <span className="block min-w-0">
           <span className="block truncate text-ink" title={r.requirement_text ?? undefined}>{r.requirement_text ?? "—"}</span>

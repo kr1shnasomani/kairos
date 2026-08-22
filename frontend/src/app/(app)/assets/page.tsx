@@ -1,7 +1,8 @@
 // Assets list — the canonical asset registry every piece of knowledge attaches to.
 import { getAssets } from "@/lib/api";
-import { EmptyState, PageHeader } from "@/components/ui";
-import { StatPills, type StatPillDef } from "@/components/stat-pills";
+import { label } from "@/lib/labels";
+import { EmptyState, KpiGroup, PageHeader } from "@/components/ui";
+import Link from "next/link";
 import { AssetRegistry } from "./asset-registry";
 import { IdentityConfirmAction } from "./identity-action";
 
@@ -14,7 +15,7 @@ export default async function AssetsPage() {
   // Spec §3: pills by equipment class — total plus the top classes by count.
   const byClass = new Map<string, number>();
   for (const a of items) byClass.set(a.equipment_class, (byClass.get(a.equipment_class) ?? 0) + 1);
-  const classPills: StatPillDef[] = [...byClass.entries()]
+  const classPills = [...byClass.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4)
     .map(([label, value]) => ({ key: label, label, value }));
@@ -27,13 +28,20 @@ export default async function AssetsPage() {
         lede="Every piece of knowledge orbits a canonical asset."
         actions={
           <>
+            <Link href="/assets/bootstrap" className="inline-flex h-9 items-center rounded-lg border border-line px-3.5 text-body font-semibold text-ink transition-colors hover:bg-surface-2">
+              Register asset
+            </Link>
             <IdentityConfirmAction />
           </>
         }
       />
 
       <section data-testid="assets-summary" className="mt-5">
-        <StatPills pills={[{ key: "total", label: "Registered", value: data.total ?? items.length }, ...classPills]} />
+        <KpiGroup
+          total={{ label: "Registered assets", value: data.total ?? items.length }}
+          breakdownLabel="By equipment class"
+          breakdown={classPills.map((p) => ({ label: label(p.label), value: p.value }))}
+        />
       </section>
 
       {items.length === 0 ? (

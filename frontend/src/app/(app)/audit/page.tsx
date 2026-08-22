@@ -4,9 +4,7 @@ import { useMemo, useState } from "react";
 import type { AuditLogEntry } from "@/lib/types";
 import { getAuditLog } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
-import { relativeTime } from "@/lib/utils";
-import { Button, DataTable, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
-import { StatPills } from "@/components/stat-pills";
+import { Button, DataTable, EmptyState, FilterTabs, PageHeader, StatusBadge, Timestamp, type TableColumn } from "@/components/ui";
 
 /** AuditLogEntry re-mapped so it satisfies DataTable's Record constraint. */
 type AuditRow = Pick<AuditLogEntry, keyof AuditLogEntry>;
@@ -121,8 +119,8 @@ function entityLabel(r: AuditRow): { primary: string; secondary: string } {
 const COLUMNS: TableColumn<AuditRow>[] = [
   {
     key: "timestamp", label: "Recorded", sortValue: (r) => Date.parse(r.timestamp),
-    className: "w-[9%]",
-    render: (r) => <span className="tabular-nums whitespace-nowrap text-caption text-muted" title={r.timestamp}>{relativeTime(r.timestamp)}</span>,
+    className: "w-[12%]",
+    render: (r) => <Timestamp value={r.timestamp} />,
   },
   {
     key: "action", label: "Action", sortable: true,
@@ -136,7 +134,7 @@ const COLUMNS: TableColumn<AuditRow>[] = [
       const { primary, secondary } = entityLabel(r);
       return (
         <span className="block min-w-0">
-          <span className="block truncate font-semibold text-accent" title={r.entity_id ? String(r.entity_id) : primary}>{primary}</span>
+          <span className="block truncate font-semibold text-ink" title={r.entity_id ? String(r.entity_id) : primary}>{primary}</span>
           <span className="block text-label text-muted">{secondary}</span>
         </span>
       );
@@ -163,7 +161,7 @@ const COLUMNS: TableColumn<AuditRow>[] = [
         <div className="min-w-0">
           {summary && <span className="block truncate text-caption text-ink" title={summary}>{summary}</span>}
           <details onClick={(e) => e.stopPropagation()} className="mt-0.5">
-            <summary className="cursor-pointer list-none text-label font-medium text-accent transition-colors hover:opacity-80">Raw metadata</summary>
+            <summary className="cursor-pointer list-none text-label font-medium text-link transition-colors hover:opacity-80">Raw metadata</summary>
             <pre className="mt-1 max-w-full overflow-x-auto rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-label text-muted">{JSON.stringify(meta, null, 2)}</pre>
           </details>
         </div>
@@ -218,45 +216,6 @@ export default function AuditPage() {
         }
       />
 
-      <section data-testid="audit-summary" className="mt-5">
-        <StatPills
-          loading={loading}
-          pills={[
-            { key: "records", label: "Records", value: entries.length },
-            ...entityTypes.slice(0, 4).map((t) => ({ key: t, label: cap(pretty(t)), value: typeCounts[t] })),
-          ]}
-        />
-      </section>
-
-      <section data-testid="audit-filters" className="mt-4 flex flex-wrap items-center gap-3">
-        <FilterTabs
-          tabs={[
-            { key: "all", label: "All", count: entries.length },
-            ...entityTypes.map((t) => ({ key: t, label: cap(pretty(t)), count: typeCounts[t] })),
-          ]}
-          active={entityTypeFilter}
-          onChange={setEntityTypeFilter}
-        />
-        <form
-          className="flex min-w-0 flex-1 items-center gap-2 sm:justify-end"
-          onSubmit={(e) => { e.preventDefault(); setEntityId(entityIdInput.trim()); }}
-        >
-          <input
-            value={entityIdInput}
-            onChange={(e) => setEntityIdInput(e.target.value)}
-            placeholder="Filter by entity ID…"
-            aria-label="Filter by entity ID"
-            className="tabular h-9 min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 text-caption outline-none transition-colors focus:border-accent sm:max-w-64"
-          />
-          <button type="submit" className="inline-flex h-9 items-center rounded-lg border border-line px-3 text-caption font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-ink">
-            Search
-          </button>
-          {entityId && (
-            <button type="button" onClick={() => { setEntityId(""); setEntityIdInput(""); }} className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-caption text-muted hover:bg-surface-2 hover:text-ink" aria-label="Clear search">✕</button>
-          )}
-        </form>
-      </section>
-
       <section data-testid="audit-entries" className="mt-4">
         {state.status === "error" ? (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-line bg-surface px-4 py-10 text-center">
@@ -272,6 +231,36 @@ export default function AuditPage() {
             pageSize={25}
             loading={loading}
             emptyState={<EmptyState message="No audit activity" />}
+            toolbar={
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+                <FilterTabs
+                  tabs={[
+                    { key: "all", label: "All", count: entries.length },
+                    ...entityTypes.map((t) => ({ key: t, label: cap(pretty(t)), count: typeCounts[t] })),
+                  ]}
+                  active={entityTypeFilter}
+                  onChange={setEntityTypeFilter}
+                />
+                <form
+                  className="flex min-w-0 flex-1 items-center gap-2 sm:justify-end"
+                  onSubmit={(e) => { e.preventDefault(); setEntityId(entityIdInput.trim()); }}
+                >
+                  <input
+                    value={entityIdInput}
+                    onChange={(e) => setEntityIdInput(e.target.value)}
+                    placeholder="Filter by entity ID…"
+                    aria-label="Filter by entity ID"
+                    className="tabular h-9 min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 text-caption outline-none transition-colors focus:border-accent sm:max-w-64"
+                  />
+                  <button type="submit" className="inline-flex h-9 items-center rounded-lg border border-line px-3 text-caption font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-ink">
+                    Search
+                  </button>
+                  {entityId && (
+                    <button type="button" onClick={() => { setEntityId(""); setEntityIdInput(""); }} className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-caption text-muted hover:bg-surface-2 hover:text-ink" aria-label="Clear search">✕</button>
+                  )}
+                </form>
+              </div>
+            }
           />
         )}
       </section>

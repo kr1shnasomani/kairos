@@ -44,7 +44,6 @@ describe("AuditPage", () => {
     render(<AuditPage />);
 
     await waitFor(() => expect(screen.getByText("AL-1")).toBeInTheDocument());
-    expect(screen.getByTestId("audit-summary")).toHaveTextContent("Records");
     expect(screen.getByRole("link", { name: "Export JSON" })).toHaveAttribute("download", "kairos-audit-log.json");
     expect(screen.getByText(/authority_level/)).toBeInTheDocument();
 
@@ -59,5 +58,32 @@ describe("AuditPage", () => {
     render(<AuditPage />);
 
     await waitFor(() => expect(screen.getByText("No audit activity")).toBeInTheDocument());
+  });
+
+  it("shows exact timestamps, not only relative", async () => {
+    respond([entry(1)]);
+
+    render(<AuditPage />);
+
+    await waitFor(() => expect(screen.getByText(/2026-07-14 10:00:00/)).toBeInTheDocument());
+  });
+
+  it("does not duplicate the tab counts in cards above them", async () => {
+    respond([entry(1)]);
+
+    render(<AuditPage />);
+
+    await waitFor(() => expect(screen.getByText("AL-1")).toBeInTheDocument());
+    expect(screen.queryByTestId("audit-summary")).not.toBeInTheDocument();
+  });
+
+  it("keeps entity ids out of the alarm colour", async () => {
+    respond([entry(1)]);
+
+    render(<AuditPage />);
+
+    const entityId = await screen.findByText("DOC-1");
+    expect(entityId).toHaveClass("text-ink");
+    expect(entityId).not.toHaveClass("text-danger", "text-accent");
   });
 });

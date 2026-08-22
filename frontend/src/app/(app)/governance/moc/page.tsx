@@ -30,7 +30,7 @@ const PENDING_STATUSES = new Set(["pending", "draft", "pending_approval"]);
 const COLUMNS: TableColumn<MocRow>[] = [
   { key: "moc_id", label: "Change", sortable: true, render: (r) => <span className="tabular whitespace-nowrap font-semibold text-accent">{r.moc_id}</span> },
   {
-    key: "parameter", label: "Discrepancy", className: "w-full max-w-[300px]",
+    key: "parameter", label: "Discrepancy", className: "w-[38%]",
     render: (r) => (
       <span className="block min-w-0">
         <span className="block truncate font-medium text-ink" title={r.description ?? undefined}>

@@ -1,27 +1,40 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
-import type { EventPriority, OperationalEvent } from "@/lib/types";
+import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
+import type { OperationalEvent } from "@/lib/types";
 import { getEvents } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { getMe } from "@/lib/auth";
 import { useRole, RESOLVE_ROLES } from "@/components/use-role";
-import { Button, DataTable, EmptyState, FilterTabs, PageHeader, StatusBadge, type TableColumn } from "@/components/ui";
+import { Button, DataTable, EmptyState, FilterTabs, PageHeader, StatusBadge, statusTone, type TableColumn } from "@/components/ui";
 import { AXIS, ChartContainer, GRID, TONE_VAR, TOOLTIP } from "@/components/charts";
 import { useReducedMotion } from "@/lib/motion";
 import { relativeTime, triggerLabel } from "@/lib/utils";
+import { label } from "@/lib/labels";
 import { EmitPanel } from "./_components/emit-panel";
 
 /** OperationalEvent re-mapped so it satisfies DataTable's Record constraint. */
 type EventRow = Pick<OperationalEvent, keyof OperationalEvent>;
 
-const PRIORITIES: EventPriority[] = ["critical", "high", "normal", "low"];
-const PRIORITY_TONE = { critical: "danger", high: "caution", normal: "info", low: "neutral" } as const;
-const PRIORITY_RANK = { critical: 0, high: 1, normal: 2, low: 3 } as const;
-// Spec §7 tones: danger / caution / info / muted (TONE_VAR.neutral = var(--muted)).
-const CHART_TONE = { critical: TONE_VAR.danger, high: TONE_VAR.caution, normal: TONE_VAR.info, low: TONE_VAR.neutral } as const;
+// Severity order, not alphabetical. Used for BOTH the column sort and the order
+// priorities appear in the filter tabs and the chart legend, so a `low` event
+// arriving first in the payload cannot reorder anything.
+const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, normal: 2, low: 3 };
+const rankOf = (p: string) => PRIORITY_RANK[p] ?? 99;
+
+/** statusTone() returns the full Tone union; TONE_VAR only carries the chart
+ *  subset. `validation` has no chart colour, so it falls back to neutral.
+ *  Colour comes from the VALUE, never from its index in the series — a `low`
+ *  event arriving first in the payload must not render as danger red. */
+const priorityFill = (priority: string) => {
+  const tone = statusTone(priority);
+  return tone === "validation" ? TONE_VAR.neutral : TONE_VAR[tone];
+};
+// A trend needs more than two observations; shorter series are discrete counts.
+const MAX_POINTS_FOR_BARS = 2;
 
 // ponytail: first known payload string wins; extend the key list if new event
 // types grow their own summary field.
@@ -40,8 +53,8 @@ const COLUMNS: TableColumn<EventRow>[] = [
     render: (r) => <span className="tabular whitespace-nowrap text-caption text-muted" title={r.occurred_at}>{relativeTime(r.occurred_at)}</span>,
   },
   {
-    key: "priority", label: "Priority", sortValue: (r) => PRIORITY_RANK[r.priority],
-    render: (r) => <StatusBadge tone={PRIORITY_TONE[r.priority]}>{r.priority}</StatusBadge>,
+    key: "priority", label: "Priority", sortValue: (r) => rankOf(r.priority),
+    render: (r) => <StatusBadge tone={statusTone(r.priority)}>{label(r.priority)}</StatusBadge>,
   },
   {
     key: "event_type", label: "Type", sortValue: (r) => triggerLabel(r.event_type),
@@ -49,10 +62,10 @@ const COLUMNS: TableColumn<EventRow>[] = [
   },
   {
     key: "asset_id", label: "Asset",
-    render: (r) => <span className="tabular text-caption font-medium text-accent">{r.asset_id ?? "—"}</span>,
+    render: (r) => r.asset_id ? <Link href={`/assets/${encodeURIComponent(r.asset_id)}`} onClick={(event) => event.stopPropagation()} className="tabular text-caption font-medium text-link">{r.asset_id}</Link> : <span>—</span>,
   },
   {
-    key: "description", label: "Description", className: "w-full max-w-[320px]",
+    key: "description", label: "Description", className: "w-[38%]",
     render: (r) => <span className="block truncate text-muted" title={describeEvent(r)}>{describeEvent(r)}</span>,
   },
   {
@@ -83,6 +96,12 @@ export default function EventsPage() {
   useEffect(() => { getMe().then((u) => { if (u) { setSiteId(u.site_id); setUserId(u.user_id); } }); }, []);
 
   const types = useMemo(() => Array.from(new Set(events.map((e) => e.event_type))), [events]);
+  // Sorted by severity so the legend, the filter tabs and the chart series all
+  // agree, whatever order the API happened to return rows in.
+  const priorities = useMemo(
+    () => Array.from(new Set(events.map((e) => e.priority))).sort((a, b) => rankOf(a) - rankOf(b)),
+    [events],
+  );
   const priorityCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const e of events) counts[e.priority] = (counts[e.priority] ?? 0) + 1;
@@ -104,15 +123,16 @@ export default function EventsPage() {
 
   // Events/day × priority over the received window — follows the active filters.
   const trend = useMemo(() => {
-    const byDay = new Map<string, { critical: number; high: number; normal: number; low: number }>();
+    const byDay = new Map<string, Record<string, number>>();
     for (const e of rows) {
       const day = e.occurred_at.slice(0, 10);
-      const bucket = byDay.get(day) ?? { critical: 0, high: 0, normal: 0, low: 0 };
-      bucket[e.priority] += 1;
+      const bucket = byDay.get(day) ?? {};
+      bucket[e.priority] = (bucket[e.priority] ?? 0) + 1;
       byDay.set(day, bucket);
     }
     return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, counts]) => ({ day, ...counts }));
   }, [rows]);
+  const showDiscreteBars = trend.length <= MAX_POINTS_FOR_BARS;
 
   const hasFilters = search !== "" || typeFilter !== "all" || priorityFilter !== "all";
 
@@ -127,13 +147,17 @@ export default function EventsPage() {
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-caption text-muted">
         <span className="tabular font-medium text-ink">{events.length} event{events.length !== 1 ? "s" : ""}</span>
+        {/* A partial fetch must never present itself as the whole set. */}
+        {state.status === "live" && state.data.total > events.length && (
+          <span className="tabular">{events.length} of {state.data.total} loaded</span>
+        )}
       </div>
 
       {canEmit && showEmitter && <EmitPanel siteId={siteId} userId={userId} onEmitted={() => setReload((r) => r + 1)} />}
 
       <section data-testid="events-filter-toolbar" className="mt-5 flex flex-wrap items-center gap-3">
         <FilterTabs
-          tabs={[{ key: "all", label: "All priorities" }, ...PRIORITIES.map((p) => ({ key: p, label: p[0].toUpperCase() + p.slice(1), count: priorityCounts[p] }))]}
+          tabs={[{ key: "all", label: "All priorities" }, ...priorities.map((p) => ({ key: p, label: label(p), count: priorityCounts[p] }))]}
           active={priorityFilter}
           onChange={setPriorityFilter}
         />
@@ -160,16 +184,29 @@ export default function EventsPage() {
         error={state.status === "error"}
         onRetry={state.status === "error" ? state.retry : undefined}
       >
-        <LineChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-          <CartesianGrid {...GRID} />
-          <XAxis dataKey="day" {...AXIS} tickFormatter={(d) => String(d).slice(5)} minTickGap={24} />
-          <YAxis {...AXIS} width={32} allowDecimals={false} />
-          <Tooltip {...TOOLTIP} />
-          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--muted)" }} />
-          {PRIORITIES.map((p) => (
-            <Line key={p} type="monotone" dataKey={p} stroke={CHART_TONE[p]} strokeWidth={2} dot={false} isAnimationActive={!reduced} />
-          ))}
-        </LineChart>
+        {showDiscreteBars ? (
+          <BarChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid {...GRID} />
+            <XAxis dataKey="day" {...AXIS} tickFormatter={(d) => String(d).slice(5)} interval={0} />
+            <YAxis {...AXIS} width={32} allowDecimals={false} />
+            <Tooltip {...TOOLTIP} />
+            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--muted)" }} />
+            {priorities.map((p) => (
+              <Bar key={p} dataKey={p} name={label(p)} fill={priorityFill(p)} isAnimationActive={!reduced} />
+            ))}
+          </BarChart>
+        ) : (
+          <LineChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid {...GRID} />
+            <XAxis dataKey="day" {...AXIS} tickFormatter={(d) => String(d).slice(5)} interval={0} />
+            <YAxis {...AXIS} width={32} allowDecimals={false} />
+            <Tooltip {...TOOLTIP} />
+            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--muted)" }} />
+            {priorities.map((p) => (
+              <Line key={p} type="monotone" dataKey={p} name={label(p)} stroke={priorityFill(p)} strokeWidth={2} dot={false} isAnimationActive={!reduced} />
+            ))}
+          </LineChart>
+        )}
       </ChartContainer>
 
       <section data-testid="events-table" className="mt-4">
@@ -191,7 +228,6 @@ export default function EventsPage() {
             emptyState={<EmptyState message={hasFilters ? "No events match these filters." : canEmit ? "No events yet — emit one to see the flow end-to-end." : "No operational events recorded."} />}
           />
         )}
-        {hasData && <p className="tabular mt-2 text-label text-muted">{events.length} of {state.data.total} loaded</p>}
       </section>
     </div>
   );

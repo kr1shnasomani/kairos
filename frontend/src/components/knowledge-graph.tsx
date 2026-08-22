@@ -281,7 +281,7 @@ function CoverageIndicator({ assetId }: { assetId: string }) {
       : "No sensor coverage";
 
   return (
-    <div className="absolute bottom-12 left-3 z-10">
+    <div className="absolute bottom-12 left-14 z-10">
       <StatusBadge tone={tone}>{label}</StatusBadge>
     </div>
   );

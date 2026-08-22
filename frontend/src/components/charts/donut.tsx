@@ -18,10 +18,15 @@ export function Donut({
   data,
   centerLabel,
   height = 240,
+  onSliceClick,
+  activeLabel,
 }: {
   data: DonutSlice[];
   centerLabel?: string;
   height?: number;
+  onSliceClick?: (slice: DonutSlice) => void;
+  /** Dims every other slice so the selected one reads as selected (review item 24). */
+  activeLabel?: string | null;
 }) {
   const reduced = useReducedMotion();
   const total = data.reduce((sum, d) => sum + (Number.isFinite(d.value) ? d.value : 0), 0);
@@ -42,9 +47,26 @@ export function Donut({
           isAnimationActive={!reduced}
         >
           {/* ponytail: palette cycles past 4 slices — fold small slices into "Other" upstream if a page ever sends more. */}
-          {data.map((d, i) => (
-            <Cell key={d.label} fill={d.tone ? TONE_VAR[d.tone] : SERIES[i % SERIES.length]} />
-          ))}
+          {/* Click is a MOUSE SHORTCUT, not the only way in. Recharts forces
+              tabIndex="-1" onto every sector, so a `tabIndex: 0` here is silently
+              overridden and the slice can never be tabbed to -- measured, not assumed.
+              `role="button"` was therefore a lie to screen readers and is gone.
+              Keyboard users reach the same filter through the segmented control the
+              consuming page already renders beside this chart; callers passing
+              onSliceClick must keep one. */}
+          {data.map((d, i) => {
+            const dimmed = !!activeLabel && activeLabel.toLowerCase() !== d.label.toLowerCase();
+            return (
+              <Cell
+                key={d.label}
+                fill={d.tone ? TONE_VAR[d.tone] : SERIES[i % SERIES.length]}
+                fillOpacity={dimmed ? 0.28 : 1}
+                {...(onSliceClick
+                  ? { cursor: "pointer", onClick: () => onSliceClick(d) }
+                  : {})}
+              />
+            );
+          })}
         </Pie>
         <text x="50%" y="45%" dy={centerLabel ? -4 : 0} textAnchor="middle" dominantBaseline="middle" className="tabular" style={{ fill: "var(--ink)", fontSize: 22, fontWeight: 600 }}>
           {fmtCompact(total)}

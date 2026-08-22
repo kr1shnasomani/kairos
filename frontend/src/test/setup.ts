@@ -1,4 +1,11 @@
 import "@testing-library/jest-dom/vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
+
+// RTL auto-cleanup only registers itself when vitest runs with globals: true.
+// This project does not, so renders accumulated across tests in a file and
+// getBy* queries could match leftovers from an earlier case.
+afterEach(cleanup);
 
 // jsdom has no IntersectionObserver; the landing page's scroll reveal uses it.
 // Never fires, which is the right default: components must render their content

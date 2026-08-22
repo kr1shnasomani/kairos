@@ -63,4 +63,51 @@ describe("DocumentsPage", () => {
     expect(screen.getByText("No documents ingested")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ingest a document" })).toHaveAttribute("href", "/documents/ingest");
   });
+
+  it("renders document ids quietly, not in the brand accent", async () => {
+    respond([doc(1)]);
+
+    render(await DocumentsPage());
+
+    expect(screen.getByText("DOC-1")).not.toHaveClass("text-accent");
+    expect(screen.getByText("DOC-1")).toHaveClass("text-muted", "tabular");
+  });
+
+  // This previously asserted an <a href={vault_url}>, which LOCKED IN a bug: that
+  // URL is Supabase's /object/authenticated/ endpoint and a browser navigation to
+  // it returns 400, because the required Authorization header cannot be sent. The
+  // download must go through getArtifactUrl() for a signed URL instead.
+  it("gives each row a download action that does not link straight to the vault URL", async () => {
+    respond([doc(1, { vault_url: "https://vault.example/doc-1" })]);
+
+    render(await DocumentsPage());
+
+    expect(screen.getByRole("button", { name: /download/i })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /download/i })).not.toBeInTheDocument();
+    expect(document.querySelector('[href="https://vault.example/doc-1"]')).toBeNull();
+  });
+
+  it("omits the download action when there is no artifact", async () => {
+    respond([doc(1, { vault_url: null })]);
+
+    render(await DocumentsPage());
+
+    expect(screen.queryByRole("button", { name: /download/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the exact ingest timestamp", async () => {
+    respond([doc(1)]);
+
+    render(await DocumentsPage());
+
+    expect(screen.getByText("2026-07-12 10:00:00")).toBeInTheDocument();
+  });
+
+  it("does not render the raw ingested_by UUID", async () => {
+    respond([doc(1, { ingested_by: "123e4567-e89b-12d3-a456-426614174000" })]);
+
+    render(await DocumentsPage());
+
+    expect(screen.queryByText(/^[0-9a-f]{8}-/)).not.toBeInTheDocument();
+  });
 });

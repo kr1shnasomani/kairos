@@ -48,13 +48,13 @@ export function SignalsFeed({
               <li key={e.event_id} className="animate-[rise-in_250ms_ease-out]" style={staggerDelay(i)}>
                 <Link
                   href={`/events/${e.event_id}`}
-                  className="group -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2 transition-colors hover:bg-canvas"
+                  className="group -mx-2 flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md px-2 py-2 transition-colors hover:bg-canvas"
                 >
                   <StatusBadge tone={PRIORITY_TONE[e.priority] ?? "neutral"} dot={false}>{e.priority}</StatusBadge>
-                  <span className="min-w-0 flex-1 truncate text-caption text-ink" title={triggerLabel(e.event_type)}>
+                  <span className="min-w-0 flex-1 whitespace-normal break-words text-caption text-ink" title={triggerLabel(e.event_type)}>
                     {triggerLabel(e.event_type)}
                   </span>
-                  {e.asset_id && <span className="shrink-0 text-label text-muted">{e.asset_id}</span>}
+                  {e.asset_id && <span className="min-w-0 break-all text-label text-muted">{e.asset_id}</span>}
                   <time className="tabular shrink-0 text-label text-muted">{fmtRelTime(e.occurred_at)}</time>
                 </Link>
               </li>

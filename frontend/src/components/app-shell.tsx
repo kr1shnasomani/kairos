@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { BrandLink } from "./brand-link";
 import { AppHeader } from "./app-header";
 import { MobileAppHeader } from "./mobile-app-header";
@@ -123,20 +123,57 @@ function GovernorPill({ userId }: { userId: string }) {
     <div
       title={`Governor: ${gov.push_count_last_hour}/${gov.ceiling} briefs/hr`}
       className={cn(
-        "mx-3 my-1 flex items-center justify-between rounded-lg px-2.5 py-1.5 text-label",
+        "rail-link mx-3 my-1 flex items-center justify-between rounded-lg px-2.5 py-1.5 text-label",
         suppressed
           ? "bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-danger"
           : "bg-surface-2 text-muted",
       )}
     >
-      <span className="font-semibold">{suppressed ? "Governor · suppressed" : "Governor · active"}</span>
+      {/* Collapsed the wording goes, the count stays — the ratio is the signal,
+          and `title` above still carries the full sentence. */}
+      <span className="rail-label font-semibold">{suppressed ? "Governor · suppressed" : "Governor · active"}</span>
       <span className="tabular font-medium">{gov.push_count_last_hour}/{gov.ceiling}</span>
     </div>
   );
 }
 
-function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; role: Role; user: User | null }) {
+/** Rail collapse (review item 2). `<html data-nav>` is the single source of truth,
+ *  set before paint in layout.tsx so a collapsed rail never flashes wide. React
+ *  only *observes* it — the width itself is pure CSS.
+ *
+ *  useSyncExternalStore rather than useState+useEffect: the attribute is external
+ *  state, and the server snapshot lets React render `false` on the server without
+ *  a hydration mismatch. The effect version had to setState synchronously on mount
+ *  to catch up, which is a cascading render (react-hooks/set-state-in-effect) and
+ *  briefly rendered the wrong label. */
+const subscribeToNav = (onChange: () => void) => {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributeFilter: ["data-nav"] });
+  return () => observer.disconnect();
+};
+const navIsCollapsed = () => document.documentElement.getAttribute("data-nav") === "collapsed";
+const navServerSnapshot = () => false;
+
+function useRailCollapsed(): [boolean, () => void] {
+  const collapsed = useSyncExternalStore(subscribeToNav, navIsCollapsed, navServerSnapshot);
+  // Writes the attribute only; the observer above turns that into a re-render.
+  const toggle = () => {
+    const next = !navIsCollapsed();
+    const el = document.documentElement;
+    if (next) el.setAttribute("data-nav", "collapsed");
+    else el.removeAttribute("data-nav");
+    try {
+      localStorage.setItem("kairos-nav", next ? "collapsed" : "expanded");
+    } catch {
+      // Private mode / storage disabled: the rail still toggles for this session.
+    }
+  };
+  return [collapsed, toggle];
+}
+
+export function SidebarContent({ onNavigate, role, user, collapsible = false }: { onNavigate?: () => void; role: Role; user: User | null; collapsible?: boolean }) {
   const pathname = usePathname();
+  const [railCollapsed, toggleRail] = useRailCollapsed();
   const homeHref = role === "field_worker" ? "/briefs" : "/management";
   // Collapse is per-group, default open, session-local (persistence = hydration churn for nothing).
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -146,9 +183,29 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
 
   return (
     <div className="flex h-full flex-col">
-      <div className="px-5 py-6"><BrandLink href={homeHref} /></div>
+      {/* Layout here is CSS, not `railCollapsed` — state is false on the first
+          client render, so a state-driven row would paint the expanded layout
+          inside a 68px rail for one frame on every load. */}
+      <div className="rail-brand-row flex items-center justify-between gap-2 px-5 py-6">
+        <BrandLink href={homeHref} />
+        {/* Exactly one toggle in the DOM. Collapsed it sits under the mark — beside
+            it there is no room. Placing it with state rather than CSS is what keeps
+            a second, hidden copy from shadowing it in the accessibility tree. */}
+        {collapsible && (
+          <button
+            type="button"
+            onClick={toggleRail}
+            aria-expanded={!railCollapsed}
+            aria-label={railCollapsed ? "Expand navigation" : "Collapse navigation"}
+            title={railCollapsed ? "Expand navigation" : "Collapse navigation"}
+            className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <Icon name="chevron" className={cn("size-4 transition-transform duration-200 motion-reduce:transition-none", !railCollapsed && "rotate-180")} />
+          </button>
+        )}
+      </div>
 
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-2">
+      <nav className="rail-nav flex-1 space-y-[var(--rail-section-gap,1.25rem)] overflow-y-auto px-3 py-2 scrollbar-none">
         {sections.map((section) => {
           const isOpen = !collapsed[section.group];
           const list = (
@@ -160,15 +217,17 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
                     <Link
                       href={item.href}
                       onClick={onNavigate}
+                      aria-label={item.label}
+                      title={item.label}
                       className={cn(
-                        "flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-body transition-colors",
+                        "rail-link flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-body transition-colors",
                         active
                           ? "bg-accent-soft font-semibold text-accent"
                           : "text-muted hover:bg-surface-2 hover:text-ink",
                       )}
                     >
                       <Icon name={item.icon} />
-                      {item.label}
+                      <span className="rail-label">{item.label}</span>
                     </Link>
                   </li>
                 );
@@ -183,7 +242,7 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
                 aria-expanded={isOpen}
                 aria-controls={`nav-${section.group}`}
                 onClick={() => setCollapsed((c) => ({ ...c, [section.group]: !c[section.group] }))}
-                className="flex w-full items-center gap-1 rounded px-2 pb-1.5 text-micro font-bold uppercase tracking-[0.1em] text-muted transition-colors hover:text-ink"
+                className="rail-group-header flex w-full items-center gap-1 rounded px-2 pb-1.5 text-micro font-bold uppercase tracking-[0.1em] text-muted transition-colors hover:text-ink"
               >
                 <Icon
                   name="chevron"
@@ -201,20 +260,20 @@ function SidebarContent({ onNavigate, role, user }: { onNavigate?: () => void; r
       {user && <GovernorPill userId={user.user_id} />}
 
       <div className="mx-3 mb-4 mt-2 space-y-0.5 border-t border-line pt-3">
-        <Link href="/system-information" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
-          <Icon name="info" className="size-[18px]" />System Information
+        <Link href="/system-information" onClick={onNavigate} className="rail-link flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
+          <Icon name="info" className="size-[18px]" /><span className="rail-label">System Information</span>
         </Link>
         {ADMIN_ROLES.includes(role) && (
           <>
-            <Link href="/system-health" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
-              <Icon name="health" className="size-[18px]" />System Health
+            <Link href="/system-health" onClick={onNavigate} className="rail-link flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
+              <Icon name="health" className="size-[18px]" /><span className="rail-label">System Health</span>
             </Link>
-            <Link href="/system-benchmarks" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
-              <Icon name="chart" className="size-[18px]" />System Benchmarks
+            <Link href="/system-benchmarks" onClick={onNavigate} className="rail-link flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink">
+              <Icon name="chart" className="size-[18px]" /><span className="rail-label">System Benchmarks</span>
             </Link>
           </>
         )}
-        <Link href="/settings" onClick={onNavigate} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink"><Icon name="settings" className="size-[18px]" />System Settings</Link>
+        <Link href="/settings" onClick={onNavigate} className="rail-link flex items-center gap-2 rounded-lg px-2 py-1.5 text-body text-muted transition-colors hover:bg-surface-2 hover:text-ink"><Icon name="settings" className="size-[18px]" /><span className="rail-label">System Settings</span></Link>
       </div>
 
     </div>
@@ -475,7 +534,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (authed !== true) {
     return (
       <div className="flex min-h-dvh">
-        <aside className="sidebar-scope hidden w-[316px] shrink-0 border-r border-line md:block" aria-hidden="true">
+        <aside data-rail className="sidebar-scope hidden w-[var(--rail-w)] shrink-0 border-r border-line transition-[width] duration-200 motion-reduce:transition-none lg:block" aria-hidden="true">
           <div className="sticky top-0 h-dvh px-4 py-4">
             <BrandLink href="/management" />
           </div>
@@ -503,14 +562,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {calendarOpen && <MiniCalendar onClose={() => setCalendarOpen(false)} />}
 
       {/* Desktop sidebar — all roles; sidebar-scope remaps tokens to the dark rail palette */}
-      <aside className="sidebar-scope hidden w-[316px] shrink-0 border-r border-line md:block print:hidden">
+      <aside data-rail className="sidebar-scope hidden w-[var(--rail-w)] shrink-0 border-r border-line transition-[width] duration-200 motion-reduce:transition-none lg:block print:hidden">
         <div className="sticky top-0 h-dvh">
-          <SidebarContent role={role} user={user} />
+          <SidebarContent role={role} user={user} collapsible />
         </div>
       </aside>
 
       {mobileDrawerOpen && (
-        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
+        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
           <button className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-black/40" aria-label="Close menu" onClick={() => setMobileDrawerOpen(false)} />
           <div className="sidebar-scope absolute inset-y-0 left-0 w-[316px] max-w-[86vw] overflow-y-auto border-r border-line outline-none animate-[drawer-in_250ms_ease-out]">
             <SidebarContent onNavigate={() => setMobileDrawerOpen(false)} role={role} user={user} />
@@ -520,7 +579,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Mobile "More" nav sheet — full grouped nav, same dark rail palette */}
       {moreOpen && (
-        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
+        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
           <button
             className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-black/40"
             aria-label="Close menu"
@@ -544,7 +603,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* inert while the sheet dialog is open so screen readers can't wander behind it */}
       <div
         inert={moreOpen || mobileDrawerOpen || calendarOpen || undefined}
-        className="flex min-w-0 flex-1 flex-col pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0 print:pb-0"
+        className="flex min-w-0 flex-1 flex-col pb-[calc(56px+env(safe-area-inset-bottom))] lg:pb-0 print:pb-0"
       >
         <AppHeader
           name="Kairos user"

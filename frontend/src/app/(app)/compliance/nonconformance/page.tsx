@@ -42,7 +42,7 @@ const COLUMNS: TableColumn<Nc>[] = [
     render: (r) => <span className={`whitespace-nowrap text-caption font-semibold ${r.tone === "danger" ? "text-danger" : "text-caution"}`}>{r.tone === "danger" ? "Urgent" : "Attention"}</span>,
   },
   {
-    key: "detail", label: "Finding", className: "w-full max-w-[320px]",
+    key: "detail", label: "Finding", className: "w-[38%]",
     render: (r) => <span className="block truncate text-caption text-muted" title={r.detail}>{r.detail}</span>,
   },
   {
