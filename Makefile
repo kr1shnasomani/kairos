@@ -133,6 +133,15 @@ benchmark:
 model-gate:
 	docker compose exec kairos-backend-api python scripts/run_model_validation.py --model-name $(MODEL) $(ARGS)
 
+# ARCHITECTURE.md §7 — query-performance regression check for graph schema changes.
+# Asserts plan SHAPE (anchored queries resolve through an index seek), not timings: the
+# regression this catches is `asset_id_unique` going missing and the Layer 4 hot path
+# silently degrading to a NodeByLabelScan, which returns correct rows and fails nothing.
+# Run it after any change to db/neo4j/init_schema.cypher or a hot-path query.
+.PHONY: graph-perf
+graph-perf:
+	docker compose run --rm --no-deps kairos-backend-api python scripts/verify_graph_perf.py
+
 # =============================================================================
 # Quality (Executes inside containers)
 # =============================================================================

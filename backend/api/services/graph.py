@@ -12,6 +12,16 @@ from neo4j import AsyncDriver
 log = structlog.get_logger(__name__)
 
 
+# ARCHITECTURE.md §7: "traversal depth limits enforced by query policy". One named bound rather
+# than a literal inlined per query, so a new variable-length traversal cannot quietly ship unbounded
+# — an unbounded `*` on a temporal graph is the pathological case the section is about.
+#
+# 10 is deliberately generous: physical plant hierarchies (site → unit → system → equipment → part)
+# are 4-6 deep, so this is headroom, not a working limit. It bounds the planner's work, it does not
+# shape results. Raise it only with a `PROFILE` showing the deeper plan is still a seek + expand.
+MAX_TRAVERSAL_DEPTH = 10
+
+
 class GraphService:
     """
     Service layer for all Neo4j temporal graph operations.
@@ -148,11 +158,15 @@ class GraphService:
     async def get_asset_hierarchy(self, asset_id: str) -> dict[str, Any] | None:
         """
         Returns the asset's position in the hierarchy:
-        ancestors (walk up PARENT_OF chain, up to 10 levels) and direct children.
+        ancestors (walk up the PARENT_OF chain, bounded by `MAX_TRAVERSAL_DEPTH`) and direct
+        children.
         """
         asset_cypher = "MATCH (a:Asset {asset_id: $asset_id}) RETURN a"
-        ancestors_cypher = """
-        MATCH (a:Asset {asset_id: $asset_id})<-[:PARENT_OF*1..10]-(ancestor:Asset)
+        # Depth interpolated from the module policy, not written inline. Cypher cannot parameterise
+        # a variable-length bound (`*1..$n` is a syntax error), so it is an f-string over an int
+        # constant — never over user input.
+        ancestors_cypher = f"""
+        MATCH (a:Asset {{asset_id: $asset_id}})<-[:PARENT_OF*1..{MAX_TRAVERSAL_DEPTH}]-(ancestor:Asset)
         RETURN DISTINCT ancestor
         ORDER BY ancestor.created_at ASC
         """

@@ -4,8 +4,10 @@ Implements the synthesis layer with mandatory source citation enforcement
 and explicit refusal for safety-critical parameter queries.
 """
 
+import json
 import re
 from collections import OrderedDict
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -286,35 +288,9 @@ class LLMService:
         evidence confidence is below threshold — returns source documents directly
         rather than a hedged partial answer.
         """
-        # Safety-critical refusal check. Two independent ways to clear the gate:
-        # an explicit per-source confidence at/above threshold, OR at least one
-        # regulatory/engineering/OEM-authority source. Retrieval paths that carry
-        # authority_level but no confidence (hybrid search, graph facts) would
-        # otherwise read as confidence 0.0 and refuse every safety query.
-        if query_category in SAFETY_CRITICAL_CATEGORIES:
-            max_confidence = max((r.get("confidence") or 0.0 for r in retrieved_context), default=0.0)
-            gate_context = _authority_candidates(retrieved_context, query_asset_tags(query))
-            best_authority = min((r.get("authority_level") or 5 for r in gate_context), default=5)
-            if max_confidence < confidence_threshold and best_authority > AUTHORITATIVE_LEVEL:
-                log.info(
-                    "synthesis.safety_critical_refusal",
-                    query_category=query_category,
-                    max_confidence=max_confidence,
-                    best_authority=best_authority,
-                )
-                return {
-                    "answer": None,
-                    "refused": True,
-                    "refusal_reason": (
-                        f"Safety-critical parameter query for '{query_category}' — the retrieved evidence is "
-                        f"neither high-confidence (best {max_confidence:.2f}, threshold {confidence_threshold}) "
-                        f"nor from an authoritative source (best authority level {best_authority}; "
-                        f"level {AUTHORITATIVE_LEVEL} or better required). "
-                        "Verify directly against the source documents and consult the responsible engineering authority."
-                    ),
-                    "sources": retrieved_context,
-                    "confidence": max_confidence,
-                }
+        refusal = self.evidence_gate(query, retrieved_context, query_category, confidence_threshold)
+        if refusal is not None:
+            return refusal
 
         if not retrieved_context:
             return {
@@ -347,41 +323,253 @@ class LLMService:
         #
         # So the gate is applied twice: once to the evidence, once to the result.
         # ---------------------------------------------------------------------
-        if query_category in SAFETY_CRITICAL_CATEGORIES and result.get("answer"):
-            parsed = self.parse_synthesis_response(result["answer"])
-            answer_confidence = parsed.get("confidence")
-            cited = parsed.get("sources_used") or []
-            # Only judge a response that actually followed the contract. A bare answer with no
-            # markers carries no self-assessment, and treating that as "zero sources cited" would
-            # refuse every well-formed answer that simply omitted the scaffolding — a false
-            # refusal is its own safety failure, because it trains operators to route around the
-            # gate. Refuse on an *explicit* low self-confidence only.
-            unsupported = answer_confidence is not None and answer_confidence < confidence_threshold
-
-            if unsupported:
-                log.info(
-                    "synthesis.safety_critical_refusal_post",
-                    query_category=query_category,
-                    answer_confidence=answer_confidence,
-                    sources_cited=len(cited),
-                )
-                return {
-                    "answer": None,
-                    "refused": True,
-                    "refusal_reason": (
-                        f"Safety-critical parameter query for '{query_category}' — synthesis could not "
-                        f"support an answer from the retrieved evidence "
-                        f"(self-reported confidence {answer_confidence if answer_confidence is not None else 'none'}, "
-                        f"{len(cited)} source(s) cited). "
-                        "KAIROS does not hedge on safety-critical parameters. Verify directly against the "
-                        "source documents below and consult the responsible engineering authority."
-                    ),
-                    "sources": retrieved_context,
-                    "confidence": answer_confidence or 0.0,
-                    "model": result.get("model"),
-                }
+        post_refusal = self.result_gate(result, retrieved_context, query_category, confidence_threshold)
+        if post_refusal is not None:
+            return post_refusal
 
         return result
+
+    async def synthesize_stream(
+        self,
+        query: str,
+        retrieved_context: list[dict[str, Any]],
+        query_category: str | None = None,
+        confidence_threshold: float = 0.7,
+    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        """Yields `(event, payload)` for the SSE endpoint. Terminal event is always `done`.
+
+        p95 synthesis is ~65 s against NVIDIA's shared endpoint and that tail cannot be tuned
+        away, so progressive render is the only remaining lever on *perceived* latency.
+
+        **Safety-critical categories deliberately do not stream answer text.** `CONFIDENCE:`
+        arrives after `ANSWER:` in the response contract, and `result_gate` can retract the whole
+        answer based on it — so streaming the text would show an operator words that are about to
+        be replaced by a refusal. They stream progress instead: the user learns work is happening
+        without being shown an ungated claim. Everything else streams `ANSWER:` as it arrives.
+
+        Both gates are the same methods `synthesize()` calls. Nothing about the refusal rules is
+        re-implemented here; only *when the text reaches the screen* differs.
+        """
+        yield "status", {"stage": "gating", "query_category": query_category}
+
+        refusal = self.evidence_gate(query, retrieved_context, query_category, confidence_threshold)
+        if refusal is not None:
+            # Refused on the evidence — no provider call is made at all.
+            yield "done", refusal
+            return
+
+        if not retrieved_context:
+            yield "done", {
+                "answer": None,
+                "sources": [],
+                "confidence": 0.0,
+                "uncertainty": "No relevant evidence found in the knowledge base.",
+            }
+            return
+
+        prompt = self._build_synthesis_prompt(query, self._format_context(retrieved_context))
+        safety_critical = query_category in SAFETY_CRITICAL_CATEGORIES
+
+        yield "status", {
+            "stage": "synthesizing",
+            "streaming_text": not safety_critical,
+            # Told to the client rather than inferred, so the UI can say *why* it is showing a
+            # spinner instead of text on exactly the queries where that matters most.
+            "reason": (
+                "Safety-critical category — the answer is withheld until the post-synthesis "
+                "gate has cleared it."
+            ) if safety_critical else None,
+        }
+
+        if safety_critical:
+            # Non-streamed on purpose. Reuses the full cascade so a safety answer keeps every
+            # provider fallback the non-streaming endpoint has.
+            result = await self._synthesize_cascade(prompt, retrieved_context)
+            post = self.result_gate(result, retrieved_context, query_category, confidence_threshold)
+            yield "done", post if post is not None else result
+            return
+
+        # Stream tier 1 only. A mid-stream provider failure falls back to the ordinary cascade
+        # and is delivered as a single `done` — reimplementing streaming for all four providers
+        # would fork the cascade's "which model answered" guarantee for no user-visible gain.
+        streamed = ""
+        stream_failed = False
+        if self.nim_available:
+            try:
+                async for delta in self._stream_nim(prompt):
+                    streamed += delta
+                    yield "delta", {"text": delta}
+            except Exception as exc:  # noqa: BLE001 — fall back, never fail the request
+                log.warning("synthesis.stream_failed", error=str(exc), exc_type=type(exc).__name__)
+                stream_failed = True
+        else:
+            stream_failed = True
+
+        if stream_failed or not streamed.strip():
+            result = await self._synthesize_cascade(prompt, retrieved_context)
+            # `restart` tells the client to discard any deltas already painted: the fallback answer
+            # came from a different call and concatenating the two would fabricate a hybrid answer.
+            yield "restart", {"reason": "stream unavailable — answer re-synthesized via the provider cascade"}
+            post = self.result_gate(result, retrieved_context, query_category, confidence_threshold)
+            yield "done", post if post is not None else result
+            return
+
+        result = {
+            "answer": streamed,
+            "sources": retrieved_context,
+            "model": self.settings.NVIDIA_NIM_MODEL,
+        }
+        # Runs even for non-safety categories: `result_gate` no-ops unless the category is
+        # safety-critical, and calling it unconditionally means a category added to
+        # SAFETY_CRITICAL_CATEGORIES later is covered here without a second edit.
+        post = self.result_gate(result, retrieved_context, query_category, confidence_threshold)
+        yield "done", post if post is not None else result
+
+    async def _stream_nim(self, prompt: str) -> AsyncIterator[str]:
+        """Yields text deltas from NIM's OpenAI-compatible SSE stream."""
+        client = shared_client(self.settings.NVIDIA_NIM_TIMEOUT)
+        async with client.stream(
+            "POST",
+            f"{self.settings.NVIDIA_NIM_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.settings.NVIDIA_NIM_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self.settings.NVIDIA_NIM_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": self.settings.NVIDIA_NIM_MAX_TOKENS,
+                "temperature": self.settings.NVIDIA_NIM_TEMPERATURE,
+                "stream": True,
+            },
+            timeout=self.settings.NVIDIA_NIM_TIMEOUT,
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if not data or data == "[DONE]":
+                    continue
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    continue  # keep-alive or partial frame — not fatal
+                for choice in chunk.get("choices") or []:
+                    delta = (choice.get("delta") or {}).get("content")
+                    if delta:
+                        yield delta
+
+    # =========================================================================
+    # The two safety gates, extracted so the streaming path calls the SAME code.
+    #
+    # These were inline in `synthesize()`. The streaming endpoint has to run both, and a second
+    # copy of a refusal rule is the one duplication this codebase cannot afford — the two would
+    # drift and whichever the operator hit would be the wrong one. Pure and side-effect free
+    # apart from logging, so both are directly testable without a provider.
+    # =========================================================================
+
+    def evidence_gate(
+        self,
+        query: str,
+        retrieved_context: list[dict[str, Any]],
+        query_category: str | None,
+        confidence_threshold: float = 0.7,
+    ) -> dict[str, Any] | None:
+        """Pre-synthesis gate: judges the *evidence*. Returns a refusal, or None to proceed.
+
+        Two independent ways to clear it: an explicit per-source confidence at/above threshold,
+        OR at least one regulatory/engineering/OEM-authority source. Retrieval paths that carry
+        `authority_level` but no confidence (hybrid search, graph facts) would otherwise read as
+        confidence 0.0 and refuse every safety query.
+        """
+        if query_category not in SAFETY_CRITICAL_CATEGORIES:
+            return None
+
+        max_confidence = max((r.get("confidence") or 0.0 for r in retrieved_context), default=0.0)
+        gate_context = _authority_candidates(retrieved_context, query_asset_tags(query))
+        best_authority = min((r.get("authority_level") or 5 for r in gate_context), default=5)
+        if max_confidence >= confidence_threshold or best_authority <= AUTHORITATIVE_LEVEL:
+            return None
+
+        log.info(
+            "synthesis.safety_critical_refusal",
+            query_category=query_category,
+            max_confidence=max_confidence,
+            best_authority=best_authority,
+        )
+        return {
+            "answer": None,
+            "refused": True,
+            "refusal_reason": (
+                f"Safety-critical parameter query for '{query_category}' — the retrieved evidence is "
+                f"neither high-confidence (best {max_confidence:.2f}, threshold {confidence_threshold}) "
+                f"nor from an authoritative source (best authority level {best_authority}; "
+                f"level {AUTHORITATIVE_LEVEL} or better required). "
+                "Verify directly against the source documents and consult the responsible engineering authority."
+            ),
+            "sources": retrieved_context,
+            "confidence": max_confidence,
+        }
+
+    def result_gate(
+        self,
+        result: dict[str, Any],
+        retrieved_context: list[dict[str, Any]],
+        query_category: str | None,
+        confidence_threshold: float = 0.7,
+    ) -> dict[str, Any] | None:
+        """Post-synthesis gate: judges the *result*. Returns a refusal, or None to keep it.
+
+        The evidence gate clears on `authority <= 3`, which cannot know whether the model actually
+        found the parameter. Observed live: a torque-spec query for a non-existent asset retrieved
+        an unrelated L3 OEM bulletin, cleared the evidence gate on authority, and the model then
+        honestly answered "not specified in the provided source documents" — which the UI rendered
+        as a *hedged low-confidence answer*. For a safety-critical parameter that is exactly the
+        outcome the architecture forbids: "a hedged partial answer in a safety-critical context is
+        more dangerous than no answer, because a technician under time pressure will treat
+        ambiguity as confirmation."
+
+        **This is why a safety-critical answer cannot be streamed to the screen token by token.**
+        `CONFIDENCE:` arrives *after* `ANSWER:` in the response contract, so the value that decides
+        refusal is the second-to-last thing the model emits. Streaming the answer would show the
+        operator text this gate is about to retract.
+        """
+        if query_category not in SAFETY_CRITICAL_CATEGORIES or not result.get("answer"):
+            return None
+
+        parsed = self.parse_synthesis_response(result["answer"])
+        answer_confidence = parsed.get("confidence")
+        cited = parsed.get("sources_used") or []
+        # Only judge a response that actually followed the contract. A bare answer with no markers
+        # carries no self-assessment, and treating that as "zero sources cited" would refuse every
+        # well-formed answer that simply omitted the scaffolding — a false refusal is its own
+        # safety failure, because it trains operators to route around the gate. Refuse on an
+        # *explicit* low self-confidence only.
+        if answer_confidence is None or answer_confidence >= confidence_threshold:
+            return None
+
+        log.info(
+            "synthesis.safety_critical_refusal_post",
+            query_category=query_category,
+            answer_confidence=answer_confidence,
+            sources_cited=len(cited),
+        )
+        return {
+            "answer": None,
+            "refused": True,
+            "refusal_reason": (
+                f"Safety-critical parameter query for '{query_category}' — synthesis could not "
+                f"support an answer from the retrieved evidence "
+                f"(self-reported confidence {answer_confidence if answer_confidence is not None else 'none'}, "
+                f"{len(cited)} source(s) cited). "
+                "KAIROS does not hedge on safety-critical parameters. Verify directly against the "
+                "source documents below and consult the responsible engineering authority."
+            ),
+            "sources": retrieved_context,
+            "confidence": answer_confidence or 0.0,
+            "model": result.get("model"),
+        }
 
     def _format_context(self, context: list[dict[str, Any]]) -> str:
         """Formats retrieved chunks into a structured context block."""

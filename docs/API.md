@@ -1081,6 +1081,43 @@ An `audit_log` entry is written on every synthesis call.
 
 ---
 
+### `POST /search/synthesize/stream`
+
+Same answer as `POST /search/synthesize`, delivered progressively as Server-Sent Events. Identical
+request body, and the terminal payload has the same shape as `SynthesizeResponse`.
+
+A **separate** endpoint rather than a flag on the existing one: the `ANSWER:/CONFIDENCE:/…` parse
+contract has two consumers (`routers/search.py`, `workflows/elicitation_workflow.py`) and a measured
+answer-quality figure attached, so this adds a surface instead of altering one.
+
+| Event | Meaning |
+|---|---|
+| `status` | Pipeline stage. `stage: "gating"`, then `stage: "synthesizing"` carrying `streaming_text` and, when false, a `reason` to display. |
+| `delta` | A chunk of answer text — `{"text": "…"}`. **Never sent for a safety-critical category.** |
+| `restart` | Discard everything received so far. The answer was re-synthesized by the fallback cascade; concatenating would splice two different answers. |
+| `done` | Terminal, always sent. Same fields as `POST /search/synthesize`. |
+| `error` | Terminal, only on unexpected failure. |
+
+> **`done` is authoritative; `delta` text is provisional.** `CONFIDENCE:` arrives *after* `ANSWER:`,
+> and the post-synthesis safety gate can convert a finished answer into a refusal based on it. The
+> six `SAFETY_CRITICAL_CATEGORIES` therefore emit **no `delta` events at all** — they stream status
+> only, so an operator is never shown a claim the gate is about to retract. A client must not render
+> `delta` text as a final answer, and must drop it when `done` arrives.
+
+Authorization is identical to `POST /search/synthesize` (both map to the `write_api` catch-all).
+The response sets `X-Accel-Buffering: no`; without it a buffering proxy delivers the whole stream in
+one write, which reproduces exactly the blank-screen wait this endpoint exists to remove.
+
+```
+event: status
+data: {"stage": "synthesizing", "streaming_text": false, "reason": "Safety-critical category — the answer is withheld until the post-synthesis gate has cleared it."}
+
+event: done
+data: {"answer": "The maximum allowable pressure for HE-301 is 16.2 bar. [Source 1]", "refused": false, "safety_critical": true, ...}
+```
+
+---
+
 ### `POST /search/feedback`
 
 Record the single-tap rating on a synthesized answer. Architecture Layer 12 Phase 2 treats this as
@@ -1627,6 +1664,7 @@ Get pending briefs for the current user. Also returns site-wide briefs. Calls `r
   ],
   "total_pending": 1,
   "suppressed_count": 0,
+  "suppressed_held": [],
   "governor_state": {
     "push_count_last_hour": 1,
     "ceiling": 6,
@@ -1640,6 +1678,16 @@ Get pending briefs for the current user. Also returns site-wide briefs. Calls `r
 1. **EEMUA 191 governor:** If `push_count_last_hour >= ceiling`, all non-critical briefs suppressed.
 2. **Plant state gate:** If plant state for the user's `site_id` is `turnaround`, `shutdown`, or `emergency`, non-critical briefs suppressed. Critical (PTW) briefs always pass.
 3. **Frozen briefs:** Briefs with `delivery_frozen=true` (set by deviation flag) are included with `frozen=true` and `freeze_reason` but excluded from governor push counting.
+
+**`suppressed_held` — what is being withheld, not just how many.** Carries the suppressed briefs
+themselves (ranked, capped at `limit`), each tagged `suppressed: true` with a `suppression_reason`
+of either `"Hourly push limit reached"` or `"Plant state — deliveries paused"`. `suppressed_count`
+alone told an operator "3 held" with no way to judge whether the held one concerned their asset.
+
+They are deliberately **not** in `briefs`: the handler records an EEMUA push for everything it
+delivers, so folding them in would spend governor budget on briefs the governor is withholding — the
+governor would end up suppressing its own disclosure. Withholding *delivery* is the point;
+withholding *knowledge that something is withheld* is just an opaque counter.
 
 ---
 
@@ -1918,6 +1966,15 @@ On promotion, `detect_conflict()` runs. If a conflict is detected, `kairos.confl
 }
 ```
 
+**Errors — shared by all four quarantine-by-id routes** (`promote`, `dispute`, `request-info`, and
+`POST /events/deviation-flag/{item_id}/resolve`, which reads the same table):
+
+| Status | When |
+|---|---|
+| `404` | No such item — **including a malformed `item_id`.** `quarantine_items.item_id` is a `UUID` column, so a non-UUID path segment made PostgREST raise `22P02` before the handler's own 404 branch was reached, and the global handler turned that into a **500**. `dependencies.valid_quarantine_item_id` now rejects it up front. 404 rather than 422 on purpose: to a reviewer a malformed id and an absent one are the same situation, and splitting one outcome across two status codes on id *shape* would leak the column type into the API contract. |
+| `409` | The item is no longer `pending` (already promoted, disputed, or archived). |
+| `400` | The item has no `asset_id`, so it cannot be linked to the graph (promote only). |
+
 ---
 
 ### `POST /governance/quarantine/{item_id}/dispute`
@@ -2182,7 +2239,7 @@ Trigger NER model gate evaluation against the validation corpus.
 }
 ```
 
-The endpoint only **enqueues** the task and returns immediately. The Celery task runs on the `validation` queue and takes **~2.5 min** (a NIM call per corpus item). Results are written to `audit_log` with `action=model_gate_result`. The gate compares F1 against the incumbent baseline; if lower, the run is marked `failed`. The UI polls `history` and auto-refreshes when the run lands.
+The endpoint only **enqueues** the task and returns immediately. The Celery task runs on the `validation` queue and takes **~12 min** on the 52-row corpus (one NIM call per unique document; the three partition cuts share a cache and add none). `time_limit`/`soft_time_limit` are 1860/1800 — the earlier 600/540 was calibrated on a run where nearly every call failed fast on a 429, and killed two real runs mid-flight. Results are written to `audit_log` with `action=model_gate_result`. The gate compares F1 against the incumbent baseline; if lower, the run is marked `failed`. The UI polls `history` and auto-refreshes when the run lands.
 
 ---
 
@@ -2201,12 +2258,25 @@ Return the last 20 model gate run results.
       "entity_id": "meta/llama-3.2-11b-vision-instruct",
       "details": {
         "model_name": "meta/llama-3.2-11b-vision-instruct",
-        "precision": 0.91,
-        "recall": 0.88,
-        "f1": 0.895,
-        "gate_passed": true
+        "precision": 0.7234,
+        "recall": 0.85,
+        "f1": 0.7816,
+        "passed": true,
+        "validity": "VALID",
+        "fallback_extractions": 0,
+        "extraction_paths": {"nim": 27},
+        "corpus_size": 52,
+        "scored_labels": 40,
+        "unscoreable_labels": 12,
+        "unscoreable_by_type": {"COMPONENT": 12},
+        "by_entity_type": {"ASSET_TAG": {"precision": 1.0, "recall": 0.8333, "f1": 0.9091, "count": 30}},
+        "by_asset_class": {"he-3xx_series": {"precision": 1.0, "recall": 0.9, "f1": 0.9474, "corpus_size": 10}},
+        "by_document_type": {"oem_manual": {"precision": 0.4615, "recall": 0.8571, "f1": 0.6, "corpus_size": 7, "scored_labels": 7}},
+        "enforcement": "advisory_only",
+        "regressed_asset_classes": [],
+        "blocked_asset_classes": []
       },
-      "timestamp": "2024-01-05T09:05:00Z"
+      "timestamp": "2026-08-23T09:05:00Z"
     }
   ],
   "total": 1
@@ -2214,6 +2284,23 @@ Return the last 20 model gate run results.
 ```
 
 > Shape is **contract-locked** to `{items, total}` (raw `audit_log` rows) by `tests/test_contract.py` and `tests/test_governance.py`. The frontend `getModelGateHistory` adapter flattens each row's `details` into the UI `ModelGateResult` shape and returns `{ history: [...] }`.
+
+**Reading a run — three fields decide whether the score means anything.**
+
+- **`validity`** — `"VALID"` only when every extraction reached the model. The NER service degrades
+  to a regex last resort that emits `ASSET_TAG` and nothing else, so a `"SUSPECT"` run is scoring
+  the fallback under the model's name. **A run without `validity: "VALID"` is not a measurement.**
+  Entries written before 2026-08-23 have no `validity` key at all and must not be quoted; only a
+  `VALID` run is eligible to serve as the baseline a later run is compared against.
+- **`scored_labels` vs `corpus_size`** — `f1` covers `scored_labels`, not the whole corpus. Ground
+  truth whose `entity_type` is outside the extractor's 10-type prompt taxonomy cannot be scored
+  against it and is reported in `unscoreable_by_type` instead of counted as failure. Quote the F1
+  with its denominator.
+- **`passed`** — means "no regression against the baseline", and is orthogonal to `validity`. With
+  no eligible baseline it is `true` by default, which is a fresh-install state rather than a pass.
+
+`by_document_type` is the cut the problem statement asks for and costs no extra model calls: all
+three partitions share the run's extraction cache.
 
 ---
 

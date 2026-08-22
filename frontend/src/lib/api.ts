@@ -199,6 +199,73 @@ export async function postJson<T>(path: string, body: unknown, timeoutMs = WRITE
   return (await res.json()) as T;
 }
 
+/**
+ * POST that consumes a `text/event-stream` response, invoking `onEvent` per SSE frame.
+ *
+ * `EventSource` cannot be used: it is GET-only and cannot send the Authorization header, and
+ * synthesis needs a JSON body carrying the retrieved context.
+ *
+ * Throws like every other fetcher here — there is no fixture to fall back to, so a dead stream
+ * must surface as an error the UI can retry, never as an empty answer that reads like "no
+ * knowledge found".
+ */
+async function postSse(
+  path: string,
+  body: unknown,
+  timeoutMs: number,
+  onEvent: (event: string, data: Record<string, unknown>) => void,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (res.status === 401) {
+    clearSession();
+    if (typeof window !== "undefined") window.location.assign("/login");
+  }
+  if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
+  if (!res.body) throw new Error(`${path} → no response body to stream`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // Frames are separated by a blank line. A partial frame stays in the buffer — parsing it
+      // early would hand the UI half a JSON object.
+      let split: number;
+      while ((split = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, split);
+        buffer = buffer.slice(split + 2);
+        let name = "message";
+        const dataLines: string[] = [];
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event:")) name = line.slice(6).trim();
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+        }
+        if (!dataLines.length) continue;
+        try {
+          onEvent(name, JSON.parse(dataLines.join("\n")));
+        } catch {
+          // A frame we cannot parse is skipped rather than killing the stream — the terminal
+          // `done` event is what the caller actually depends on.
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 // Uploads (voice notes, scanned P&IDs) can be large on slow field links — the 8s write
 // budget would abort them mid-transfer, so give multipart a much longer ceiling.
 const UPLOAD_TIMEOUT_MS = 120_000;
@@ -427,7 +494,64 @@ export function requestQuarantineInfo(itemId: string, note: string) {
 // --- Copilot (POST /search/synthesize) + RCA (POST /search/rca-pack) ---
 // Both are read-oriented POSTs. Live first, fixture on any error (backend down / refusal path).
 
-export async function synthesize(query: string, asOf?: string, onSources?: (partial: CopilotAnswer) => void): Promise<CopilotAnswer> {
+type SynthesizePayload = {
+  answer: string | null;
+  sources?: { document_id: string; authority_level: number }[];
+  confidence?: number;
+  refused?: boolean;
+  refusal_reason?: string;
+  safety_critical?: boolean;
+  model?: string;
+  pending_moc?: CopilotAnswer["pending_moc"];
+};
+
+type RetrievedContext = { document_id: string; title: string; text: string; authority_level: number };
+
+/**
+ * Maps a `/search/synthesize` payload onto `CopilotAnswer`, re-attaching each cited source to the
+ * snippet it came from. Shared by the streamed and non-streamed paths deliberately — the two
+ * must not disagree about what a refusal or an empty answer looks like.
+ */
+function finalizeAnswer(live: SynthesizePayload, context: RetrievedContext[]): CopilotAnswer {
+  // Genuine safety refusal is kept. Empty answer despite context → surface the retrieved sources
+  // instead of a blank bubble (still real data, not the fixture).
+  if (!live.refused && !live.answer?.trim()) {
+    return {
+      answer: null,
+      sources: context.map((c) => ({ document_id: c.document_id, title: c.title, authority_level: c.authority_level as CopilotAnswer["sources"][number]["authority_level"], excerpt: c.text.slice(0, 200) })),
+      confidence: 0,
+      refused: false,
+      safety_critical: false,
+    };
+  }
+  // Map the answer's cited sources back to their snippets from the retrieved context.
+  const byId = new Map(context.map((c) => [c.document_id, c]));
+  return {
+    answer: live.answer,
+    sources: (live.sources ?? []).map((s) => ({
+      document_id: s.document_id,
+      title: byId.get(s.document_id)?.title ?? s.document_id,
+      authority_level: (s.authority_level as CopilotAnswer["sources"][number]["authority_level"]) ?? 5,
+      excerpt: byId.get(s.document_id)?.text.slice(0, 200) ?? "",
+    })),
+    confidence: live.confidence ?? 0,
+    refused: !!live.refused,
+    refusal_reason: live.refusal_reason,
+    safety_critical: !!live.safety_critical,
+    model: live.model,
+    pending_moc: live.pending_moc ?? [],
+  };
+}
+
+export async function synthesize(
+  query: string,
+  asOf?: string,
+  onSources?: (partial: CopilotAnswer) => void,
+  /** Supply to stream the answer progressively. Receives the accumulated text so far —
+   *  PROVISIONAL: safety-critical answers never stream, and the terminal payload may still
+   *  be a refusal, so never render this as the final answer. */
+  onDelta?: (accumulated: string) => void,
+): Promise<CopilotAnswer> {
   try {
     // Step 1 — RETRIEVE. Synthesis assembles only from context it is given, so we must run hybrid
     // search first (exactly what the benchmark does). Without this the answer is always empty.
@@ -473,6 +597,39 @@ export async function synthesize(query: string, asOf?: string, onSources?: (part
     }
 
     // Step 2 — SYNTHESIZE from the retrieved context. Long timeout: NIM/Gemini can take ~10–30s.
+    //
+    // Streamed only when the caller supplies `onDelta`. p95 is ~65 s against NVIDIA's shared
+    // endpoint and that tail cannot be tuned away, so progressive render is the only lever left
+    // on perceived latency — but the streamed text is PROVISIONAL. The backend withholds deltas
+    // entirely for safety-critical categories and can still turn a finished answer into a
+    // refusal, so `done` is authoritative and this function's return value comes from it alone.
+    if (onDelta) {
+      let streamed: string | null = null;
+      let final: Record<string, unknown> | null = null;
+      await postSse(
+        "/search/synthesize/stream",
+        asOf ? { query, context, as_of: asOf } : { query, context },
+        90000,
+        (event, data) => {
+          if (event === "delta") {
+            streamed = (streamed ?? "") + String(data.text ?? "");
+            onDelta(streamed);
+          } else if (event === "restart") {
+            // The answer was re-synthesized by the fallback cascade. Keeping the partial text
+            // would splice two different answers into one no model produced.
+            streamed = "";
+            onDelta("");
+          } else if (event === "done") {
+            final = data;
+          } else if (event === "error") {
+            throw new Error(String(data.detail ?? data.message ?? "synthesis stream failed"));
+          }
+        },
+      );
+      if (!final) throw new Error("/search/synthesize/stream ended without a done event");
+      return finalizeAnswer(final as SynthesizePayload, context);
+    }
+
     const live = await postJson<{
       answer: string | null;
       sources: { document_id: string; authority_level: number }[];
@@ -484,34 +641,7 @@ export async function synthesize(query: string, asOf?: string, onSources?: (part
       pending_moc?: CopilotAnswer["pending_moc"];
     }>("/search/synthesize", asOf ? { query, context, as_of: asOf } : { query, context }, 90000);
 
-    // Genuine safety refusal is kept. Empty answer despite context → surface the retrieved sources
-    // instead of a blank bubble (still real data, not the fixture).
-    if (!live.refused && !live.answer?.trim()) {
-      return {
-        answer: null,
-        sources: context.map((c) => ({ document_id: c.document_id, title: c.title, authority_level: c.authority_level as CopilotAnswer["sources"][number]["authority_level"], excerpt: c.text.slice(0, 200) })),
-        confidence: 0,
-        refused: false,
-        safety_critical: false,
-      };
-    }
-    // Map the answer's cited sources back to their snippets from the retrieved context.
-    const byId = new Map(context.map((c) => [c.document_id, c]));
-    return {
-      answer: live.answer,
-      sources: (live.sources ?? []).map((s) => ({
-        document_id: s.document_id,
-        title: byId.get(s.document_id)?.title ?? s.document_id,
-        authority_level: (s.authority_level as CopilotAnswer["sources"][number]["authority_level"]) ?? 5,
-        excerpt: byId.get(s.document_id)?.text.slice(0, 200) ?? "",
-      })),
-      confidence: live.confidence ?? 0,
-      refused: !!live.refused,
-      refusal_reason: live.refusal_reason,
-      safety_critical: !!live.safety_critical,
-      model: live.model,
-      pending_moc: live.pending_moc ?? [],
-    };
+    return finalizeAnswer(live, context);
   } catch (e) {
     // Live-only policy: the copilot must never render fabricated content. A failed
     // retrieval or synthesis surfaces as an error the caller shows with a retry —

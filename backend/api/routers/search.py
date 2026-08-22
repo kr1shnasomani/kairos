@@ -4,10 +4,12 @@ Hybrid retrieval: exact match (ES) + semantic vector (Qdrant) + graph traversal 
 """
 
 import asyncio
+import json
 from datetime import datetime, timedelta
 
 import structlog
 from fastapi import APIRouter, Query
+from fastapi.responses import StreamingResponse
 
 from api.dependencies import (
     CurrentUserDep,
@@ -337,6 +339,108 @@ async def synthesize(
         message=result.get("message"),
         rate_limited=bool(result.get("rate_limited")),
         pending_moc=pending_moc,
+    )
+
+
+@router.post("/synthesize/stream", summary="Synthesize an answer, streamed as Server-Sent Events")
+async def synthesize_stream(
+    payload: SynthesizeRequest,
+    current_user: CurrentUserDep,
+    settings: SettingsDep,
+    driver: Neo4jDep,
+) -> StreamingResponse:
+    """Same answer as `POST /synthesize`, delivered progressively.
+
+    Exists as a SEPARATE endpoint on purpose. `POST /synthesize` has two consumers of its parse
+    contract (`workflows/elicitation_workflow.py` and this router) and a measured answer-quality
+    figure attached to it; changing it to stream would put that number at risk for a purely
+    presentational gain. This adds a surface, it does not alter one.
+
+    Events (`event:` / `data:` JSON):
+      * `status`  — pipeline stage. Carries `streaming_text: false` for safety-critical
+                    categories, with a `reason` the UI can show.
+      * `delta`   — a chunk of answer text. **Never emitted for a safety-critical category.**
+      * `restart` — discard everything received so far; the answer was re-synthesized via the
+                    fallback cascade and concatenating the two would fabricate a hybrid answer.
+      * `done`    — terminal, always sent, carries the same shape `POST /synthesize` returns.
+      * `error`   — terminal, only on an unexpected failure.
+
+    A safety-critical answer is withheld until `result_gate` clears it, because `CONFIDENCE:`
+    arrives after `ANSWER:` — see `LLMService.result_gate`. The client must therefore treat
+    `done` as authoritative and never render `delta` text as final.
+    """
+    llm = LLMService(settings)
+    category = payload.query_category or LLMService.classify_query_category(payload.query)
+
+    context = list(payload.context or [])
+    if category in _TOPOLOGY_EVIDENCE_CATEGORIES:
+        context += await _verified_topology_evidence(
+            payload.query, GraphService(driver, settings.NEO4J_DATABASE)
+        )
+
+    def _sse(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+    def _done_payload(data: dict, category: str | None) -> dict:
+        """Project the service result onto `SynthesizeResponse`'s fields.
+
+        A StreamingResponse has no `response_model`, so nothing filters this the way the
+        non-streaming endpoint is filtered — the first live run shipped the provider's entire
+        raw chat-completion object to the client under `raw`. Whitelisted, not blacklisted, so a
+        new internal key added to the service result never leaks by default.
+        """
+        parsed = LLMService.parse_synthesis_response(data["answer"]) if data.get("answer") else {}
+        # Strip the `ANSWER:`/`CONFIDENCE:` scaffolding exactly as the non-streaming endpoint
+        # does, so a client switching between the two never sees raw markers.
+        answer = parsed.get("answer") or data.get("answer")
+        return {
+            "answer": answer,
+            "sources": data.get("sources", []) or [],
+            "confidence": parsed.get("confidence") or data.get("confidence"),
+            "refused": bool(data.get("refused")),
+            "refusal_reason": data.get("refusal_reason"),
+            "safety_critical": category in SAFETY_CRITICAL_CATEGORIES if category else False,
+            "sources_used": parsed.get("sources_used", []),
+            "uncertainty": parsed.get("uncertainty") or data.get("uncertainty"),
+            "model": data.get("model"),
+            "message": data.get("message"),
+            "rate_limited": bool(data.get("rate_limited")),
+        }
+
+    async def _events():
+        # The phase gate is repeated rather than shared with `synthesize()` because that handler
+        # returns a response model and this one returns a byte stream; the *condition* is one
+        # line and the divergence risk is lower than the coupling would be.
+        if settings.KAIROS_PHASE < 2:
+            yield _sse("done", {
+                "answer": None,
+                "sources": payload.context or [],
+                "refused": False,
+                "message": (
+                    "Synthesis is not enabled in Phase 1 (shadow / retrieval mode). "
+                    "The retrieved source documents are returned for direct review."
+                ),
+            })
+            return
+        try:
+            async for event, data in llm.synthesize_stream(payload.query, context, category):
+                if event == "done":
+                    data = _done_payload(data, category)
+                yield _sse(event, data)
+        except Exception as exc:  # noqa: BLE001 — a dead stream must still terminate the client
+            log.warning("synthesis.stream_error", error=str(exc), exc_type=type(exc).__name__)
+            yield _sse("error", {"message": "Synthesis stream failed.", "detail": str(exc)})
+
+    return StreamingResponse(
+        _events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Without this an nginx/ingress in front buffers the whole response and delivers it
+            # in one write, which is precisely the blank-screen behaviour this endpoint exists
+            # to remove — the stream would still "work" and still feel like 65 s.
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

@@ -29,7 +29,7 @@ KAIROS is an **Industrial Operational Intelligence Platform**. It continuously m
 
 Three-phase architecture:
 - **Phase 1 (live):** Retrieval — ingest documents, build a temporal knowledge graph, answer queries with source-cited results.
-- **Phase 2 (live):** LLM Synthesis — `POST /search/synthesize` assembles retrieved facts into provenance-backed answers via NVIDIA NIM (cloud-only; the local Ollama fallback is disabled — see §6 `LLMService`).
+- **Phase 2 (live):** LLM Synthesis — `POST /search/synthesize` assembles retrieved facts into provenance-backed answers via NVIDIA NIM (cloud-only; the local Ollama fallback is disabled — see §6 `LLMService`). `POST /search/synthesize/stream` returns the same answer as SSE for progressive render; it is a separate endpoint so the parse contract and its measured answer-quality figure carry no risk.
 - **Phase 3 (live):** Proactive Push — event-driven brief delivery to operators (work orders, PTWs, shift handovers, alarms, tag-outs, inspections) via Redis Streams and the EEMUA 191 governor.
 
 ---
@@ -80,6 +80,10 @@ kairos/                          # repo root
 │   │   │                             # Celery task (POST /governance/model-gate/run) persists.
 │   │   ├── seed_validation_corpus.py # Seed NER ground-truth entities from canon (entity-F1 labels)
 │   │   ├── load_demo_dataset.py     # Load dataset/ via the real API pipeline; seeds aliases + NER corpus (`make load-dataset`)
+│   │   ├── verify_graph_perf.py     # ARCHITECTURE §7 query-perf regression check (`make graph-perf`).
+│   │   │                             # Asserts plan SHAPE, not timings — dbHits move with the data.
+│   │   ├── backfill_graph_nodes.py  # Layer-4 corpus backfill: Event (free) + Person/Organisation (NIM).
+│   │   │                             # DRY RUN by default — pass --apply to write. Idempotent (MERGE).
 │   │   ├── purge_test_data.py       # Delete test-prefixed rows from all stores (`make purge-test-data`)
 │   │   └── wipe_local_stores.py     # Empty Neo4j + ES + Qdrant entirely (`make wipe-local` / `reset-local`)
 │   └── requirements.txt
@@ -302,6 +306,15 @@ LLM synthesis + embedding. Never originates knowledge — only assembles retriev
 - `synthesize(query, context, query_category)` — NIM `meta/llama-3.1-70b-instruct`, falling through
   the cascade below. A safety gate runs **twice**: on the evidence before synthesis, and on the
   result after it (an honest "not specified in the sources" must not render as a hedged answer).
+- `evidence_gate(...)` / `result_gate(...)` — those two gates, as separate methods returning a
+  refusal dict or `None`. Extracted so `synthesize()` and `synthesize_stream()` call the **same**
+  code: a second copy of a refusal rule would drift, and whichever an operator hit would be wrong.
+- `synthesize_stream(...)` — async generator of `(event, payload)` behind
+  `POST /search/synthesize/stream`. **Safety-critical categories emit no answer text at all**:
+  `CONFIDENCE:` arrives after `ANSWER:`, and `result_gate` can convert a finished answer into a
+  refusal, so streaming it would show text the gate is about to retract. Everything else streams
+  `ANSWER:` as it arrives. Streams tier 1 only; a mid-stream failure falls back to the full cascade
+  and emits `restart` so the client discards the partial text.
 - `rca_synthesize(query, context)` — RCA-specific prompt, returns timeline + hypotheses
 - `embed(text, task)` — Jina `jina-embeddings-v3` (1024-dim), **bounded LRU cached** (`_LRU`,
   512 entries, keyed on `(task, text)`). Every search embeds its query before touching Qdrant,
@@ -637,14 +650,50 @@ Triggered by `POST /elicitation/offboarding` — one task per equipment family s
 
 Task: `workers.model_validation.run_model_gate(model_name)` on the `validation` queue.
 
-Triggered by `POST /governance/model-gate/run` (admin only). `model_name` is **optional** — the endpoint defaults it to `NVIDIA_NIM_NER_MODEL` so the UI can trigger without knowing the model name. The endpoint only **enqueues**; the task itself runs **~2.5 min** (one NIM call per corpus item), so the UI shows a "queued" banner and polls history until the run lands.
+Triggered by `POST /governance/model-gate/run` (admin only). `model_name` is **optional** — the endpoint defaults it to `NVIDIA_NIM_NER_MODEL` so the UI can trigger without knowing the model name. The endpoint only **enqueues**; the task itself runs **~12 min** against a 52-row corpus, so the UI shows a "queued" banner and polls history until the run lands.
 
-1. Loads validation corpus from `validation_corpus` table
-2. Runs NER extraction using the specified model on each corpus sample
-3. Computes precision, recall, F1 per entity type
-4. Retrieves incumbent baseline F1 from most recent passing `model_gate_result` in `audit_log`
-5. If F1 ≥ baseline (or no baseline): gate_passed=True
+> The "~2.5 min" this section claimed until 2026-08-23 was measured on a run where almost every
+> NER call failed fast on a 429. Once the calls actually reach the model each costs tens of
+> seconds. `time_limit`/`soft_time_limit` are **1860/1800** for that reason — at 600/540 two
+> consecutive runs were killed mid-flight and wrote **no history entry at all**, which is worse
+> than recording a degraded one. The limit tracks `corpus_size × per-call latency`; revisit it if
+> the corpus grows.
+
+1. Loads validation corpus from `validation_corpus`
+2. Runs NER on each unique document via `FallbackCountingNER`, which tallies which path produced
+   each extraction (`nim` / `ollama` / `regex`)
+3. Computes precision, recall, F1 per entity type, per asset class **and per document type** — all
+   three partitions share one run-scoped extraction cache, so the extra cuts cost **zero** model
+   calls. Ground-truth labels outside the prompt's taxonomy are excluded and reported as
+   `unscoreable_by_type` rather than scored as failures
+4. Retrieves the incumbent baseline: the most recent run with `validity: "VALID"`, filtered **in
+   Python** — a PostgREST `.neq()` on a missing JSONB key matches nothing, and legacy rows have no
+   `validity` key at all
+5. `passed = True` when no entity type regressed against that baseline (or there is no eligible
+   baseline). Orthogonal to `validity`, which reports whether the run reached the model
 6. Writes result to `audit_log` with `action=model_gate_result`
+
+---
+
+### Graph query policy (`ARCHITECTURE.md §7`)
+
+- `graph.MAX_TRAVERSAL_DEPTH` is the **single** traversal bound, interpolated into the one
+  variable-length pattern rather than written inline per query. Cypher cannot parameterise a
+  variable-length bound (`*1..$n` is a syntax error), so it is an f-string over an int constant —
+  never over user input. `tests/test_graph_query_policy.py` fails if an unbounded `*` ever ships.
+- **Authority pre-filtering "before traversal" has nothing to apply to here.** The Layer 4 hot path
+  is a 1-hop expand, where filter-after-expand *is* the plan: `PROFILE` shows
+  `NodeUniqueIndexSeek` → `Expand(All)` → `Filter`. The requirement bites on multi-hop queries,
+  and none exists.
+- **`make graph-perf`** (`scripts/verify_graph_perf.py`) is the §7 regression check. It asserts
+  plan **shape**, not dbHits: thresholds move with the corpus, so they would either be loosened
+  until meaningless or go red on ordinary growth. The regression it exists to catch already
+  happened once — `asset_id_unique` went missing and the hot path silently became a
+  `NodeByLabelScan`, returning correct rows and failing nothing.
+- **Hot-asset Redis precompute is deliberately not built.** A precomputed view that goes stale
+  after a `KNOWLEDGE_EDGE` write is the silent-staleness failure mode the architecture calls its
+  most dangerous. Build it when a `PROFILE` on a real corpus justifies it, with explicit
+  invalidation on every edge write.
 
 ---
 

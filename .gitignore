@@ -143,8 +143,5 @@ logs/
 
 # Benchmark run logs + checkpoints
 backend/.benchmark_runs/
-scripts/
 
-# Agent tooling — vendored third-party skill docs, ~42k lines. Not project code.
-.agents/
-.claude/
+scripts/

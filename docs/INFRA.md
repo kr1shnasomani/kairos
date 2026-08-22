@@ -219,9 +219,26 @@ make logs         # Tail all service logs
 make ps           # Container status
 make seed         # seed_regulations.py + seed_users.py
 make load-dataset # Load dataset/ through the real pipeline (ARGS=--fast to skip docs)
-make purge-test-data  # Delete ASSET-TEST/DEDUP/EV/ACK-*, WO-*, DOC-* from every store
+# Deletes ONLY the prefixes/ids named in purge_test_data.py — NOT `WO-*` or `DOC-*`.
+# Those wildcards are the mental model that once DETACH DELETEd four real documents:
+# real ids are `DOC-` + 12 random chars, so a bare `DOC-X` prefix matched ~1 in 36.
+# Whole ids live in the _EXACT lists and are matched by equality.
+make purge-test-data
 make verify        # Per-layer smoke + latency (PASS/FAIL table); ARGS=--full adds LLM/VLM checks
 make model-gate MODEL=<model-id>   # Layer-0 deployment gate; exits non-zero on regression
+
+# ARCHITECTURE.md §7 — graph query-performance regression check. Asserts plan SHAPE (anchored
+# queries resolve through an index seek), not timings, so it catches the constraint-gone-missing
+# class of bug without going flaky as the corpus grows. Run after any graph schema change.
+make graph-perf
+
+# KG linkage completeness, document-centric, with the unlinked remainder classified.
+docker compose run --rm --no-deps kairos-backend-api python benchmark/run_kg_completeness.py
+
+# Layer-4 corpus backfill. DRY RUN by default — prints the gap and writes nothing.
+# --events is free (no model calls); --entities costs ~1 NIM call per document.
+docker compose run --rm --no-deps kairos-backend-api python scripts/backfill_graph_nodes.py
+docker compose run --rm --no-deps kairos-backend-api python scripts/backfill_graph_nodes.py --events --apply
 
 # Rebuild specific containers
 docker compose up -d --no-deps --build kairos-frontend          # new npm deps only

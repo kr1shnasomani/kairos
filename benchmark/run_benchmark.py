@@ -389,7 +389,12 @@ async def main(retrieval_only: bool, delay: float = 0.0, limit: int = 0, checkpo
         else:
             print(f"    {cat:<22} {d['retr']}/{d['n']} · {d['correct']}/{d['n']} · {d['prov']}/{d['n']}")
     try:
-        print(f"  KG linkage:                        {await _kg_completeness()}")
+        print(f"  KG linkage (assets):               {await _kg_completeness()}")
+        # The PS criterion is document-centric: "assets linked" reads 100% as soon as every asset
+        # has one edge, which is reachability rather than completeness. Imported rather than
+        # reimplemented so both harnesses report the same number.
+        from run_kg_completeness import measure, summary_line
+        print(f"  KG linkage (documents):            {summary_line(await measure())}")
     except Exception as e:  # noqa: BLE001
         print(f"  KG linkage:                        (unavailable: {type(e).__name__})")
     print("  Entity-extraction F1: backend/scripts/run_model_validation.py (Layer-0 model gate)\n")

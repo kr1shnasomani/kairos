@@ -270,7 +270,7 @@ export const API_BASE =
 | `disputeQuarantine(id, reason)` | `POST /governance/quarantine/{id}/dispute` |
 | `getDocuments()` | `GET /documents/?limit=50` |
 | `getDocument(id)` | `GET /documents/{id}` |
-| `synthesize(query)` | `POST /search/synthesize` |
+| `synthesize(query, asOf?, onSources?, onDelta?)` | `POST /search/synthesize` — or `POST /search/synthesize/stream` when `onDelta` is supplied |
 | `getRcaPack(assetId, code)` | `POST /search/rca-pack` |
 | `ackBrief(id, body)` | `POST /briefs/{id}/ack` |
 | `sendBriefFeedback(id, rating, notes)` | `POST /briefs/{id}/feedback` |
@@ -335,6 +335,14 @@ source. Fetchers **throw** on failure. The user always sees **real data**, a **l
 - **Custom-client pages** show an inline "unavailable — retry".
 - **`getComplianceGaps`** treats empty live results as valid (no fixture on empty) and uses a 5 s timeout.
 - **`/management/cross-site`** shows an honest "no data in single-site deployment" state (it has no backend).
+- **Streamed answer text is provisional, never the answer.** Passing `onDelta` to `synthesize()`
+  switches it to the SSE endpoint for progressive render (p95 synthesis is ~65 s, so without it the
+  operator watches a spinner for over a minute). The text is held on `Turn.streaming` and rendered
+  by `Answer`'s `streaming` prop **only while `is_synthesizing`** — it is never merged into
+  `answer`. The backend can still turn a finished answer into a refusal, and it withholds text
+  entirely for safety-critical categories, so rendering a delta as final would show a claim the
+  safety gate is about to retract. On a `restart` event the accumulated text is cleared, because the
+  fallback cascade produced a different answer and concatenating the two would fabricate a hybrid.
 - **`synthesize()` and `getRcaPack()` throw** — they return a bare value, not `Fetched<>`, so
   `useFetch`'s guard never covered them. They previously returned a hardcoded answer with invented
   document IDs on any failure, rendered identically to a real cited answer. `/copilot` now shows a
@@ -379,7 +387,7 @@ Key types:
 | `Role` | `"admin" \| "engineer" \| "field_worker" \| "reliability" \| "compliance"` — `compliance` is the read-only auditor persona |
 | `AuthorityLevel` | `1–5` (lower = higher authority, per Architecture Layer 4) |
 | `Brief` | Full brief shape including sources, warnings, countersignature flag, freeze state |
-| `BriefsResponse` | Brief list + `governor_state` + `suppressed_count` + `next_delivery_allowed_at` |
+| `BriefsResponse` | Brief list + `governor_state` + `suppressed_count` + **`suppressed_held`** (the withheld briefs themselves, rendered under the governor banner — a count alone cannot tell an operator whether the held brief concerns their asset) + `next_delivery_allowed_at` |
 | `GovernorState` | `push_count_last_hour`, `ceiling`, `state` |
 | `Asset` / `AssetDetail` | Asset list item vs full detail with `open_work_orders_count`, `compliance_gap_count` |
 | `KnowledgeConflict` / `QuarantineItem` | Governance types with `sla_due_at`, `is_overdue` |
@@ -595,7 +603,7 @@ All four jobs run in parallel on `ubuntu-latest` with `node:20` and `npm ci` fro
 | `h-screen` → `h-dvh` | ✅ converted |
 | Token colors only (no `bg-white`, `text-gray-*`) | ✅ clean |
 | `@xyflow/react` in `package-lock.json` | ✅ resolved |
-| Test suite | ✅ **150 passed / 58 files** (vitest, one-off container 2026-08-23). Run via `docker compose run --rm --no-deps kairos-frontend npx vitest run` — `docker exec` OOMs because the dev server already holds ~1.85 GB of the 2 GB cap |
+| Test suite | ✅ **154 passed / 59 files** (vitest, one-off container 2026-08-23). Run via `docker compose run --rm --no-deps kairos-frontend npx vitest run` — `docker exec` OOMs because the dev server already holds ~1.85 GB of the 2 GB cap |
 | eslint | ✅ 0 errors (3 pre-existing unused-var warnings) |
 
 ---

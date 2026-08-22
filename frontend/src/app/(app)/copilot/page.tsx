@@ -15,6 +15,10 @@ interface Turn {
   /** Set when retrieval or synthesis failed. The turn shows an error + retry —
    *  never a fabricated answer. */
   error?: string;
+  /** Answer text streamed so far. PROVISIONAL — the safety gate can still replace the whole
+   *  answer with a refusal, and safety-critical categories never stream at all. Held separately
+   *  from `answer` so it is rendered as in-progress text and discarded once `answer` arrives. */
+  streaming?: string;
 }
 
 function InfoPopover({ turnCount, asOf, onClose }: { turnCount: number; asOf: string; onClose: () => void }) {
@@ -84,9 +88,23 @@ export default function CopilotPage() {
       return;
     }
 
-    synthesize(q, at, (partial) => {
-      setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer: partial } : turn)));
-    })
+    synthesize(
+      q,
+      at,
+      (partial) => {
+        setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer: partial } : turn)));
+      },
+      // Progressive render. p95 synthesis is ~65 s against NVIDIA's shared endpoint, so without
+      // this the operator watches a spinner for over a minute.
+      //
+      // `streaming_text` is held on the turn, NOT merged into `answer`: the backend can still
+      // convert a finished answer into a refusal (and withholds text entirely for safety-critical
+      // categories), so this text is provisional until the promise resolves. Rendering it as the
+      // answer would show a claim the safety gate is about to retract.
+      (accumulated) => {
+        setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, streaming: accumulated } : turn)));
+      },
+    )
       .then((answer) => {
         setTurns((t) => t.map((turn) => (turn.id === id ? { ...turn, answer } : turn)));
       })
@@ -195,7 +213,7 @@ export default function CopilotPage() {
                       {t.error ? (
                         <AnswerError message={t.error} onRetry={() => run(t.id, t.query, t.asOf)} />
                       ) : t.answer ? (
-                        <Answer data={t.answer} query={t.query} />
+                        <Answer data={t.answer} query={t.query} streaming={t.streaming} />
                       ) : (
                         <Thinking />
                       )}

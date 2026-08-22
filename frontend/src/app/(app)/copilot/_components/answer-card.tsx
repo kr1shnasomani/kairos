@@ -42,7 +42,13 @@ export function AnswerError({ message, onRetry }: { message: string; onRetry: ()
   );
 }
 
-export function Answer({ data, query = "" }: { data: CopilotAnswer; query?: string }) {
+export function Answer({ data, query = "", streaming }: {
+  data: CopilotAnswer;
+  query?: string;
+  /** Provisional text streamed so far. Rendered only while `data.is_synthesizing` — it has
+   *  no sources or confidence yet and the safety gate may still refuse the whole answer. */
+  streaming?: string;
+}) {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [feedbackFailed, setFeedbackFailed] = useState(false);
 
@@ -174,7 +180,24 @@ export function Answer({ data, query = "" }: { data: CopilotAnswer; query?: stri
           </div>
         </div>
       ) : data.is_synthesizing ? (
-        <Thinking />
+        /* Streamed text while synthesis is still running. Deliberately styled as in-progress,
+           not as an answer: the safety gate can still replace the whole thing with a refusal,
+           and it carries no sources or confidence yet. Safety-critical categories never stream,
+           so this branch shows the plain spinner for exactly the queries where a provisional
+           claim would be most dangerous. */
+        streaming ? (
+          <div aria-live="polite" aria-busy="true">
+            <p className="whitespace-pre-wrap text-body text-ink/85">
+              {streaming}
+              <span className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-accent align-baseline" aria-hidden="true" />
+            </p>
+            <p className="mt-2 text-caption text-muted">
+              Synthesizing — sources and confidence are attached once the answer is complete.
+            </p>
+          </div>
+        ) : (
+          <Thinking />
+        )
       ) : uncertain ? (
         /* Non-safety uncertainty: show answer but call out low evidence */
         <div className="rounded-lg border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_6%,var(--surface))] p-3.5">

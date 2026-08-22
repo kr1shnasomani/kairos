@@ -63,7 +63,7 @@ Tab 10 uses `field_worker@kairos.local` **on purpose** — a judge seeing a narr
 seeing role-based access control without you having to claim it.
 
 **Do not touch during the demo:** `/rca` *generate* (~90 s) · `/governance/model-gate` **Run**
-(~2.5 min async) · `/management/cross-site` (deliberate honest empty state) · any benchmark harness
+(~12 min async) · `/management/cross-site` (deliberate honest empty state) · any benchmark harness
 (`run_safety_eval.py` exhausts provider quota and returns `INVALID`).
 
 ---
