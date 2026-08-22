@@ -5,43 +5,48 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { dmSans, instrumentSans } from "./landing-fonts";
 
+// Every section on the page, in the order you meet them. The header is the only
+// map a first-time reader gets, so a section missing from it is a section they
+// never learn exists. Labels are the short form: eight cells have to share one row.
 const navLinks = [
   ["Problem", "#problem"],
   ["How it works", "#how"],
   ["Capabilities", "#capabilities"],
   ["System", "#system"],
+  ["Use cases", "#field"],
   ["Evals", "#evidence"],
   ["Provenance", "#provenance"],
+  ["FAQ", "#faq"],
 ] as const;
 
 /**
  * The problem, in figures the industry already publishes. Every number is
  * attributed in-copy so a reader can go and check it rather than take it on
- * trust — which is the same standard the product itself is held to.
+ * trust, which is the same standard the product itself is held to.
  */
 const problemStats: { figure: string; label: string; body: string; source: string }[] = [
   {
     figure: "35%",
     label: "of the working day",
-    body: "Time people in asset-heavy industries spend hunting for information, chasing clarification, or rebuilding a document that already exists somewhere.",
+    body: "Time people in asset-heavy industries spend looking for information, chasing someone for an answer, or rebuilding a document that already exists somewhere.",
     source: "McKinsey, 2024",
   },
   {
-    figure: "7–12",
+    figure: "7 to 12",
     label: "disconnected systems",
-    body: "Separate places one large plant keeps its drawings, work orders, procedures, inspection records and regulatory submissions.",
-    source: "NASSCOM–EY",
+    body: "The number of separate places one large plant keeps its drawings, work orders, procedures, inspection records and regulatory filings.",
+    source: "NASSCOM and EY",
   },
   {
-    figure: "18–22%",
+    figure: "18 to 22%",
     label: "of unplanned downtime",
-    body: "Outages traced to maintenance decisions made without the equipment's full history in front of the person deciding.",
+    body: "Outages caused by maintenance decisions made without the equipment's full history in front of the person deciding.",
     source: "BIS Research",
   },
   {
     figure: "25%",
     label: "of experienced engineers",
-    body: "Share of India's industrial engineers and operators retiring within the decade. What they never wrote down leaves with them.",
+    body: "The share of India's industrial engineers and operators who retire within the decade. Whatever they never wrote down leaves with them.",
     source: "Industry estimate",
   },
 ];
@@ -55,27 +60,27 @@ const scenario: { tag: string; title: string; body: string }[] = [
   {
     tag: "The trigger",
     title: "A work order is raised on pump P-101",
-    body: "A technician is assigned to a seal failure. Nobody searches for anything — Kairos sees the work order the moment it is created and starts assembling what the person about to do this job would need to know.",
+    body: "A technician is assigned to a seal failure. Nobody searches for anything. Kairos sees the work order the moment it is created, and starts gathering what the person doing this job needs to know.",
   },
   {
     tag: "What it finds",
     title: "Four failures, a superseded part, an ignored warning",
-    body: "P-101 has failed this way four times in eight years. The vendor changed the seal specification 18 months ago. And six months ago a technician recorded a voice note about unusual vibration that was never formally investigated.",
+    body: "P-101 has failed this way four times in eight years. The vendor changed the seal specification 18 months ago. Six months ago, a technician recorded a voice note about unusual vibration that nobody ever investigated.",
   },
   {
     tag: "The check",
     title: "Each fact is ranked by who said it",
-    body: "A regulation outranks a vendor manual, which outranks a local note. The vibration observation is unverified, so it is shown clearly labelled as unverified rather than mixed in as established fact.",
+    body: "A regulation outranks a vendor manual, and a vendor manual outranks a local note. Nobody has verified the vibration note, so Kairos labels it as unverified instead of mixing it in with established fact.",
   },
   {
     tag: "The delivery",
     title: "A brief reaches the technician before they walk out",
-    body: "One screen on a phone: the history, the part number that changed, the unverified warning, and a link to every source document behind it. They read it before they touch the pump, not after.",
+    body: "One screen on a phone shows the history, the part number that changed, the unverified warning, and a link to every source document behind it. They read it before they touch the pump, not after.",
   },
   {
     tag: "The refusal",
     title: "When the evidence is thin, it says so",
-    body: "Ask it a safety-critical question — a pressure limit, a torque value — and if no authoritative source backs an answer, Kairos refuses and hands you the documents instead. A confident guess in that moment is more dangerous than no answer.",
+    body: "Ask a safety-critical question, such as a pressure limit or a torque value. If no authoritative source supports an answer, Kairos refuses and hands you the documents instead. A confident guess at that moment is more dangerous than no answer at all.",
   },
 ];
 
@@ -100,7 +105,7 @@ const capabilities: {
     Mock: BriefsMock,
     eyebrow: "Briefs",
     title: "Told before you ask, but never spammed",
-    body: "Kairos pushes what you need to know before a job starts — and caps it at six an hour. Flood someone with notifications and they stop reading all of them, which is exactly why plant alarm systems are capped by standard (EEMUA-191). Permit-to-work briefs bypass the cap, because safety work does not wait for a quota.",
+    body: "Kairos sends you what you need to know before a job starts, and caps it at six an hour. Flood someone with notifications and they stop reading all of them. That is why plant alarm systems have a cap by standard (EEMUA-191). Permit-to-work briefs skip the cap, because safety work does not wait for a quota.",
   },
   {
     id: "copilot",
@@ -109,16 +114,16 @@ const capabilities: {
     Mock: CopilotMock,
     eyebrow: "Expert copilot",
     title: "Answers that carry their evidence",
-    body: "Ask in plain language and get back a governed answer with its sources attached, its authority ranked and its confidence stated. Safety-critical questions with thin evidence get an honest refusal card, never a hedge.",
+    body: "Ask in plain language and get back an answer with its sources attached, its authority ranked, and its confidence stated. If a safety-critical question has weak evidence behind it, you get an honest refusal instead of a vague answer.",
   },
   {
     id: "rca",
     name: "Root cause",
-    banner: "Hypotheses ranked by the weight of their evidence, each one traceable",
+    banner: "Likely causes ranked by how much evidence backs them, each one traceable",
     Mock: RcaMock,
     eyebrow: "Maintenance intelligence",
     title: "Root cause, assembled from the record",
-    body: "Kairos fuses work order history, failure records, vendor manuals, inspection findings and live operating conditions into a ranked set of root-cause hypotheses — each with the documents behind it and a timeline of what actually happened. It connects dots no single team member holds.",
+    body: "Kairos combines work order history, failure records, vendor manuals, inspection findings and live operating conditions into a ranked list of likely root causes. Each one comes with the documents behind it and a timeline of what actually happened, so it connects facts that no single person on the team holds.",
   },
   {
     id: "compliance",
@@ -127,16 +132,16 @@ const capabilities: {
     Mock: ComplianceMock,
     eyebrow: "Quality and regulatory",
     title: "Gaps found before the auditor finds them",
-    body: "Twelve seeded frameworks — OISD, PESO, the Factories Act and ISO 45001 among them — mapped continuously against current procedures, equipment state and inspection records. Findings are clause-scoped: a gap means no document of that clause's required type is linked to that asset. Audit evidence packs export on demand.",
+    body: "The demo loads twelve clauses from OISD-117 and ISO 45001, and seven more frameworks ship as options, among them PESO, CEA, IEC 62443 and FDA 21 CFR Part 11. Kairos checks them continuously against current procedures, equipment state and inspection records. Every finding is tied to one clause: a gap means no document of the type that clause requires is linked to that asset. You can export an audit evidence pack at any time.",
   },
   {
     id: "ingestion",
     name: "Ingestion",
-    banner: "A drawing is read for its topology, not flattened into text",
+    banner: "A drawing is read for its layout, not flattened into plain text",
     Mock: IngestionMock,
     eyebrow: "Universal ingestion",
     title: "Every format a plant actually has",
-    body: "Native PDFs, scanned forms, handwritten margin notes, spreadsheets, P&ID drawings and voice notes all enter one pipeline. Drawings go through vision rather than OCR, because OCR destroys the spatial relationships that are the drawing's actual content — which valve isolates which pump.",
+    body: "Native PDFs, scanned forms, handwritten margin notes, spreadsheets, P&ID drawings and voice notes all go through one pipeline. Drawings are read by a vision model rather than OCR, because OCR throws away the layout, and the layout is the real content of a drawing. It is what tells you which valve isolates which pump.",
   },
   {
     id: "assets",
@@ -145,16 +150,16 @@ const capabilities: {
     Mock: AssetsMock,
     eyebrow: "Assets",
     title: "Every asset, and what was true when",
-    body: "One place for an asset's documents, failure history and drawing connections — all of it time-aware. When a fact stops being true, Kairos closes it rather than deleting it, so an investigation months later can still ask what the plant knew back in March.",
+    body: "One place for an asset's documents, failure history and drawing connections, and all of it is dated. When a fact stops being true, Kairos closes it rather than deleting it. An investigation months later can still ask what the plant knew back in March.",
   },
   {
     id: "governance",
     name: "Governance",
-    banner: "The quarantine gate opens one way, and only a human opens it",
+    banner: "The quarantine gate opens one way, and only a person opens it",
     Mock: GovernanceMock,
     eyebrow: "Governance",
     title: "Nothing uncertain reaches the graph",
-    body: "Extractions below 0.7 confidence go to quarantine and stay there. Promotion is a human decision. There is no auto-promote, and contradictions surface before the job starts.",
+    body: "Anything Kairos extracts with less than 0.7 confidence goes to quarantine and stays there. Only a person can release it. Nothing is released automatically, and contradictions show up before the job starts, not after.",
   },
   {
     id: "field",
@@ -163,100 +168,99 @@ const capabilities: {
     Mock: FieldMock,
     eyebrow: "Field capture",
     title: "Capture that survives a dead zone",
-    body: "Voice observations transcribed, tagged to an asset or work order, and queued on the device until there is signal. The technician never loses a finding to a dead zone.",
+    body: "Voice notes are transcribed, tagged to an asset or work order, and held on the device until there is signal. A technician never loses a finding to a dead zone.",
   },
 ];
 
-function SystemOverviewMock() { return <div className="text-(--lp-muted) text-sm flex h-full items-center justify-center">Image placeholder: Overview (Entire Flow)</div>; }
-function SystemClientMock() { return <div className="text-(--lp-muted) text-sm flex h-full items-center justify-center">Image placeholder: Client</div>; }
-function SystemCoreMock() { return <div className="text-(--lp-muted) text-sm flex h-full items-center justify-center">Image placeholder: Core</div>; }
-function SystemOrchMock() { return <div className="text-(--lp-muted) text-sm flex h-full items-center justify-center">Image placeholder: Orchestration</div>; }
-function SystemSvcMock() { return <div className="text-(--lp-muted) text-sm flex h-full items-center justify-center">Image placeholder: Intelligence services</div>; }
-function SystemDataMock() { return <div className="text-(--lp-muted) text-sm flex h-full items-center justify-center">Image placeholder: Data stores</div>; }
-function SystemExtMock() { return <div className="text-(--lp-muted) text-sm flex h-full items-center justify-center">Image placeholder: External APIs</div>; }
+/** System-design diagram. Rendered from `docs/DIAGRAMS.md` to static SVG in
+ *  `public/diagrams/` by `scripts/render_diagrams.sh`. Deliberately not a runtime
+ *  mermaid dependency: seven fixed pictures that only change when that file changes
+ *  do not justify shipping a renderer to every visitor. */
+function SystemDiagramImage({ src, alt }: { src: string; alt: string }) {
+  return (
+    /* eslint-disable-next-line @next/next/no-img-element -- a static vector, which
+       next/image can neither resize nor re-encode; it would add a wrapper and nothing else. */
+    <img
+      src={src}
+      alt={alt}
+      /* Width is the only cap, and it never upscales. A max-height would bind first on
+         the tall diagrams and shrink them further while leaving the panel empty either
+         side; scaling a narrow one up to fill would render its labels at twice the size
+         of the next tab's. Each file carries an explicit width and height, so the box is
+         reserved before the SVG arrives.
 
-const systemDesign = [
+         Below lg the card is only a few hundred px wide, narrow enough that fitting a
+         plant architecture into it does not make it readable, only small. So the diagram
+         keeps its natural width there and the panel scrolls instead.
+         Not lazy: only the active tab's diagram is ever in the DOM. */
+      decoding="async"
+      className="mx-auto h-auto w-auto max-w-none object-contain lg:max-h-full lg:max-w-full"
+    />
+  );
+}
+
+/**
+ * The system-design tabs. The card shows the diagram alone, so `alt` is its only
+ * accessible representation, so it states what the picture shows rather than naming
+ * the file, and is the one place a screen reader gets this content at all.
+ */
+const systemDesign: {
+  id: string;
+  name: string;
+  src: string;
+  alt: string;
+}[] = [
   {
     id: "overview",
     name: "Overview",
-    banner: "System overview · End-to-end flow",
-    Mock: SystemOverviewMock,
-    eyebrow: "System Overview",
-    title: "The complete architecture",
-    body: "The entire system flow end-to-end.",
+    src: "/diagrams/overview.svg",
+    alt: "End-to-end architecture: point of action, application core, async orchestration, intelligence services, knowledge stores and the model plane, with the human-authority gate.",
   },
   {
     id: "client",
-    name: "Presentation",
-    banner: "Presentation · Next.js on Vercel",
-    Mock: SystemClientMock,
-    eyebrow: "Client layer",
-    title: "Field mobile and desktop workspace",
-    body: "An offline-capable PWA provides field mobility, while a desktop workspace serves engineers and admins.",
+    name: "Point of action",
+    src: "/diagrams/client.svg",
+    alt: "Point of action: a role-gated app shell over 44 routes, field surfaces with an offline write queue, and the desktop workspace.",
   },
   {
     id: "core",
     name: "Application core",
-    banner: "Application core · FastAPI behind Caddy",
-    Mock: SystemCoreMock,
-    eyebrow: "API and Authorization",
-    title: "REST API routers and RBAC",
-    body: "FastAPI handles all REST API routing to internal services. OPA manages strict role-based access control for every request.",
+    src: "/diagrams/core.svg",
+    alt: "Application core: rate limit, fail-closed OPA authorization and telemetry middleware, then token and site-scope dependencies, then 12 routers.",
   },
   {
     id: "orch",
     name: "Async orchestration",
-    banner: "Temporal · Celery · Go · Redis",
-    Mock: SystemOrchMock,
-    eyebrow: "Async orchestration",
-    title: "Background tasks and connectors",
-    body: "Temporal manages the complex ingestion pipeline, supported by 6 Celery task queues. Go handles OT connectors, and Redis Streams powers the EEMUA push governor.",
+    src: "/diagrams/orch.svg",
+    alt: "Async orchestration: the durable Temporal ingestion pipeline, six Celery queues, the Go OT connector, and Redis Streams feeding the EEMUA push governor.",
   },
   {
     id: "svc",
     name: "Intelligence services",
-    banner: "Perception · Synthesis · Governance",
-    Mock: SystemSvcMock,
-    eyebrow: "Intelligence services",
-    title: "Perception, Synthesis and Governance",
-    body: "Perception services handle OCR, NER, P&ID vision, and STT. Hybrid search and Copilot drive retrieval and synthesis, safely guarded by the governance module handling conflicts, quarantine, and circuit breakers with human review.",
+    src: "/diagrams/svc.svg",
+    alt: "Intelligence services: perception feeding hybrid retrieval, a two-pass safety gate that either answers with citations or refuses with sources, and a governance layer gated on human authority.",
   },
   {
     id: "data",
-    name: "Knowledge & data stores",
-    banner: "Neo4j · Qdrant · Elasticsearch · Supabase",
-    Mock: SystemDataMock,
-    eyebrow: "Data stores",
-    title: "Polyglot purpose-built storage",
-    body: "Neo4j Aura provides the temporal graph, Qdrant stores vectors, Elasticsearch handles exact match, and Supabase powers Postgres, Auth, Vault, and files.",
+    name: "Knowledge & data",
+    src: "/diagrams/data.svg",
+    alt: "Knowledge and data stores: the Neo4j temporal graph, Qdrant vectors, Elasticsearch exact match and Supabase as the system of record.",
   },
   {
     id: "ext",
-    name: "External model APIs",
-    banner: "NIM · Groq · Jina",
-    Mock: SystemExtMock,
-    eyebrow: "External APIs",
-    title: "Cloud AI inference",
-    body: "NVIDIA NIM runs LLMs, NER, and OCR. Groq powers fast Whisper STT, and Jina provides embedding models.",
+    name: "Model plane",
+    src: "/diagrams/ext.svg",
+    alt: "Model plane: the NIM to OpenRouter to Gemini to Ollama synthesis cascade, plus the OCR, NER, speech and embedding task models.",
   },
 ];
 
-const routing = [
-  ["Low-confidence extraction?", "Quarantine", "Held for a human to promote. Never auto-merged."],
-  ["Conflicting procedures?", "Conflict detection", "Surfaced before the job starts, not in the post-mortem."],
-  ["Field observation?", "Attribution worker", "Transcribed, tagged and routed to engineering review."],
-  ["Safety-critical question?", "Refusal card", "An honest refusal with its sources attached."],
-] as const;
-
-
-
 const audiences = [
-  { name: "Supervisors", title: "The plant on one screen", shot: "workspace", body: "Live service state, open conflicts and quarantine depth, with the decisions that need a human ranked first." },
-  { name: "Reliability", title: "Evidence, not recollection", shot: "reliability", body: "Blast radius and root-cause packs assembled from the graph's own recorded history rather than from memory." },
-  { name: "Field techs", title: "Works when the signal doesn't", shot: "field", body: "Touch-first briefs, asset context and voice capture that queue on the device and sync when the radio returns." },
-  { name: "Compliance officers", title: "Coverage you can export", shot: "compliance", body: "Regulation coverage and gap severity by criticality, with audit packs generated on demand." },
-  { name: "Turnaround", title: "Short windows, no rate limit", shot: "turnaround", body: "Permit-to-work briefs bypass the alarm governor, because an outage window does not wait for an hourly quota." },
-  { name: "Off-boarding", title: "Before the knowledge walks", shot: "offboarding", body: "Structured elicitation that captures what a leaver knows while they are still there to be asked." },
+  { name: "Supervisors", title: "The plant on one screen", shot: "workspace", body: "Live service state, open conflicts and the size of the quarantine queue, with the decisions that need a person ranked first." },
+  { name: "Reliability", title: "Evidence, not recollection", shot: "reliability", body: "Blast radius and root-cause packs built from the recorded history in the graph, not from memory." },
+  { name: "Field techs", title: "Works when the signal doesn't", shot: "field", body: "Briefs, asset context and voice capture built for a phone. They wait on the device and sync when the radio comes back." },
+  { name: "Compliance officers", title: "Coverage you can export", shot: "compliance", body: "Regulation coverage and gap severity, sorted by how critical the asset is, with audit packs you can generate at any time." },
+  { name: "Turnaround", title: "Short windows, no rate limit", shot: "turnaround", body: "Permit-to-work briefs skip the alarm cap, because an outage window does not wait for an hourly quota." },
+  { name: "Off-boarding", title: "Before the knowledge walks", shot: "offboarding", body: "Guided interviews that capture what someone knows before they leave, while they are still there to ask." },
 ] as const;
 
 // Measured 2026-08-16/17 on the live stack, per benchmark/RESULTS.md. Answer quality
@@ -273,9 +277,9 @@ type EvalBar = {
   hero: boolean;
 };
 const evalBars: EvalBar[] = [
-  { label: "Retrieval", note: "Fact reaches context", value: 100, display: "100%", badge: "37/37", sub: "deterministic", hero: false },
+  { label: "Retrieval", note: "The fact reaches the model", value: 100, display: "100%", badge: "37/37", sub: "graded by fixed rules", hero: false },
   { label: "Provenance", note: "Sources cited", value: 100, display: "100%", badge: "37/37", sub: "every answer cited", hero: true },
-  { label: "Answer quality", note: "Single VALID run", value: 89, display: "89%", badge: "33/37", sub: "95% CI 79 to 97", hero: false },
+  { label: "Answer quality", note: "One valid run", value: 89, display: "89%", badge: "33/37", sub: "95% confidence: 79 to 97", hero: false },
 ];
 
 // The five harnesses beyond the Q&A grading, all from benchmark/RESULTS.md.
@@ -288,7 +292,7 @@ const evalSuites: {
   {
     name: "Adversarial safety",
     headline: "0 unsafe",
-    headlineNote: "15 questions built to make it guess",
+    headlineNote: "15 questions written to make it guess",
     rows: [["Unsafe answers", "0"], ["Refusals", "12"], ["Answerable ones answered", "yes"], ["Prompt injection held", "yes"]],
   },
   {
@@ -296,13 +300,13 @@ const evalSuites: {
     // focus, so it belongs on the page as its own figure rather than implied.
     name: "Knowledge graph linkage",
     headline: "10 / 10",
-    headlineNote: "Every asset in the corpus linked, 45 edges",
+    headlineNote: "Every asset in the dataset linked, 45 connections",
     rows: [["Assets linked", "100%"], ["Edges", "45"], ["Alias resolution", "2/2"], ["MDM identity", "2/2"]],
   },
   {
     name: "Proactive briefs · Layer 8",
     headline: "6 / 6",
-    headlineNote: "Graded checks pass; soft targets reported, not scored",
+    headlineNote: "All graded checks pass. Soft targets are reported, not scored",
     rows: [["Work order raised", "2/2"], ["Permit to work", "2/2"], ["Tag-out · inspection", "1/1 · 1/1"], ["Soft targets unmet", "7, disclosed"]],
   },
   {
@@ -314,7 +318,7 @@ const evalSuites: {
   {
     name: "Entity extraction · Layer 0",
     headline: "F1 0.805",
-    headlineNote: "40 labels, 15 extractions, none fell back",
+    headlineNote: "40 labels, 15 extractions, no fallback model used",
     rows: [["Precision", "0.786"], ["Recall", "0.825"], ["ASSET_TAG F1", "0.889 (n=30)"], ["PERSON F1", "1.000 (n=7)"]],
   },
   {
@@ -326,105 +330,142 @@ const evalSuites: {
   {
     name: "Time to a trusted answer",
     headline: "−9.5%",
-    headlineNote: "Modelled, against BM25 keyword search",
+    headlineNote: "Modelled, compared against BM25 keyword search",
     rows: [["Traditional", "100.0 min / 37 q"], ["Kairos", "90.5 min / 37 q"], ["Docs opened", "1.00 vs 1.35"], ["Raw machine time", "loses: 26.7 s vs 35 ms"]],
   },
   {
     name: "Concurrency sweep",
     headline: "0% errors",
-    headlineNote: "2275 requests, 9 read endpoints, to 50 VU",
-    rows: [["p50 · 1 → 50 VU", "136 → 500 ms"], ["p95 at 50 VU", "1840 ms"], ["Throughput", "5.8 → 74.5 rps"], ["First knee", "50 VU (6.75× baseline)"]],
+    headlineNote: "2275 requests across 9 read endpoints, up to 50 users",
+    rows: [["p50 · 1 → 50 VU", "136 → 500 ms"], ["p95 at 50 VU", "1840 ms"], ["Throughput", "5.8 → 74.5 rps"], ["Knee of the curve", "50 users"]],
   },
   {
+    name: "Soak · 60 minutes",
+    headline: "No leak signal",
+    headlineNote: "Steady load against cloud stores, reads only",
+    rows: [["Memory slope", "+8.6 MB/h"], ["Connections", "+4.2/h"], ["Errors", "0.11% of 37,842"], ["Idle recovery", "4 / 4 endpoints"]],
+  },
+  {
+    // Every row here is the same 2026-08-17 run the chart above reports, taken
+    // from one `run_benchmark.py` output. Quoting the percentiles from one run
+    // beside another run's provider mix is the mistake this card is arranged to
+    // prevent — an earlier sweep timed faster and answered 34/37, and its
+    // figures had drifted into the docs.
     name: "Synthesis latency",
-    headline: "p50 32.3 s",
-    headlineNote: "NIM 70B at the 60 s cap, quoted with its tail",
-    rows: [["p95", "65.0 s"], ["Mean", "35.4 s"], ["Graded questions", "37"], ["Answered by", "nim 25 · openrouter 8"]],
+    headline: "p50 32.1 s",
+    headlineNote: "NIM 70B at the 60 second cap, quoted with its slowest cases",
+    rows: [["p95", "66.0 s"], ["Mean", "34.1 s"], ["Graded questions", "37"], ["Answered by", "nim 25 · openrouter 8"]],
   },
 ];
 
-// Stated plainly rather than buried. RESULTS.md tracks these as open gaps.
-const notMeasured: [string, string][] = [
-  ["Soak and sustained load", "Not tested. No evidence here about memory growth or connection leakage over hours."],
-  ["Validation corpus size", "40 labels, ORGANIZATION at n=3 — the golden corpus holds only two unambiguous vendors, so raising it needs new source documents, not more labelling. Quote that per-type F1 with its n."],
-  ["Scale", "50 virtual users against a demo-scale dataset is not evidence for a 10,000-asset deployment."],
-  ["Hybrid retrieval's margin", "Hybrid reaches 35 of 37, and so does semantic alone — +0.0 points, with overlapping intervals at n=37. We report hybrid as matching the best single arm, not beating it. Its real value is authority ordering and staying up when one store is not, and this metric measures neither."],
+/**
+ * The technology under the eight capability screens, plus the cross-cutting work
+ * that never gets a screen of its own. NOT a superset of the tabs and not a
+ * subset either — a different axis, which is why the counts differ and why the
+ * block states that above itself. Seven of the eight tabs have no row here (the
+ * governor, refusals, quarantine, offline capture, root-cause ranking, temporal
+ * supersession), and four rows here have no tab (blast radius, PII redaction,
+ * Management of Change, the drift stop).
+ *
+ * One array rather than two: the page used to split these into "what the brief
+ * asked for" and "what it did not", which is a fact about the assignment rather
+ * than about the product, and a reader has no way to check it. Ten across two
+ * columns fills five rows exactly, so the grid closes with no cell left over.
+ */
+const capabilityList: [string, string][] = [
+  // search_service.hybrid_search: ES + Qdrant always, the graph too once the
+  // question names an asset; _fuse does reciprocal-rank fusion, then orders by
+  // authority_level ASC before relevance.
+  ["Retrieval across mixed document types", "Elasticsearch, Qdrant and the graph queried in parallel, fused by rank, then ordered by authority"],
+  // 6 labels in db/neo4j/init_schema.cypher; the 6 edge properties are the
+  // non-negotiable write contract in CLAUDE.md.
+  ["Knowledge graph and ontology", "Six node types, six properties on every link, decades of tag aliases matched up"],
+  // /compliance/nonconformance reads conflicts + quarantine; moc_items runs
+  // draft → pending_approval → approved, with approved_by and approved_at.
+  ["Non-conformance register", "Conflicts and quarantined extractions tracked in one place, with an owner against each"],
+  ["Management of Change", "A safety parameter never updates itself. Kairos drafts the change request and waits for a named approval."],
+  // document_pipeline.py: every activity carries DEFAULT_RETRY, maximum_attempts 5.
+  ["Durable ingestion", "A Temporal workflow per document, so a crash resumes at the activity that failed rather than at the first page"],
+  // GraphService.get_blast_radius, surfaced by /governance.
+  ["Blast radius", "Change one document and see every procedure and record downstream of it that just went out of date."],
+  // services/pii.py — export boundary only, and the patterns are bounded so
+  // equipment tags and part numbers never match.
+  ["PII redaction at export", "Names are removed on the way out, never on the way in, to meet the DPDP Act 2023. Equipment tags are never matched, on purpose."],
+  // circuit_breaker.check: z > 2.0 on 7-day overrides vs the prior three weeks;
+  // link_to_graph then writes zero edges and raises review_required.
+  ["It stops itself when it drifts", "When corrections on one class of equipment spike, nothing from that class reaches the graph until the rate settles."],
 ];
 
-/** Named because the brief names them, and because a judge will look for them. */
-const briefTech: [string, string][] = [
-  ["RAG over heterogeneous corpora", "Three stores queried in parallel, fused, then re-ranked by authority"],
-  ["Knowledge graph and ontology", "Six node types, six edge properties, decades of tag aliases resolved"],
-  ["Computer vision for P&IDs", "Drawings read for topology — which valve isolates which pump"],
-  ["OCR and document intelligence", "Multi-script and multilingual, with handwriting scored lower on purpose"],
-  ["QMS workflows", "Non-conformance tracking and Management of Change, in-product"],
-  ["Agentic maintenance workflows", "Durable pipelines that survive a crash and resume where they stopped"],
-];
 
-/** Not asked for. Built because the domain demands it. */
-const beyondBrief: [string, string][] = [
-  ["Management of Change", "A safety parameter never updates itself. Kairos drafts the change request and waits for a signature."],
-  ["Blast radius", "Revise one document and see every downstream procedure and record that just went stale."],
-  ["PII redaction at export", "Names stripped before knowledge crosses a site boundary, for the DPDP Act 2023. Equipment tags deliberately never matched."],
-  ["Self-limiting under drift", "When human overrides for an equipment class breach their control limits, extraction halts for that class until retrained."],
+/**
+ * The six properties, shown against one worked example rather than described in
+ * the abstract. The example values are the same fact the hero card states, so the
+ * page tells one story twice rather than two stories once. It is illustrative, and
+ * the block says so in the copy above it.
+ *
+ * `9999-12-31` is not a placeholder: it is the real sentinel this project writes
+ * into `valid_to`, because a NULL there would make every "what was true then"
+ * query special-case the open row.
+ */
+const edgeProperties: { name: string; value: string; note: string }[] = [
+  { name: "valid_from", value: "2025-01-15", note: "When this fact started being true." },
+  { name: "valid_to", value: "9999-12-31", note: "Still open. Closed when something replaces it, never deleted." },
+  { name: "authority_level", value: "3 · OEM manual", note: "A regulation outranks a vendor manual, which outranks a local note." },
+  { name: "document_id", value: "FP-SB-2025-04", note: "The exact source it came from." },
+  { name: "confidence", value: "0.91", note: "Anything below 0.7 goes to quarantine instead." },
+  { name: "verification_status", value: "Verified", note: "A named engineer signed this one off." },
 ];
-
-const edgeProperties = [
-  ["valid_from", "When the fact started being true"],
-  ["valid_to", "Closed on supersession, never deleted"],
-  ["authority_level", "Regulation over vendor over local note"],
-  ["document_id", "The source it came from"],
-  ["confidence", "Below 0.7 and it goes to quarantine"],
-  ["verification_status", "Whether a human has signed it off"],
-] as const;
 
 const faqGroups = [
   {
     name: "Basics",
     items: [
-      ["What does Kairos actually do?", "It turns the documents, drawings, asset history and field observations a plant already owns into answers people can act on, each one carrying the source it came from, how authoritative that source is, and how confident the system is."],
-      ["How is this different from a chatbot over our documents?", "A chatbot returns text. Kairos returns text plus provenance, and refuses when the question is safety-critical and the evidence is thin. Retrieval and citation are graded deterministically, not by another model."],
-      ["What does it need to get started?", "The documents you already have. Drawings, procedures, vendor manuals and maintenance history go through the ingestion pipeline; nothing has to be rewritten first."],
+      ["What does Kairos actually do?", "It turns the documents, drawings, asset history and field notes a plant already owns into answers people can act on. Every answer shows the source it came from, how authoritative that source is, and how confident the system is."],
+      ["How is this different from a chatbot over our documents?", "A chatbot gives you text. Kairos gives you text plus proof of where it came from, and refuses to answer when a safety-critical question has weak evidence behind it. We grade retrieval and citations with fixed rules, not with another model."],
+      ["What does it need to get started?", "The documents you already have. Drawings, procedures, vendor manuals and maintenance history all go through the ingestion pipeline. Nothing has to be rewritten first."],
     ],
   },
   {
     name: "Governance",
     items: [
-      ["What happens when the system is not sure?", "Extractions below 0.7 confidence go to quarantine and stay there until a human promotes them. Nothing low-confidence reaches the knowledge graph on its own."],
-      ["Can it refuse to answer?", "Yes, and it will. A safety-critical question without solid evidence gets a refusal card carrying its sources, so you can check the ground yourself rather than trust a hedge."],
-      ["Why limit how many briefs someone gets?", "EEMUA-191 exists because operators stop reading alarms when there are too many. The same is true of knowledge. Six an hour, with permit-to-work always exempt."],
+      ["What happens when the system is not sure?", "Anything extracted with less than 0.7 confidence goes to quarantine and stays there until a person releases it. Nothing uncertain reaches the knowledge graph on its own."],
+      ["Can it refuse to answer?", "Yes, and it does. A safety-critical question without solid evidence gets a refusal that still lists its sources, so you can check them yourself instead of trusting a vague answer."],
+      ["Why limit how many briefs someone gets?", "The EEMUA-191 standard exists because operators stop reading alarms when there are too many of them. The same happens with knowledge. So the limit is six an hour, and permit-to-work briefs are always exempt."],
+      ["Who gets told when Kairos finds something?", "Whoever owns the decision, and nothing sits in a queue waiting to be noticed. An extraction it is not confident in goes to quarantine and waits for a person. Two procedures that disagree raise a conflict before the job starts, not in the post-mortem. An observation from the field is transcribed, tagged and sent to engineering for review. A safety question with thin evidence returns a refusal card with its sources attached."],
     ],
   },
   {
     name: "Data",
     items: [
-      ["Is anything ever deleted?", "No. The vault is permanent and storage is immutable. A fact that stops being true has its validity closed, which means the history of what you knew, and when, survives."],
-      ["Can we see where an answer came from?", "Every fact carries six properties on the edge itself, including the source document and whether a human verified it. Every answer lists its sources."],
-      ["Does it work without connectivity?", "Field capture does. Observations are queued on the device and sent when signal returns."],
+      ["Is anything ever deleted?", "No. The vault is permanent and stored files are never changed. When a fact stops being true, Kairos closes it instead of removing it, so the record of what you knew, and when you knew it, survives."],
+      ["Can we see where an answer came from?", "Every fact carries six properties on the link itself, including the source document and whether a person verified it. Every answer lists its sources."],
+      ["Does it work without connectivity?", "Field capture does. Notes are held on the device and sent once there is signal again."],
     ],
   },
   {
     name: "Access",
     items: [
-      ["Who can see what?", "Access follows the role. Field workers get briefs, copilot, assets and capture; engineering and reliability get evidence and governance surfaces; system health is admin only. The guard is central, not per-page."],
-      ["Does it work offline?", "Field capture does. Observations queue on the device and sync when the radio returns, so a dead zone never costs you a finding."],
-      ["Can we try it without a rollout?", "Yes. The demo account signs straight into a seeded workspace with the golden dataset loaded, so you can interrogate real answers rather than a slide."],
+      ["Who can see what?", "Access follows the role. Field workers get briefs, copilot, assets and capture. Engineering and reliability get the evidence and governance screens. System health is admin only. The check happens in one central place, not page by page."],
+      ["What happens if the permission service goes down?", "Access is refused. The check fails closed, so an outage locks people out rather than letting everyone through, and the same rule covers reads as well as writes."],
+      ["Can we try it without a rollout?", "Yes. The demo account signs straight into a workspace with the golden dataset already loaded, so you can question real answers instead of looking at a slide."],
     ],
   },
   {
     name: "Evidence",
     items: [
-      ["How was it evaluated?", "Thirty-seven domain-expert questions across fifteen categories, graded deterministically. Retrieval, answer quality and provenance are scored separately, and a refusal counts as a correct outcome where refusing was right."],
-      ["Why quote a confidence interval for answer quality?", "Because 33 out of 37 is a sample, not a constant. The interval says the honest thing a bare percentage hides: on this corpus the true rate sits somewhere around 79 to 97 percent. Retrieval and provenance are deterministic and held at 37/37. Every run also carries a validity verdict, and a run served by a fallback model is not quoted at all."],
-      ["Can we see the failures too?", "Yes. The harness, the question set and the raw numbers all live in the repository, including the runs where answers were wrong."],
+      ["How was it evaluated?", "Thirty-seven questions written by domain experts across fifteen categories, graded by fixed rules. Retrieval, answer quality and sourcing are scored separately, and a refusal counts as correct when refusing was the right call."],
+      ["Why quote a confidence interval for answer quality?", "Because 33 out of 37 is a sample, not a fixed rate. The interval says the honest thing a single percentage hides: on this set of questions the true rate sits somewhere around 79 to 97 percent. Retrieval and sourcing are graded by fixed rules and stay at 37 out of 37. Every run is also checked for validity, and we never quote a run that a fallback model answered."],
+      ["What do these numbers not cover?", "Four things, and we would rather name them. The soak test ran for one hour, so it says nothing about days. The validation set is small: 40 labels in total and only 3 for ORGANIZATION, so quote a per-type score with the number of labels behind it. Fifty virtual users against a demo-sized dataset is not evidence that the system handles a 10,000-asset plant. And hybrid retrieval reaches 35 of 37, which is exactly what semantic search alone reaches, so we report it as matching the best single method rather than beating it."],
+      ["Is any of this running against a real plant?", "No. Every figure is measured against a golden dataset we wrote ourselves, and Kairos is not connected to any live plant. That is the intended limit of this MVP. We would rather say so than let a number imply otherwise."],
+      ["Can we see the failures too?", "Yes. The test harness, the question set and every raw run are in the repository, including the runs where the answer was wrong."],
     ],
   },
 ] as const;
 
 // Footer links point only at real destinations: page anchors and /login.
 const footerColumns: { heading: string; links: [string, string][] }[] = [
-  { heading: "Product", links: [["Capabilities", "#capabilities"], ["Platform", "#platform"], ["Use cases", "#field"]] },
-  { heading: "How it works", links: [["System design", "#system"], ["Provenance", "#provenance"], ["Evals", "#evidence"]] },
+  { heading: "Product", links: [["Capabilities", "#capabilities"], ["Use cases", "#field"]] },
+  { heading: "How it works", links: [["System design", "#system"], ["Provenance", "#provenance"], ["Evals", "#evidence"], ["FAQ", "#faq"]] },
 ];
 
 const developers = ["Krishna Somani", "Arnav Bansal", "M Arshad"];
@@ -488,7 +529,7 @@ function CopilotMock() {
       </div>
 
       <div className="mt-3 max-w-[92%] border-l-2 border-(--lp-accent) bg-white p-3">
-        <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-(--lp-accent-text)">Governed answer</p>
+        <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-(--lp-accent-text)">Checked answer</p>
         <div className="mt-2 space-y-1.5" aria-hidden="true">
           <span className="block h-1.5 bg-(--lp-band)" />
           <span className="block h-1.5 w-5/6 bg-(--lp-band)" />
@@ -514,13 +555,18 @@ function CopilotMock() {
   );
 }
 
-/** Assets: a time slider over a small graph, with one edge superseded. */
+/**
+ * Assets: a time slider over a small graph, with one edge superseded. Both edges
+ * are real: V-247's isolation boundary is engineer-verified P&ID topology, and
+ * FSL-2240A → FSL-2240B is the seal supersession the golden dataset is built
+ * around (`FP-SB-2025-04`, 15 Jan 2025).
+ */
 function AssetsMock() {
   return (
     <div>
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-white/75">Graph as of</p>
-        <span className="bg-black/60 px-2 py-1 text-[11px] font-semibold text-white">2026-03-01</span>
+        <span className="bg-black/60 px-2 py-1 text-[11px] font-semibold text-white">2025-05-15</span>
       </div>
 
       <div className="relative mt-3 h-1 bg-white/30">
@@ -531,27 +577,27 @@ function AssetsMock() {
       </div>
 
       <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-        <Slab className="text-center font-semibold">P-101</Slab>
+        <Slab className="text-center font-semibold">V-247</Slab>
         <div className="text-center">
-          <p className="text-[9px] uppercase tracking-[0.06em] text-white/80">feeds</p>
+          <p className="text-[9px] uppercase tracking-[0.06em] text-white/80">isolated by</p>
           <div aria-hidden="true" className="my-1 h-px bg-(--lp-accent)" />
           <p className="text-[9px] text-white/70">verified</p>
         </div>
-        <Slab className="text-center font-semibold">HX-204</Slab>
+        <Slab className="text-center font-semibold">XV-203</Slab>
       </div>
 
       <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2 opacity-55">
-        <Slab className="text-center line-through">Seal plan 52</Slab>
+        <Slab className="text-center line-through">FSL-2240A</Slab>
         <div className="text-center">
           <p className="text-[9px] uppercase tracking-[0.06em] text-white/80">superseded</p>
           <div aria-hidden="true" className="my-1 h-px border-t border-dashed border-white/70" />
           <p className="text-[9px] text-white/70">valid_to closed</p>
         </div>
-        <Slab className="text-center font-semibold">Seal plan 53</Slab>
+        <Slab className="text-center font-semibold">FSL-2240B</Slab>
       </div>
 
       <p className="mt-4 bg-black/45 px-3 py-2 text-[11px] text-white/85">
-        Nothing was deleted. The old fact still answers questions about last March.
+        Nothing was deleted. The old part number still answers questions about the May 2025 repair.
       </p>
     </div>
   );
@@ -579,14 +625,17 @@ function GovernanceMock() {
         ))}
       </div>
 
+      {/* Counted off the rows above rather than typed in: a tile that disagreed
+          with the three lines directly over it is the one thing this panel
+          cannot afford to get wrong. */}
       <div className="mt-4 grid grid-cols-2 gap-2">
         <div className="border border-white/40 px-3 py-2.5 text-center">
-          <p className="lp-display text-[24px] text-white">2</p>
+          <p className="lp-display text-[24px] text-white">{rows.filter(([, , promoted]) => promoted).length}</p>
           <p className="mt-1 text-[10px] uppercase tracking-[0.06em] text-white/75">Into the graph</p>
         </div>
         <div className="bg-white px-3 py-2.5 text-center">
-          <p className="lp-display text-[24px] text-(--lp-accent-text)">12</p>
-          <p className="mt-1 text-[10px] uppercase tracking-[0.06em] text-(--lp-muted)">In quarantine</p>
+          <p className="lp-display text-[24px] text-(--lp-accent-text)">{rows.filter(([, , promoted]) => !promoted).length}</p>
+          <p className="mt-1 text-[10px] uppercase tracking-[0.06em] text-(--lp-muted)">Held for review</p>
         </div>
       </div>
       <p className="mt-3 text-center text-[11px] text-white/85">Promotion is a human decision. There is no auto-promote.</p>
@@ -636,9 +685,9 @@ function FieldMock() {
   );
 }
 
-/** Ingestion: the heterogeneous-input claim, shown as four formats into one graph. */
+/** Ingestion: the heterogeneous-input claim, shown as six formats into one graph. */
 function IngestionMock() {
-  // The PS names six input classes. All six are handled, so all six are shown —
+  // The PS names six input classes. All six are handled, so all six are shown:
   // spreadsheets and email archives are the two people assume you skipped.
   const inputs = [
     ["Native PDF", "Parsed direct · no API cost"],
@@ -650,7 +699,7 @@ function IngestionMock() {
   ] as const;
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-white/75">One pipeline · four kinds of source</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-white/75">One pipeline · six kinds of source</p>
       <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
         {inputs.map(([name, how]) => (
           <Slab key={name}>
@@ -676,7 +725,7 @@ function IngestionMock() {
       </div>
 
       <p className="mt-4 bg-black/45 px-3 py-2 text-[11px] text-white/85">
-        A drawing is read for its topology, not its text. OCR would flatten which valve isolates which pump.
+        Six formats, one path. A voice note and a P&amp;ID land in the same three stores, so either can answer the same question.
       </p>
     </div>
   );
@@ -685,7 +734,7 @@ function IngestionMock() {
 /** RCA: hypotheses ranked by evidence weight, with the timeline behind them. */
 function RcaMock() {
   const hypotheses = [
-    ["Thermal cycling fatigue", 82, "4 prior failures · telemetry"],
+    ["Thermal cycling fatigue", 82, "3 prior failures · telemetry"],
     ["Superseded seal variant", 61, "OEM bulletin FP-SB-2025-04"],
     ["Bearing housing clearance", 28, "1 unverified field note"],
   ] as const;
@@ -713,12 +762,17 @@ function RcaMock() {
   );
 }
 
-/** Compliance: clause-scoped coverage, with one genuine gap flagged. */
+/**
+ * Compliance: clause-scoped coverage in the three states the API actually
+ * returns. Every row is a real finding from `GET /compliance/gaps` on the golden
+ * dataset, and the clause numbers belong to the framework they are labelled
+ * with: 4.x is OISD-117, 8.x to 10.x is ISO 45001 (`seed_regulations.py`).
+ */
 function ComplianceMock() {
   const clauses = [
-    ["OISD-117 · 8.1.1", "EQ-101", "Covered"],
-    ["OISD-117 · 9.1.1", "EQ-102", "Gap"],
-    ["ISO 45001 · 4.1.1", "HE-301", "Covered"],
+    ["OISD-117 · 4.1.1", "EQ-101", "Covered"],
+    ["ISO 45001 · 9.1.1", "EQ-102", "Gap"],
+    ["OISD-117 · 4.1.2", "EQ-101", "Unverified"],
   ] as const;
   return (
     <div>
@@ -728,7 +782,15 @@ function ComplianceMock() {
           <div key={clause} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 bg-white px-3 py-2">
             <span className="truncate text-[12px] text-(--lp-ink)">{clause}</span>
             <span className="text-[11px] text-(--lp-muted)">{asset}</span>
-            <span className={`px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em] ${state === "Gap" ? "bg-(--lp-accent-strong) text-white" : "bg-(--lp-band) text-(--lp-muted)"}`}>
+            <span
+              className={`px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em] ${
+                state === "Gap"
+                  ? "bg-(--lp-accent-strong) text-white"
+                  : state === "Unverified"
+                    ? "border border-(--lp-accent) text-(--lp-accent-text)"
+                    : "bg-(--lp-band) text-(--lp-muted)"
+              }`}
+            >
               {state}
             </span>
           </div>
@@ -745,196 +807,8 @@ function ComplianceMock() {
           <p className="mt-1 text-[10px] uppercase tracking-[0.06em] text-white/75">False positives</p>
         </div>
       </div>
-      <p className="mt-3 text-center text-[11px] text-white/85">A gap means no document of that clause&apos;s required type is linked to that asset.</p>
+      <p className="mt-3 text-center text-[11px] text-white/85">A gap means no document of that clause&apos;s required type is linked to that asset. Evidence nobody has verified is called out, never counted as covered.</p>
     </div>
-  );
-}
-
-/**
- * Architecture diagram. Real SVG: service boxes, rounded source nodes, diamond
- * decision gates, datastore cylinders and directed edges with arrowheads.
- * Text is real <text>, so it scales, stays selectable and is read aloud in
- * order. The wrapper scrolls horizontally rather than letting it squash.
- */
-const DIAGRAM_LABEL = "fill-white text-[13px] font-medium";
-const DIAGRAM_SUB = "fill-[var(--lp-dark-muted)] text-[11px]";
-const DIAGRAM_LAYER = "fill-[var(--lp-accent)] text-[10px] font-semibold tracking-[0.08em]";
-const EDGE_LABEL = "fill-[var(--lp-dark-muted)] text-[10px] uppercase tracking-[0.08em]";
-
-/**
- * One stage in the pipeline: a surface panel with an accent spine on its left
- * edge and a layer chip. Module scope, because defining it inside
- * SystemDiagram would mint a new component type on every render.
- */
-function Stage({ x, y, w, h, tag, name, note }: { x: number; y: number; w: number; h: number; tag: string; name: string; note?: string }) {
-  return (
-    <g>
-      <rect x={x} y={y} width={w} height={h} fill="url(#lp-panel)" stroke="var(--lp-dark-line)" strokeWidth="1" />
-      <rect x={x} y={y} width="3" height={h} fill="var(--lp-accent)" />
-      {/* layer chip */}
-      <rect x={x + w - 78} y={y + 12} width="62" height="18" fill="var(--lp-accent)" opacity="0.16" />
-      <text x={x + w - 47} y={y + 25} textAnchor="middle" className={DIAGRAM_LAYER}>{tag}</text>
-      <text x={x + 20} y={y + 30} className="fill-white text-[16px] font-semibold">{name}</text>
-      {note ? <text x={x + 20} y={y + 52} className={DIAGRAM_SUB}>{note}</text> : null}
-    </g>
-  );
-}
-
-/** A one-way exit: the two places the pipeline deliberately stops. */
-function ExitNode({ x, y, tag, name, note }: { x: number; y: number; tag: string; name: string; note: string }) {
-  return (
-    <g>
-      <rect x={x} y={y} width="190" height="72" fill="var(--lp-dark-surface)" stroke="var(--lp-accent)" strokeWidth="1.5" />
-      <rect x={x} y={y} width="190" height="3" fill="var(--lp-accent)" />
-      <text x={x + 16} y={y + 26} className={DIAGRAM_LAYER}>{tag}</text>
-      <text x={x + 16} y={y + 46} className="fill-white text-[14px] font-semibold">{name}</text>
-      <text x={x + 16} y={y + 62} className={DIAGRAM_SUB}>{note}</text>
-    </g>
-  );
-}
-
-/**
- * Architecture diagram. Real SVG: source nodes, service panels, diamond
- * decision gates, datastore cylinders and directed edges with arrowheads.
- * Text is real <text>, so it scales, stays selectable and is read in order.
- */
-function SystemDiagram() {
-  return (
-    <svg
-      viewBox="0 0 980 940"
-      className="lp-diagram h-auto w-full min-w-[900px]"
-      role="img"
-      aria-label="Kairos architecture. Four source types feed the perception layer. A confidence gate at 0.70 sends low-confidence extractions one way into quarantine; the rest pass to identity resolution and the temporal knowledge graph, backed by Neo4j, Qdrant and Elasticsearch. Governance checks conflicts, supersession and coverage, then a safety gate diverts thin-evidence safety questions to a refusal card. Everything else reaches delivery as governed briefs, copilot answers, field capture and audit packs."
-    >
-      <defs>
-        <marker id="lp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M0 0 10 5 0 10z" fill="var(--lp-accent)" />
-        </marker>
-        <marker id="lp-arrow-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M0 0 10 5 0 10z" fill="var(--lp-dark-muted)" />
-        </marker>
-        <linearGradient id="lp-panel" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#1b1b1b" />
-          <stop offset="100%" stopColor="#121212" />
-        </linearGradient>
-        <linearGradient id="lp-gate" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#2a1409" />
-          <stop offset="100%" stopColor="#150a05" />
-        </linearGradient>
-        <pattern id="lp-dots" width="22" height="22" patternUnits="userSpaceOnUse">
-          <circle cx="1" cy="1" r="1" fill="#ffffff" opacity="0.05" />
-        </pattern>
-      </defs>
-
-      {/* plotting field, so the diagram reads as a designed surface */}
-      <rect x="0" y="0" width="980" height="940" fill="url(#lp-dots)" />
-
-      <g stroke="var(--lp-accent)" strokeWidth="1.5" fill="none">
-        <path d="M130 100v30M330 100v30M530 100v30M710 100v30" />
-        <path d="M130 130h580" />
-        <path d="M490 832v18" />
-        <path d="M130 850h580" />
-        <path d="M130 850v8M330 850v8M530 850v8M710 850v8" />
-      </g>
-
-      <g className="lp-flow" stroke="var(--lp-accent)" strokeWidth="1.5" markerEnd="url(#lp-arrow)" fill="none">
-        <path d="M490 130v46" />
-        <path d="M490 262v54" />
-        <path d="M490 409v55" />
-        <path d="M490 560v52" />
-        <path d="M490 692v44" />
-        <path d="M130 858v14M330 858v14M530 858v14M710 858v14" />
-      </g>
-
-      {/* one-way exits, dashed so they read as diversions */}
-      <g className="lp-flow" stroke="var(--lp-accent)" strokeWidth="1.5" markerEnd="url(#lp-arrow)" fill="none">
-        <path d="M612 362h134" />
-        <path d="M622 786h124" />
-      </g>
-
-      {/* datastores: reads and writes, not flow, so dimmer and bidirectional */}
-      <g stroke="var(--lp-dark-muted)" strokeWidth="1" strokeDasharray="3 3" markerEnd="url(#lp-arrow-dim)" markerStart="url(#lp-arrow-dim)" fill="none" opacity="0.8">
-        <path d="M276 512H262" />
-      </g>
-
-      {/* edge labels */}
-      <text x="500" y="155" className={EDGE_LABEL}>ingest</text>
-      <text x="500" y="292" className={EDGE_LABEL}>score</text>
-      <text x="500" y="590" className={EDGE_LABEL}>check</text>
-      <text x="500" y="718" className={EDGE_LABEL}>synthesise</text>
-
-      <text x="40" y="34" className={DIAGRAM_LAYER}>SOURCES</text>
-      {[
-        ["Drawings, P&IDs", 40],
-        ["Procedures", 240],
-        ["OT tag history", 440],
-        ["Voice notes", 620],
-      ].map(([t, x]) => (
-        <g key={t as string}>
-          <rect x={x as number} y={48} width={180} height={52} rx="26" fill="url(#lp-panel)" stroke="var(--lp-dark-line)" strokeWidth="1" />
-          <text x={(x as number) + 90} y={79} textAnchor="middle" className={DIAGRAM_LABEL}>{t as string}</text>
-        </g>
-      ))}
-
-      <Stage x={280} y={176} w={420} h={86} tag="L0 · L3" name="Perception" note="OCR · entity extraction · transcription" />
-
-      {/* confidence gate */}
-      <path d="M490 316 612 362 490 408 368 362z" fill="url(#lp-gate)" stroke="var(--lp-accent)" strokeWidth="1.5" />
-      <text x="490" y="358" textAnchor="middle" className="fill-white text-[13px] font-semibold">confidence</text>
-      <text x="490" y="376" textAnchor="middle" className="fill-white text-[13px] font-semibold">≥ 0.70?</text>
-      <text x="622" y="352" className="fill-[var(--lp-accent)] text-[11px] font-semibold">no</text>
-      <text x="502" y="440" className="fill-[var(--lp-accent)] text-[11px] font-semibold">yes</text>
-      <ExitNode x={746} y={326} tag="L6 · ONE-WAY" name="Quarantine" note="Human promotion only" />
-
-      <Stage x={280} y={464} w={420} h={96} tag="L1 · L4" name="Identity and temporal graph" note="MDM merge · valid_from / valid_to · authority" />
-
-      {/* backing stores */}
-      <text x="40" y="452" className={DIAGRAM_LAYER}>STORES</text>
-      {[["Neo4j", 470], ["Qdrant", 514], ["Elasticsearch", 558]].map(([t, y]) => {
-        const top = y as number;
-        return (
-          <g key={t as string}>
-            <rect x={60} y={top} width={196} height={28} fill="url(#lp-panel)" stroke="var(--lp-dark-line)" strokeWidth="1" />
-            <ellipse cx={158} cy={top + 28} rx="98" ry="7" fill="url(#lp-panel)" stroke="var(--lp-dark-line)" strokeWidth="1" />
-            <ellipse cx={158} cy={top} rx="98" ry="7" fill="var(--lp-dark)" stroke="var(--lp-dark-line)" strokeWidth="1" />
-            <text x={158} y={top + 19} textAnchor="middle" className="fill-white text-[12px]">{t as string}</text>
-          </g>
-        );
-      })}
-
-      <Stage x={280} y={612} w={420} h={80} tag="L7" name="Governance" note="conflicts · supersession · coverage gaps" />
-
-      {/* safety gate */}
-      <path d="M490 736 622 786 490 836 358 786z" fill="url(#lp-gate)" stroke="var(--lp-accent)" strokeWidth="1.5" />
-      <text x="490" y="782" textAnchor="middle" className="fill-white text-[13px] font-semibold">evidence</text>
-      <text x="490" y="800" textAnchor="middle" className="fill-white text-[13px] font-semibold">sufficient?</text>
-      <text x="632" y="776" className="fill-[var(--lp-accent)] text-[11px] font-semibold">no</text>
-      <text x="502" y="862" className="fill-[var(--lp-accent)] text-[11px] font-semibold">yes</text>
-      <ExitNode x={746} y={750} tag="L11 · ONE-WAY" name="Refusal card" note="Carries its sources" />
-
-      {/* legend */}
-      <g transform="translate(746, 862)">
-        <line x1="0" y1="6" x2="26" y2="6" stroke="var(--lp-accent)" strokeWidth="1.5" />
-        <text x="34" y="10" className={DIAGRAM_SUB}>flow</text>
-        <line x1="0" y1="28" x2="26" y2="28" stroke="var(--lp-accent)" strokeWidth="1.5" strokeDasharray="5 4" />
-        <text x="34" y="32" className={DIAGRAM_SUB}>one-way exit</text>
-        <line x1="0" y1="50" x2="26" y2="50" stroke="var(--lp-dark-muted)" strokeWidth="1" strokeDasharray="3 3" />
-        <text x="34" y="54" className={DIAGRAM_SUB}>read / write</text>
-      </g>
-
-      <text x="40" y="842" className={DIAGRAM_LAYER}>DELIVERY</text>
-      {[
-        ["Governed briefs", 40],
-        ["Expert copilot", 240],
-        ["Field capture", 440],
-        ["Audit packs", 620],
-      ].map(([t, x]) => (
-        <g key={t as string}>
-          <rect x={x as number} y={872} width={180} height={50} rx="25" fill="var(--lp-accent-strong)" />
-          <text x={(x as number) + 90} y={902} textAnchor="middle" className="fill-white text-[13px] font-semibold">{t as string}</text>
-        </g>
-      ))}
-    </svg>
   );
 }
 
@@ -1104,81 +978,290 @@ function Box({ children, fill = false }: { children: React.ReactNode; fill?: boo
 /**
  * Hero artwork. Designed rather than a screenshot, mirroring how the reference
  * leads with a rendered scene and saves product captures for the use-case
- * panels. It shows the actual claim: four kinds of source converging into one
- * governed answer that carries its provenance.
+ * panels. It shows the actual claim: every source system the plant owns, wired
+ * into one governed answer that carries its evidence on its face.
+ *
+ * The geometry is computed, never eyeballed. One ellipse defines everything —
+ * where a chip sits, where its wire starts, where the rings are drawn — so a
+ * chip can never drift off the orbit or a wire end up connected to nothing.
+ * `ORBIT` is in the SVG's user units; the chips read the same points back as
+ * percentages, and `preserveAspectRatio="none"` maps the viewBox onto the field
+ * exactly, so the two coordinate systems stay locked together at any width.
+ *
+ * Layout is one tree, two shapes. Below `lg` the chips are a wrapped row above
+ * the card; from `lg` up the wrapper becomes `display: contents` and each chip
+ * takes its place on the ring from `--orbit-x` / `--orbit-y`. Same DOM, so the
+ * card's text is never duplicated for a screen reader. The break is `lg` and
+ * not `sm` because the orbit needs a chip's width clear either side of the
+ * card: below roughly 1000px of panel the two collide.
  */
+const ORBIT = {
+  cx: 500,
+  cy: 265,
+  /* The chip ring. rx is capped near 41% of the field: any wider and the
+     outermost chip's own width pushes it past the panel edge. */
+  rx: 400,
+  /* Tall enough that the 120°/60° pair clears the top of the answer card. The
+     field is short, so this is the measurement the whole composition turns on. */
+  ry: 256,
+  /* Where the wires terminate: the same ellipse scaled down, which is what makes
+     every spoke exactly radial. A third of the way in puts it well inside the
+     answer card at every breakpoint, so all ten vanish beneath the card rather
+     than stopping in mid-air against its edge. */
+  hub: 0.33,
+} as const;
+
+/** A point on an ellipse concentric with the orbit. Degrees, 0° = due right. */
+function orbitPoint(deg: number, rx: number, ry: number): [number, number] {
+  const rad = (deg * Math.PI) / 180;
+  return [ORBIT.cx + rx * Math.cos(rad), ORBIT.cy - ry * Math.sin(rad)];
+}
+
+/**
+ * The spoke from a chip in to the hub. Start and end sit on concentric copies of
+ * the same ellipse, so the line is exactly radial: ten spokes on one centre read
+ * as a system converging, where ten curves crossing four rings read as clutter.
+ */
+function orbitWire(deg: number): string {
+  const [x0, y0] = orbitPoint(deg, ORBIT.rx, ORBIT.ry);
+  const [x1, y1] = orbitPoint(deg, ORBIT.rx * ORBIT.hub, ORBIT.ry * ORBIT.hub);
+  return `M ${x0.toFixed(1)} ${y0.toFixed(1)} L ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+}
+
+/**
+ * Five sources a side, mirrored across the vertical, which is what makes the ring
+ * read as deliberate. They span 60° either side of horizontal rather than the
+ * full 90°: the field is twice as wide as it is tall, so equal angles bunch the
+ * top and bottom pairs against the card while leaving the flanks empty. `cited` marks the three the
+ * answer card actually stands on: those get the accent wire and the pulse, the
+ * other seven stay connected but quiet. Array order is the phone reading order,
+ * where the ring collapses to a wrapped row.
+ */
+const heroSources: { tag: string; label: string; deg: number; cited?: boolean }[] = [
+  { tag: "DWG", label: "P&IDs and drawings", deg: 120 },
+  { tag: "OEM", label: "Vendor manuals", deg: 150, cited: true },
+  { tag: "OT", label: "OT tag history", deg: 180 },
+  { tag: "NDT", label: "Inspection reports", deg: 210 },
+  { tag: "AUDIO", label: "Field voice notes", deg: 240, cited: true },
+  { tag: "REG", label: "Regulations", deg: 60, cited: true },
+  { tag: "CMMS", label: "Work orders", deg: 30 },
+  { tag: "SOP", label: "Standard procedures", deg: 0 },
+  { tag: "LOG", label: "Shift handovers", deg: -30 },
+  { tag: "PTW", label: "Permits to work", deg: -60 },
+];
+
+/**
+ * The three sources behind the answer on the card. Every one is a real record in
+ * the golden dataset (`dataset/00_Reference/00_KAIROS_CANON.md` § Master
+ * Timeline), and FP-SB-2025-04 is retrievable from the running system, so a
+ * judge who asks the product this question gets this citation back. The third is
+ * deliberately unverified: disclosing weak evidence rather than blending it into
+ * the rest is the whole product argument, so the hero states it instead of
+ * hiding it.
+ */
+const heroEvidence: { doc: string; tier: string; date: string; unverified?: boolean }[] = [
+  { doc: "FP-SB-2025-04", tier: "OEM", date: "15 Jan 25" },
+  { doc: "WO-2025-0631", tier: "Site record", date: "15 May 25" },
+  { doc: "Vibration note, unlogged", tier: "Unverified", date: "15 Jan 26", unverified: true },
+];
+
+/* Ring radii as multiples of the orbit. 1 is the chip ring itself; the wider one
+   frames it, and the inner one shows only as slivers either side of the card,
+   which is what gives the field depth rather than a single flat hoop. */
+/* Graduations around the chip ring, every 7.5°. Chip angles are all multiples of
+   30, so a tick lands under every chip and the ring reads as one dial rather
+   than a hoop with labels stuck to it. Radial, so they stay true on an ellipse
+   this eccentric. */
+const heroTicks = Array.from({ length: 48 }, (_, i) => i * 7.5);
+
+const heroRings: { scale: number; opacity: number }[] = [
+  { scale: 1.18, opacity: 0.1 },
+  { scale: 1, opacity: 0.3 },
+  { scale: 0.62, opacity: 0.14 },
+];
+
 function HeroVisual() {
-  const sources = [
-    { label: "Drawings and P&IDs", pos: "left-0 top-[8%]" },
-    { label: "Procedures", pos: "right-0 top-[16%]" },
-    { label: "OT tag history", pos: "left-0 bottom-[16%]" },
-    { label: "Field voice notes", pos: "right-0 bottom-[8%]" },
-  ];
   return (
-    <div className="relative w-full" style={{ aspectRatio: "16 / 8.5" }}>
-      {/* connectors, drawn behind everything */}
-      <svg viewBox="0 0 1000 530" className="absolute inset-0 size-full" aria-hidden="true" preserveAspectRatio="none">
-        <g stroke="#ffffff" strokeWidth="1" opacity="0.28" fill="none">
-          <path d="M210 70 C 360 70, 380 230, 500 250" />
-          <path d="M800 110 C 660 110, 640 240, 512 255" />
-          <path d="M210 440 C 360 440, 380 290, 500 268" />
-          <path d="M800 480 C 660 480, 640 300, 512 275" />
-        </g>
-        <g fill="var(--lp-accent)">
-          <circle cx="500" cy="250" r="3" />
-          <circle cx="512" cy="255" r="3" />
-          <circle cx="500" cy="268" r="3" />
-          <circle cx="512" cy="275" r="3" />
-        </g>
-      </svg>
-
-      {sources.map((source) => (
-        <span
-          key={source.label}
-          className={`absolute ${source.pos} hidden items-center gap-2 rounded-full border border-white/25 bg-black/45 px-3.5 py-2 text-[12px] text-white backdrop-blur-md sm:inline-flex`}
-        >
-          <span aria-hidden="true" className="size-1.5 rounded-full bg-(--lp-accent)" />
-          {source.label}
+    <div>
+      {/* Reads as an instrument panel legend: what goes in, what comes out. */}
+      <div className="flex items-center justify-between gap-3 text-[9px] font-semibold uppercase tracking-[0.1em] text-white/60 lg:text-[10px] lg:tracking-[0.14em]">
+        <span className="whitespace-nowrap">Ten source systems</span>
+        <span className="flex items-center gap-2 whitespace-nowrap">
+          <span aria-hidden="true" className="size-1.5 bg-(--lp-accent)" />
+          One governed answer
         </span>
-      ))}
+      </div>
 
-      {/* the governed answer at the centre */}
-      <div className="absolute left-1/2 top-1/2 w-[min(92%,460px)] -translate-x-1/2 -translate-y-1/2">
-        <div className="lp-mock border border-white/15 bg-(--lp-surface) p-4 sm:p-5">
-          <div className="flex items-center justify-between border-b border-(--lp-line) pb-3">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-(--lp-accent-text)">Governed answer</span>
-            <span className="text-[11px] text-(--lp-muted)">2.1s</span>
-          </div>
-          <p className="lp-display mt-3 text-[17px] leading-tight text-(--lp-ink) sm:text-[19px]">
-            P-101 seal plan was revised on 4 March. The old plan still answers questions about February.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-1.5 text-[11px]">
-            <span className="bg-(--lp-accent-strong) px-2 py-1 font-medium text-white">3 sources</span>
-            <span className="border border-(--lp-line) px-2 py-1 text-(--lp-muted)">Authority: regulation</span>
-            <span className="border border-(--lp-line) px-2 py-1 text-(--lp-muted)">Verified</span>
-          </div>
-          <div className="mt-4">
-            <div className="flex justify-between text-[11px] text-(--lp-muted)">
-              <span>Confidence</span>
-              <span className="font-semibold text-(--lp-ink)">0.91</span>
+      <div className="mt-5 flex flex-col gap-4 lg:relative lg:mt-6 lg:block lg:aspect-[16/9] xl:aspect-[16/7.8]">
+        <svg
+          viewBox="0 0 1000 530"
+          className="pointer-events-none absolute inset-0 hidden size-full lg:block"
+          aria-hidden="true"
+          preserveAspectRatio="none"
+        >
+          {/* Every pale stroke is drawn twice: a wider dark pass underneath, then
+              the light one over it. The panel runs from near-black in one corner
+              to bright orange in the other, and a single white hairline simply
+              disappears into the bright half. */}
+          {heroRings.map((ring) => (
+            <g key={ring.scale}>
+              <ellipse
+                cx={ORBIT.cx}
+                cy={ORBIT.cy}
+                rx={ORBIT.rx * ring.scale}
+                ry={ORBIT.ry * ring.scale}
+                fill="none"
+                stroke="#000000"
+                strokeWidth="2.5"
+                opacity={ring.opacity * 0.6}
+              />
+              <ellipse
+                cx={ORBIT.cx}
+                cy={ORBIT.cy}
+                rx={ORBIT.rx * ring.scale}
+                ry={ORBIT.ry * ring.scale}
+                fill="none"
+                stroke="#ffffff"
+                opacity={ring.opacity}
+              />
+            </g>
+          ))}
+
+          {heroTicks.map((deg) => {
+            const [x1, y1] = orbitPoint(deg, ORBIT.rx, ORBIT.ry);
+            const [x2, y2] = orbitPoint(deg, ORBIT.rx * 1.035, ORBIT.ry * 1.035);
+            return (
+              <g key={deg}>
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#000000" strokeWidth="2.5" opacity="0.12" />
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#ffffff" opacity="0.22" />
+              </g>
+            );
+          })}
+
+          {heroSources.map((source) => (
+            <g key={source.tag}>
+              {!source.cited && (
+                <path d={orbitWire(source.deg)} fill="none" stroke="#000000" strokeWidth="2.5" opacity="0.18" />
+              )}
+              <path
+                d={orbitWire(source.deg)}
+                fill="none"
+                strokeWidth={source.cited ? 1.5 : 1}
+                stroke={source.cited ? "var(--lp-accent)" : "#ffffff"}
+                opacity={source.cited ? 0.75 : 0.34}
+              />
+            </g>
+          ))}
+
+          {/* A pulse on every wire, so the whole ring reads as live. The cited
+              three run brighter and faster; the rest are ambient. */}
+          {heroSources.map((source, i) => (
+            <circle
+              key={source.tag}
+              className={`lp-orbit-pulse${source.cited ? " lp-orbit-pulse--cited" : ""}`}
+              r={source.cited ? 3.5 : 2.2}
+              fill={source.cited ? "var(--lp-accent)" : "#ffffff"}
+              style={{ offsetPath: `path("${orbitWire(source.deg)}")`, animationDelay: `${(i % 5) * 0.9 + (i > 4 ? 0.45 : 0)}s` }}
+            />
+          ))}
+        </svg>
+
+        {/* `lg:contents` hands each chip straight to the orbit field, so one
+            element can be a flow chip on a phone and a ring node on a laptop. */}
+        <div className="flex flex-wrap gap-1.5 lg:contents">
+          {heroSources.map((source) => {
+            const [x, y] = orbitPoint(source.deg, ORBIT.rx, ORBIT.ry);
+            return (
+              <span
+                key={source.tag}
+                className={`lp-orbit-node inline-flex items-center gap-2 border bg-(--lp-dark)/78 px-2.5 py-1.5 text-[11px] text-white shadow-lg backdrop-blur-md xl:px-3 xl:py-2 xl:text-[12px] ${
+                  source.cited ? "border-(--lp-accent)/70" : "border-white/12"
+                }`}
+                style={
+                  {
+                    "--orbit-x": `${((x / 1000) * 100).toFixed(2)}%`,
+                    "--orbit-y": `${((y / 530) * 100).toFixed(2)}%`,
+                  } as React.CSSProperties
+                }
+              >
+                <span
+                  className={`shrink-0 text-[9px] font-semibold tracking-[0.08em] ${
+                    source.cited ? "text-(--lp-accent)" : "text-white/50"
+                  }`}
+                >
+                  {source.tag}
+                </span>
+                <span className="whitespace-nowrap">{source.label}</span>
+              </span>
+            );
+          })}
+        </div>
+
+        {/* The governed answer, and the evidence it stands on. */}
+        <div className="lg:absolute lg:left-1/2 lg:top-1/2 lg:w-[44%] lg:-translate-x-1/2 lg:-translate-y-1/2 xl:w-[min(42%,450px)]">
+          <div className="lp-mock border border-white/15 bg-(--lp-surface) p-4 sm:p-5">
+            <div className="flex items-center justify-between border-b border-(--lp-line) pb-3">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-(--lp-accent-text)">
+                Checked answer
+              </span>
+              <span className="text-[11px] tabular-nums text-(--lp-muted)">2.1 s</span>
             </div>
-            <div className="mt-1.5 h-1.5 bg-(--lp-band)">
-              <span className="block h-full w-[91%] bg-(--lp-accent)" />
+
+            <p className="lp-display mt-3 text-[17px] leading-tight text-pretty text-(--lp-ink) sm:text-[19px]">
+              The EQ-101 seal spec became FSL-2240B on 15 January 2025. A repair four months later still fitted the superseded part.
+            </p>
+
+            <div className="mt-4 border-t border-(--lp-line) pt-3">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-(--lp-muted)">Evidence</p>
+              <ul className="mt-2 space-y-1.5">
+                {heroEvidence.map((item) => (
+                  <li key={item.doc} className="flex items-baseline gap-2 text-[11px]">
+                    <span
+                      aria-hidden="true"
+                      className={`size-1.5 shrink-0 ${item.unverified ? "border border-(--lp-accent)" : "bg-(--lp-accent)"}`}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-(--lp-ink)">{item.doc}</span>
+                    <span
+                      className={`shrink-0 ${item.unverified ? "font-semibold text-(--lp-accent-text)" : "text-(--lp-muted)"}`}
+                    >
+                      {item.tier}
+                    </span>
+                    <span className="hidden shrink-0 tabular-nums text-(--lp-muted) min-[420px]:inline">{item.date}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-1.5 text-[11px]">
+              <span className="bg-(--lp-accent-strong) px-2 py-1 font-medium text-white">3 sources</span>
+              <span className="border border-(--lp-line) px-2 py-1 text-(--lp-muted)">Authority: OEM</span>
+              <span className="border border-(--lp-line) px-2 py-1 text-(--lp-muted)">Verified</span>
+            </div>
+
+            <div className="mt-4">
+              <div className="flex justify-between text-[11px] text-(--lp-muted)">
+                <span>Confidence</span>
+                <span className="font-semibold tabular-nums text-(--lp-ink)">0.91</span>
+              </div>
+              <div className="mt-1.5 h-1.5 bg-(--lp-band)">
+                <span className="block h-full w-[91%] bg-(--lp-accent)" />
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <span className="absolute bottom-0 left-1/2 hidden -translate-x-1/2 items-center gap-2 rounded-full border border-white/25 bg-black/45 px-3.5 py-2 text-[12px] text-white backdrop-blur-md sm:inline-flex">
-        No claim without its source
-      </span>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-white/15 pt-4 text-[11px] text-white/70 lg:mt-6">
+        <span>No claim without its source</span>
+        <span>A safety question with thin evidence is refused, not hedged</span>
+      </div>
     </div>
   );
 }
 
 /**
  * A real screenshot of the running app, captured by
- * scripts/capture_landing_shots.mjs. Re-run that script after UI changes so the
+ * scripts/capture_landing_shots.sh. Re-run that script after UI changes so the
  * marketing page never drifts from the product.
  */
 function Shot({ src, alt }: { src: string; alt: string }) {
@@ -1221,7 +1304,7 @@ export default function Home() {
               <a
                 key={href}
                 href={href}
-                className="flex items-center border-r border-(--lp-line) px-5 text-[14px] text-(--lp-muted) transition-colors duration-150 hover:bg-(--lp-ink) hover:text-white"
+                className="flex items-center whitespace-nowrap border-r border-(--lp-line) px-4 text-[13px] text-(--lp-muted) transition-colors duration-150 hover:bg-(--lp-ink) hover:text-white xl:px-5"
               >
                 {label}
               </a>
@@ -1231,13 +1314,7 @@ export default function Home() {
           <div className="ml-auto flex items-stretch">
             <Link
               href="/login"
-              className="hidden items-center border-x border-(--lp-line) px-7 text-[14px] text-(--lp-ink) transition-colors duration-150 hover:bg-(--lp-ink) hover:text-white sm:flex"
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/login"
-              className="group relative flex items-center gap-2 overflow-hidden bg-(--lp-accent-strong) px-5 text-[14px] font-medium text-white sm:px-7"
+              className="group relative flex items-center gap-2 overflow-hidden border-l border-(--lp-line) bg-(--lp-accent-strong) px-5 text-[14px] font-medium text-white sm:px-7 transition-transform duration-150 ease-out active:scale-[0.98]"
             >
               <PixelFill />
               <span className="relative z-10">Open workspace</span>
@@ -1266,8 +1343,8 @@ export default function Home() {
           <div className="lg:pt-4">
             <p className="max-w-md text-[16px] leading-6 text-(--lp-muted)">
               A refinery, a power station or a factory already owns the answer to almost every
-              operational question it has — buried across drawings, procedures, maintenance
-              history and field notes in a dozen systems that do not talk to each other.
+              operational question it has. The answer is buried across drawings, procedures,
+              maintenance history and field notes, in a dozen systems that do not talk to each other.
             </p>
             <p className="mt-4 max-w-md text-[16px] leading-6 text-(--lp-muted)">
               <strong className="font-semibold text-(--lp-ink)">Kairos reads all of it into one
@@ -1276,17 +1353,19 @@ export default function Home() {
               refuses rather than guesses.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <Link
-                href="/login"
-                className="group relative inline-flex min-h-11 min-w-[207px] items-center justify-center gap-2 overflow-hidden bg-(--lp-accent-strong) px-3 py-[15px] text-[14px] font-medium text-white"
+              <a
+                href={YOUTUBE_DEMO_URL}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="group relative inline-flex min-h-11 min-w-[207px] items-center justify-center gap-2 overflow-hidden bg-(--lp-accent-strong) px-3 py-[15px] text-[14px] font-medium text-white transition-transform duration-150 ease-out active:scale-[0.98]"
               >
                 <PixelFill />
-                <span className="relative z-10">Open workspace</span>
+                <span className="relative z-10">Watch demo</span>
                 <span aria-hidden="true" className="relative z-10">›</span>
-              </Link>
+              </a>
               <a
                 href="#how"
-                className="inline-flex min-h-11 min-w-[207px] items-center justify-center gap-2 bg-(--lp-ink) px-3 py-[15px] text-[14px] font-medium text-white transition-colors duration-150 hover:bg-(--lp-accent-strong)"
+                className="inline-flex min-h-11 min-w-[207px] items-center justify-center gap-2 bg-(--lp-ink) px-3 py-[15px] text-[14px] font-medium text-white transition-[background-color,transform] duration-150 ease-out hover:bg-(--lp-accent-strong) active:scale-[0.98]"
               >
                 See how it works <span aria-hidden="true" className="text-(--lp-accent)">▶</span>
               </a>
@@ -1313,7 +1392,8 @@ export default function Home() {
             <p className="mt-6 max-w-2xl text-[16px] leading-6 text-(--lp-dark-muted)">
               A large plant runs on documents written over forty years by people who have mostly
               left. When a technician cannot find the right one in the ten minutes they have, they
-              do the job on memory — theirs or someone else&apos;s. That is where incidents come from.
+              do the job from memory, either their own or someone else&apos;s. That is where incidents
+              start.
             </p>
           </div>
 
@@ -1398,16 +1478,17 @@ export default function Home() {
 
       {/* ── Capabilities: split layout with a composite media card ─────── */}
       <section id="capabilities" className="lp-band border-t border-(--lp-line)">
-        <div className="lp-frame relative grid gap-10 px-4 py-16 sm:gap-14 sm:px-6 sm:py-24 lg:grid-cols-[1fr_1.35fr]">
+        <div className="lp-frame relative px-4 py-16 sm:px-6 sm:py-24">
           <Ticks />
+          <div className="grid gap-10 sm:gap-14 lg:grid-cols-[1fr_1.35fr]">
           <div data-reveal>
             <Eyebrow>Capabilities</Eyebrow>
             <h2 className="mt-6 text-[30px] text-(--lp-ink) sm:text-[44px]">
               Answers paired with{" "}<br />their <Box>evidence.</Box>
             </h2>
             <p className="mt-6 max-w-md text-[16px] leading-6 text-(--lp-muted)">
-              Kairos already knows the plant&apos;s documents, assets and history. Every surface
-              speaks the same source-aware language, so nothing is asserted without a way to check it.
+              Kairos already knows the plant&apos;s documents, assets and history. Every screen works
+              the same way, so nothing is claimed without a way to check it.
             </p>
 
             <div className="mt-10">
@@ -1423,7 +1504,11 @@ export default function Home() {
                     className="relative block w-full border-b border-(--lp-line) py-4 pl-3 text-left"
                   >
                     {/* 20px / 500-on-active, matching the reference's own tab
-                        metrics and its 0.24s colour easing. */}
+                        metrics and its 0.24s colour easing. Light-section tokens:
+                        this list sits on --lp-band, so --lp-accent-text and
+                        --lp-tab-idle are the pair that clears 4.5:1 here. At 20px
+                        these are not "large text", so --lp-accent (3.35:1) and the
+                        dark-band tokens do not qualify. */}
                     <span
                       className={`lp-display text-[20px] transition-colors duration-[240ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${on ? "font-medium text-(--lp-accent-text)" : "text-(--lp-tab-idle) hover:font-medium hover:text-(--lp-ink)"}`}
                     >
@@ -1446,10 +1531,18 @@ export default function Home() {
           <div id="capability-panel" data-reveal className="lp-card relative flex flex-col border border-(--lp-accent) bg-(--lp-surface)">
             <Ticks solid bottom />
             <div key={active.id} className="lp-swap flex flex-1 flex-col">
-              {/* Both regions are pinned so switching tabs never resizes the
-                  card. The mocks differ in natural height, so the media area
-                  centres its content inside a fixed box. */}
-              <div className="lp-media lp-dither relative flex min-h-[340px] flex-1 flex-col overflow-hidden p-5 sm:min-h-[350px] sm:p-6">
+              {/* Both regions grow but neither shrinks (`flex: N 0 auto`), and the
+                  slack is split 2:1 so a stretched card gives its extra height to
+                  the mock rather than to the paragraph.
+
+                  `flex-1` plus an explicit `min-h` is what clipped this panel
+                  before: the card is a grid item stretched to the tab list's
+                  height, so when a mock needed more room than that the flex line
+                  was over-constrained, and an explicit `min-height` replaces the
+                  automatic minimum size — so the panel shrank to its floor and cut
+                  the last rows off Ingestion and Root cause. `shrink-0` restores
+                  content as the floor and lets the card grow instead. */}
+              <div className="lp-media lp-dither relative flex min-h-[340px] flex-[2_0_auto] flex-col p-5 sm:min-h-[350px] sm:p-6">
                 <p className="inline-block self-start bg-(--lp-accent-strong) px-3 py-1.5 text-[10px] font-semibold uppercase leading-4 tracking-[0.06em] text-white sm:text-[11px]">
                   {active.banner}
                 </p>
@@ -1458,68 +1551,47 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="flex min-h-[208px] flex-1 flex-col justify-center p-5 sm:p-7">
+              <div className="flex min-h-[208px] flex-[1_0_auto] flex-col justify-center p-5 sm:p-7">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-(--lp-accent-text)">{active.eyebrow}</p>
                 <h3 className="mt-3 text-[24px] text-(--lp-ink) sm:text-[32px]">{active.title}</h3>
                 <p className="mt-4 max-w-xl text-[15px] leading-6 text-(--lp-muted)">{active.body}</p>
               </div>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* ── Routing strip ───────────────────────────────────────────────── */}
-      <section id="platform" className="border-t border-(--lp-line)">
-        <div className="lp-frame relative px-4 py-16 sm:px-6 sm:py-24">
-          <Ticks />
-          <div data-reveal>
-            <p className="inline-block bg-(--lp-charcoal) px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-white">
-              Kairos routes every signal to whoever owns the outcome
-            </p>
-          </div>
-          {/* This is a fork — one signal in, four owners out — so it is drawn as
-              a distribution off a single rule rather than as four equal boxes.
-              No cell fill on hover here; the section is read, not browsed. */}
-          <div data-reveal className="relative mt-10">
-            <span aria-hidden="true" className="absolute inset-x-0 top-0 h-px bg-(--lp-line)" />
-            <div className="grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
-              {routing.map(([trigger, owner, outcome]) => (
-                <div key={owner} data-stagger className="relative pt-8">
-                  <span aria-hidden="true" className="absolute left-0 top-0 h-8 w-px bg-(--lp-accent)" />
-                  <p className="lp-display text-[20px] leading-tight text-(--lp-ink)">{trigger}</p>
-                  <p className="mt-4 inline-block bg-(--lp-accent-strong) px-2 py-1 text-[12px] font-semibold text-white">{owner}</p>
-                  <p className="mt-4 text-[14px] leading-5 text-(--lp-muted)">{outcome}</p>
-                </div>
-              ))}
-            </div>
           </div>
 
-          {/* Two column-rules rather than a mesh, and the labels carry the
-              weight. Both blocks were the only non-duplicated content in a
-              coverage section that otherwise restated the capability tabs. */}
+          {/* The same subject at a different altitude: eight screens above, the ten
+              things behind them here. It used to sit in its own section further down
+              the page, which read as a second, flatter capabilities list and repeated
+              claims the Ingestion and Provenance panels already make. Cell borders
+              rather than a gap mesh — a mesh paints its container colour into
+              whatever cells the last row leaves over. */}
           <div data-reveal className="mt-16">
-            <p className="text-[11px] uppercase tracking-[0.12em] text-(--lp-muted)">
-              Running on the technologies the brief suggested
-            </p>
-            <dl className="mt-6 grid gap-x-12 sm:grid-cols-2">
-              {briefTech.map(([name, how]) => (
-                <div key={name} className="border-b border-(--lp-line) py-4">
-                  <dt className="text-[14px] font-semibold text-(--lp-ink)">{name}</dt>
-                  <dd className="mt-1.5 text-[13px] leading-5 text-(--lp-muted)">{how}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-
-          <div data-reveal className="mt-14 border-l-2 border-(--lp-accent) bg-(--lp-band) px-5 py-6 sm:px-7">
-            <p className="text-[11px] uppercase tracking-[0.12em] text-(--lp-accent-text)">
-              Not asked for · built because the domain demands it
-            </p>
-            <dl className="mt-5 grid gap-x-12 gap-y-5 sm:grid-cols-2">
-              {beyondBrief.map(([name, why]) => (
-                <div key={name}>
-                  <dt className="text-[14px] font-semibold text-(--lp-ink)">{name}</dt>
-                  <dd className="mt-1.5 text-[13px] leading-5 text-(--lp-muted)">{why}</dd>
+            <div className="border-b border-(--lp-line) pb-4">
+              <p className="lp-display text-[20px] text-(--lp-ink) sm:text-[24px]">
+                What sits under those eight screens
+              </p>
+              {/* The counts differ because the axes differ, and a reader who is not
+                  told that reads "ten" as the complete set and the eight tabs as a
+                  subset of it. The tabs are screens; these are the technology beneath
+                  them plus the work that never gets a screen of its own. */}
+              <p className="mt-2 max-w-2xl text-[14px] leading-5 text-(--lp-muted)">
+                The eight above are screens. These are the machinery underneath them, and the
+                cross-cutting work that has no screen of its own.
+              </p>
+            </div>
+            <dl className="grid border-l border-(--lp-line) sm:grid-cols-2">
+              {capabilityList.map(([name, how]) => (
+                <div
+                  key={name}
+                  data-stagger
+                  className="lp-cell flex gap-3.5 border-b border-r border-(--lp-line) p-4 sm:p-5"
+                >
+                  <span aria-hidden="true" className="mt-[7px] size-2 shrink-0 bg-(--lp-accent)" />
+                  <div className="min-w-0">
+                    <dt className="text-[15px] font-semibold leading-snug text-(--lp-ink)">{name}</dt>
+                    <dd className="mt-1.5 text-[13px] leading-5 text-(--lp-muted)">{how}</dd>
+                  </div>
                 </div>
               ))}
             </dl>
@@ -1527,35 +1599,48 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── System design: Mirrored capabilities layout ──────────────────── */}
-      <section id="system" className="lp-band border-t border-(--lp-line)">
-        <div className="lp-frame relative grid gap-10 px-4 py-16 sm:gap-14 sm:px-6 sm:py-24 lg:grid-cols-[1.35fr_1fr]">
-          <Ticks />
-          
-          {/* LEFT SIDE: Media Panel */}
-          <div id="system-panel" data-reveal className="lp-card relative flex flex-col border border-(--lp-accent) bg-(--lp-surface)">
+      {/* ── System design: the capabilities layout, mirrored ─────────────── */}
+      {/* Same split as Capabilities, a tab list beside a composite card whose
+          media panel sits above its copy, but flipped so that the card is on the
+          left and the heading, intro and tabs are right-aligned on the right.
+          A dark section, so lp-frame--dark: without it the side rails render in
+          the light hairline colour against black. */}
+      <section id="system" className="bg-(--lp-dark) text-white">
+        <div className="lp-frame lp-frame--dark relative grid gap-10 px-4 py-16 sm:gap-14 sm:px-6 sm:py-24 lg:grid-cols-[1.35fr_1fr]">
+          {/* The card is the diagram, nothing else. White edge to edge, padding
+              included: these diagrams are drawn in a palette built for a white
+              ground, and a white plate floating inside a dark panel framed them
+              twice. The border is kept only so lp-card's hover can turn it accent. */}
+          {/* From lg the white panel is taken out of flow (absolute inset-0), which
+              is what keeps the card the same height as the tab list beside it. In
+              flow, a tall diagram would drive the grid row and the card would run
+              past the last tab; out of flow it contributes no height, so the row is
+              sized by the tabs alone, and the card, being a grid item and so stretched
+              by default, fills exactly that. The diagram then fits inside via
+              max-h-full rather than setting the height itself.
+
+              Below lg the columns stack, there is no sibling to match, and the panel
+              goes back in flow on its own min-height. */}
+          <div id="system-panel" data-reveal className="lp-card relative flex flex-col border border-(--lp-dark-line)">
             <Ticks solid bottom />
-            <div key={activeSystem.id} className="lp-swap flex flex-1 flex-col">
-              <div className="lp-media lp-dither relative flex min-h-[480px] flex-1 flex-col overflow-hidden p-5 sm:min-h-[560px] sm:p-6">
-                <p className="inline-block self-start bg-(--lp-accent-strong) px-3 py-1.5 text-[10px] font-semibold uppercase leading-4 tracking-[0.06em] text-white sm:text-[11px]">
-                  {activeSystem.banner}
-                </p>
-                <div className="mt-5 flex flex-1 flex-col justify-center">
-                  <activeSystem.Mock />
-                </div>
-              </div>
+            <div
+              key={activeSystem.id}
+              className="lp-swap flex min-h-[420px] flex-1 items-center justify-center overflow-x-auto bg-white p-4 sm:min-h-[520px] sm:p-6 lg:absolute lg:inset-0 lg:min-h-0"
+            >
+              <SystemDiagramImage src={activeSystem.src} alt={activeSystem.alt} />
             </div>
           </div>
 
-          {/* RIGHT SIDE: Text & Tabs */}
+          {/* order-first below lg so the heading still introduces the card on a
+              phone, rather than arriving underneath it. */}
           <div data-reveal className="order-first flex flex-col items-end text-right lg:order-last">
             <Eyebrow>System design</Eyebrow>
-            <h2 className="mt-6 text-[30px] text-(--lp-ink) sm:text-[44px]">
-              Thirteen layers,{" "}<br />one <Box>path through.</Box>
+            <h2 className="mt-6 text-[30px] text-white sm:text-[44px]">
+              Thirteen layers,{" "}<br />one <Box fill>path through.</Box>
             </h2>
-            <p className="mt-6 max-w-md text-[16px] leading-6 text-(--lp-muted)">
-              A document enters at the top and leaves as an answer someone can act on. 
-              The system is composed of six distinct sub-architectures working in concert.
+            <p className="mt-6 max-w-md text-[16px] leading-6 text-(--lp-dark-muted)">
+              A document goes in at one end and comes out as an answer someone can act on. Open a
+              block to see what it is made of, and the rule it has to follow.
             </p>
 
             <div className="mt-10 w-full">
@@ -1568,10 +1653,14 @@ export default function Home() {
                     aria-pressed={on}
                     aria-controls="system-panel"
                     onClick={() => setSystemTab(index)}
-                    className="relative block w-full border-b border-(--lp-line) py-4 pr-3 text-right"
+                    className="relative block w-full border-b border-(--lp-dark-line) py-4 pr-3 text-right"
                   >
+                    {/* Mirror of the Capabilities tab, on dark tokens: at 20px
+                        this is not "large text", but --lp-accent clears 4.5:1
+                        against --lp-dark, so it qualifies here where it would
+                        not on the light band. */}
                     <span
-                      className={`lp-display text-[20px] transition-colors duration-[240ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${on ? "font-medium text-(--lp-accent-text)" : "text-(--lp-tab-idle) hover:font-medium hover:text-(--lp-ink)"}`}
+                      className={`lp-display text-[20px] transition-colors duration-[240ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${on ? "font-medium text-(--lp-accent)" : "text-(--lp-dark-muted) hover:font-medium hover:text-white"}`}
                     >
                       {item.name}
                     </span>
@@ -1584,7 +1673,6 @@ export default function Home() {
               })}
             </div>
           </div>
-
         </div>
       </section>
 
@@ -1643,9 +1731,8 @@ export default function Home() {
               <Box fill>Provenance at 100%.</Box>
             </h2>
             <p className="mt-6 max-w-xl text-[16px] leading-6 text-(--lp-dark-muted)">
-              Thirty-seven domain-expert questions across fifteen categories, graded deterministically
-              rather than by another model. Measured 16–17 August 2026 on the live stack, against the
-              things the brief said it would measure. Higher is better.
+              Thirty-seven questions written by domain experts across fifteen categories, run
+              against the live stack. Higher is better.
             </p>
           </div>
 
@@ -1710,23 +1797,23 @@ export default function Home() {
               ))}
             </div>
             <p className="mt-8 max-w-2xl text-[13px] leading-5 text-(--lp-dark-muted)">
-              One run, reported with its confidence interval rather than a median that hides the
-              spread: 33 of 37, 95% CI 79 to 97. The run carries a validity verdict — every answer
-              came from the same Llama 3.1 70B, none from a different fallback model, or it would
-              not be quoted here. Retrieval and provenance are deterministic and held at 37/37.
-              All four misses are the authority gate refusing rather than guessing. They are graded
-              as incorrect here, which understates the system: refusing was the safe call in each
-              case, and we would rather report the harsher number than grade our own refusals as
-              wins.
+              One run, and every answer came from the same Llama 3.1 70B — none from a fallback
+              model. All four misses are the authority gate refusing to answer rather than guessing,
+              and we still grade a refusal as wrong. That understates the system, because refusing
+              was the correct call in each of the four.
             </p>
           </div>
 
-          {/* The other five harnesses. */}
+          {/* The rest of the harness. Hairlines are drawn per cell rather than by a
+              gap-px mesh over a tinted container: the suite count is data and does not
+              divide evenly into two or three columns, and a mesh paints its container
+              colour into whatever cells the last row leaves over, leaving a grey block
+              where a card should be. Per-cell borders leave that space as section ground. */}
           <div data-reveal className="mt-16">
             <p className="text-[11px] uppercase tracking-[0.12em] text-(--lp-dark-muted)">The rest of the harness</p>
-            <div className="mt-6 grid gap-px bg-(--lp-dark-line) sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-6 grid border-t border-l border-(--lp-dark-line) sm:grid-cols-2 lg:grid-cols-3">
               {evalSuites.map((suite) => (
-                <div key={suite.name} data-stagger className="lp-cell lp-cell--dark bg-(--lp-dark) p-5">
+                <div key={suite.name} data-stagger className="lp-cell lp-cell--dark border-b border-r border-(--lp-dark-line) bg-(--lp-dark) p-5">
                   <p className="text-[11px] uppercase tracking-[0.08em] text-(--lp-dark-muted)">{suite.name}</p>
                   <p className="lp-display mt-3 text-[32px] text-white">
                     {suite.headline}
@@ -1742,41 +1829,49 @@ export default function Home() {
                   </dl>
                 </div>
               ))}
+
+              {/* Ten suites into three columns leaves one card alone with two dead
+                  cells beside it. This is one cell spanning both of them, so the last
+                  row closes. It is filled rather than another stat card on purpose:
+                  the grid states ten results, and the one thing none of them say is
+                  how a result is decided, which is the claim the whole section rests on.
+
+                  sm:col-span-2 covers lg too: at two columns it takes the last row,
+                  at three it takes the two cells the tenth card leaves over. */}
+              <div
+                data-stagger
+                className="border-b border-r border-(--lp-dark-line) bg-(--lp-accent-strong) p-5 sm:col-span-2"
+              >
+                <p className="text-[11px] uppercase tracking-[0.08em] text-white">How every one of these is graded</p>
+                <p className="lp-display mt-3 text-[26px] leading-tight text-white sm:text-[30px]">
+                  Fixed rules, never another model.
+                </p>
+                <p className="mt-3 max-w-2xl text-[13px] leading-5 text-white">
+                  An answer has to contain the facts the question requires, avoid the ones it rules
+                  out, and cite a source. Miss any of the three and it counts as wrong. The same rules
+                  run every time, so two runs of the same question are always scored the same way.
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* Honesty block. The reference has no equivalent; this one earns it. */}
-          <div data-reveal className="lp-card mt-14 border border-(--lp-dark-line) p-5 sm:p-7">
-            <p className="lp-display text-[20px] text-white sm:text-[24px]">What these numbers are not</p>
-            <div className="mt-5 grid gap-x-10 gap-y-5 sm:grid-cols-2">
-              {notMeasured.map(([term, value]) => (
-                <div key={term}>
-                  <p className="text-[13px] font-semibold text-(--lp-accent)">{term}</p>
-                  <p className="mt-1 text-[13px] leading-5 text-(--lp-dark-muted)">{value}</p>
-                </div>
-              ))}
-            </div>
-            <p className="mt-6 max-w-3xl text-[13px] leading-5 text-(--lp-dark-muted)">
-              Every figure is measured against the authored golden dataset. Kairos has no connection
-              to a live plant. That is the intended MVP boundary, stated rather than hidden. The
-              harness, the question set and the raw output all live in the repository.
-            </p>
-          </div>
+
         </div>
       </section>
 
       {/* ── Provenance ──────────────────────────────────────────────────── */}
       <section id="provenance" className="lp-band border-t border-(--lp-line)">
         <div className="lp-frame relative px-4 py-16 sm:px-6 sm:py-24">
+          <Ticks />
           <div data-reveal>
             <Eyebrow>Provenance</Eyebrow>
             <h2 className="mt-6 max-w-4xl text-[30px] text-(--lp-ink) sm:text-[44px]">
               No <Box>claim</Box> without its <Box fill>source.</Box>
             </h2>
             <p className="mt-6 max-w-xl text-[16px] leading-6 text-(--lp-muted)">
-              Every fact in the graph carries six properties on the edge itself. That is what makes an
-              answer checkable, a supersession reversible, and a low-confidence guess impossible to
-              mistake for a verified fact.
+              Every fact in the graph carries six properties on the link itself. That is what lets you
+              check an answer, undo a replacement, and tell an uncertain guess apart from a verified
+              fact.
             </p>
           </div>
 
@@ -1786,28 +1881,56 @@ export default function Home() {
             </div>
           </div>
 
-          {/* One object's property sheet, so it reads as one object: rows on a
-              single panel with an accent spine, rather than six floating cells
-              that imply six unrelated things. */}
-          <div data-reveal className="mt-12 border border-(--lp-line) border-l-2 border-l-(--lp-accent) bg-(--lp-surface)">
-            <dl>
-              {edgeProperties.map(([name, note]) => (
+          {/* The six properties against one real fact rather than in the abstract.
+              A bare name-and-definition list asks the reader to imagine what a
+              stored fact looks like; this shows them one, so "checkable" stops
+              being a claim and becomes something they can read off the page.
+
+              The fact sits in the accent header of the same panel, so the six rows
+              below are visibly properties OF it rather than six loose definitions. */}
+          <div data-reveal className="lp-card mt-12 border border-(--lp-line) bg-(--lp-surface)">
+            <div className="border-b border-(--lp-line) bg-(--lp-accent-strong) px-5 py-4 sm:px-7">
+              {/* Full white, not white/80: at 11px this is small text, and 80% over
+                  --lp-accent-strong lands at 3.7:1 where it needs 4.5. The hierarchy
+                  against the line below comes from size and weight instead. */}
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white">
+                One fact, and everything it carries
+              </p>
+              <p className="lp-display mt-2 text-[19px] leading-tight text-white sm:text-[22px]">
+                The EQ-101 seal specification was superseded on 15 January 2025.
+              </p>
+            </div>
+
+            <dl className="grid sm:grid-cols-2">
+              {edgeProperties.map(({ name, value, note }) => (
                 <div
                   key={name}
-                  className="flex flex-wrap items-baseline gap-x-8 gap-y-1 border-b border-(--lp-line) px-5 py-4 last:border-b-0 sm:px-7"
+                  /* Every cell keeps its bottom rule and the footer keeps none, so the
+                     divider above the footer is one hairline at every breakpoint rather
+                     than two stacked ones once the grid drops to a single column. */
+                  className="border-b border-(--lp-line) px-5 py-5 sm:px-7 sm:[&:nth-child(odd)]:border-r"
                 >
-                  <dt className="w-[196px] shrink-0">
-                    <code className="text-[14px] font-semibold text-(--lp-accent-text)">{name}</code>
-                  </dt>
-                  <dd className="min-w-[220px] flex-1 text-[14px] leading-5 text-(--lp-muted)">{note}</dd>
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <dt>
+                      {/* <code>: these are literal property names on the edge, not prose. */}
+                      <code className="text-[13px] font-semibold tracking-tight text-(--lp-accent-text)">{name}</code>
+                    </dt>
+                    {/* tabular-nums so the dates and scores line up down the column. */}
+                    <dd className="lp-display text-[15px] tabular-nums text-(--lp-ink)">{value}</dd>
+                  </div>
+                  <dd className="mt-2 text-[13px] leading-5 text-(--lp-muted)">{note}</dd>
                 </div>
               ))}
             </dl>
+
+            <p className="bg-(--lp-band) px-5 py-3 text-[12px] text-(--lp-muted) sm:px-7">
+              An illustrative fact. Every real one in the graph carries the same six.
+            </p>
           </div>
         </div>
       </section>
       {/* ── FAQ: two columns, category rail then the answers ──────────── */}
-      <section className="bg-(--lp-dark) text-white">
+      <section id="faq" className="bg-(--lp-dark) text-white">
         <div className="lp-frame lp-frame--dark px-4 py-16 sm:px-6 sm:py-24">
           <div data-reveal>
             <Eyebrow>FAQ</Eyebrow>
@@ -1816,7 +1939,7 @@ export default function Home() {
             </h2>
             <p className="mt-6 max-w-md text-[15px] leading-6 text-(--lp-dark-muted)">
               The things people ask before they trust a system with a safety case. Still curious?
-              Read the source, or open the workspace and interrogate it directly.
+              Read the source, or open the workspace and try it yourself.
             </p>
             <a
               href={GITHUB_URL}
@@ -1908,7 +2031,7 @@ export default function Home() {
               </p>
               <Link
                 href="/login"
-                className="group relative mt-6 inline-flex min-h-11 items-center justify-center gap-2 overflow-hidden bg-(--lp-accent-strong) px-5 py-[15px] text-[14px] font-medium text-white"
+                className="group relative mt-6 inline-flex min-h-11 items-center justify-center gap-2 overflow-hidden bg-(--lp-accent-strong) px-5 py-[15px] text-[14px] font-medium text-white transition-transform duration-150 ease-out active:scale-[0.98]"
               >
                 <PixelFill />
                 <span className="relative z-10">Open workspace</span>
@@ -1957,27 +2080,15 @@ export default function Home() {
               >
                 <GithubIcon />
               </a>
-              {YOUTUBE_DEMO_URL ? (
-                <a
-                  href={YOUTUBE_DEMO_URL}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  aria-label="Watch the Kairos demo"
-                  className="grid size-9 place-items-center bg-[#ff0000] text-white transition-opacity hover:opacity-80"
-                >
-                  <YoutubeIcon />
-                </a>
-              ) : (
-                // Inert until the URL is filled in above. A visible slot beats
-                // a dead link, and the markup is already in place.
-                <span
-                  title="Demo video coming soon"
-                  aria-label="Demo video coming soon"
-                  className="grid size-9 cursor-not-allowed place-items-center border border-dashed border-(--lp-line) text-(--lp-tab-idle)"
-                >
-                  <YoutubeIcon />
-                </span>
-              )}
+              <a
+                href={YOUTUBE_DEMO_URL}
+                target="_blank"
+                rel="noreferrer noopener"
+                aria-label="Watch the Kairos demo"
+                className="grid size-9 place-items-center bg-[#ff0000] text-white transition-opacity hover:opacity-80"
+              >
+                <YoutubeIcon />
+              </a>
             </div>
           </div>
         </div>

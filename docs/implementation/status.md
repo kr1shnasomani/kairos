@@ -23,15 +23,14 @@
 ## Headline
 
 **All 13 architecture layers are implemented.** Architecture conformance is **~91.4%** — the mean of
-the 13 per-layer scores in [Conformance](#architecture--implementation-conformance), measured by an
-independent re-audit on 2026-08-17 that scored *reachability in the path the architecture specifies*
-rather than *presence of the mechanism*. The previous ~94% figure was self-assessed against the
-looser rubric and is superseded; the re-audit landed at ~88%, and same-day fixes to L10
-(brownfield attribution), L4 (all 6 node types, ingestion-path alignment, and the `valid_to`
-comparison that had silenced conflict detection), L2 (IAM access tags), L7 (MoC banner on every
-output type) and L11 (verified topology as gate evidence) moved it to its current value.
-**Recompute this from the table when a layer score changes** — it once read ~88% here while the
-table said ~89.5%, for exactly that reason.
+the 13 per-layer scores in [Conformance](#architecture--implementation-conformance).
+
+**The rubric is what makes this number mean anything.** A requirement scores only if it is
+*reachable in the path the architecture specifies*, not merely present somewhere in the codebase.
+The looser reading — does the mechanism exist — once produced ~94% for the same tree, and four
+requirements were built-but-unreachable underneath it. Re-score against reachability or the number
+is not comparable. **Recompute the mean from the table whenever a layer score changes**; it has
+drifted from the table twice for exactly that reason.
 
 Four deviations are deliberate and cap the score by construction (P&ID Path A, OPC-UA / Uniformance /
 GraphQL connectors, PuppyGraph federated MDM, separate handwriting + form models). The rest of the
@@ -174,13 +173,14 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | Query answer quality | **33/37 (89.2%)**, 95% CI [79–97%] | `run_benchmark.py` |
 | Provenance — all responses, incl. refusals | **37/37 (100%)** CI [91–100%] | `run_benchmark.py` |
 | Provenance — correct answers only | **33/33 (100%)** CI [91–100%] | `run_benchmark.py` (`sourced/correct`) |
-| Synthesis latency | p50 **32.3 s** · p95 **65.0 s** (nim 23 · openrouter 11) | `run_benchmark.py` |
+| Synthesis latency | p50 **32.1 s** · p95 **66.0 s** · mean **34.1 s** | `run_benchmark.py` |
 | Entity-extraction F1 (Layer 0) | **0.805** on 40 labels — `VALID`, 0 of 15 fell back | `run_model_validation.py` |
 | Compliance gap detection | **P 1.000 · R 0.838 · F1 0.912**, zero false positives | `run_compliance_eval.py` |
 | Retrieval reach by arm | exact **33/37 (89.2%)** · semantic **35/37 (94.6%)** · hybrid **35/37 (94.6%)** (n=37, CIs overlap) | `run_retrieval_baseline.py` |
 | Proactive brief quality (Layer 8) | **6/6 graded** — structural only; content expectations unmet, see RESULTS §9 | `run_brief_eval.py` |
 | Adversarial safety | **0 unsafe answers** / 15 questions — 12 refusals, S05 now answers — run validity `VALID` | `run_safety_eval.py` |
 | Concurrency | **2275 req · 0% errors · knee at 50 VU** | `run_load_test.py` |
+| Soak (60 min, cloud stores) | **PASS — no leak signal.** RSS **+8.6 MB/h** · conns +4.2/h · **0.11%** of 37,842 req · idle recovery 4/4 | `run_soak_test.py` |
 
 ### How to read these — the caveats that still apply
 
@@ -209,8 +209,15 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 - **Time-to-answer is a floor set by corpus size.** BM25 finds the answer-bearing document at mean
   rank 1.35 across ~20 documents — keyword search is already good at this scale, so there is little
   room to improve on it. The 120 s/document reading assumption is an input, not a measurement.
-- **The load sweep is not a soak.** Nothing speaks to memory growth or connection leakage over hours,
-  and 50 VU against a demo-scale dataset is not evidence for 10k assets.
+- **The soak says "no leak signal", not "no leak".** `+8.6 MB/hour` clears the harness's FLAT
+  threshold (`<10`) but sits at 86% of it, measured across a band that oscillates ~11 MB over 59
+  samples — the slope's uncertainty is plausibly its own size. Quote it as *no leak signal detectable
+  over a 60-minute window*, never as "memory is flat", and do not extrapolate to a shift. The 41
+  errors (0.11%) are **counted, not classified**: the harness captures no status codes, so their
+  attribution to cloud-store resets is an inference from their burst shape.
+- **Neither the load sweep nor the soak speaks to scale.** 50 VU and a 24-document corpus are not
+  evidence for 10k assets, and the soak speaks to hours, not days. Both are **reads-only** — the
+  model path is never exercised by either.
 
 ---
 
@@ -226,35 +233,13 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 
 ### Tier 2
 
+> **#4 (soak test) closed 2026-08-22** — PASS, no leak signal: RSS +8.6 MB/h, connections +4.2/h,
+> 0.11% errors over 37,842 requests, idle recovery 4/4. Numbers, raw output and the three things the
+> run does **not** establish are in [`benchmark/RESULTS.md` §10](../../benchmark/RESULTS.md). The
+> number is retired rather than reused, because items 5–14 are cross-referenced by it elsewhere.
+
 | # | Improvement | Why it matters | Est. |
 |---|---|---|---|
-| 4 | **Soak test** — **RUNNING 2026-08-22** (60 min load → 10 min idle → phase-3 recovery, against **cloud** stores; baseline 315.5 MB RSS / 10 conns). Spec below. | Nothing yet speaks to memory growth or connection leakage over hours, and the pooled HTTP client + LRU cache are exactly what it would stress. **Needs no model provider** (reads-only endpoints), so it blocks nothing and can be run last. | 2–3 h |
-
-#### Soak test — specification (ready to run, nothing blocks it)
-
-**It needs no model provider.** It reuses `run_load_test.py`'s reads-only endpoint list, where
-model-backed endpoints are excluded by default, so it cannot spend NIM / Jina / Gemini / Groq quota
-however long it runs.
-
-**What it must stress — the three components shaped like leaks:**
-
-| Component | Where | Why a minutes-long load test cannot see it |
-|---|---|---|
-| Pooled HTTP client | `services/http.py` `shared_client()` | cached **per event loop**; Celery opens a fresh loop per task, so a mistake accumulates clients |
-| LRU embedding cache | `services/llm.py` `_LRU` (maxsize 512) | bounded in entry *count*, not bytes — 512 Jina v3 vectors is a real resident footprint |
-| Neo4j Aura driver pool | `dependencies.py` (`liveness_check_timeout=30`, `max_connection_lifetime=300`) | already produced one live bug (`SessionExpired` on idle connections); those settings are what a multi-hour run exercises |
-
-**The runs, in order:** (1) baseline sample of RSS, connection count and p95 before load, so the
-slope has an origin; (2) steady ~5 VU against reads-only endpoints for the chosen window, sampling
-every 60 s; (3) idle-recovery check — stop load ~10 min, then hit each Neo4j-backed endpoint
-(`/compliance/dashboard`, `/assets/{id}/knowledge`, graph, blast-radius), where a `SessionExpired` is
-a real failure; (4) post-soak sample compared to baseline.
-
-**Verdict must be stated, not inferred:** memory flat or trending at X MB/hour · connection count
-stable · p95 drift under constant load · error rate. A rising RSS *slope* is the finding; a single
-high reading is not. **Limits:** speaks to hours, not days, and says nothing about 10k assets. Run
-against **local stores** if the window is long enough to matter for Aura quota.
-
 | 5 | **Event reorder buffer — Layer 8 normalization's third operation** | Dedup and correlation are built; out-of-order buffering before the trigger queue commits is not. `LATE_ARRIVAL_WINDOW_MINUTES` currently scopes correlation lookups only. **Not a uniform buffer:** a 5-minute hold on a PTW event delivers the safety brief *after* the permit is issued, so it must interact with priority — and it changes dedup semantics, since you would be deduping over a window that is still open. Unobservable single-site with REST-posted events; real on a plant with CMMS/DCS propagation delay. | 2–3 d |
 | 6 | **Layout-aware form / checklist parsing** | `workers/extraction.py` is labelled "DEAD STUBS" and `run_form_extraction` raises — the only dead path in ingestion. **The hard part is destination, not extraction:** a field→value pair means nothing without the form type and field semantics, and then — graph edge at what authority, or quarantine? A handwritten checkbox promoted to canonical fact is what Layer 6 exists to prevent. Spans L3 × L4 × L6. **Measured impact today: none** — retrieval is 37/37 and none of the four benchmark misses (Q02 causal, Q07 topology, Q09 aggregation, Q29 blast-radius) is a form-parsing problem. Value appears at plant scale where field-level aggregation matters. | 3–5 d |
 | 7 | **Graph query policy** | Traversal depth limits, authority pre-filter *before* traversal rather than after, hot-asset Redis precompute, and a query-perf regression test inside the Layer 0 gate. All named in `ARCHITECTURE.md §7` as non-optional. Start from `PROFILE`, as the anchor fix did — the composite-index question was settled that way and the answer was a missing constraint, not an index. | 2–3 d |
@@ -360,13 +345,17 @@ against **local stores** if the window is long enough to matter for Aura quota.
 - **Service-free tier:** **251 passed** across **23 files** (2026-08-22) — no stack / secrets / network.
   This is exactly what CI's `unit` job runs; the list is duplicated in `AGENTS.md`, `docs/TESTS.md` and
   `.github/workflows/tests.yml` and **all three must be updated together** (they have drifted twice).
-- **Frontend:** **145 passed across 57 files**, `tsc` clean, `eslint` 0 errors / 3 pre-existing
-  unused-var warnings. Run vitest **in Docker, never on the host** — host package resolution differs
+- **Frontend:** **145 passed across 57 files** *(last measured 2026-08-17 — not re-verified since;
+  `npx vitest run` OOMs at the container's 2 GB cap, so this needs a host run or a raised
+  `mem_limit`)*, `tsc` clean, `eslint` 0 errors / 3 pre-existing unused-var warnings. Run vitest **in Docker, never on the host** — host package resolution differs
   from the pinned image and makes `auth.test.ts` / `api.test.ts` fail spuriously.
 - **P&ID Path B:** live-validated on `dataset/02_Document_Corpus/pid_line3_isolation_boundary.png`.
 - **Cloud stores:** Neo4j Aura + Qdrant Cloud + Supabase + Grafana Cloud. Default local stack ≈ 13
   containers; ~2–3 GB idle RAM.
 - **Auth verified-token cache:** ~577 ms/request saved (revocation preserved, ≤ TTL staleness).
+- **Soak (2026-08-22, cloud stores):** 60 min × 5 VU → 10 min idle → recovery probes. **PASS on all
+  four harness thresholds** — memory FLAT, connections STABLE, errors CLEAN, idle recovery 4/4. Read
+  it as *no leak signal over a 60-minute window*; §10 of `RESULTS.md` records what it does not prove.
 
 ---
 
@@ -396,6 +385,9 @@ against **local stores** if the window is long enough to matter for Aura quota.
 | **Benchmark / soak numbers spike mid-run for no reason** | You edited a file under `backend/`. `docker-compose.override.yml` mounts `./backend:/app` and runs `uvicorn --reload`, so **every save restarts the live API** — in-flight requests error, p95 spikes ~17x, and RSS resets, which destroys a soak's leak trend. Long measurement runs execute *inside* `kairos-backend-api`, so they are hit by this too. **Do not edit `backend/` or `tests/` while a benchmark or soak is running** — the override mounts both, and `tests/` edits were observed triggering reloads too. Editing `docs/` and `frontend/` is safe; neither is mounted into the API container. |
 | **A `localhost` URL in `.env` for a *container* service silently disables it** | `OPA_URL=http://localhost:8181` resolved to the API container itself, so authorization requests never reached OPA — and `_ask_opa`'s fail-open turned that into "allow everything". The host port mapping (`0.0.0.0:8181->8181`) makes `localhost:8181` work from the **host**, which is what makes the wrong value look right. Inside a container always use the compose service name (`http://kairos-opa:8181`). `.env` is `env_file:`-injected at container **creation**, so a change needs `--force-recreate`, not a reload. |
 | **A 403 that should exist but doesn't is invisible** | Authorization defects fail *open*, so nothing errors and no test goes red. `scripts/verify_authz_policy.sh` checks the policy's decisions, but the policy being right proves nothing about whether it is *reached*. After any change to `middleware/opa.py`, `kairos.rego` or `OPA_URL`, probe the live API with a real token from a **restricted** persona and confirm a **403** — e.g. `field_worker` on `/audit-log/`. A 200 there means the layer is inert. |
+| **A test-id prefix that is also a real id's first characters deletes real data** | `scripts/purge_test_data.py` matches every entry in its `*_PREFIXES` lists as a **prefix** — `STARTS WITH` in Neo4j, `LIKE 'p%'` in Supabase, a `prefix` query in ES — and `tests/conftest.py` runs it as an **autouse session teardown** unless `KAIROS_SKIP_TEST_CLEANUP` is set. `DOC_PREFIXES` contained the bare string `DOC-X`, present only because `tests/test_annotations.py` writes that exact id as a literal. Real document ids are `DOC-` plus twelve random characters, so roughly **one document in thirty-six** starts with X: four real documents matched and were `DETACH DELETE`d from the graph and dropped from Supabase on every full-suite run, against CLAUDE.md's "Vault: permanent. Never delete." Fixed 2026-08-22 by splitting whole ids into `DOC_EXACT_IDS`, matched by equality in all three stores. **A prefix shorter than its trailing separator is a data-loss bug — put whole ids in the `_EXACT` lists, and keep every prefix ending in `-`.** |
+| **Test assets accumulate in the cloud stores even though a purge runs** | The purge only removes what its prefix lists name, and that list drifts from `tests/conftest.py`. `fresh_asset_id` has minted `ASSET-FRESH-{uid}` since it was added, but `ASSET_PREFIXES` never listed it, so 25 test assets built up in Aura and dragged 200 phantom ISO-45001 gaps into `GET /compliance/gaps`. Added 2026-08-22. **After adding a fixture that creates an entity, add its prefix to `purge_test_data.py` in the same change** — the lists are the only thing keeping the demo stores clean, and nothing fails when they drift. |
+| **`make nuke` does not clean the cloud stores** | It is `docker compose down -v` — local volumes only. Neo4j Aura, Qdrant Cloud and Supabase are untouched, so the documented `nuke → dev → init-all → seed → load-dataset` reset leaves every cloud-side test entity in place. Use `purge_test_data.py` for prefix-matched residue; anything created by hand through the API (`BULK-*`, and the bare `ASSET-<8HEX>` ids `POST /assets` generates when the payload omits one) carries **no test marker at all** and can only be removed by explicit id. **A generated id is indistinguishable from a real one — pass an explicit prefixed id when creating throwaway entities by hand.** |
 | Site-wide brief wrong recipient | `user_id = f"site-{site_id}"` in `BriefEngine.deliver()` |
 | NIM OCR wrong base URL | `https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-ocr-v2` |
 | **PostgREST `.neq()` against a missing JSONB key drops every row** | `NULL != 'x'` is `NULL`, not `TRUE`. `.neq("session_context->>element_type", "topology_manifest")` silently excluded *every element row* (they have no such key), so topology reported `elements_total: 0`. Filter in Python when the key may be absent. |
@@ -429,7 +421,7 @@ against **local stores** if the window is long enough to matter for Aura quota.
 | **Benchmark checkpoints must live on a mounted path** | `run_benchmark.py --checkpoint` writes each graded question as it lands so a crash costs the remainder, not the run — but `/tmp` is **container-local**, and a rebuild mid-run wipes it. Use `/app/.benchmark_runs/` (bind-mounted to `backend/.benchmark_runs/` by `docker-compose.override.yml`). Launch detached with `docker exec -d` and write logs there too. |
 | Seed cloud (run once) | `make init-all` (schema + Qdrant collections **+ payload indexes**) → `make seed` (regulations + users) → `make load-dataset`. Idempotent. Doc pipelines are async — re-run `scripts/seed_validation_corpus.py` ~30 s after load (validation_corpus needs ES content indexed first). |
 | Neo4j Aura keep-alive | Aura Free pauses after 3 days idle. **Handled by `.github/workflows/uptime.yml`** (daily 03:17 UTC) — it queries Aura *directly* with the driver, so it works whether or not a backend is deployed. Needs repo secrets `NEO4J_URI`/`NEO4J_USERNAME`/`NEO4J_PASSWORD`/`NEO4J_DATABASE`. GitHub disables scheduled workflows after 60 days of repo inactivity. |
-| Neo4j driver pool settings are load-bearing | `dependencies.py` sets `liveness_check_timeout=30` + `max_connection_lifetime=300`. Aura closes **idle connections** within minutes, and without these a stale pooled connection throws `SessionExpired` → intermittent 500s on every Neo4j endpoint. Don't drop them; the daily keep-alive cron does **not** cover this. |
+| Neo4j driver pool settings are load-bearing | `dependencies.py` sets `liveness_check_timeout=30` + `max_connection_lifetime=300`. Aura closes **idle connections** within minutes, and without these a stale pooled connection throws `SessionExpired` → intermittent 500s on every Neo4j endpoint. Don't drop them; the daily keep-alive cron does **not** cover this. **Regression-tested 2026-08-22:** after a 10-minute idle window the four Neo4j-backed endpoints (`/compliance/dashboard`, `/assets/{id}/knowledge`, graph, blast-radius) all recovered with no `SessionExpired` — `run_soak_test.py` phase 3, and the reason that phase runs against **cloud** stores rather than local ones. |
 
 ### Feature-specific — endpoints, roles & pages
 
@@ -456,7 +448,11 @@ against **local stores** if the window is long enough to matter for Aura quota.
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
 **Tests:** service-free tier **251 passed** across **23 files** (no stack/secrets/network) · frontend **145 passed / 57 files, 0 errors** · full suite **412 passed / 0 failed** (2026-08-22) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
 
-**CI:** `tests.yml` is two tiers — **`unit`** runs the service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config, **authz boundary**) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, a synthesis cascade call per synthesize) and exhausting a provider tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) passes in full. Two CI facts worth knowing: `lint.yml` needs `pull-requests: read` or `dorny/paths-filter` fails with *"Resource not accessible by integration"* and every lint job silently skips on PRs; and `next/font/google` fetches DM Sans/Geist **from Google at build time**, so a runner that cannot reach fonts.googleapis.com fails the build with `Module not found: @vercel/turbopack-next/internal/font/google/font` — transient, retry it, or self-host via `next/font/local` to remove the class.
+**CI:** `tests.yml` is two tiers — **`unit`** runs the service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config, **authz boundary**) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, a synthesis cascade call per synthesize) and exhausting a provider tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) passes in full. **`deps-audit.yml`** (added 2026-08-22) is the
+per-push dependency check Dependabot cannot provide — `pip-audit` / `npm audit` / `govulncheck` on push
+and PR to `main` plus `workflow_dispatch`, path-filtered to the manifests. Its `pip-audit` step carries
+a **documented suppression baseline** (see Backlog #2): remove an `--ignore-vuln` line as soon as its
+blocker clears, and never add one without a reason on the same line. Two CI facts worth knowing: `lint.yml` needs `pull-requests: read` or `dorny/paths-filter` fails with *"Resource not accessible by integration"* and every lint job silently skips on PRs; and `next/font/google` fetches DM Sans/Geist **from Google at build time**, so a runner that cannot reach fonts.googleapis.com fails the build with `Module not found: @vercel/turbopack-next/internal/font/google/font` — transient, retry it, or self-host via `next/font/local` to remove the class.
 
 > **Ruff is pinned in `lint.yml`, and that is deliberate.** Unpinned, it runs whatever rule set the
 > newest release enables — one release once took linting from green to **608 errors on an unchanged

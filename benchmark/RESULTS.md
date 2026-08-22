@@ -8,6 +8,9 @@ to OpenRouter on the *same* model then Gemini · `llama-3.2-11b-vision` NER · J
 corpus, and `NVIDIA_NIM_TIMEOUT=60`. Every figure below supersedes the 2026-08-15 numbers, which were
 measured on the retired 25-question set at a 90 s cap.
 
+**§10 (soak) is a later run, 2026-08-22**, and is dated separately in place — it measures process
+behaviour over a 72-minute window rather than answer quality, so it does not supersede anything above.
+
 - Methodology and interpretation: [`../docs/BENCHMARKS.md`](../docs/BENCHMARKS.md)
 - Caveats, known confounds and what each number does **not** prove:
   [`../docs/implementation/status.md` § How to read these](../docs/implementation/status.md#how-to-read-these--the-caveats-that-still-apply)
@@ -27,6 +30,7 @@ measured on the retired 25-question set at a 90 s cap.
 | Proactive brief quality (Layer 8) | **6/6 graded checks pass** — structural only; 7 soft content expectations unmet, see §9 | `run_brief_eval.py` |
 | Adversarial safety | **0 unsafe answers** / 15 questions — 12 refusals, S05 now answers — run validity `VALID` | `run_safety_eval.py` |
 | Concurrency | **2275 requests · 0% errors · knee at 50 VU** | `run_load_test.py` |
+| Soak — memory / connection leakage | **PASS, no leak signal** over 60 min · RSS +8.6 MB/h · conns +4.2/h · 0.11% of 37,842 requests · 4/4 idle-recovery | `run_soak_test.py` (2026-08-22) |
 
 ## 1. `verify_layers.py` — per-layer smoke + latency
 
@@ -57,7 +61,8 @@ measured on the retired 25-question set at a 90 s cap.
   Retrieval (fact reaches context):    37/37 (100%)  95% CI [91–100%]
   Answer quality (correct/total):      33/37 (89.2%) 95% CI [79–97%]
   Answer provenance (sourced/correct): 33/33 (100%)  95% CI [91–100%]
-  KG linkage:                          10/10 assets linked (100%) · 45 edges (5 verified)
+  Synthesis latency:                   p50 32141 ms · p95 66039 ms · avg 34146 ms
+  KG linkage:                          10/10 assets linked (100%) · 45 edges (2 verified)
 
   Provider mix:      25 nim · 8 openrouter · 4 refused
   Run validity:      VALID (0 fallback answers)
@@ -219,8 +224,8 @@ headroom to win — see the status.md note on why this figure is a floor set by 
 
 2275 requests across 9 read endpoints, 0% errors at every level — reproduces the 2026-08-15 sweep
 (knee at 50 VU in both). Reads only: model-backed endpoints are excluded so a sweep cannot burn
-provider quota. Still a load test, not a soak — nothing here speaks to memory growth or connection
-leakage over hours (backlog #7, spec written, deferred).
+provider quota. Still a load test, not a soak: a sweep this short says nothing about memory growth or
+connection leakage over hours. That is measured separately in §10.
 
 ## 7. `run_retrieval_baseline.py` — retrieval reach by arm
 
@@ -340,6 +345,139 @@ assets and prior-event terms that the embedding-based brief engine does not surf
 window. They are correct aspirational targets; promoting them to `must_all` would require either
 expanding the retrieval window or adding structured link-traversal to `BriefEngine`. Left as
 `should_contain` until that path is implemented.
+
+## 10. `run_soak_test.py` — memory and connection-pool behaviour over hours
+
+**Measured 2026-08-22.** 60 min steady load (5 VU, sample every 60 s) → 10 min idle → Neo4j recovery
+probes. Run against **cloud stores** (Neo4j Aura + Qdrant Cloud) on purpose: the idle-recovery phase
+is a regression test for Aura's own pruning of idle pooled connections, and local stores would not
+exercise it. Reads-only endpoint list, so it consumed **no provider quota** despite running 72 min.
+
+```
+
+KAIROS — Soak Test   60 min · 5 VU · sample every 60s
+Endpoints: 9 (reads only — no provider quota)
+==============================================================================
+BASELINE   rss    315.5 MB · conns  10
+
+ elapsed     rss MB   conns    p50 ms    p95 ms     reqs    err
+------------------------------------------------------------------------------
+    1.0m      330.2      38     226.5     955.1      504      0
+    2.0m      332.3      40     205.4     612.4      562      0
+    3.0m      334.2      38     208.5     365.5      624      0
+    4.0m      335.4      38     203.6     546.4      608      3
+    5.0m      335.4      36     224.8    1262.1      479      7
+    6.0m      335.8      34     216.1    1571.8      390      9
+    7.0m      334.4      34     181.6     345.2      668      9
+    8.0m      337.7      34     196.5     359.9      632      9
+    9.0m      337.9      35     192.3     373.9      632      9
+   10.0m      337.6      35     195.8     672.8      567      9
+   11.0m      336.4      33     198.2     703.3      587      9
+   12.0m      338.4      34     180.6     347.7      653      9
+   13.0m      337.1      35     207.0     493.2      612     11
+   14.0m      338.6      35     229.8     521.9      585     13
+   15.0m      339.3      37     215.3     436.4      608     13
+   16.0m      337.9      35     198.3     422.1      643     15
+   17.0m      336.6      36     167.4     324.0      682     15
+   18.0m      340.3      34     164.3     312.0      689     15
+   19.0m      339.3      36     169.2     328.9      684     17
+   20.0m      340.4      36     161.3     361.7      678     17
+   21.0m      338.3      35     196.9     567.2      603     21
+   22.0m      337.9      33     204.2     432.9      626     21
+   23.0m      340.6      35     161.8     293.0      699     21
+   24.0m      336.6      35     156.6     284.2      699     21
+   25.0m      338.0      36     177.1     321.0      681     21
+   26.0m      340.1      33     194.8     355.4      650     21
+   27.0m      339.6      35     191.8     367.2      654     23
+   28.0m      339.1      37     192.1     351.1      652     23
+   29.0m      341.7      38     201.8     485.0      613     28
+   30.0m      340.3      37     187.7     385.1      652     28
+   31.0m      339.7      36     178.2     341.2      668     28
+   32.0m      340.8      39     193.1     431.8      639     28
+   33.0m      343.1      38     198.3     391.5      652     29
+   34.0m      342.3      40     200.7     401.4      634     29
+   35.0m      339.6      39     203.1     396.4      634     29
+   36.0m      341.9      37     177.4     329.4      671     29
+   37.0m      338.9      39     197.2     460.1      636     29
+   38.0m      341.7      37     198.8     402.7      640     29
+   39.0m      342.0      37     192.7     380.3      651     29
+   40.0m      339.5      37     188.9     374.0      650     29
+   41.0m      342.8      42     185.7     344.1      662     29
+   42.0m      342.9      41     173.3     389.4      670     31
+   43.0m      341.3      44     170.0     365.3      680     31
+   44.0m      340.9      43     199.4     400.3      646     31
+   45.0m      342.7      45     213.7     429.7      613     31
+   46.0m      341.3      42     210.0     407.4      624     31
+   47.0m      342.9      44     201.1     398.9      639     31
+   48.0m      343.1      38     197.4     379.3      648     31
+   49.0m      341.0      37     209.0     412.5      631     31
+   50.0m      343.5      38     190.8     335.2      659     31
+   51.0m      341.2      38     205.7     349.5      638     31
+   52.0m      342.8      37     156.3     338.5      690     31
+   53.0m      341.1      35     171.2     488.0      640     33
+   54.0m      344.0      38     274.5    1694.4      407     41
+   55.0m      343.0      38     198.5     575.5      588     41
+   56.0m      342.8      36     180.2     400.3      661     41
+   57.0m      342.6      37     185.9     413.6      633     41
+   58.0m      340.5      35     154.4     318.7      706     41
+   59.0m      345.5      37     181.3     360.4      659     41
+   60.0m      345.4      37     182.5     365.3      657     41
+
+IDLE 10 min — no traffic, so Aura can close pooled connections…
+Recovery probes (a SessionExpired here is a real failure):
+  /compliance/dashboard                        OK
+  /assets/EQ-101/knowledge                     OK
+  /graph/asset/EQ-101                          OK
+  /governance/blast-radius/DOC-NONE            OK
+
+==============================================================================
+Requests: 37842 · errors: 41 (0.11%)
+RSS   315.5 MB idle → 342.3 MB (warm-up +14.6 MB, then slope +8.6 MB/hour over 59 steady samples)
+Conns 10 idle → 14 (steady slope +4.2/hour)
+
+VERDICT
+  memory           FLAT      +8.6 MB/hour
+  connections      STABLE    +4.2/hour
+  errors           CLEAN     0.11%
+  idle recovery    OK        4/4 endpoints
+
+PASS — no leak signal over this window.
+
+Limits: speaks to hours, not days. A demo-scale dataset says nothing about 10k assets.
+Reads only — no synthesis, no embedding, so it does not exercise the model path.
+```
+
+**PASS on all four harness thresholds** (`run_soak_test.py:228-233` — FLAT `<10` MB/h, STABLE `<5`/h,
+CLEAN `<1`%, recovery all-or-nothing). The three components the spec named as leak-shaped each held:
+`shared_client()`'s per-event-loop cache did not accumulate clients, the 512-entry `_LRU` filled to a
+watermark and stopped, and the Aura pool re-established connections on demand after the idle window.
+
+**The idle-recovery result is the one that mattered.** Four Neo4j-backed endpoints returned OK after
+10 minutes of zero traffic with no `SessionExpired` — a direct regression test for a bug that shipped
+once, and the reason `liveness_check_timeout=30` / `max_connection_lifetime=300` in `dependencies.py`
+must not be dropped.
+
+### How to read these — three things the run does not establish
+
+- **"FLAT" is the harness verdict, not a claim that memory is flat.** `+8.6 MB/hour` is 86% of the
+  `<10` threshold, measured as a least-squares slope across a band that oscillates ~11 MB (334–345.5
+  MB) over 59 samples. At that ratio the slope's own uncertainty is plausibly the same order as the
+  slope. The defensible statement is the harness's: **no leak signal detectable at this window
+  length**. Do not restate it as "memory is flat", and do not extrapolate it to a shift — 8.6 MB/h
+  held for 24 h would be ~200 MB, which this run can neither confirm nor rule out.
+- **The 41 errors are counted, not classified.** The harness records a count per sample window and
+  nothing else, so the log cannot say what they were. They arrived in four bursts (min 4–6, 13–21,
+  29, 54), each followed by extended quiet, with zero new errors in the final 6 minutes of load and
+  no acceleration over time — a pattern consistent with transient cloud-store resets rather than
+  process-side degradation, but that is an **inference from the shape, not evidence from the log**.
+  Classifying them needs per-error status codes the harness does not currently capture.
+- **Latency did not drift.** p95 moved *downward* out of warm-up and settled at 284–567 ms; the two
+  spikes (1572 ms at min 6, 1694 ms at min 54) each lasted exactly one sample window and coincide
+  with error bursts. p50 held at 155–275 ms throughout.
+
+**Limits, restated because they are easy to drop:** this speaks to **hours, not days**; a demo-scale
+corpus (24 documents, 10 golden assets) says nothing about 10k assets; and it is **reads-only**, so
+the model path (`POST /search/synthesize`, Jina embed, NIM NER) is not exercised at all.
 
 ---
 

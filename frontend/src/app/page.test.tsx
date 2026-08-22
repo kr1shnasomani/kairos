@@ -17,10 +17,23 @@ describe("Home", () => {
     render(<Home />);
 
     expect(screen.getByRole("heading", { level: 1, name: /the plant already knows/i })).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /sign in/i })[0]).toHaveAttribute("href", "/login");
+
+    // Two ways in, not three: the header CTA and the footer CTA. The duplicate
+    // "Sign in" was removed, and the hero's primary action is the demo instead.
     const workspaceLinks = screen.getAllByRole("link", { name: /open workspace/i });
-    expect(workspaceLinks).toHaveLength(3);
+    expect(workspaceLinks).toHaveLength(2);
     for (const link of workspaceLinks) expect(link).toHaveAttribute("href", "/login");
+    expect(screen.queryByRole("link", { name: /sign in/i })).not.toBeInTheDocument();
+
+    // The hero leads with the recording. It leaves the site, so it must say so
+    // to assistive tech and must not hand the opener a live window reference.
+    const demo = screen.getByRole("link", { name: /watch demo/i });
+    expect(demo).toHaveAttribute("href", expect.stringContaining("http"));
+    expect(demo).toHaveAttribute("target", "_blank");
+    expect(demo).toHaveAttribute("rel", expect.stringContaining("noreferrer"));
+
+    // …and the path into the page itself is still there, unchanged.
+    expect(screen.getByRole("link", { name: /see how it works/i })).toHaveAttribute("href", "#how");
   });
 
   // Readers who did not already know the domain could not tell what Kairos was.
@@ -65,24 +78,44 @@ describe("Home", () => {
     fireEvent.click(screen.getByRole("button", { name: "Root cause" }));
     expect(panel).toHaveTextContent(/maintenance intelligence/i);
 
+    // Computer vision and OCR are claimed here and nowhere else. They used to be
+    // restated in the capability list below, which is the duplication that list
+    // was trimmed to remove — so this is now the only guard on them.
     fireEvent.click(screen.getByRole("button", { name: "Ingestion" }));
     expect(panel).toHaveTextContent(/universal ingestion/i);
+    expect(panel).toHaveTextContent(/vision model/i);
+    expect(panel).toHaveTextContent(/OCR/);
 
-    // The regulatory frameworks the brief names, stated where they apply.
+    // The regulatory frameworks, stated where they apply. Only the two the demo
+    // actually seeds are named as loaded (`backend/scripts/seed_regulations.py`);
+    // the rest are named as options, which is what `GET /compliance/frameworks`
+    // reports. "Factories Act" is deliberately absent: it appears in the dataset's
+    // clause-excerpt document, never as a framework the product can be set to.
     fireEvent.click(screen.getByRole("button", { name: "Compliance" }));
     expect(panel).toHaveTextContent(/quality and regulatory/i);
-    expect(panel).toHaveTextContent(/OISD/);
+    expect(panel).toHaveTextContent(/OISD-117/);
+    expect(panel).toHaveTextContent(/ISO 45001/);
     expect(panel).toHaveTextContent(/PESO/);
-    expect(panel).toHaveTextContent(/Factories Act/i);
+    expect(panel).not.toHaveTextContent(/Factories Act/i);
 
-    // The suggested technologies and the unasked-for work are stated once each.
-    const platform = document.getElementById("platform") as HTMLElement;
-    expect(platform).toHaveTextContent(/computer vision for p&ids/i);
-    expect(platform).toHaveTextContent(/management of change/i);
-    expect(platform).toHaveTextContent(/DPDP Act 2023/);
+    // The cross-cutting work that has no screen of its own is stated once, in the
+    // capability list under the tabs. Each row is pinned to something real:
+    // moc_items runs draft -> pending_approval -> approved; services/pii.py redacts
+    // at export only; circuit_breaker.check halts the graph write on a z-score.
+    const section = document.getElementById("capabilities") as HTMLElement;
+    expect(section).toHaveTextContent(/management of change/i);
+    expect(section).toHaveTextContent(/DPDP Act 2023/);
+    expect(section).toHaveTextContent(/non-conformance register/i);
+    expect(section).toHaveTextContent(/blast radius/i);
 
-    // And the section that duplicated the tabs is gone.
+    // And it does not restate what a tab already says.
+    expect(section).not.toHaveTextContent(/computer vision for p&ids/i);
+
+    // And both sections that duplicated the tabs are gone. Nothing may link to
+    // them either: a nav cell pointing at a removed anchor is a dead click.
     expect(document.getElementById("scope")).toBeNull();
+    expect(document.getElementById("platform")).toBeNull();
+    expect(document.querySelector('a[href="#platform"]')).toBeNull();
   });
 
   it("quotes the measured benchmark figures, including the answer-quality range", () => {
@@ -101,11 +134,17 @@ describe("Home", () => {
     expect(screen.getByText("10 / 10")).toBeInTheDocument();
     expect(screen.getByText("6 / 6")).toBeInTheDocument();
     // Scoped to the <p>: a bare regex also matches every ancestor's textContent.
-    expect(screen.getByText(/thirty-seven domain-expert questions/i, { selector: "p" })).toBeInTheDocument();
-    // Stated twice: in the evals copy and in the opening FAQ answer.
-    expect(screen.getAllByText(/graded deterministically/i, { selector: "p" })).toHaveLength(2);
-    // The spread and the layer checks are stated, not rounded away.
-    expect(screen.getByText(/33 of 37/i, { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText(/thirty-seven questions written by domain experts/i, { selector: "p" })).toBeInTheDocument();
+    // Said once on the chart's own sub-label, and explained once in the filled cell
+    // at the foot of the section. It used to be in the section intro as well, which
+    // made that cell a repeat rather than the explanation.
+    expect(screen.getAllByText(/graded by fixed rules/i, { selector: "p" })).toHaveLength(1);
+    expect(screen.getByText(/fixed rules, never another model/i)).toBeInTheDocument();
+    // The spread is carried by the chart itself, not rounded away in prose.
+    expect(screen.getByText("33/37")).toBeInTheDocument();
+    expect(screen.getByText(/95% confidence: 79 to 97/i)).toBeInTheDocument();
+    // What the chart cannot show: which model answered, and why the misses understate it.
+    expect(screen.getByText(/none from a fallback\s+model/i, { selector: "p" })).toBeInTheDocument();
     // The other harnesses are on the page too, with their real figures.
     expect(screen.getByText("13 / 13")).toBeInTheDocument();
     expect(screen.getByText("0 unsafe")).toBeInTheDocument();
@@ -113,8 +152,7 @@ describe("Home", () => {
     expect(screen.getByText("F1 0.805")).toBeInTheDocument();
     expect(screen.getByText("−9.5%")).toBeInTheDocument();
     expect(screen.getByText("0% errors")).toBeInTheDocument();
-    // …and so are the limits, which is the point of stating them.
-    expect(screen.getByText(/soak and sustained load/i)).toBeInTheDocument();
+    expect(screen.getByText("No leak signal")).toBeInTheDocument();
 
     // No invented operational metrics.
     expect(screen.queryByText("98.4%")).not.toBeInTheDocument();

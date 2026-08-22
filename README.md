@@ -58,12 +58,12 @@ config:
   layout: dagre
 ---
 flowchart TB
- subgraph CLIENT["Presentation · Next.js on Vercel"]
+ subgraph CLIENT["Point of action · Next.js"]
     direction LR
         FE1["Field mobile<br>offline-capable PWA"]
         FE2["Engineer / admin<br>desktop workspace"]
   end
- subgraph CORE["Application core · FastAPI behind Caddy (HTTPS)"]
+ subgraph CORE["Application core · FastAPI"]
     direction LR
         API["REST API<br>routers to services"]
         OPA["OPA<br>RBAC authorization"]
@@ -89,9 +89,9 @@ flowchart TB
         ES[("Elasticsearch<br>exact")]
         SUPA[("Supabase<br>Postgres · Auth · Vault · files")]
   end
- subgraph EXT["External model APIs · cloud"]
+ subgraph EXT["Model plane · cloud only"]
     direction LR
-        NIM["NVIDIA NIM<br>LLM · NER · OCR"]
+        NIM["NVIDIA NIM<br>LLM · NER · OCR<br>cascade: OpenRouter → Gemini → Ollama"]
         GROQ["Groq<br>Whisper STT"]
         JINA["Jina<br>embeddings"]
   end

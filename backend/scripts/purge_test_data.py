@@ -15,6 +15,7 @@ For a full deterministic reset prefer `make nuke && make init-all && seed && loa
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -28,9 +29,20 @@ from api.config import settings
 log = structlog.get_logger(__name__)
 
 # Test-id prefixes minted by tests/ (uid()-suffixed). Keep in sync with conftest.py.
-ASSET_PREFIXES = ["ASSET-TEST-", "ASSET-DEDUP-", "ASSET-EV-", "ASSET-ACK-"]
+#
+# Every entry here is matched as a PREFIX (`STARTS WITH` / `LIKE 'p%'` / an ES
+# prefix query), so a short one is a live data-loss risk: real ids are `DOC-` plus
+# twelve random characters, and roughly one document in thirty-six starts with X.
+# `DOC-X` sat in this list because one test uses that exact id as a literal, and as
+# a prefix it matched four real documents in the graph and DETACH DELETEd them —
+# on every full-suite run, since conftest calls this as an autouse teardown. Exact
+# ids belong in the _EXACT lists below, never here.
+ASSET_PREFIXES = ["ASSET-TEST-", "ASSET-DEDUP-", "ASSET-EV-", "ASSET-ACK-", "ASSET-FRESH-"]
 WO_PREFIXES = ["WO-ATTR-", "WO-GO-", "WO-RESP-", "WO-VOICE-", "WO-TEST-"]
-DOC_PREFIXES = ["DOC-INSP-", "DOC-X"]
+DOC_PREFIXES = ["DOC-INSP-"]
+
+# Whole ids a test writes verbatim. Matched by equality — see the note above.
+DOC_EXACT_IDS = ["DOC-X"]  # tests/test_annotations.py
 
 # Supabase deletes in FK-safe order — every child of assets/documents/briefs/conflicts
 # is removed before its parent. `brief_feedback` (→ briefs) and `moc_items` (→ conflicts)
@@ -74,6 +86,13 @@ async def _purge_neo4j() -> int:
                     prefix=prefix, database_=settings.NEO4J_DATABASE,
                 )).summary
                 deleted += summary.counters.nodes_deleted
+
+        if DOC_EXACT_IDS:
+            summary = (await driver.execute_query(
+                "MATCH (n:Document) WHERE n.document_id IN $ids DETACH DELETE n",
+                ids=DOC_EXACT_IDS, database_=settings.NEO4J_DATABASE,
+            )).summary
+            deleted += summary.counters.nodes_deleted
     finally:
         await driver.close()
     return deleted
@@ -110,6 +129,14 @@ def _purge_supabase() -> int:
                 deleted += len(res.data or [])
             except Exception as exc:  # column may not exist on a given table — skip, don't fail the run
                 log.warning("purge.supabase.skip", table=table, column=column, error=str(exc))
+
+    for table, column, prefixes in SUPABASE_TARGETS:
+        if prefixes is not DOC_PREFIXES or not DOC_EXACT_IDS:
+            continue
+        try:
+            deleted += len((sb.table(table).delete().in_(column, DOC_EXACT_IDS).execute()).data or [])
+        except Exception as exc:  # noqa: BLE001 — same tolerance as the prefix pass above
+            log.warning("purge.supabase.exact.skip", table=table, column=column, error=str(exc))
     return deleted
 
 
@@ -120,7 +147,11 @@ def _purge_elasticsearch() -> int:
         auth = (settings.ELASTICSEARCH_USERNAME, settings.ELASTICSEARCH_PASSWORD)
     with httpx.Client(base_url=settings.ELASTICSEARCH_URL, auth=auth, timeout=30) as client:
         for index, field, prefixes in ES_TARGETS:
-            should = [{"prefix": {field: p}} for p in prefixes]
+            should: list[dict[str, Any]] = [{"prefix": {field: p}} for p in prefixes]
+            if prefixes is DOC_PREFIXES and DOC_EXACT_IDS:
+                should.append({"terms": {field: DOC_EXACT_IDS}})
+            if not should:
+                continue
             try:
                 r = client.post(
                     f"/{index}/_delete_by_query",

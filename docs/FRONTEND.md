@@ -518,6 +518,17 @@ Product screenshots in `public/shots/` are real captures of the running app,
 produced by a local-only script (git-ignored; see `.gitignore`). Re-run it after
 UI changes so the marketing page does not drift from the product.
 
+The system-design diagrams in `public/diagrams/` are pre-rendered SVG, not a
+runtime mermaid dependency. `docs/DIAGRAMS.md` is the source of truth — one
+mermaid block per tab id — and `./scripts/render_diagrams.sh` regenerates the
+whole set from it. Edit the markdown, then re-run the script; never hand-edit an
+SVG, since the next render silently discards it. Two details the script exists to
+keep consistent: `-b white` (the diagrams' palette is built for a white ground, and
+without it mermaid emits a transparent SVG whose cluster fills and edge labels
+resolve wrong), and stamping the viewBox's pixel size back onto the root element
+(mermaid-cli emits `width="100%"`, which leaves the file with no intrinsic size, so
+the `<img>` cannot reserve its box and the small diagrams get upscaled to fill).
+
 ---
 
 ## 12. Docker

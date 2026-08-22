@@ -16,6 +16,7 @@ Self-contained evaluation harness + evidence, in `benchmark/` (mounted into the 
 | `run_compliance_eval.py` | **Compliance gap-detection precision / recall / F1** vs ground truth derived from the dataset manifest |
 | `run_time_to_answer.py` | **Time-to-answer vs BM25-only keyword search** — machine time, documents opened, modelled human time |
 | `run_load_test.py` | **Concurrency sweep** — p50/p95/p99, throughput, error rate, first-bottleneck detection |
+| `run_soak_test.py` | **Soak** — RSS and connection-count *slope* under sustained low load, latency drift, error rate, and a post-idle Neo4j recovery probe |
 | `questions.json` | **37** domain-expert Q&A across 15 categories, grounded in `dataset/00_Reference/00_KAIROS_CANON.md` |
 | `scripts/run_model_validation.py` | **Layer-0 entity-extraction F1** vs `validation_corpus`, per entity type, with extraction-path counts and a `VALID`/`SUSPECT` verdict |
 | `RESULTS.md` | Raw output of the scripts (results only — this file holds the interpretation) |
@@ -94,6 +95,7 @@ make benchmark ARGS=--retrieval-only    # fast: retrieval + KG only, no synthesi
 docker exec kairos-backend-api python benchmark/run_benchmark.py --selftest             # grader + stats self-check
 docker exec kairos-backend-api python scripts/seed_validation_corpus.py                 # seed NER ground truth
 docker exec kairos-backend-api python scripts/run_model_validation.py --model-name <m>  # entity-extraction F1
+docker exec -d kairos-backend-api python benchmark/run_soak_test.py --minutes 60 --vu 5   # soak (72 min; log to /app/.benchmark_runs/)
 ```
 
 ---
@@ -105,7 +107,7 @@ labels, `NVIDIA_NIM_TIMEOUT=60`). Raw output → [`../benchmark/RESULTS.md`](../
 
 | PS "Evaluation Focus" criterion | KAIROS metric | Result |
 |---|---|---|
-| **Time-to-answer** | Per-layer latency + synthesis percentiles | **13/13 layers PASS**; synthesis **p50 32.3 s · p95 65.0 s** (NIM 70B at the 60 s cap) |
+| **Time-to-answer** | Per-layer latency + synthesis percentiles | **13/13 layers PASS**; synthesis **p50 32.1 s · p95 66.0 s** (NIM 70B at the 60 s cap) |
 | **KG linkage completeness** | Assets linked into the graph + edge verification (Cypher) | **10/10 canonical assets linked (100%)**, **45 knowledge edges** (2 verified by human promotion; near-0% auto-verified is *by design* — see note) |
 | **Query answer quality** | Golden Q&A (37): answer states the correct fact, not negated, with sources | **34/37 (91%)**, 95% CI [79–97%]; run validity **VALID** (3 honest misses — see notes) |
 | **Provenance** | Does every non-refused answer cite `sources[]`? | **37/37 (100%)**, 95% CI [91–100%] |
@@ -162,8 +164,31 @@ current dataset, so 4 of 12 clauses are never exercised.
 `run_load_test.py` sweeps concurrency (default 1→50) over cheap read endpoints and flags the level
 at which p95 exceeds 3× the single-user baseline — that number, not the single-user latency, is the
 one to quote. Model-backed endpoints are **excluded by default** so a sweep cannot burn NIM/Jina
-quota; `--include-models` opts in. It is a load test, not a soak test: it says nothing about memory
-growth or connection leakage over hours.
+quota; `--include-models` opts in. It is a load test, not a soak test: a sweep that finishes in
+minutes says nothing about memory growth or connection leakage over hours.
+
+`run_soak_test.py` covers that second question, and reuses the same reads-only endpoint list, so it
+**cannot spend provider quota however long it runs**. Three things about how it is graded:
+
+- **The slope is the finding, a single reading is not.** It fits a least-squares slope per hour over
+  RSS and connection count, and **excludes the warm-up samples** — pools and the `_LRU` filling to
+  their initial watermark is a step, not a trend, and including it once turned a 2-minute smoke run
+  into a reported "+728 MB/hour". Below `_MIN_TREND_SAMPLES` it reports **NO DATA** rather than
+  extrapolating a leak verdict from noise.
+- **The thresholds are fixed and low-ceremony:** memory `FLAT` under +10 MB/h, connections `STABLE`
+  under +5/h, errors `CLEAN` under 1%. A few MB/hour is normal for a Python process under load
+  (allocator arenas, a bounded cache filling); tens of MB/hour is not. **Read a passing slope as "no
+  leak signal at this window length", not as "flat"** — a result at 80–90% of the threshold, inside
+  an oscillation band of similar size, is not distinguishable from zero over one hour.
+- **Phase 3 is the part with teeth.** After the load stops it idles ~10 minutes — long enough for
+  Aura to prune idle pooled connections — then probes each Neo4j-backed endpoint, where a
+  `SessionExpired` is a real failure. This is why the soak is run against **cloud stores**: local
+  containers do not prune idle connections, so the same run against `--profile local-stores` would
+  pass without testing anything.
+
+The harness counts errors but does not classify them, so attributing a burst to store-side resets
+rather than application degradation is an inference from its shape (bursty, non-accelerating,
+followed by quiet) — say so when reporting it.
 
 ---
 
