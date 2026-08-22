@@ -22,6 +22,12 @@ services:
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
+      # `src/app/landing-figures.test.ts` reads `<cwd>/../benchmark/RESULTS.md` to prove the
+      # landing page's eval figures still match the benchmark of record. On the host that
+      # resolves; in the container cwd is /app, so it looked for /benchmark and the suite failed
+      # to collect. CLAUDE.md requires vitest to run in Docker, so the mount is the fix rather
+      # than the test. Read-only: the frontend must never write the benchmark of record.
+      - ./benchmark:/benchmark:ro
 
   # --- API: --reload + source mount ----------------------------------------
   kairos-backend-api:

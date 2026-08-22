@@ -173,7 +173,7 @@ const capabilities: {
 ];
 
 /** System-design diagram. Rendered from `docs/DIAGRAMS.md` to static SVG in
- *  `public/diagrams/` by `scripts/render_diagrams.sh`. Deliberately not a runtime
+ *  `public/diagrams/` by `tools/render_diagrams.sh`. Deliberately not a runtime
  *  mermaid dependency: seven fixed pictures that only change when that file changes
  *  do not justify shipping a renderer to every visitor. */
 function SystemDiagramImage({ src, alt }: { src: string; alt: string }) {
@@ -1261,7 +1261,7 @@ function HeroVisual() {
 
 /**
  * A real screenshot of the running app, captured by
- * scripts/capture_landing_shots.sh. Re-run that script after UI changes so the
+ * tools/capture_landing_shots.sh. Re-run that script after UI changes so the
  * marketing page never drifts from the product.
  */
 function Shot({ src, alt }: { src: string; alt: string }) {

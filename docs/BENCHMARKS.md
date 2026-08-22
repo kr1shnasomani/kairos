@@ -13,6 +13,8 @@ Self-contained evaluation harness + evidence, in `benchmark/` (mounted into the 
 |------|------|
 | `run_benchmark.py` | Retrieval · answer quality · provenance · per-category · latency percentiles · 95% CIs · KG-linkage (both cuts) |
 | `run_kg_completeness.py` | KG linkage completeness, document-centric, with the unlinked remainder classified and dangling provenance reported separately |
+| `run_cross_functional.py` | Cross-functional discovery counterfactual: whole-corpus retrieval vs one function's documents alone. Embeddings only, no LLM quota |
+| `run_ocr_gate.py` | OCR accuracy against the dataset's declared clean/degraded pairings. Scores recall of operationally salient tokens, not character error rate |
 | `verify_layers.py` | Per-layer smoke + latency (PASS/FAIL table) |
 | `run_compliance_eval.py` | **Compliance gap-detection precision / recall / F1** vs ground truth derived from the dataset manifest |
 | `run_time_to_answer.py` | **Time-to-answer vs BM25-only keyword search** — machine time, documents opened, modelled human time |
@@ -109,7 +111,9 @@ labels, `NVIDIA_NIM_TIMEOUT=60`). Raw output → [`../benchmark/RESULTS.md`](../
 | PS "Evaluation Focus" criterion | KAIROS metric | Result |
 |---|---|---|
 | **Time-to-answer** | Per-layer latency + synthesis percentiles | **13/13 layers PASS**; synthesis **p50 32.1 s · p95 66.0 s** (NIM 70B at the 60 s cap) |
-| **KG linkage completeness** | **Document-centric** (`run_kg_completeness.py`): active vault documents with ≥1 `KNOWLEDGE_EDGE` carrying their `document_id`, test artifacts excluded from the denominator, remainder classified | **18/23 (78%) linked · 1 quarantined by design · 4 unexplained · 1 dangling (contained)** · 85 test documents excluded (2026-08-23). The four unexplained are the handwritten/degraded scans + one regulation PDF — the L3 limitation, not a linkage defect |
+| **OCR accuracy (Layer 0 extension)** | Recall of salient tokens (asset tags, measurements, references, dates) vs the clean sibling declared in `dataset_manifest.csv` | **Unscoreable, 2026-08-23** — all 4 image documents returned `nim_returned_no_text`, so there is no transcription to grade. Reported as UNSCOREABLE rather than recall 0.0: nothing was produced, which is an ingestion finding, not an accuracy one. See status.md Pending |
+| **Cross-functional knowledge discovery** | Counterfactual (`run_cross_functional.py`): questions the full corpus reaches that **no single function's documents** reach alone | **0 of 37** required crossing functions (31/37 reached overall; 21 answerable by one function alone, 7 by two, 3 by three). **A null result, reported as such** — at ~4 documents per function a silo search is near-exhaustive, so there is no gap to close on this corpus (2026-08-23) |
+| **KG linkage completeness** | **Document-centric** (`run_kg_completeness.py`): active vault documents with ≥1 `KNOWLEDGE_EDGE` carrying their `document_id`, test artifacts excluded from the denominator, remainder classified | **18/23 (78%) linked · 1 quarantined by design · 4 unexplained · 0 dangling** · 85 test documents excluded (2026-08-23). The four unexplained are the handwritten/degraded scans + one regulation PDF — the L3 limitation, not a linkage defect |
 | KG linkage — asset cut | Assets linked into the graph + edge verification (Cypher) | 10/10 canonical assets linked (100%), 45 knowledge edges (2 verified by human promotion; near-0% auto-verified is *by design* — see note). **Reads 100% as soon as every asset has one edge, so it measures reachability, not completeness** — quote the document cut for the PS criterion |
 | **Query answer quality** | Golden Q&A (37): answer states the correct fact, not negated, with sources | **34/37 (91%)**, 95% CI [79–97%]; run validity **VALID** (3 honest misses — see notes) |
 | **Provenance** | Does every non-refused answer cite `sources[]`? | **37/37 (100%)**, 95% CI [91–100%] |

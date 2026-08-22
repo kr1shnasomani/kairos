@@ -87,7 +87,16 @@ By category (retrieval · answer · provenance)
     traceability           4/4 · 3/4 · 4/4
   KG linkage:                        10/10 assets linked (100%) · 45 edges (2 verified)
 
-**Four "honest misses"** (Q02, Q07, Q09, Q29) — the gate correctly refused to answer because the retrieved evidence either didn't clear the authority threshold or lacked the specific answer. The gate *held*, which is the correct failure mode. A refused answer does not score as correct, but it is safe.
+**Four "honest misses"** (Q02, Q07, Q09, Q29) — described here as the gate refusing. **That description is wrong, and the result is stale (corrected 2026-08-23).**
+
+Two things were checked live against the running system on 2026-08-23:
+
+1. **Three of the four could never have been refusals.** `classify_query_category` returns `None` for Q02, Q09 and Q29, and both safety gates fire only for a category in `SAFETY_CRITICAL_CATEGORIES`. Only Q07 (`isolation_interlock_sequence`) is even eligible to be refused.
+2. **All four now answer correctly.** Q07 returns `XV-203`, `XV-204` and `PG-18` (its full `expect_any`); Q02 contains "thermal cycling"; Q09 contains 2018, 2021 and 2025; Q29 names the hydrotest procedures. None returned `refused: true`.
+
+They were fixed by work that landed after this run: the `valid_to`-compared-as-a-string fix (which had conflict detection and supersession matching zero rows), the restored `asset_id_unique` anchor, and engineer-verified P&ID topology admitted as gate evidence.
+
+**These probes are not a new score** — grading a system on hand-picked questions with an eyeballed answer key is exactly the error this harness exists to avoid. They establish only that the 33/37 figure predates its own fixes and must be re-run before it is quoted again.
 
 **Latency is the honest cost of the 60 s cap.** p95 64986 ms is high because the cap keeps work on
 NIM rather than truncating it onto a faster fallback. A lower cap produces a prettier p95 that

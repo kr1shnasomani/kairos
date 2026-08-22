@@ -528,7 +528,7 @@ UI changes so the marketing page does not drift from the product.
 
 The system-design diagrams in `public/diagrams/` are pre-rendered SVG, not a
 runtime mermaid dependency. `docs/DIAGRAMS.md` is the source of truth — one
-mermaid block per tab id — and `./scripts/render_diagrams.sh` regenerates the
+mermaid block per tab id — and `./tools/render_diagrams.sh` regenerates the
 whole set from it. Edit the markdown, then re-run the script; never hand-edit an
 SVG, since the next render silently discards it. Two details the script exists to
 keep consistent: `-b white` (the diagrams' palette is built for a white ground, and
@@ -603,7 +603,7 @@ All four jobs run in parallel on `ubuntu-latest` with `node:20` and `npm ci` fro
 | `h-screen` → `h-dvh` | ✅ converted |
 | Token colors only (no `bg-white`, `text-gray-*`) | ✅ clean |
 | `@xyflow/react` in `package-lock.json` | ✅ resolved |
-| Test suite | ✅ **154 passed / 59 files** (vitest, one-off container 2026-08-23). Run via `docker compose run --rm --no-deps kairos-frontend npx vitest run` — `docker exec` OOMs because the dev server already holds ~1.85 GB of the 2 GB cap |
+| Test suite | ✅ **220 passed / 67 files** (vitest, one-off container 2026-08-23). Run via `docker compose run --rm --no-deps kairos-frontend npx vitest run` — `docker exec` OOMs because the dev server already holds ~1.85 GB of the 2 GB cap |
 | eslint | ✅ 0 errors (3 pre-existing unused-var warnings) |
 
 ---

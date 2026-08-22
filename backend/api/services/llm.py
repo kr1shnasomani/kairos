@@ -15,6 +15,7 @@ import structlog
 
 from api.config import Settings
 from api.services.http import shared_client
+from api.services.supply_chain import verify_served_model
 
 log = structlog.get_logger(__name__)
 
@@ -622,7 +623,19 @@ SOURCES_USED: [comma-separated source numbers]"""
             response.raise_for_status()
             data = response.json()
             answer_text = data["choices"][0]["message"]["content"]
-            return {"answer": answer_text, "sources": context, "model": "nim", "raw": data}
+            # ARCHITECTURE.md §8 mitigation 1, in the form that applies to a hosted model: verify
+            # the provider ran the model that was pinned. Nothing checked this before, yet every
+            # benchmark figure is attributed to a named model and status.md's "a fallthrough does
+            # not change which model answered" rests on it being true.
+            mismatch = verify_served_model(self.settings.NVIDIA_NIM_MODEL, data)
+            return {
+                "answer": answer_text,
+                "sources": context,
+                "model": "nim",
+                "served_model": data.get("model"),
+                "model_mismatch": mismatch,
+                "raw": data,
+            }
         except Exception as e:
             rate_limited = isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429
             log.error("nim.synthesis_failed", error=str(e), exc_type=type(e).__name__, rate_limited=rate_limited)

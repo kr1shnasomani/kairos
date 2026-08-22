@@ -213,13 +213,16 @@ Kairos is a monorepo: a Python backend, a Next.js frontend, a shared demo datase
 ```text
 kairos/
 ├── backend/            # Python platform (FastAPI API, Temporal workflows, Celery + Go OT workers)
+│   └── scripts/        # In-container Python: init · seed · backfill · verification (`python scripts/X.py`)
 ├── frontend/           # Next.js point-of-action web app (field mobile + desktop)
+├── benchmark/          # Retrieval/answer-quality harness + deterministic grader (results in RESULTS.md)
 ├── dataset/            # Golden demo + benchmark corpus (docs · events · telemetry)
 ├── db/                 # Neo4j Cypher schema · consolidated Supabase schema · maintenance SQL
 ├── docs/               # Product & technical documentation (this folder)
 ├── fixtures/           # Backend mock-by-design data (P&ID topology fallback, test audio)
 ├── infra/              # Caddy (HTTPS) · OPA policies · Temporal config · Grafana Cloud
 ├── tests/              # Integration test suite (self-cleaning)
+├── tools/              # Host-side dev tooling: authz-policy check · diagram + screenshot renderers
 ├── docker-compose.yml  # Full local infrastructure
 ├── Makefile            # Project lifecycle commands
 ├── AGENTS.md           # Contributor & AI-agent guardrails, conventions, pitfalls

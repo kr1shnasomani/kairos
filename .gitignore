@@ -143,5 +143,3 @@ logs/
 
 # Benchmark run logs + checkpoints
 backend/.benchmark_runs/
-
-scripts/

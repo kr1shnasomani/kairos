@@ -109,7 +109,11 @@ jobs:
               tests/test_quarantine_item_id.py \
               tests/test_purge_safety.py \
               tests/test_synthesis_stream.py \
-              tests/test_graph_query_policy.py
+              tests/test_graph_query_policy.py \
+              tests/test_event_reorder.py \
+              tests/test_supply_chain.py \
+              tests/test_form_extraction.py \
+              tests/test_cross_functional.py
 
       # The benchmark grader is deterministic logic (negation handling, Wilson intervals, the
       # run-validity verdict) and needs no stack, no secrets and no network — so it belongs in

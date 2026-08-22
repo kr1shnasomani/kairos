@@ -184,5 +184,5 @@ there is nothing to resolve. Voice notes raised through `/events/work-order` do 
 
 ## Known-good baselines
 
-Backend service-free tier **318 passed** (27 files, 2026-08-23) · frontend **154 passed** (59 files,
+Backend service-free tier **348 passed** (32 files, 2026-08-23) · frontend **220 passed** (67 files,
 2026-08-23, green) · ruff clean (0.16.0) · Go build + vet clean.

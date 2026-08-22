@@ -394,7 +394,7 @@ Use this to check yourself, and to answer *"did you build all of it?"*
 | Focus area | Where |
 |---|---|
 | Entity extraction accuracy across document types | F1 **0.805** on 40 labels, `VALID`, zero fallbacks — Beat 12 / Q&A |
-| Query answer quality on domain-expert questions | **33/37**, 15 categories, deterministic grading — Beat 12 |
+| Query answer quality on domain-expert questions | **33/37**, 15 categories, deterministic grading — Beat 12. **STALE: re-measuring 2026-08-23.** The figure predates the `valid_to` NULL fix, the restored `asset_id_unique` anchor and topology-as-gate-evidence; all four graded misses were probed live and now answer correctly, so this understates current quality. Do not present it until the re-run lands |
 | Knowledge-graph linkage completeness | **10/10 golden assets linked**, 45 edges — quote in Q&A; Beat 4 and Beat 8 show the linkage doing work |
 | Time-to-answer vs traditional search | Beat 5: one cited document vs a week across three systems. *If pushed for the number*: our own harness says BM25 already finds the fact at rank 1.35 on a 20-document corpus, so the modelled human-time saving is only **9.5%** — corpus size sets that floor, and we publish it rather than inflate it |
 | Compliance gap detection accuracy | **P 1.000 · R 0.838 · F1 0.912**, zero false positives — Beat 9 |

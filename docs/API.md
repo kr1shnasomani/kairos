@@ -3065,7 +3065,7 @@ curl http://localhost:8000/assets/P-101
 | `compliance` | Read search, compliance, audit, non-conformance (conflicts + quarantine) and events. **Not** the model gate, MoC, circuit breaker or documents |
 | `admin` | Everything, including the cross-site view |
 
-Verify the policy's decisions with `scripts/verify_authz_policy.sh` (34 cases against a throwaway
+Verify the policy's decisions with `tools/verify_authz_policy.sh` (34 cases against a throwaway
 OPA, safe to run while the stack is up). That checks the policy is *correct*; to check it is
 *reached*, probe the live API with a restricted persona and confirm a 403 —
 `curl -H "Authorization: Bearer $FIELD_TOKEN" localhost:8000/audit-log/` must not return 200.

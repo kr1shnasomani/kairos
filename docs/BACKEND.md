@@ -80,10 +80,14 @@ kairos/                          # repo root
 │   │   │                             # Celery task (POST /governance/model-gate/run) persists.
 │   │   ├── seed_validation_corpus.py # Seed NER ground-truth entities from canon (entity-F1 labels)
 │   │   ├── load_demo_dataset.py     # Load dataset/ via the real API pipeline; seeds aliases + NER corpus (`make load-dataset`)
+│   │   ├── audit_submission_patterns.py  # ARCHITECTURE §8 mitigation 3: submission-rate outliers.
+│   │   │                             # Median-based, reports only, silent below 5 accounts.
 │   │   ├── verify_graph_perf.py     # ARCHITECTURE §7 query-perf regression check (`make graph-perf`).
 │   │   │                             # Asserts plan SHAPE, not timings — dbHits move with the data.
 │   │   ├── backfill_graph_nodes.py  # Layer-4 corpus backfill: Event (free) + Person/Organisation (NIM).
 │   │   │                             # DRY RUN by default — pass --apply to write. Idempotent (MERGE).
+│   │   │                             # Stamps Document.entity_backfill_at on a model-backed pass so a
+│   │   │                             # doc mentioning nobody is not re-extracted forever; --force resets.
 │   │   ├── purge_test_data.py       # Delete test-prefixed rows from all stores (`make purge-test-data`)
 │   │   └── wipe_local_stores.py     # Empty Neo4j + ES + Qdrant entirely (`make wipe-local` / `reset-local`)
 │   └── requirements.txt
@@ -997,7 +1001,7 @@ Four things about it are load-bearing, each of which was a live defect before 20
 `/events/plant-state` is exempt from `read_events`: the app shell renders plant state for every
 persona, and a field worker who cannot see that the plant is in shutdown is a safety regression.
 
-Verify with `scripts/verify_authz_policy.sh` (34-case decision matrix against a throwaway OPA) —
+Verify with `tools/verify_authz_policy.sh` (34-case decision matrix against a throwaway OPA) —
 and separately confirm the layer is *reached*, by probing the live API with a restricted persona's
 token and checking for a 403.
 

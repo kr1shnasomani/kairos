@@ -235,6 +235,16 @@ make graph-perf
 # KG linkage completeness, document-centric, with the unlinked remainder classified.
 docker compose run --rm --no-deps kairos-backend-api python benchmark/run_kg_completeness.py
 
+# Cross-functional discovery counterfactual. Embeddings only — no LLM quota, safe to re-run.
+docker compose run --rm --no-deps kairos-backend-api python benchmark/run_cross_functional.py
+
+# OCR accuracy vs the dataset's clean/degraded pairings. Costs ~4 OCR calls — do NOT run it
+# alongside run_benchmark.py, which reports INVALID if any question hits a 429.
+docker compose run --rm --no-deps kairos-backend-api python benchmark/run_ocr_gate.py
+
+# Document submission-pattern audit (ARCHITECTURE §8 anti-poisoning). No model calls.
+docker compose run --rm --no-deps kairos-backend-api python scripts/audit_submission_patterns.py
+
 # Layer-4 corpus backfill. DRY RUN by default — prints the gap and writes nothing.
 # --events is free (no model calls); --entities costs ~1 NIM call per document.
 docker compose run --rm --no-deps kairos-backend-api python scripts/backfill_graph_nodes.py
