@@ -71,7 +71,7 @@ compliance; a field worker hitting a gated URL redirects to `/briefs`.
 | 24 | `/governance/conflicts` | Admin vs engineering track split | ✅ renders, 0 console errors |
 | 25 | `/governance/moc` | MoC list | ✅ renders, 0 console errors |
 | 26 | `/governance/moc/[id]` | MoC detail + approve | ✅ **write path verified** — field_worker approve **403**, engineer approve **200** → status `approved`. |
-| 27 | `/governance/model-gate` | Run enqueues (~2.5 min); history; **per-asset-class rows** | ✅ renders, 0 console errors · ⬜ run (~2.5 min) |
+| 27 | `/governance/model-gate` | Run enqueues; history; **per-asset-class rows** | ✅ renders, 0 console errors · ✅ **run verified 2026-08-23** — `validity: VALID`, **0 fallbacks, all 27 extractions on NIM**, **F1 0.7816** on 40 scored labels (12 `COMPONENT` disclosed as unscoreable), per-asset-class **and** per-document-type rows. Took ~12 min, not the ~2.5 min this row used to claim: the old figure was a run in which almost every call failed fast on a 429. Closing this row took four fixes (run-validity recording, a run-scoped extraction cache, a raised Celery time limit, and taxonomy alignment) — see status.md Known Pitfalls |
 | 28 | `/governance/circuit-breaker` | Live breaker state, **no fabricated rows** | ✅ 0 fabricated |
 | 29 | `/governance/sla` | Escalation report shape | ✅ renders, 0 console errors |
 | 30 | `/management` | Exec KPI view | ✅ **API-verified 2026-08-17** — all 5 core fetches 200 (conflicts · quarantine · SLA · compliance · events) |
@@ -81,7 +81,7 @@ compliance; a field worker hitting a gated URL redirects to `/briefs`.
 | 34 | `/projects` | Project/procurement registry | ✅ renders, 0 console errors |
 | 35 | `/offboarding` | Programme list | ✅ **API-verified 2026-08-17** — 1 programme; detail returns 5 session items, and `/offboarding/{id}/questions` returns **5 questions per item** (the items themselves don't carry questions — that is the documented shape) |
 | 36 | `/offboarding/[sessionId]` | Session items, responses (6 s timeout) | ✅ **API-verified 2026-08-17** **write path** — response submitted → 200 with a `quarantine_item_id`, so the answer lands in quarantine, never the canonical graph |
-| 37 | `/field/voice` | Recorder UI | ✅ renders, 0 console errors · ⬜ capture (writes) |
+| 37 | `/field/voice` | Recorder UI | ✅ renders, 0 console errors · ✅ **capture 2026-08-22** — synthesised speech → vault → Groq `whisper-large-v3` (confidence 0.926, English) → `quarantine_items` row `pending` with the correct transcript, 50.4 s end to end. NER enrichment degraded to the regex path (NIM 500) and still wrote the item, i.e. the path degrades without losing the note |
 | 38 | `/field/voice/[workOrderId]` | Capture → transcription | ✅ **write path verified** — upload → 202 + SHA-256 dedup + vault path → Groq Whisper transcribed → quarantine `voice_note`, `pending`, never auto-promoted. |
 | 39 | `/field/deviation` | Physical deviation flag | ✅ **API-verified 2026-08-17** **write path** — flag on EQ-101 → 202, **4 briefs frozen**; resolve `disputed` → 200, **4 briefs unfrozen**, `moc_id: null`. Freeze/unfreeze proven both directions. |
 | 40 | `/field/elicitation/[workOrderId]` | Micro-interview questions + responses | ✅ **write path verified** — trigger fired on real conditions (`rare_failure_code`, `novel_troubleshooting`) → Temporal generated 4 graph-derived questions → responses submitted → quarantine with question context preserved. |
@@ -107,7 +107,7 @@ compliance; a field worker hitting a gated URL redirects to `/briefs`.
 | Dark mode across main routes | ✅ briefs/assets/governance/compliance — bg `rgb(20,17,14)`, fg `rgb(237,233,226)`, consistent |
 | Mobile viewport (375px) — hamburger nav, no bottom tab bar | ✅ briefs/assets/governance at 375×812 — no horizontal scroll, no error boundary |
 | No `console.error` on any route | ✅ **0 console errors across all 44 routes** |
-| No page scrolls horizontally | ✅ verified at 375px on 3 routes · ⬜ remaining routes |
+| No page scrolls horizontally | ✅ **all 35 static routes at 375×812, 0 overflow** (2026-08-22). Detector validated by injecting a 900 px element: 0 → +525 px → 0, culprit named |
 | Phase badge reflects live backend phase | ✅ |
 | Phase 1 suppresses synthesis, writes nothing | ✅ (curl, 324→324) |
 
@@ -184,5 +184,5 @@ there is nothing to resolve. Voice notes raised through `/events/work-order` do 
 
 ## Known-good baselines
 
-Backend service-free tier **136 passed** · frontend **145 passed, 0 errors** · ruff clean (0.16.0) ·
-Go build + vet clean.
+Backend service-free tier **300 passed** (25 files, 2026-08-23) · frontend **150 passed** (58 files,
+2026-08-23, green) · ruff clean (0.16.0) · Go build + vet clean.

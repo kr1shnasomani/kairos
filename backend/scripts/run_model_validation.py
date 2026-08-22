@@ -22,33 +22,8 @@ import argparse
 import asyncio
 import json
 import sys
-from collections import Counter
 
 sys.path.insert(0, "/app")
-
-
-class _FallbackCountingNER:
-    """
-    Delegates to the real NERService and tallies which path produced each extraction.
-
-    `evaluate()` types its `ner` argument as `Any` and calls only `extract_entities`, so this wraps
-    cleanly with no change to product code. The result dict already self-reports its path as
-    `model` ("nim" / "ollama" / "regex") — this only counts what is already there.
-    """
-
-    def __init__(self, inner):
-        self._inner = inner
-        self.paths: Counter = Counter()
-
-    async def extract_entities(self, text, *args, **kwargs):
-        result = await self._inner.extract_entities(text, *args, **kwargs)
-        self.paths[(result or {}).get("model") or "none"] += 1
-        return result
-
-    @property
-    def fallback_count(self) -> int:
-        """Extractions that did NOT come from the model under test."""
-        return sum(n for path, n in self.paths.items() if path not in ("nim", "ollama"))
 
 
 def main() -> None:
@@ -68,7 +43,7 @@ async def _run(model_name: str, persist: bool = True) -> dict:
     from supabase import create_client
 
     from api.config import Settings
-    from api.services.ner import NERService
+    from api.services.ner import FallbackCountingNER, NERService
     from workers.model_validation import evaluate
 
     settings = Settings()
@@ -80,7 +55,7 @@ async def _run(model_name: str, persist: bool = True) -> dict:
     es = AsyncElasticsearch(**es_kwargs)
 
     # the gate must score the model it was asked about; the wrapper records which path answered
-    ner = _FallbackCountingNER(NERService(model=model_name))
+    ner = FallbackCountingNER(NERService(model=model_name))
     try:
         corpus_result = supabase.table("validation_corpus").select("*").execute()
         corpus = corpus_result.data or []

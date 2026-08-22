@@ -34,3 +34,47 @@ describe("BriefInbox", () => {
     expect(screen.getByText("2/8 governor").parentElement).toHaveClass("text-danger");
   });
 });
+
+describe("held briefs", () => {
+  afterEach(cleanup);
+
+  const held = {
+    brief_id: "b-held",
+    asset_id: "EQ-101",
+    recipient_user_id: "u1",
+    priority: "high" as const,
+    trigger_event_type: "vibration_alarm",
+    headline: "Bearing vibration above 2-sigma baseline",
+    body: "",
+    action_items: [],
+    warnings: [],
+    sources: [],
+    requires_countersignature: false,
+    delivery_frozen: false,
+    delivered_at: "2026-08-22T10:00:00Z",
+  };
+
+  it("shows which briefs are held, not just how many", () => {
+    render(<BriefInbox response={{
+      ...response,
+      suppressed_count: 1,
+      suppressed_held: [held],
+      governor_state: { ...response.governor_state, state: "suppressed" },
+    }} />);
+
+    // the operator can judge relevance: asset and headline, not a bare counter
+    expect(screen.getByText(/EQ-101/)).toBeInTheDocument();
+    expect(screen.getByText(/Bearing vibration above 2-sigma baseline/)).toBeInTheDocument();
+  });
+
+  it("renders nothing extra when the governor is holding nothing", () => {
+    render(<BriefInbox response={{
+      ...response,
+      suppressed_count: 2,
+      governor_state: { ...response.governor_state, state: "suppressed" },
+    }} />);
+
+    // count still shown, but no held list when the backend sent none
+    expect(screen.queryByText(/EQ-101/)).not.toBeInTheDocument();
+  });
+});

@@ -73,8 +73,13 @@ def page_inbox(
     normal = [b for b in unfrozen if b.get("priority") != "critical"]
 
     suppressed_count = 0
+    suppressed_held: list[dict] = []
     if (governor_suppressed or plant_suppressed) and normal:
         suppressed_count = len(normal)
+        # Keep what is being held, ranked, so the operator can judge whether it matters.
+        # A bare count answers "how many" but never "does the held one concern my asset",
+        # which is the only question that decides whether to go looking.
+        suppressed_held = sorted(normal, key=_priority_rank)[:limit]
         normal = []
 
     ranked = sorted(critical + normal, key=_priority_rank)
@@ -85,6 +90,12 @@ def page_inbox(
         "delivered": delivered,
         "frozen_page": frozen_page,
         "suppressed_count": suppressed_count,
+        # Held, NOT delivered. Deliberately a separate key rather than appended to `briefs`:
+        # the caller records an EEMUA push for everything it delivers, so folding these in
+        # would spend governor budget on briefs the governor is currently withholding — the
+        # governor would then suppress its own disclosure. Withholding delivery is the point;
+        # withholding *knowledge that something is withheld* is just an opaque counter.
+        "suppressed_held": suppressed_held,
         # True pending count within the fetch window, not the page length — the UI
         # renders this as a standalone "N pending" figure, so it should report what
         # is waiting rather than what happened to fit on this page.
@@ -211,10 +222,19 @@ async def get_my_briefs(
         b["frozen"] = True
         b["freeze_reason"] = "Physical deviation flag pending resolution"
 
+    # Held briefs are disclosed, never pushed: no `record_push_once` above touches them, so
+    # reading the inbox does not spend governor budget on a brief the governor is withholding.
+    for b in page["suppressed_held"]:
+        b["suppressed"] = True
+        b["suppression_reason"] = (
+            "Plant state — deliveries paused" if plant_suppressed else "Hourly push limit reached"
+        )
+
     return {
         "briefs": delivered + frozen_page,
         "total_pending": page["total_pending"],
         "suppressed_count": suppressed_count,
+        "suppressed_held": page["suppressed_held"],
         "governor_state": {
             "push_count_last_hour": gov["push_count_last_hour"],
             "ceiling": gov["ceiling"],

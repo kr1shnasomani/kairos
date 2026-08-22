@@ -29,7 +29,15 @@ function rank(sla: SlaReport | null, compliance: ComplianceDashboard | null): { 
   const quarantine = (sla?.overdue_quarantine_items ?? []).map((q): Row => ({
     key: `quarantine-${q.item_id}`,
     tone: "danger",
-    title: `Quarantine: ${q.content ?? q.input_type}`,
+    // "Overdue" is factual, not decoration: this list is `sla.overdue_quarantine_items`, and being
+    // past SLA is the only reason the row is under "Needs attention" at all. Matches the sibling
+    // conflict row's `·` separator so the two read as one queue.
+    //
+    // Deliberately NOT `content ?? input_type`: `SLAService` selects only
+    // `item_id, asset_id, input_type, sla_due_at`, so `content` is always undefined — and were it
+    // ever added to that select, `elicitation_response` rows store a JSON array string, so the
+    // list would render raw `[{"answer": …}]`.
+    title: `Overdue quarantine · ${q.input_type}`,
     asset: q.asset_id,
     since: q.sla_due_at,
     href: "/governance/quarantine",

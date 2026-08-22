@@ -7,6 +7,7 @@ Fallback: Ollama llama3.1:8b (local).
 import json
 import os
 import re
+from collections import Counter
 from typing import Any
 
 import structlog
@@ -18,6 +19,27 @@ log = structlog.get_logger(__name__)
 _NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 _ASSET_TAG_RE = re.compile(r'\b([A-Z]{1,4}-\d{2,4}[A-Z]?)\b')
+
+# The label space this extractor can actually produce. Must stay in lockstep with the taxonomy
+# listed in `_NER_PROMPT` below — `test_ner_taxonomy_matches_the_prompt` fails if they drift.
+#
+# Exported because the model gate needs it: ground-truth labels outside this set are unscoreable
+# by construction, and scoring them anyway is not a measurement of the model. The corpus carried
+# 12 `COMPONENT` labels — a type the prompt never requests — which read as 23% of the corpus
+# failing, and each one *also* booked a false positive against whatever type the model did assign
+# to the same span. One taxonomy mismatch, counted twice against the score.
+NER_ENTITY_TYPES = frozenset({
+    "ASSET_TAG",
+    "PROCESS_PARAMETER",
+    "FAILURE_MODE",
+    "REGULATION",
+    "ACTION_VERB",
+    "MATERIAL",
+    "PERSON",
+    "LOCATION",
+    "DATE",
+    "ORGANIZATION",
+})
 
 _NER_PROMPT = """Extract named entities from the industrial text below. Return ONLY a valid JSON array, no other text.
 
@@ -38,6 +60,40 @@ Output format:
 
 Text: {text}"""
 
+
+
+class FallbackCountingNER:
+    """Delegates to a real `NERService` and tallies which path produced each extraction.
+
+    Both model-gate entry points need this: a gate that cannot tell "the model scored 0.73"
+    from "the model was unreachable and regex scored 0.73" reports the fallback's output as
+    the model's. Observed 2026-08-22 — 52 of 55 extractions returned 429/500 and the run was
+    still written to history as `passed: true`.
+
+    Wraps cleanly because `evaluate()` types its `ner` argument as `Any` and calls only
+    `extract_entities`; the result dict already self-reports its path as `model`
+    ("nim" / "ollama" / "regex"), so this only counts what is already there.
+    """
+
+    def __init__(self, inner: "NERService") -> None:
+        self._inner = inner
+        self.paths: Counter = Counter()
+
+    async def extract_entities(self, text, *args, **kwargs):
+        result = await self._inner.extract_entities(text, *args, **kwargs)
+        self.paths[(result or {}).get("model") or "none"] += 1
+        return result
+
+    @property
+    def fallback_count(self) -> int:
+        """Extractions that did NOT come from the model under test."""
+        return sum(n for path, n in self.paths.items() if path not in ("nim", "ollama"))
+
+    @property
+    def validity(self) -> str:
+        """A fallback contributes regex output (ASSET_TAG only) to a model-attributed score,
+        so any fallback makes the run's F1 a CEILING rather than a measurement."""
+        return "SUSPECT" if self.fallback_count else "VALID"
 
 class NERService:
     def __init__(self, model: str | None = None):

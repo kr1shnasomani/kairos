@@ -31,6 +31,8 @@ export interface BriefSource {
 
 export interface Brief {
   brief_id: string;
+  /** Returned by `GET /briefs/` but previously undeclared here. */
+  asset_id?: string | null;
   recipient_user_id: string;
   priority: BriefPriority;
   trigger_event_type: string;
@@ -63,6 +65,10 @@ export interface BriefsResponse {
   briefs: Brief[];
   total_pending: number;
   suppressed_count: number;
+  /** Briefs the EEMUA governor or plant state is withholding. Disclosed, never delivered —
+   *  they are deliberately not in `briefs`, because the backend records a push for everything
+   *  it delivers and that would spend governor budget on briefs the governor is holding back. */
+  suppressed_held?: Brief[];
   governor_state: GovernorState;
   next_delivery_allowed_at: string | null;
 }

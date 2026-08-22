@@ -43,6 +43,19 @@ DOC_PREFIXES = ["DOC-INSP-"]
 
 # Whole ids a test writes verbatim. Matched by equality — see the note above.
 DOC_EXACT_IDS = ["DOC-X"]  # tests/test_annotations.py
+# `WO-E2E-ELICIT-001` is a literal typed by hand during the 2026-08-16 E2E sweep, not a fixture
+# family — no test generates it, so it never had a prefix and accumulated 4 quarantine rows.
+# It is matched by EQUALITY on purpose. A `WO-E2E-` prefix would be needless risk and a bare
+# `WO-` prefix would be catastrophic: `WO-2026-0714` is real dataset content whose promoted
+# quarantine item (`PROMOTED-f17b1416…`) the compliance benchmark caveat in status.md cites.
+WO_EXACT_IDS = ["WO-E2E-ELICIT-001"]
+
+# Pairs a prefix list with the whole ids that belong to the same family. Replaces an identity
+# check against DOC_PREFIXES, which made exact-id purging a one-off for documents only.
+EXACT_ID_SETS: list[tuple[list[str], list[str]]] = [
+    (DOC_PREFIXES, DOC_EXACT_IDS),
+    (WO_PREFIXES, WO_EXACT_IDS),
+]
 
 # Supabase deletes in FK-safe order — every child of assets/documents/briefs/conflicts
 # is removed before its parent. `brief_feedback` (→ briefs) and `moc_items` (→ conflicts)
@@ -131,12 +144,13 @@ def _purge_supabase() -> int:
                 log.warning("purge.supabase.skip", table=table, column=column, error=str(exc))
 
     for table, column, prefixes in SUPABASE_TARGETS:
-        if prefixes is not DOC_PREFIXES or not DOC_EXACT_IDS:
-            continue
-        try:
-            deleted += len((sb.table(table).delete().in_(column, DOC_EXACT_IDS).execute()).data or [])
-        except Exception as exc:  # noqa: BLE001 — same tolerance as the prefix pass above
-            log.warning("purge.supabase.exact.skip", table=table, column=column, error=str(exc))
+        for prefix_list, exact_ids in EXACT_ID_SETS:
+            if prefixes is not prefix_list or not exact_ids:
+                continue
+            try:
+                deleted += len((sb.table(table).delete().in_(column, exact_ids).execute()).data or [])
+            except Exception as exc:  # noqa: BLE001 — same tolerance as the prefix pass above
+                log.warning("purge.supabase.exact.skip", table=table, column=column, error=str(exc))
     return deleted
 
 

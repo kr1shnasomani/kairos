@@ -6,7 +6,7 @@ All tests run **inside Docker**. There is no host shortcut: host package resolut
 the pinned images and produces false results — `auth.test.ts` and `api.test.ts` fail on the host
 and pass in the container. A host run will lie to you.
 
-### Tier 1 — service-free (251 tests, no stack, no secrets, no network)
+### Tier 1 — service-free (300 tests, no stack, no secrets, no network)
 
 These need nothing running. This is what CI's `unit` job executes on every push.
 
@@ -15,10 +15,10 @@ docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-a
   pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,\
 model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,\
 ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ner_parse,\
-superseded_filter,brief_signing,attribution_evidence,authz_boundary,brief_paging,asset_bulk_import}.py
+superseded_filter,brief_signing,attribution_evidence,authz_boundary,brief_paging,asset_bulk_import,quarantine_item_id,purge_safety}.py
 ```
 
-All **23** files, **251 tests**. `test_attribution_evidence.py` (12 tests) covers the pure
+All **25** files, **300 tests**. `test_attribution_evidence.py` (12 tests) covers the pure
 decision functions `_attribute` and `_classify_attestation` in `workers/attribution.py`,
 including the brownfield regression that `genuine_failure` was unreachable on uninstrumented assets.
 `test_authz_boundary.py` (41 tests) covers the trust boundary — which routes are policy-enforced,
@@ -29,6 +29,8 @@ break silently when reordered: `limit` applies *after* the governor/frozen filte
 SQL (limiting the query let a full page of critical briefs hide a normal-priority one permanently),
 the page is trimmed *before* pushes are recorded so an off-page brief cannot spend EEMUA governor
 budget, and `delivered + frozen_page` never exceeds `limit`.
+`test_quarantine_item_id.py` (10 tests) covers `dependencies.valid_quarantine_item_id` and
+asserts all four quarantine-by-id routes are wired to it.
 `test_asset_bulk_import.py` (15 tests) covers `routers/assets.partition_import_rows` — existing
 assets are skipped rather than overwritten (Neo4j uses `ON CREATE SET`, but the Supabase write is an
 `upsert` that would otherwise replace `identity_confirmed_by` on re-import), duplicates within one
@@ -76,7 +78,7 @@ docker exec kairos-backend-api python scripts/seed_users.py
 
 | Job | Needs | Behaviour |
 |---|---|---|
-| `unit` | nothing | Runs the 251 service-free tests on every push and fork PR, plus the benchmark grader selftest. Must stay green. |
+| `unit` | nothing | Runs the 300 service-free tests on every push and fork PR, plus the benchmark grader selftest. Must stay green. |
 | `integration` | `--profile local-stores` + a **throwaway** `CI_SUPABASE_*` project | Runs the full suite. **Skips with exit 0** when `CI_SUPABASE_URL` is unset, so a missing optional credential is never a red build. |
 
 Neo4j, Qdrant, Elasticsearch and Redis run as local containers in CI, so Aura and Qdrant Cloud
@@ -100,7 +102,7 @@ gh secret set GROQ_API_KEY
 > NIM → OpenRouter → Gemini cascade, and elicitation calls the LLM. Gemini's free tier is a few hundred requests/day and
 > is shared with the benchmark harnesses, so a busy day of pushes exhausts it; once it 429s,
 > synthesis silently returns no answer and *measured answer quality collapses* (observed:
-> 24/25 → 13/25). Tier-1 gives 251 green tests with **zero** provider calls, which is the
+> 24/25 → 13/25). Tier-1 gives 300 green tests with **zero** provider calls, which is the
 > signal CI should be providing. Enable tier 2 only for a deliberate pre-release run, against
 > a throwaway Supabase project.
 
@@ -156,6 +158,8 @@ tests/                        ← project root (NOT inside backend/)
   test_authz_boundary.py      ← policy enforcement, fail-closed, token-derived site scope
   test_brief_paging.py        ← Layer 8 inbox paging: limit after filtering, trim before push
   test_asset_bulk_import.py   ← Layer 1 golden-record import partitioning + tenancy boundary
+  test_quarantine_item_id.py  ← Layer 6 quarantine id guard: malformed id 404s, never 500s
+  test_purge_safety.py        ← purge matchers can never reach real ids (the DOC-X incident)
 pytest.ini                    ← project root
 ```
 

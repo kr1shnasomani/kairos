@@ -6,6 +6,7 @@ Provides shared clients as FastAPI dependencies (injected per-request or applica
 import asyncio
 import hashlib
 import time
+import uuid
 from typing import Annotated
 
 import redis.asyncio as aioredis
@@ -331,3 +332,39 @@ def site_scope(current_user: dict, requested: str | None) -> str | None:
             detail=f"Not permitted to read site '{requested}'.",
         )
     return own
+
+
+# =============================================================================
+# Path-parameter validation
+# =============================================================================
+
+def valid_quarantine_item_id(item_id: str) -> str:
+    """Reject a malformed `quarantine_items.item_id` before it reaches PostgREST.
+
+    `item_id` is a UUID column (`db/schema.sql`), so a non-UUID path segment makes
+    PostgREST raise `22P02 invalid input syntax for type uuid`; supabase-py turns that
+    into an exception and `main.py`'s global handler turns *that* into a **500**. The
+    caller gets a server error for what is only an id that does not exist, and the
+    handler's own 404 branch is never reached because the query raises first.
+
+    404 rather than 422: all four routes already answer 404 for a well-formed-but-absent
+    id, and to a reviewer both are the same situation - "that item is not there".
+    Splitting one user-visible outcome across two status codes on id *shape* would leak
+    the column type into the API contract.
+
+    ponytail: guards the id, not the lookup. The four handlers keep their own `select`
+    (different columns, different 409 wording); consolidating those is a refactor, not
+    this bug. `/events/deviation-flag/{item_id}/resolve` reads the same table, so it
+    shares the guard and its slightly more general "quarantine item" wording.
+    """
+    try:
+        uuid.UUID(item_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Quarantine item '{item_id}' not found",
+        ) from None
+    return item_id
+
+
+QuarantineItemIdDep = Annotated[str, Depends(valid_quarantine_item_id)]

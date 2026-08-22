@@ -16,6 +16,7 @@ from api.dependencies import (
     ElasticsearchDep,
     Neo4jDep,
     QdrantDep,
+    QuarantineItemIdDep,
     RedisDep,
     SettingsDep,
     SupabaseDep,
@@ -511,7 +512,7 @@ async def flag_deviation(
 
 @router.post("/deviation-flag/{item_id}/resolve", summary="Resolve a physical deviation flag")
 async def resolve_deviation_flag(
-    item_id: str,
+    item_id: QuarantineItemIdDep,
     payload: DeviationFlagResolveRequest,
     supabase: SupabaseDep,
     current_user: dict = Depends(require_role("engineer", "admin")),

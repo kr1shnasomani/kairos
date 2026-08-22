@@ -41,6 +41,22 @@ function GovernorBanner({ response }: { response: BriefsResponse }) {
       <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-line">
         <div className="h-full rounded-full bg-danger" style={{ width: `${pct}%` }} />
       </div>
+
+      {/* What is being held, not just how many. A bare count cannot answer "does the held
+          brief concern my asset", which is the only question that decides whether to act. */}
+      {response.suppressed_held && response.suppressed_held.length > 0 && (
+        <ul className="mt-3 space-y-1.5 border-t border-line pt-2.5">
+          {response.suppressed_held.map((b) => (
+            <li key={b.brief_id} className="flex items-baseline justify-between gap-3 text-caption">
+              <span className="min-w-0 flex-1 truncate text-muted">
+                <span className="font-medium text-fg">{b.priority}</span>
+                {b.asset_id ? <> · {b.asset_id}</> : null} · {b.headline}
+              </span>
+              <span className="shrink-0 text-muted">{relativeTime(b.delivered_at)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

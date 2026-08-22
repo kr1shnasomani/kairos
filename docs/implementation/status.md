@@ -47,7 +47,15 @@ connected; until then, the mock **is** the product.
 
 **Deployment is out of scope** (user decision 2026-08-15). The Aura keep-alive is done and
 independent of deployment (`.github/workflows/uptime.yml`, daily 03:17 UTC; GitHub disables
-scheduled workflows after 60 days of repo inactivity).
+scheduled workflows after 60 days of repo inactivity). That workflow also carries the
+**idle-connection recovery probe** (added 2026-08-23): it queries Aura, idles 11 minutes past
+`max_connection_lifetime`, then reuses **the same pool** — the direct regression test for the
+`SessionExpired` bug, which `run_soak_test.py --idle` otherwise only catches in a 70-minute run
+nobody does per change. It deliberately does **not** live in `tests.yml`: CI's integration job
+runs a *local* Neo4j container, which does not close idle connections the way Aura does, so the
+probe would pass there regardless of the pool settings — a green check proving nothing. Its pool
+settings mirror `dependencies.py` and must be changed together, and it is reads-only (`RETURN 1`),
+so unlike the integration suite it cannot touch the demo dataset.
 
 ---
 
@@ -59,7 +67,7 @@ scheduled workflows after 60 days of repo inactivity).
 | 1 | Deterministic Identity & MDM Backbone | ✅ | `/assets` (`MERGE`, `identity_confirmed_by` required), **`POST /assets/bulk`** golden-record import, `asset_alias_map`, `services/graph.py` | EAM *connector* = Go-connector **fixture** (no SAP/Maximo) — mock by design. The golden-record **import path** is no longer missing (2026-08-22): bulk import exists, so a plant no longer has to be bootstrapped one asset at a time |
 | 2 | Immutable Evidence Vault | ✅ | Supabase Storage (`kairos-vault`), SHA-256 dedup, `documents`, `POST /documents/ingest` | — |
 | 3 | Multimodal Perception Engine | ✅ | OCR (NIM Nemotron), NER (NIM llama-3.2-11b-vision), voice (Groq Whisper), annotations, **P&ID topology** (`services/pid.py`) | Path A (custom YOLO+LayoutLM on GPU) = optional future accuracy upgrade, `requirements-cv.txt` |
-| 4 | Temporal Reality Graph | ✅ | Neo4j, `KNOWLEDGE_EDGE` (6 props), `as_of` time-travel, blast-radius, conflict detection | All 6 designed node types now written (2026-08-17); existing corpus not backfilled |
+| 4 | Temporal Reality Graph | ✅ | Neo4j, `KNOWLEDGE_EDGE` (6 props), `as_of` time-travel, blast-radius, conflict detection | All 6 designed node types now written (2026-08-17). Corpus backfill via `scripts/backfill_graph_nodes.py`: `Event` done 2026-08-23 (137/137), `Person`/`Organisation` still outstanding (116 docs, opt-in, model calls) |
 | 5 | Zero-Copy OT Virtualization | 🟦 | Go connector `/ot/query`, `/ot/connectors` (`MockHistorianClient`); coverage map in Python at `/assets/{id}/ot-coverage` | **Mock by design — no plant historian.** Real path (`PIWebAPIClient`) is built; set `PI_WEBAPI_BASE_URL` to go live. OPC-UA is a stub. Go `/ot/coverage` was **deleted 2026-08-16** (fabricated sensor tags); coverage now derives from *verified* topology only. |
 | 6 | Quarantine Knowledge Layer | ✅ | `quarantine_items` one-way gate, `/governance/quarantine` promote / dispute / request-info | — |
 | 7 | Dual-Track Governance & Adjudication | ✅ | `knowledge_conflicts`, MoC webhook (signature-verified), SLA escalation, circuit breaker, blast-radius | — |
@@ -84,7 +92,7 @@ are the external-plant integrations, which are mock **by design**.
 
 | Layer | Verdict | Score | One-line |
 |---|:--:|:--:|---|
-| 0 · Empirical Validation & Model Safety | 🟡 | 92 | Corpus grows from human promotions/annotations; scores per entity type **and** per asset class; `make model-gate` exits non-zero on regression. Not auto-run by CI/CD, and `MODEL_GATE_ENFORCE` ships off |
+| 0 · Empirical Validation & Model Safety | 🟡 | 94 | Corpus grows from human promotions/annotations; scores per entity type **and** per asset class; `make model-gate` exits non-zero on regression. Not auto-run by CI/CD, and `MODEL_GATE_ENFORCE` ships off |
 | 1 · Deterministic Identity & MDM | 🟡 | 88 | Human-confirmed `MERGE` assets, alias resolution **with a confirm endpoint**, quarantine for unlinkable knowledge, **and the golden-record bulk import the architecture opens with** (`POST /assets/bulk`, 2026-08-22 — confirming authority from the verified token, partial success with per-row reporting, existing assets skipped never overwritten, cross-site rows refused *before* the existence check). The EAM *connector* is still a fixture; the import path it would feed is now real |
 | 2 · Immutable Evidence Vault | ✅ | 97 | Supabase Storage, SHA-256 dedup, version chain, never-delete; supersession now propagates to ES + Qdrant. **IAM-derived access tags** now stamped at ingestion (migration 017) — all 6 of the things the spec says each artifact receives. Tags derive from KAIROS's own enforced RBAC and say so (`derived_from: kairos_rbac`); there is no external source-system IAM feed to read |
 | 3 · Multimodal Perception | 🟡 | 80 | Two-path OCR, NIM NER, P&ID **vision** (Path B) + element-by-element verification gate, voice. **No separate handwriting model** (a flag, and confidence deliberately not lowered) and **no layout-aware form/checklist parsing** |
@@ -103,7 +111,23 @@ L10's brownfield branch was fixed 2026-08-17 (72 → 92).
 
 ### Divergences that remain
 
-#### 🟡 L4 — the graph fills forward, not backward
+#### 🟡 L4 — the graph fills forward; `Event` is now backfilled, `Person`/`Organisation` is not
+
+**Backfilled 2026-08-23 (Events only):** `scripts/backfill_graph_nodes.py` closes the gap between
+Supabase and the graph. `--events` moved the missing 21 of 137 operational events into `Event` +
+`OCCURRED_ON` — **no model calls**, every write a `MERGE`, and a second dry run reports 0 missing,
+so it is idempotent. Run it after any bulk event import.
+
+`--entities` (Person/Organisation) is **still outstanding and deliberately opt-in**: it needs one
+NIM call per document over **116 documents with no such edge**, which is ~40–120 min at the 20–60 s
+per call observed in the model gate, against the same shared endpoint whose rate limiting made 52 of
+55 gate extractions fall back. The script reports its own `validity` and warns when extractions did
+not reach the model, because the regex fallback cannot emit `PERSON` or `ORGANIZATION` at all — a
+backfill that silently ran on it would write nothing and report success. **Caveat on the 116:** a
+document that genuinely mentions no person or organisation is indistinguishable from one never
+processed, so that figure is an upper bound on the real gap.
+
+
 All 6 designed node types are written as of 2026-08-17 (`Event` via `OCCURRED_ON` from all six event
 routes; `Person`/`Organisation` from the extraction path). **Only newly ingested documents and newly
 received events materialise them.** Backfilling the existing corpus needs a re-ingestion run
@@ -175,6 +199,7 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | Provenance — correct answers only | **33/33 (100%)** CI [91–100%] | `run_benchmark.py` (`sourced/correct`) |
 | Synthesis latency | p50 **32.1 s** · p95 **66.0 s** · mean **34.1 s** | `run_benchmark.py` |
 | Entity-extraction F1 (Layer 0) | **0.805** on 40 labels — `VALID`, 0 of 15 fell back | `run_model_validation.py` |
+| Model gate, in-app (Layer 0) | **0.7816** (P 0.723 · R 0.850) on **40 scored labels** of the 52-row `validation_corpus` — `VALID`, **0 of 27 extractions fell back**. 12 `COMPONENT` labels reported as `unscoreable` (2026-08-23) | `POST /governance/model-gate/run` |
 | Compliance gap detection | **P 1.000 · R 0.838 · F1 0.912**, zero false positives | `run_compliance_eval.py` |
 | Retrieval reach by arm | exact **33/37 (89.2%)** · semantic **35/37 (94.6%)** · hybrid **35/37 (94.6%)** (n=37, CIs overlap) | `run_retrieval_baseline.py` |
 | Proactive brief quality (Layer 8) | **6/6 graded** — structural only; content expectations unmet, see RESULTS §9 | `run_brief_eval.py` |
@@ -191,6 +216,29 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
   **unlabelled** — it reads equally as ORGANIZATION or LOCATION, and a ground truth that punishes a
   defensible answer is worse than a smaller one. Raising n needs **new source documents**.
 - **A `VALID` entity-F1 means zero fallbacks.** 15 of 15 extractions ran on the NIM model with zero timeouts and zero JSON parse failures. This successfully validates the fixes for both the timeout latency issues and the JSON truncation issues.
+- **Per-document-type is the informative cut** (added 2026-08-23, the PS criterion that had no
+  runner). Measured: `ptw` **1.000** (6 labels) · `procedure` **1.000** (9) · `shift_log` **1.000** (2)
+  · `inspection_report` **0.706** (16) · `oem_manual` **0.600** (7, precision 0.462). The model is
+  effectively perfect on structured, templated documents and loses accuracy on prose-heavy OEM
+  manuals — a shape the per-entity-type and per-asset-class cuts both hide. Small n applies: at 2–9
+  labels a single flip moves a type substantially, so treat `shift_log` and `procedure` as
+  directional. It costs **zero** extra model calls because every partition shares the run cache.
+- **Quote the gate's F1 with `scored_labels`, never alone.** 0.7816 is measured on the **40** labels
+  that are both annotated in the corpus and requested by the prompt. The other 12 are `COMPONENT`,
+  a type the extractor is never asked for, so scoring them measured the corpus's label space rather
+  than the model — and it cost twice, booking a false negative on `COMPONENT` *and* a false positive
+  on whatever in-taxonomy type the model gave the same span. Excluding them moved F1 0.6733 → 0.7816
+  and recall 0.654 → 0.850. **The 12 labels are a real gap to close** (either teach the prompt
+  `COMPONENT` or remap the ground truth), just not a model defect.
+- **The in-app gate's number is not a regression from the 0.7317 in its own history — it is the first
+  trustworthy number, and the old one was flattering the model.** Every gate entry before 2026-08-23
+  was written without a validity field, and the one audited on 2026-08-22 had **52 of 55 extractions
+  fall through to the regex path**, which only matches `ASSET_TAG`. That is why those runs show
+  `ASSET_TAG` at 1.000 and `PERSON` / `COMPONENT` / `ORGANIZATION` at 0.000: the regex's output was
+  being attributed to the model. **Do not quote any gate entry lacking `validity: "VALID"`**, and do
+  not read the drop as the model getting worse. The two figures in the table above are also *not*
+  comparable to each other — different corpora (40 curated labels vs the 52-row live
+  `validation_corpus`) and different harnesses.
 - **Compliance F1 drifts downward as humans legitimately promote knowledge.** Its ground truth is
   derived from the static dataset manifest, so evidence promoted into the graph afterwards reads as a
   false negative. Five of six FNs in this run are one promotion on EQ-101 (`PROMOTED-f17b1416…`, a
@@ -229,7 +277,6 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 |---|---|---|---|
 | 1 | **Streaming synthesis (SSE)** | p95 is **65 s** with no progressive render. The tail is NVIDIA's shared endpoint, which cannot be tuned away, so progressive render is the *only* remaining lever on perceived latency. **Not attempted deliberately:** `ANSWER:/CONFIDENCE:/UNCERTAINTY:/SOURCES_USED:` is a parse contract with two consumers (`routers/search.py`, `workflows/elicitation_workflow.py`) and a measured answer-quality figure attached, so it needs a live NIM run to validate against regression. | 1–2 d |
 | 2 | **Backend dependency upgrade — 16 advisories across 4 packages** | Baselined 2026-08-22 in `.github/workflows/deps-audit.yml` with a documented reason per suppression, so the gate catches *new* advisories rather than being red from day one. None is a simple bump. **`setuptools 69.5.1`** — capped by a bare `setuptools<70.0.0` with no recorded reason; fixes need ≥78.1.1 / ≥83.0.0. **Try lifting this one first — most likely stale.** **`starlette 0.37.2`** (7 advisories) — pinned transitively by `fastapi==0.111.1`; fixes need 0.40.0→1.3.1, i.e. a FastAPI major upgrade. **`protobuf 4.25.9`** — transitive from OTEL 1.24.0. **`ecdsa 0.19.2`** — `fix_versions` is **empty**, no released fix exists; arrives via `python-jose[cryptography]`, re-check upstream periodically. Dependabot PR #22 (41-package group, open since 2026-07-25) is the blunt version. | 0.5–2 d |
-| 3 | **Surface held briefs** | `GET /briefs/` returns `suppressed_count` but not *what* is waiting, so an operator sees a number with no way to judge whether the held brief matters. The paging half is done (2026-08-22): `limit` now applies after the governor/frozen filters, the page is trimmed before pushes are recorded, and `delivered + frozen_page` never exceeds `limit`. | 0.5 d |
 
 ### Tier 2
 
@@ -252,7 +299,6 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 
 | # | Criterion | Why it is not trivial | Est. |
 |---|---|---|---|
-| 10 | **Entity extraction accuracy across *document types*** | `run_model_validation.py` reports per *entity type* and per *asset class*. The PS asks per **document type**. Either add the partition, or state why asset class is the more useful cut. Cheapest of the three. | 0.5 d |
 | 11 | **KG linkage completeness** | Undefined and unmeasured; no runner. `verify_layers.py` proves the graph is reachable, not that it is complete. Needs a definition before it needs code. | 1 d |
 | 12 | **Cross-functional knowledge discovery improvement** | The only criterion with neither definition nor runner. **Needs a counterfactual** — what would someone in function X have found *without* KAIROS. A proxy like "distinct document types per answer" measures answer composition, not discovery improvement. Honest route is a narrow definition with the limit stated out loud, as `run_time_to_answer.py` does with its 120 s/document assumption. | 2 d+ |
 
@@ -320,12 +366,12 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 
 ## Pending
 
-- **E2E sweep — 3 of 22 rows remain open deliberately.** The model-gate run (~2.5 min, ~15 NIM calls;
-  its output is already measured), voice capture (Groq quota; the path is proven elsewhere), and
-  horizontal-scroll on the remaining routes (a genuine browser check). The other 19 closed
-  2026-08-17 — detail in [`e2e-sweep.md`](./e2e-sweep.md).
-
-- **Promoting a non-existent quarantine item returns 500 rather than 404.**
+- **E2E sweep — 22/22 rows closed** (last 3 on 2026-08-22). Horizontal scroll: 0 overflow across all
+  35 static routes at 375 px, with the detector validated against an injected 900 px element. Voice
+  capture: real speech → vault → Groq Whisper (0.926) → `quarantine_items` `pending`, 50.4 s. The
+  model-gate run **exposed three defects rather than clearing a checkbox**, all fixed and re-verified
+  on 2026-08-23 — see [Known Pitfalls](#backend--database--models--api) and the model-gate row in
+  [Benchmarks](#benchmarks--current-numbers). Detail in [`e2e-sweep.md`](./e2e-sweep.md).
 
 - **Audit-pack `vessel` / `compressor` clauses show 0 evidence** — no asset carries a matching
   `equipment_class`, and the `PESO` / `Factory Act` frameworks are not seeded, so they are
@@ -342,13 +388,22 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 - **Backend test suite:** **412 passed · 0 failed** (full suite, 2026-08-22). Write-heavy: run against
   `--profile local-stores`, **never cloud**. The long-standing `test_attribution_worker_queues_recheck`
   flake is gone — it was one of six failures traced to a shared-fixture dedup collision, now fixed.
-- **Service-free tier:** **251 passed** across **23 files** (2026-08-22) — no stack / secrets / network.
+- **Service-free tier:** **300 passed** across **25 files** (2026-08-23) — no stack / secrets / network.
   This is exactly what CI's `unit` job runs; the list is duplicated in `AGENTS.md`, `docs/TESTS.md` and
   `.github/workflows/tests.yml` and **all three must be updated together** (they have drifted twice).
-- **Frontend:** **145 passed across 57 files** *(last measured 2026-08-17 — not re-verified since;
-  `npx vitest run` OOMs at the container's 2 GB cap, so this needs a host run or a raised
-  `mem_limit`)*, `tsc` clean, `eslint` 0 errors / 3 pre-existing unused-var warnings. Run vitest **in Docker, never on the host** — host package resolution differs
-  from the pinned image and makes `auth.test.ts` / `api.test.ts` fail spuriously.
+- **Frontend:** **150 passed across 58 files** (2026-08-23, green), `tsc` clean, `eslint` 0 errors /
+  3 pre-existing unused-var warnings. Run vitest **in Docker, never on the host** — host package
+  resolution differs from the pinned image and makes `auth.test.ts` / `api.test.ts` fail spuriously.
+  **The OOM is fixed by running a one-off container, not by raising `mem_limit`:** the running
+  `kairos-frontend` sits at ~1.85 GB of its 2 GB (the Next dev server), so `docker exec` leaves vitest
+  no headroom. `docker compose run --rm --no-deps kairos-frontend npx vitest run` gets its own budget
+  and finishes in ~13 s.
+  The one failure found on 2026-08-22 was **stale, not a regression**, and is fixed: the test still
+  expected the pre-redesign attention-list label `Overdue quarantine · {input_type}`, while
+  `attention-list.tsx:32` has rendered `Quarantine: {content ?? input_type}` since the
+  template-fidelity redesign. The **test** was corrected rather than the shipped copy — but the two
+  rows in that list now read inconsistently (`Overdue conflict · {track}` vs `Quarantine: {content}`)
+  and nothing in `FE.md` specifies either, so the wording is an open design question, not a settled one.
 - **P&ID Path B:** live-validated on `dataset/02_Document_Corpus/pid_line3_isolation_boundary.png`.
 - **Cloud stores:** Neo4j Aura + Qdrant Cloud + Supabase + Grafana Cloud. Default local stack ≈ 13
   containers; ~2–3 GB idle RAM.
@@ -385,6 +440,7 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | **Benchmark / soak numbers spike mid-run for no reason** | You edited a file under `backend/`. `docker-compose.override.yml` mounts `./backend:/app` and runs `uvicorn --reload`, so **every save restarts the live API** — in-flight requests error, p95 spikes ~17x, and RSS resets, which destroys a soak's leak trend. Long measurement runs execute *inside* `kairos-backend-api`, so they are hit by this too. **Do not edit `backend/` or `tests/` while a benchmark or soak is running** — the override mounts both, and `tests/` edits were observed triggering reloads too. Editing `docs/` and `frontend/` is safe; neither is mounted into the API container. |
 | **A `localhost` URL in `.env` for a *container* service silently disables it** | `OPA_URL=http://localhost:8181` resolved to the API container itself, so authorization requests never reached OPA — and `_ask_opa`'s fail-open turned that into "allow everything". The host port mapping (`0.0.0.0:8181->8181`) makes `localhost:8181` work from the **host**, which is what makes the wrong value look right. Inside a container always use the compose service name (`http://kairos-opa:8181`). `.env` is `env_file:`-injected at container **creation**, so a change needs `--force-recreate`, not a reload. |
 | **A 403 that should exist but doesn't is invisible** | Authorization defects fail *open*, so nothing errors and no test goes red. `scripts/verify_authz_policy.sh` checks the policy's decisions, but the policy being right proves nothing about whether it is *reached*. After any change to `middleware/opa.py`, `kairos.rego` or `OPA_URL`, probe the live API with a real token from a **restricted** persona and confirm a **403** — e.g. `field_worker` on `/audit-log/`. A 200 there means the layer is inert. |
+| **A purge matcher that can never fail is the danger; `tests/test_purge_safety.py` now pins it** | Every prefix and exact id is asserted against a list of ids that must survive — including `WO-2026-0714`, whose promoted quarantine item (`PROMOTED-f17b1416…`) the compliance caveat above cites, and a `DOC-X…`-shaped id reproducing the original incident. Also enforced: **every prefix ends in `-`**, and nothing appears in both a prefix list and an `_EXACT` list. The 2026-08-23 addition was `WO-E2E-ELICIT-001` — 4 stranded rows from the 2026-08-16 sweep, typed by hand and generated by no fixture, so it went in `WO_EXACT_IDS` matched by equality. **A bare `WO-` prefix would have deleted real dataset content**, which is why the exact-id pass is now generalised (`EXACT_ID_SETS`) rather than hardcoded to documents. |
 | **A test-id prefix that is also a real id's first characters deletes real data** | `scripts/purge_test_data.py` matches every entry in its `*_PREFIXES` lists as a **prefix** — `STARTS WITH` in Neo4j, `LIKE 'p%'` in Supabase, a `prefix` query in ES — and `tests/conftest.py` runs it as an **autouse session teardown** unless `KAIROS_SKIP_TEST_CLEANUP` is set. `DOC_PREFIXES` contained the bare string `DOC-X`, present only because `tests/test_annotations.py` writes that exact id as a literal. Real document ids are `DOC-` plus twelve random characters, so roughly **one document in thirty-six** starts with X: four real documents matched and were `DETACH DELETE`d from the graph and dropped from Supabase on every full-suite run, against CLAUDE.md's "Vault: permanent. Never delete." Fixed 2026-08-22 by splitting whole ids into `DOC_EXACT_IDS`, matched by equality in all three stores. **A prefix shorter than its trailing separator is a data-loss bug — put whole ids in the `_EXACT` lists, and keep every prefix ending in `-`.** |
 | **Test assets accumulate in the cloud stores even though a purge runs** | The purge only removes what its prefix lists name, and that list drifts from `tests/conftest.py`. `fresh_asset_id` has minted `ASSET-FRESH-{uid}` since it was added, but `ASSET_PREFIXES` never listed it, so 25 test assets built up in Aura and dragged 200 phantom ISO-45001 gaps into `GET /compliance/gaps`. Added 2026-08-22. **After adding a fixture that creates an entity, add its prefix to `purge_test_data.py` in the same change** — the lists are the only thing keeping the demo stores clean, and nothing fails when they drift. |
 | **`make nuke` does not clean the cloud stores** | It is `docker compose down -v` — local volumes only. Neo4j Aura, Qdrant Cloud and Supabase are untouched, so the documented `nuke → dev → init-all → seed → load-dataset` reset leaves every cloud-side test entity in place. Use `purge_test_data.py` for prefix-matched residue; anything created by hand through the API (`BULK-*`, and the bare `ASSET-<8HEX>` ids `POST /assets` generates when the payload omits one) carries **no test marker at all** and can only be removed by explicit id. **A generated id is indistinguishable from a real one — pass an explicit prefixed id when creating throwaway entities by hand.** |
@@ -392,6 +448,10 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | NIM OCR wrong base URL | `https://ai.api.nvidia.com/v1/cv/nvidia/nemotron-ocr-v2` |
 | **PostgREST `.neq()` against a missing JSONB key drops every row** | `NULL != 'x'` is `NULL`, not `TRUE`. `.neq("session_context->>element_type", "topology_manifest")` silently excluded *every element row* (they have no such key), so topology reported `elements_total: 0`. Filter in Python when the key may be absent. |
 | **Unit tests cannot catch query-semantics bugs** | Every bug the suite has missed was a query bug: `.neq()` vs NULL, `.in_()` against a set the fake ignores. Test doubles implement filters as passthroughs, so a filter whose bug *is* its filtering always passes. These need a real database or a real browser. |
+| **Ground truth outside the prompt's taxonomy scores as model failure** | `validation_corpus` carried 12 `COMPONENT` labels; `_NER_PROMPT` requests 10 types and `COMPONENT` is not among them, so the model could never produce one. Those 12 (23% of the corpus) were guaranteed false negatives, **and each also booked a false positive** against whatever in-taxonomy type the model gave the same span — one mismatch punished twice. Reported F1 was 0.6733; excluding them it is 0.7816. `NER_ENTITY_TYPES` in `api/services/ner.py` is now the single source of truth, `test_ner_taxonomy_matches_the_prompt` fails if it drifts from the prompt text, and the gate reports `scored_labels` / `unscoreable_labels` / `unscoreable_by_type`. **Adding an entity type means editing the constant AND the prompt**, and any corpus label outside the constant is silently excluded from the score — check `unscoreable_by_type` before trusting a gate number. |
+| **A model-gate score is meaningless without its `validity`** | `NERService.extract_entities` degrades to a regex last resort that only matches `ASSET_TAG`, and it self-reports the path it took in the result's `model` field. Until 2026-08-23 the *worker* gate ignored that, so a run where 52 of 55 calls returned 429/500 was written to history as `passed: true`, F1 0.7317 — the regex's score under the model's name, and **higher** than the model's real 0.6733. `FallbackCountingNER` (`api/services/ner.py`) now wraps the service for both the worker and `run_model_validation.py`, and the run records `validity` / `fallback_extractions` / `extraction_paths`. Two consequences to obey: **a run without `validity: "VALID"` is not a measurement**, and `_latest_valid_baseline` deliberately skips both SUSPECT and pre-2026-08-23 rows, so the first clean run has no baseline and reports `passed: true` by default — that is a fresh-install state, not a pass. Filter validity **in Python**: a PostgREST `.neq("details->>validity","SUSPECT")` matches nothing, because legacy rows have no such key and `NULL != 'x'` is NULL. |
+| **The gate re-extracted every document once per asset-class partition** | `evaluate()` built `doc_predictions` locally, so the global pass and each per-class pass extracted the same documents independently — the comment above the partition loop asserted the opposite invariant with nothing enforcing it. Cost: double the model calls, and global vs per-class scores computed from two different extractions that could disagree. A run-scoped `cache` threaded through every `evaluate()` call fixed it: **55 calls → 27, and 3 → 27 reaching the model.** If you add another `evaluate()` call site, pass the same cache or you silently restore the duplication. |
+| **A gate run killed by the Celery soft time limit writes nothing at all** | `time_limit=600 / soft_time_limit=540` was calibrated when nearly every NER call failed fast on a 429, making a full run ~2.5 min. Once the calls actually reach the model each costs tens of seconds and a real run takes ~12 min, so two consecutive runs died on `SoftTimeLimitExceeded` with **no history entry** — strictly worse than recording a degraded one. Raised to 1860/1800 on 2026-08-23. Watch this if the corpus grows: the limit tracks `corpus_size × per-call latency`, and the failure mode is silent absence, not an error row. |
 
 ### Frontend — build & runtime
 
@@ -446,7 +506,7 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 - **Supabase MCP** (`mcp__claude_ai_Supabase__*`) — SQL, migrations, table inspection. Prefer over `docker exec`.
 
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
-**Tests:** service-free tier **251 passed** across **23 files** (no stack/secrets/network) · frontend **145 passed / 57 files, 0 errors** · full suite **412 passed / 0 failed** (2026-08-22) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
+**Tests:** service-free tier **300 passed** across **25 files** (no stack/secrets/network) · frontend **150 passed / 58 files** · full suite **412 passed / 0 failed** (2026-08-22) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
 
 **CI:** `tests.yml` is two tiers — **`unit`** runs the service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config, **authz boundary**) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, a synthesis cascade call per synthesize) and exhausting a provider tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) passes in full. **`deps-audit.yml`** (added 2026-08-22) is the
 per-push dependency check Dependabot cannot provide — `pip-audit` / `npm audit` / `govulncheck` on push

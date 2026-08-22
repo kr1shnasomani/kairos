@@ -11,7 +11,14 @@ from datetime import UTC, datetime, timedelta
 import structlog
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 
-from api.dependencies import CurrentUserDep, Neo4jDep, SettingsDep, SupabaseDep, require_role
+from api.dependencies import (
+    CurrentUserDep,
+    Neo4jDep,
+    QuarantineItemIdDep,
+    SettingsDep,
+    SupabaseDep,
+    require_role,
+)
 from api.models.document import PromoteQuarantineRequest, RequestQuarantineInfoRequest
 from api.services.graph import GraphService
 from api.services.metrics import conflicts_open
@@ -194,7 +201,7 @@ async def list_quarantine(
 
 @router.post("/quarantine/{item_id}/promote", summary="Promote quarantine item to canonical graph")
 async def promote_quarantine_item(
-    item_id: str,
+    item_id: QuarantineItemIdDep,
     payload: PromoteQuarantineRequest,
     supabase: SupabaseDep,
     driver: Neo4jDep,
@@ -327,7 +334,7 @@ async def promote_quarantine_item(
 
 @router.post("/quarantine/{item_id}/dispute", summary="Dispute a quarantine item as incorrect")
 async def dispute_quarantine_item(
-    item_id: str,
+    item_id: QuarantineItemIdDep,
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
     reason: dict = Body(...),
@@ -377,7 +384,7 @@ async def dispute_quarantine_item(
 
 @router.post("/quarantine/{item_id}/request-info", summary="Record a reviewer request for more quarantine evidence")
 async def request_quarantine_info(
-    item_id: str,
+    item_id: QuarantineItemIdDep,
     payload: RequestQuarantineInfoRequest,
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
