@@ -94,7 +94,7 @@ async def test_quarantine_filter_by_review_status(admin_client):
         assert item["review_status"] == "disputed"
 
 
-async def test_promote_quarantine_item(admin_client, shared_asset_id):
+async def test_promote_quarantine_item(admin_client, fresh_asset_id):
     """Create a quarantine item via inspection event, then promote it."""
     from tests.conftest import uid
     now = datetime.now(timezone.utc).isoformat()
@@ -106,7 +106,7 @@ async def test_promote_quarantine_item(admin_client, shared_asset_id):
         "site_id": "SITE_001",
         "occurred_at": now,
         "received_at": now,
-        "asset_id": shared_asset_id,
+        "asset_id": fresh_asset_id,
         "inspection_type": "thermal_imaging",
         "result": "conditional",
         "performed_by": "TECH-TEST",
@@ -129,7 +129,7 @@ async def test_promote_quarantine_item(admin_client, shared_asset_id):
     assert "edge_id" in body
 
 
-async def test_dispute_quarantine_item(admin_client, shared_asset_id):
+async def test_dispute_quarantine_item(admin_client, fresh_asset_id):
     now = datetime.now(timezone.utc).isoformat()
     r = await admin_client.post("/events/inspection-complete", json={
         "event_id": uid(),
@@ -137,7 +137,7 @@ async def test_dispute_quarantine_item(admin_client, shared_asset_id):
         "site_id": "SITE_001",
         "occurred_at": now,
         "received_at": now,
-        "asset_id": shared_asset_id,
+        "asset_id": fresh_asset_id,
         "inspection_type": "visual",
         "result": "failed",
         "performed_by": "TECH-TEST",
@@ -153,7 +153,7 @@ async def test_dispute_quarantine_item(admin_client, shared_asset_id):
     assert r2.json()["status"] == "disputed"
 
 
-async def test_request_quarantine_info_is_audited(admin_client, shared_asset_id):
+async def test_request_quarantine_info_is_audited(admin_client, fresh_asset_id):
     """Layer 6 fourth review action: request more info leaves the item pending."""
     now = datetime.now(timezone.utc).isoformat()
     r = await admin_client.post("/events/inspection-complete", json={
@@ -162,7 +162,7 @@ async def test_request_quarantine_info_is_audited(admin_client, shared_asset_id)
         "site_id": "SITE_001",
         "occurred_at": now,
         "received_at": now,
-        "asset_id": shared_asset_id,
+        "asset_id": fresh_asset_id,
         "inspection_type": "visual",
         "result": "conditional",
         "performed_by": "TECH-TEST",
@@ -183,7 +183,7 @@ async def test_request_quarantine_info_is_audited(admin_client, shared_asset_id)
     assert any(it["item_id"] == item_id for it in listing.json()["items"])
 
 
-async def test_double_promote_returns_409(admin_client, shared_asset_id):
+async def test_double_promote_returns_409(admin_client, fresh_asset_id):
     now = datetime.now(timezone.utc).isoformat()
     r = await admin_client.post("/events/inspection-complete", json={
         "event_id": uid(),
@@ -191,7 +191,7 @@ async def test_double_promote_returns_409(admin_client, shared_asset_id):
         "site_id": "SITE_001",
         "occurred_at": now,
         "received_at": now,
-        "asset_id": shared_asset_id,
+        "asset_id": fresh_asset_id,
         "inspection_type": "vibration",
         "result": "failed",
         "performed_by": "TECH-TEST",

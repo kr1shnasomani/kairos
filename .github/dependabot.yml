@@ -1,12 +1,26 @@
 # Dependabot version updates for KAIROS — one entry per ecosystem/manifest location.
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# SCHEDULING — read before "why isn't this running on push?":
+#   `interval` accepts only daily / weekly / monthly. Dependabot version updates have NO event
+#   trigger: they cannot run on push, and there is no API to force a run (the "Check for updates"
+#   button is UI-only, under Insights -> Dependency graph -> Dependabot). `daily` is the ceiling.
+#   For an actual per-push dependency check, see .github/workflows/deps-audit.yml, which runs
+#   pip-audit / npm audit / govulncheck on every push and PR to main.
+#
+# WHY NEW PRs MAY NOT APPEAR EVEN THOUGH IT IS RUNNING:
+#   Every ecosystem below groups all patterns into ONE PR. While that group PR is open, Dependabot
+#   REBASES it in place rather than opening another — so a working setup looks idle from the PR
+#   list. Merge or close the open group PR and the next run opens a fresh one.
 version: 2
 updates:
   # --- Python (backend API + workers) ---
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
-      interval: "weekly"
+      interval: "daily"
+      time: "06:00"
+      timezone: "Asia/Kolkata"
     open-pull-requests-limit: 5
     groups:
       python:
@@ -16,7 +30,9 @@ updates:
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
-      interval: "weekly"
+      interval: "daily"
+      time: "06:00"
+      timezone: "Asia/Kolkata"
     open-pull-requests-limit: 5
     groups:
       npm:
@@ -26,7 +42,9 @@ updates:
   - package-ecosystem: "gomod"
     directory: "/backend/connectors"
     schedule:
-      interval: "weekly"
+      interval: "daily"
+      time: "06:00"
+      timezone: "Asia/Kolkata"
     open-pull-requests-limit: 5
     groups:
       go:
@@ -39,7 +57,9 @@ updates:
       - "/frontend"
       - "/backend/connectors"
     schedule:
-      interval: "weekly"
+      interval: "daily"
+      time: "06:00"
+      timezone: "Asia/Kolkata"
     open-pull-requests-limit: 5
     groups:
       docker:
@@ -49,7 +69,9 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "daily"
+      time: "06:00"
+      timezone: "Asia/Kolkata"
     open-pull-requests-limit: 5
     groups:
       actions:

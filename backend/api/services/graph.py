@@ -90,6 +90,24 @@ class GraphService:
             record = await result.single()
             return dict(record["a"]) if record else None
 
+    async def existing_asset_ids(self, asset_ids: list[str]) -> set[str]:
+        """Which of these asset_ids already exist. One round-trip, not one per id.
+
+        UNWIND rather than a loop of `get_asset` calls: a golden-record import checks thousands
+        of ids at once, and the per-id form turns an existence check into the slowest part of
+        the import. Uses the `asset_id_unique` index, so each lookup is a seek.
+        """
+        if not asset_ids:
+            return set()
+        cypher = """
+        UNWIND $asset_ids AS aid
+        MATCH (a:Asset {asset_id: aid})
+        RETURN a.asset_id AS asset_id
+        """
+        async with self.driver.session(database=self.database) as session:
+            result = await session.run(cypher, asset_ids=asset_ids)
+            return {record["asset_id"] async for record in result}
+
     async def list_assets(
         self,
         site_id: str | None = None,
@@ -565,7 +583,16 @@ class GraphService:
     ) -> list[dict[str, Any]]:
         """
         Returns all temporal graph edges for an asset, optionally scoped to a
-        historical point-in-time. Uses composite index on (asset_id, valid_from, valid_to).
+        historical point-in-time.
+
+        There is no composite index on (asset_id, valid_from, valid_to) — that
+        composite cannot exist, because asset_id is a node property and the
+        validity window is a relationship property. PROFILE (2026-08-22) shows the
+        real plan: anchor on the Asset, Expand(All), then Filter the edges. The
+        KNOWLEDGE_EDGE property indexes are not consulted for edges reached by
+        expansion, so they do not serve this query. The anchor is what matters —
+        it needs `asset_id_unique` present, or this plans as a NodeByLabelScan
+        over every Asset. See db/neo4j/init_schema.cypher.
         """
         as_of_str = as_of.isoformat() if as_of else datetime.now(UTC).isoformat()
         cypher = """

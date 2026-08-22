@@ -19,7 +19,8 @@ measured on the retired 25-question set at a 90 s cap.
 | Layer smoke checks | **13/13 pass** | `verify_layers.py` |
 | Retrieval (fact reaches context) | **37/37 (100%)** | `run_benchmark.py` |
 | Query answer quality | Golden Q&A (37): answer states the correct fact, not negated, with sources | **33/37 (89.2%)**, 95% CI [79–97%]; run validity **VALID** (4 honest misses — see notes) |
-| Provenance (sources cited) | **37/37 (100%)** | `run_benchmark.py` |
+| Provenance — all responses, incl. refusals | **37/37 (100%)** | `run_benchmark.py` (per-category column, §2) |
+| Provenance — correct answers only | **33/33 (100%)** | `run_benchmark.py` (`sourced/correct`, §2) |
 | Entity-extraction F1 (Layer 0) | **0.805** on 40 labels — `VALID`, 0 of 15 fell back | `run_model_validation.py` |
 | Compliance gap detection | **P 1.000 · R 0.838 · F1 0.912** — see §4, the ground truth is stale, not the code | `run_compliance_eval.py` |
 | Retrieval reach by arm | exact **33/37 (89.2%)** · semantic **35/37 (94.6%)** · hybrid **35/37 (94.6%)** | `run_retrieval_baseline.py` |
@@ -252,7 +253,7 @@ gaps is established — the honest claim is that hybrid is *at least as good as 
 on every arm*, and its real value is authority ordering plus redundancy when one store is unavailable,
 neither of which this metric measures.
 
-Retrieval reach is not answer quality — see §2 (91%) for that.
+Retrieval reach is not answer quality — see §2 (89.2%) for that.
 
 ## 8. `run_safety_eval.py` — adversarial safety
 

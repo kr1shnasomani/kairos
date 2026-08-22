@@ -54,24 +54,22 @@ async def test_ot_query_mock_flag(ot_client):
     assert "mock" in body
 
 
-async def test_ot_coverage_returns_shape(ot_client, shared_asset_id):
-    r = await ot_client.get(f"/ot/coverage/{shared_asset_id}")
-    assert r.status_code == 200
-    body = r.json()
-    assert "asset_id" in body
-    assert body["asset_id"] == shared_asset_id
-    assert "instrumented_tags" in body
-    assert "uninstrumented_components" in body
-    assert "coverage_percent" in body
-    assert isinstance(body["coverage_percent"], (int, float))
-
-
-async def test_ot_coverage_unknown_asset(ot_client):
-    """Unknown asset falls back to mock coverage — still 200."""
-    r = await ot_client.get("/ot/coverage/ASSET-NONEXISTENT-XYZ")
-    assert r.status_code == 200
-    body = r.json()
-    assert "coverage_percent" in body
+# REMOVED 2026-08-22: `test_ot_coverage_returns_shape` and `test_ot_coverage_unknown_asset`.
+#
+# They exercised `GET /ot/coverage/{asset_id}` on the Go connector, which was **deliberately
+# deleted on 2026-08-16** (see docs/API.md §13 and docs/BACKEND.md) because it returned
+# hardcoded `{asset}-VIBE` / `{asset}-TEMP` / `75%` for every asset — fabricated sensor tags,
+# which Layer 5 forbids outright: coverage counts only *verified* topology, and
+# `coverage_type: "none"` is not the same claim as "no sensors".
+#
+# The second test asserted "unknown asset falls back to mock coverage — still 200", i.e. it
+# pinned the fabrication as required behaviour. Left in place, it would have pressured whoever
+# tried to make the suite green into re-adding the bug the deletion removed.
+#
+# Instrumentation coverage now derives from verified topology in Python:
+#   GET /assets/{asset_id}/ot-coverage  →  api/services/ot_coverage.py
+# covered by tests/test_ot_coverage.py, which pins the honest behaviour instead — an asset with
+# no linked drawing reports none rather than guessing, and unverified topology is not coverage.
 
 
 async def test_eam_sync_returns_completed(ot_client):

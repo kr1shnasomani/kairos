@@ -145,3 +145,43 @@ def shared_asset_id():
     )
     assert r.status_code in (200, 201), f"Shared asset creation failed: {r.text}"
     return asset_id
+
+
+def _create_asset(asset_id: str) -> str:
+    r = httpx.post(
+        f"{BASE_URL}/assets/",
+        json={
+            "asset_id": asset_id,
+            "tag_number": f"TAG-{asset_id}",
+            "name": f"Integration Test Asset {asset_id}",
+            "equipment_class": "PUMP",
+            "criticality": "critical",
+            "site_id": "SITE_001",
+            "facility_id": "FAC_001",
+            "eam_source": "integration_test",
+            "confirmed_by_user_id": "test-runner",
+        },
+        headers={"Authorization": f"Bearer {_INTERNAL_KEY}"},
+        timeout=30,
+    )
+    assert r.status_code in (200, 201), f"Asset creation failed: {r.text}"
+    return asset_id
+
+
+@pytest.fixture
+def fresh_asset_id():
+    """
+    A brand-new asset per test — use this instead of `shared_asset_id` whenever the
+    test needs its operational event to actually land.
+
+    WHY THIS EXISTS: Layer 8 canonical event normalization collapses events that share
+    an asset id and event type inside `DEDUP_WINDOW_MINUTES` (default 10). `shared_asset_id`
+    is session-scoped, a full suite run finishes well inside that window, and seven tests
+    POST `/events/inspection-complete` against it — so the first one wins and every later
+    one correctly returns `{"status": "deduplicated"}` with no `quarantine_item_id`.
+
+    That is the dedup working as designed, not a bug, but it makes any test that needs a
+    real quarantine item order-dependent: green alone, red in a full run. A unique asset
+    keeps each test's precondition its own.
+    """
+    return _create_asset(f"ASSET-FRESH-{uid()}")

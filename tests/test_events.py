@@ -254,14 +254,14 @@ async def test_tag_out_deduplication(admin_client, shared_asset_id):
 # Inspection complete
 # ---------------------------------------------------------------------------
 
-async def test_ingest_inspection_complete_passed(admin_client, shared_asset_id):
+async def test_ingest_inspection_complete_passed(admin_client, fresh_asset_id):
     r = await admin_client.post("/events/inspection-complete", json={
         "event_id": uid(),
         "source_system": "inspection_app",
         "site_id": "SITE_001",
         "occurred_at": _now(),
         "received_at": _now(),
-        "asset_id": shared_asset_id,
+        "asset_id": fresh_asset_id,
         "inspection_type": "vibration_analysis",
         "result": "passed",
         "performed_by": "TECH-001",
@@ -274,14 +274,14 @@ async def test_ingest_inspection_complete_passed(admin_client, shared_asset_id):
     assert body["quarantine_item_id"] is None
 
 
-async def test_ingest_inspection_complete_low_confidence_quarantined(admin_client, shared_asset_id):
+async def test_ingest_inspection_complete_low_confidence_quarantined(admin_client, fresh_asset_id):
     r = await admin_client.post("/events/inspection-complete", json={
         "event_id": uid(),
         "source_system": "inspection_app",
         "site_id": "SITE_001",
         "occurred_at": _now(),
         "received_at": _now(),
-        "asset_id": shared_asset_id,
+        "asset_id": fresh_asset_id,
         "inspection_type": "visual",
         "result": "conditional",
         "performed_by": "TECH-002",

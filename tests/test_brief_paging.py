@@ -1,0 +1,170 @@
+"""
+Layer 8 inbox paging — `routers/briefs.page_inbox`.
+
+Pins the three rules that the endpoint's ordering depends on and that are easy to
+break by moving a line:
+
+  1. `limit` applies AFTER the governor/frozen filters, never in SQL.
+  2. `delivered + frozen_page` never exceeds `limit`.
+  3. Critical (PTW / safety) briefs are never suppressed and never displaced.
+
+Service-free: `page_inbox` is pure, so none of this needs the stack.
+"""
+
+from api.routers.briefs import page_inbox
+
+
+def _b(bid: str, *, priority: str = "normal", frozen: bool = False, trigger: str = "work_order_created") -> dict:
+    return {
+        "brief_id": bid,
+        "priority": priority,
+        "delivery_frozen": frozen,
+        "trigger_event_type": trigger,
+    }
+
+
+def _ids(briefs: list[dict]) -> list[str]:
+    return [b["brief_id"] for b in briefs]
+
+
+def _page(briefs, *, governor=False, plant=False, limit=10):
+    return page_inbox(briefs, governor_suppressed=governor, plant_suppressed=plant, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# The regression this function was extracted for
+# ---------------------------------------------------------------------------
+
+def test_critical_briefs_do_not_starve_normal_ones():
+    """
+    THE BUG: `limit` was applied in SQL, before the governor/frozen split. A user
+    holding `limit` critical briefs consumed the whole page at query time, so a
+    normal-priority brief never reached the filters at all — it stayed invisible
+    even after the governor cleared. The governor is meant to defer a brief, not
+    to hide it permanently.
+
+    With paging after filtering, the normal brief is merely ranked below the
+    critical ones; raising the page size reveals it rather than a new query.
+    """
+    briefs = [_b(f"c{i}", priority="critical") for i in range(10)] + [_b("n1")]
+
+    assert "n1" not in _ids(_page(briefs, limit=10)["delivered"])  # ranked below, off-page
+    assert "n1" in _ids(_page(briefs, limit=11)["delivered"])      # reachable, not lost
+
+    # And it is counted as pending either way — the UI can say "10 of 11".
+    assert _page(briefs, limit=10)["total_pending"] == 11
+
+
+def test_page_never_exceeds_limit_when_frozen_briefs_present():
+    """
+    The endpoint fetches wider than `limit` so filtering has material to work with.
+    That widening must not widen the response: `limit` is the caller's page size,
+    not a per-category allowance for delivered *and* frozen.
+    """
+    briefs = [_b(f"d{i}") for i in range(8)] + [_b(f"f{i}", frozen=True) for i in range(8)]
+    page = _page(briefs, limit=10)
+
+    assert len(page["delivered"]) + len(page["frozen_page"]) == 10
+    assert page["total_pending"] == 16  # everything waiting, not just what fits
+
+
+def test_frozen_briefs_fill_only_leftover_room():
+    briefs = [_b("d1"), _b("d2"), _b("f1", frozen=True), _b("f2", frozen=True)]
+    page = _page(briefs, limit=3)
+
+    assert len(page["delivered"]) == 2
+    assert len(page["frozen_page"]) == 1
+
+
+def test_frozen_briefs_are_never_governor_suppressed():
+    """Frozen briefs carry a freeze banner, not a push — the governor does not gate them."""
+    page = _page([_b("f1", frozen=True)], governor=True, limit=10)
+
+    assert _ids(page["frozen_page"]) == ["f1"]
+    assert page["suppressed_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Suppression — critical always passes
+# ---------------------------------------------------------------------------
+
+def test_governor_suppresses_normal_but_never_critical():
+    page = _page([_b("c1", priority="critical"), _b("n1"), _b("n2")], governor=True)
+
+    assert _ids(page["delivered"]) == ["c1"]
+    assert page["suppressed_count"] == 2
+
+
+def test_plant_state_suppresses_normal_but_never_critical():
+    """Turnaround / shutdown / emergency raise the bar; a PTW brief still gets through."""
+    page = _page([_b("c1", priority="critical"), _b("n1")], plant=True)
+
+    assert _ids(page["delivered"]) == ["c1"]
+    assert page["suppressed_count"] == 1
+
+
+def test_suppression_is_not_double_counted_when_both_gates_fire():
+    """A brief suppressed by governor *and* plant state is one held brief, not two."""
+    page = _page([_b("n1"), _b("n2")], governor=True, plant=True)
+
+    assert page["suppressed_count"] == 2
+    assert page["delivered"] == []
+
+
+def test_no_suppression_reported_when_nothing_to_suppress():
+    page = _page([_b("c1", priority="critical")], governor=True, plant=True)
+
+    assert page["suppressed_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Ranking
+# ---------------------------------------------------------------------------
+
+def test_critical_outranks_high_outranks_normal_outranks_low():
+    briefs = [_b("low", priority="low"), _b("norm"), _b("crit", priority="critical"), _b("high", priority="high")]
+
+    assert _ids(_page(briefs)["delivered"]) == ["crit", "high", "norm", "low"]
+
+
+def test_recurring_failure_outranks_first_occurrence_at_equal_priority():
+    briefs = [
+        _b("first", priority="high"),
+        _b("recurring", priority="high", trigger="recurring_failure_detected"),
+    ]
+
+    assert _ids(_page(briefs)["delivered"]) == ["recurring", "first"]
+
+
+def test_unknown_priority_ranks_as_normal_rather_than_dropping():
+    """An unrecognised priority must still be delivered — dropping a brief is the
+    one outcome Layer 8 cannot tolerate."""
+    briefs = [_b("weird", priority="urgent-ish"), _b("low", priority="low")]
+
+    assert _ids(_page(briefs)["delivered"]) == ["weird", "low"]
+
+
+def test_missing_priority_key_is_treated_as_normal():
+    page = _page([{"brief_id": "bare", "delivery_frozen": False}])
+
+    assert _ids(page["delivered"]) == ["bare"]
+
+
+# ---------------------------------------------------------------------------
+# Edges
+# ---------------------------------------------------------------------------
+
+def test_empty_inbox():
+    page = _page([])
+
+    assert page == {"delivered": [], "frozen_page": [], "suppressed_count": 0, "total_pending": 0}
+
+
+def test_suppressed_briefs_still_count_as_pending():
+    """Held is not gone: `total_pending` reflects what is waiting, so the UI can
+    show a held count rather than an empty inbox."""
+    page = _page([_b("n1"), _b("n2")], governor=True)
+
+    assert page["delivered"] == []
+    assert page["total_pending"] == 0  # ranked is empty once suppressed
+    assert page["suppressed_count"] == 2

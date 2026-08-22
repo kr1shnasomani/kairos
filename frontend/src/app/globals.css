@@ -411,12 +411,21 @@ h1, h2, h3, .font-display {
 /* Media panels: layered gradient standing in for the reference's rendered
    art, so the page needs no image assets. .lp-dither adds the pixel grain
    that gives those panels their texture. */
+/* The panel reads as a lit surface rather than a flat ramp: one warm key light
+   off-centre, deep falloff into the corners, and an inset vignette that keeps
+   the edges from glowing. Layer order is top-down, so the grain sits above the
+   gradients. Grain is an inline feTurbulence — desaturated, because raw
+   turbulence is RGB confetti — which keeps the page free of image assets. */
 .lp-media {
   background:
-    radial-gradient(120% 90% at 15% 8%, #241a14 0%, rgb(0 0 0 / 0) 58%),
-    radial-gradient(85% 75% at 88% 22%, #ff6a1f 0%, rgb(0 0 0 / 0) 60%),
-    radial-gradient(130% 120% at 55% 108%, #b52600 0%, rgb(0 0 0 / 0) 66%),
-    linear-gradient(155deg, #2b0c03 0%, #7d2102 48%, #e0500d 100%);
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)' opacity='0.42'/%3E%3C/svg%3E")
+      0 0 / 160px 160px repeat,
+    radial-gradient(105% 80% at 10% 4%, #150c06 0%, rgb(0 0 0 / 0) 52%),
+    radial-gradient(58% 50% at 79% 15%, #ffa257 0%, rgb(0 0 0 / 0) 62%),
+    radial-gradient(95% 75% at 86% 30%, #f0570c 0%, rgb(0 0 0 / 0) 58%),
+    radial-gradient(135% 115% at 48% 112%, #9c1c00 0%, rgb(0 0 0 / 0) 64%),
+    linear-gradient(152deg, #170601 0%, #6b1902 46%, #d9490a 100%);
+  box-shadow: inset 0 0 100px 26px rgb(10 3 0 / 0.42);
 }
 .lp-dither::after {
   content: "";
@@ -424,7 +433,7 @@ h1, h2, h3, .font-display {
   inset: 0;
   background-image: radial-gradient(#000 0.5px, rgb(0 0 0 / 0) 0.6px);
   background-size: 3px 3px;
-  opacity: 0.22;
+  opacity: 0.16;
   pointer-events: none;
 }
 
@@ -489,6 +498,17 @@ h1, h2, h3, .font-display {
 }
 .lp-anim [data-reveal].is-in .lp-bar {
   animation: lp-grow 0.9s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* Hero routes resolving inward. Decorative and seen once, so it is allowed to
+   run longer than the 300ms a UI transition gets. Ends on the same opacity the
+   SVG attribute declares, so a no-JS page looks identical to a settled one. */
+@keyframes lp-wire {
+  from { stroke-dashoffset: 44; opacity: 0; }
+  to { stroke-dashoffset: 0; opacity: 0.4; }
+}
+.lp-anim [data-reveal].is-in .lp-wire {
+  animation: lp-wire 1.1s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 
 .lp-marquee-track {

@@ -19,7 +19,7 @@ from api.dependencies import (
     require_role,
     site_scope,
 )
-from api.models.asset import AssetCreate
+from api.models.asset import AssetBulkImport, AssetCreate
 from api.services.coverage import CoverageService
 from api.services.graph import GraphService
 from api.services.ot_coverage import OtCoverageService
@@ -49,6 +49,192 @@ async def resolve_canonical_asset_id(asset_id: str, graph: GraphService, supabas
     if res.data:
         return res.data[0]["canonical_asset_id"]
     return None
+
+
+def partition_import_rows(
+    rows: list, existing_ids: set[str], allowed_site: str | None
+) -> dict:
+    """
+    Split a golden-record import into create / skip / reject. Pure — the caller supplies the
+    set of ids already in the graph and the site the token permits.
+
+    Three rejection classes, all of which a real EAM export produces:
+
+    * **already_present** — the asset is in the graph. Skipped, never overwritten. Neo4j's
+      `ON CREATE SET` already refuses to clobber, but Supabase writes with `upsert`, which
+      would happily replace `identity_confirmed_by` with a re-import. Filtering here means the
+      two stores cannot disagree about who confirmed an identity.
+    * **duplicate_in_payload** — the same `asset_id` twice in one file. The first wins; the
+      rest are reported rather than silently collapsed, because a duplicated row usually means
+      the export was joined wrong and the operator needs to know.
+    * **site_forbidden** — the row targets a site the caller's token does not cover. Bulk
+      import must not become the write-side hole in the tenancy boundary that `site_scope`
+      closes on the read side. `allowed_site=None` is admin (cross-site).
+
+    Rows without an `asset_id` are new by definition — one is generated at write time, so they
+    can never collide and are always creatable.
+    """
+    to_create, already_present, duplicate_in_payload, site_forbidden = [], [], [], []
+    seen: set[str] = set()
+
+    for idx, row in enumerate(rows):
+        aid = row.asset_id
+        if allowed_site is not None and row.site_id != allowed_site:
+            site_forbidden.append({"row": idx, "asset_id": aid, "site_id": row.site_id})
+            continue
+        if aid:
+            if aid in seen:
+                duplicate_in_payload.append({"row": idx, "asset_id": aid})
+                continue
+            seen.add(aid)
+            if aid in existing_ids:
+                already_present.append({"row": idx, "asset_id": aid})
+                continue
+        to_create.append((idx, row))
+
+    return {
+        "to_create": to_create,
+        "already_present": already_present,
+        "duplicate_in_payload": duplicate_in_payload,
+        "site_forbidden": site_forbidden,
+    }
+
+
+@router.post("/bulk", summary="Bulk-import assets from an EAM golden record (Layer 1)")
+async def bulk_import_assets(
+    payload: AssetBulkImport,
+    driver: Neo4jDep,
+    supabase: SupabaseDep,
+    es: ElasticsearchDep,
+    current_user: dict = Depends(require_role("admin", "engineer")),
+) -> dict:
+    """
+    Layer 1's golden-record bootstrap — the half of the MDM import that had no endpoint.
+
+    The architecture opens with "KAIROS begins every deployment by ingesting the enterprise
+    golden record", then separately describes a human bootstrap for assets the golden record is
+    *missing*. Only the second existed: `POST /assets/` takes one asset at a time, so a plant
+    could only be bootstrapped by hand.
+
+    The confirming authority is the caller, from the verified token — not a per-row field.
+    Every created asset still lands `identity_confirmed=True` with that id and an `audit_log`
+    row, so provenance is identical to single registration.
+
+    **Partial success is the contract, not a fallback.** One malformed row in a 500-row export
+    must not cost the other 499; the response reports every row that did not land and why. A
+    caller can fix those rows and re-post the whole file — creation is idempotent, so the rows
+    that already succeeded come back as `already_present` rather than duplicating.
+    """
+    user_id = current_user.get("user_id", "")
+    allowed_site = None if current_user.get("role") == "admin" else (current_user.get("site_id") or "")
+    if allowed_site == "":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has no site assigned; ask an administrator to set one.",
+        )
+
+    graph = GraphService(driver)
+
+    # One lookup for the whole payload rather than a query per row — an existence check that
+    # costs N round-trips is what makes people import in small batches and lose atomicity.
+    candidate_ids = [r.asset_id for r in payload.assets if r.asset_id]
+    existing_ids = await graph.existing_asset_ids(candidate_ids) if candidate_ids else set()
+
+    part = partition_import_rows(payload.assets, existing_ids, allowed_site)
+
+    created: list[str] = []
+    created_pairs: list[tuple[str, object]] = []  # (resolved id, row) — rows may have no asset_id
+    failed: list[dict] = []
+    now = datetime.now(UTC).isoformat()
+
+    for idx, row in part["to_create"]:
+        asset_id = row.asset_id or f"ASSET-{shortuuid.uuid()[:8].upper()}"
+        try:
+            await graph.create_asset_node({
+                "asset_id": asset_id,
+                "tag_number": row.tag_number,
+                "name": row.name,
+                "equipment_class": row.equipment_class,
+                "criticality": row.criticality,
+                "site_id": row.site_id,
+                "facility_id": row.facility_id,
+                "eam_source": row.eam_source,
+                "identity_confirmed": True,
+                "parent_asset_id": row.parent_asset_id,
+            })
+            await asyncio.to_thread(
+                lambda r=row, a=asset_id: supabase.table("assets").upsert({
+                    "asset_id": a,
+                    "tag_number": r.tag_number,
+                    "name": r.name,
+                    "equipment_class": r.equipment_class,
+                    "criticality": r.criticality,
+                    "site_id": r.site_id,
+                    "facility_id": r.facility_id,
+                    "parent_asset_id": r.parent_asset_id,
+                    "eam_source": r.eam_source,
+                    "identity_confirmed": True,
+                    "identity_confirmed_by": user_id,
+                    "identity_confirmed_at": now,
+                }).execute()
+            )
+            created.append(asset_id)
+            created_pairs.append((asset_id, row))
+        except Exception as exc:
+            # Row-level, so one bad row is one bad row. The graph write is idempotent, so a
+            # retry of this file re-attempts exactly the rows that did not land.
+            log.warning("asset.bulk_row_failed", row=idx, asset_id=asset_id, error=str(exc))
+            failed.append({"row": idx, "asset_id": asset_id, "error": str(exc)[:200]})
+
+    # ES is a search index, not a system of record — a failed index must not fail the import.
+    # The asset is already canonical in Neo4j and Supabase; it is only harder to search for.
+    # Driven by (id, row) pairs captured at write time — a row whose asset_id was generated has
+    # no id on the row itself, so pairing at creation is the only way to index it correctly.
+    for aid, row in created_pairs:
+        try:
+            await es.index(index="kairos_assets", id=aid, document={
+                "asset_id": aid,
+                "tag_number": row.tag_number,
+                "name": row.name,
+                "equipment_class": row.equipment_class,
+                "criticality": row.criticality,
+                "site_id": row.site_id,
+                "facility_id": row.facility_id,
+                "eam_source": row.eam_source,
+            })
+        except Exception as exc:
+            log.warning("asset.bulk_es_index_failed", asset_id=aid, error=str(exc))
+
+    await asyncio.to_thread(
+        lambda: supabase.table("audit_log").insert({
+            "action": "asset_bulk_imported",
+            "entity_type": "asset",
+            "entity_id": f"bulk:{len(created)}",
+            "performed_by": user_id,
+            "details": {
+                "submitted": len(payload.assets),
+                "created": len(created),
+                "already_present": len(part["already_present"]),
+                "duplicate_in_payload": len(part["duplicate_in_payload"]),
+                "site_forbidden": len(part["site_forbidden"]),
+                "failed": len(failed),
+            },
+        }).execute()
+    )
+
+    log.info(
+        "asset.bulk_imported", performed_by=user_id, submitted=len(payload.assets),
+        created=len(created), skipped=len(part["already_present"]), failed=len(failed),
+    )
+    return {
+        "submitted": len(payload.assets),
+        "created": len(created),
+        "created_asset_ids": created,
+        "already_present": part["already_present"],
+        "duplicate_in_payload": part["duplicate_in_payload"],
+        "site_forbidden": part["site_forbidden"],
+        "failed": failed,
+    }
 
 
 @router.post("/", summary="Register a new canonical asset", status_code=status.HTTP_201_CREATED)

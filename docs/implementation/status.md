@@ -22,7 +22,7 @@
 
 ## Headline
 
-**All 13 architecture layers are implemented.** Architecture conformance is **~91%** — the mean of
+**All 13 architecture layers are implemented.** Architecture conformance is **~91.4%** — the mean of
 the 13 per-layer scores in [Conformance](#architecture--implementation-conformance), measured by an
 independent re-audit on 2026-08-17 that scored *reachability in the path the architecture specifies*
 rather than *presence of the mechanism*. The previous ~94% figure was self-assessed against the
@@ -57,11 +57,11 @@ scheduled workflows after 60 days of repo inactivity).
 | # | Layer | Status | Evidence (code) | Notes |
 |---|-------|:------:|-----------------|-------|
 | 0 | Empirical Validation & Model Safety | ✅ | `workers/model_validation.py`, `services/circuit_breaker.py`, `validation_corpus`, `/governance/model-gate/*` | — |
-| 1 | Deterministic Identity & MDM Backbone | ✅ | `/assets` (`MERGE`, `identity_confirmed_by` required), `asset_alias_map`, `services/graph.py` | EAM asset bootstrap = Go-connector **fixture** (no SAP/Maximo) — mock by design |
+| 1 | Deterministic Identity & MDM Backbone | ✅ | `/assets` (`MERGE`, `identity_confirmed_by` required), **`POST /assets/bulk`** golden-record import, `asset_alias_map`, `services/graph.py` | EAM *connector* = Go-connector **fixture** (no SAP/Maximo) — mock by design. The golden-record **import path** is no longer missing (2026-08-22): bulk import exists, so a plant no longer has to be bootstrapped one asset at a time |
 | 2 | Immutable Evidence Vault | ✅ | Supabase Storage (`kairos-vault`), SHA-256 dedup, `documents`, `POST /documents/ingest` | — |
 | 3 | Multimodal Perception Engine | ✅ | OCR (NIM Nemotron), NER (NIM llama-3.2-11b-vision), voice (Groq Whisper), annotations, **P&ID topology** (`services/pid.py`) | Path A (custom YOLO+LayoutLM on GPU) = optional future accuracy upgrade, `requirements-cv.txt` |
 | 4 | Temporal Reality Graph | ✅ | Neo4j, `KNOWLEDGE_EDGE` (6 props), `as_of` time-travel, blast-radius, conflict detection | All 6 designed node types now written (2026-08-17); existing corpus not backfilled |
-| 5 | Zero-Copy OT Virtualization | 🟦 | Go connector `/ot/query`, `/ot/coverage` (`MockHistorianClient`) | **Mock by design — no plant historian.** Real path (`PIWebAPIClient`) is built; set `PI_WEBAPI_BASE_URL` to go live. OPC-UA is a stub. |
+| 5 | Zero-Copy OT Virtualization | 🟦 | Go connector `/ot/query`, `/ot/connectors` (`MockHistorianClient`); coverage map in Python at `/assets/{id}/ot-coverage` | **Mock by design — no plant historian.** Real path (`PIWebAPIClient`) is built; set `PI_WEBAPI_BASE_URL` to go live. OPC-UA is a stub. Go `/ot/coverage` was **deleted 2026-08-16** (fabricated sensor tags); coverage now derives from *verified* topology only. |
 | 6 | Quarantine Knowledge Layer | ✅ | `quarantine_items` one-way gate, `/governance/quarantine` promote / dispute / request-info | — |
 | 7 | Dual-Track Governance & Adjudication | ✅ | `knowledge_conflicts`, MoC webhook (signature-verified), SLA escalation, circuit breaker, blast-radius | — |
 | 8 | Operational Event & Proactive Delivery | ✅ | 8 event sources, Redis Streams, EEMUA governor, `services/brief_engine.py`, plant-state suppression, PTW dual sign-off | — |
@@ -86,7 +86,7 @@ are the external-plant integrations, which are mock **by design**.
 | Layer | Verdict | Score | One-line |
 |---|:--:|:--:|---|
 | 0 · Empirical Validation & Model Safety | 🟡 | 92 | Corpus grows from human promotions/annotations; scores per entity type **and** per asset class; `make model-gate` exits non-zero on regression. Not auto-run by CI/CD, and `MODEL_GATE_ENFORCE` ships off |
-| 1 · Deterministic Identity & MDM | 🟡 | 85 | Human-confirmed `MERGE` assets, alias resolution **with a confirm endpoint**, quarantine for unlinkable knowledge. EAM bootstrap is still a fixture |
+| 1 · Deterministic Identity & MDM | 🟡 | 88 | Human-confirmed `MERGE` assets, alias resolution **with a confirm endpoint**, quarantine for unlinkable knowledge, **and the golden-record bulk import the architecture opens with** (`POST /assets/bulk`, 2026-08-22 — confirming authority from the verified token, partial success with per-row reporting, existing assets skipped never overwritten, cross-site rows refused *before* the existence check). The EAM *connector* is still a fixture; the import path it would feed is now real |
 | 2 · Immutable Evidence Vault | ✅ | 97 | Supabase Storage, SHA-256 dedup, version chain, never-delete; supersession now propagates to ES + Qdrant. **IAM-derived access tags** now stamped at ingestion (migration 017) — all 6 of the things the spec says each artifact receives. Tags derive from KAIROS's own enforced RBAC and say so (`derived_from: kairos_rbac`); there is no external source-system IAM feed to read |
 | 3 · Multimodal Perception | 🟡 | 80 | Two-path OCR, NIM NER, P&ID **vision** (Path B) + element-by-element verification gate, voice. **No separate handwriting model** (a flag, and confidence deliberately not lowered) and **no layout-aware form/checklist parsing** |
 | 4 · Temporal Reality Graph | 🟡 | 92 | 6 edge props ✅, time-travel ✅, blast-radius ✅, **all 6 node types now written** (Event via `OCCURRED_ON` from all 6 event routes; Person/Organisation from extraction), and **timestamp alignment now runs on the document-ingestion path** by correlating a document against sibling events for the same asset. Also fixed: `valid_to` was compared to `datetime()` as a string, which yields NULL in Cypher — conflict detection and document supersession were both matching zero rows. Existing corpus is not backfilled with the new node types |
@@ -99,47 +99,24 @@ are the external-plant integrations, which are mock **by design**.
 | 11 · Reasoning & Synthesis | 🟡 | 97 | Hybrid retrieval (exact+semantic+graph+authority re-rank), double safety refusal gate, all output types, superseded documents excluded from default retrieval, and **engineer-verified P&ID topology admitted as gate evidence** for isolation queries — carrying the edge's own authority, never a privileged one |
 | 12 · Phased Deployment & Interface | 🟡 | 96 | Phase badge, field mode, point-of-action UI, **answer feedback wired to the backend**. Phase/pilot *activation* remains operational, not code |
 
-**Overall ~91.2%** (mean of the per-layer scores). No layer carries a ⚠️ — L4's node-type drift closed 2026-08-17.
+**Overall ~91.4%** (mean of the per-layer scores; L1 85 → 88 on 2026-08-22 when the golden-record bulk import landed). No layer carries a ⚠️ — L4's node-type drift closed 2026-08-17.
 L10's brownfield branch was fixed 2026-08-17 (72 → 92).
 
 ### Divergences that remain
 
-#### ✅ L4 — all 6 designed node types are now written (2026-08-17)
-**Design:** Asset, Event, Document, Concept, Person, Organisation.
-**Was:** only Asset, Document and Concept were ever `MERGE`d. Events lived solely in Supabase
-(`operational_events`), and `PERSON`/`ORGANIZATION` were *extracted* by NER then dropped — the
-ingestion loop skipped every entity that was not an `ASSET_TAG`. So "which people touched this
-equipment" could not be answered from the graph at all.
-**Now:**
-- `merge_event_node` writes an `Event` node and an `(:Asset)-[:OCCURRED_ON]->(:Event)` edge from
-  **all six** event routes. `OCCURRED_ON` is a plain relationship, deliberately *not* a
-  `KNOWLEDGE_EDGE`: an event is a fact with its own timestamp, not a temporal knowledge assertion
-  that could be superseded or carry an authority level, and overloading the type would inject
-  non-claims into every authority-filtered query. Supabase stays the system of record — graph
-  write failures are logged and never fail the ingest.
-- `merge_person_node` / `merge_organisation_node` run on the extraction path at the same 0.7
-  confidence bar as asset tags, linked by `MENTIONS_PERSON` / `MENTIONS_ORGANISATION` edges.
-  Node ids are derived from the normalised surface form (`GraphService.entity_node_id`) so the
-  same person in two documents MERGEs onto one node instead of one node per mention.
-- Label is `Organisation`, matching the uniqueness constraint `init_schema.cypher` declares.
-  `Organization` would create a second, unconstrained label indistinguishable in query output.
-**Caveat — the graph fills forward, not backward.** Only newly ingested documents and newly
-received events materialise these nodes; backfilling the existing corpus needs a re-ingestion
-run (≈1 NIM call per document) and has not been done. The write path is closed; the current
-graph reflects what has been written since.
+#### 🟡 L4 — the graph fills forward, not backward
+All 6 designed node types are written as of 2026-08-17 (`Event` via `OCCURRED_ON` from all six event
+routes; `Person`/`Organisation` from the extraction path). **Only newly ingested documents and newly
+received events materialise them.** Backfilling the existing corpus needs a re-ingestion run
+(≈1 NIM call per document) and has not been done, so the current graph reflects what has been written
+since that date, not the whole corpus. The write path is closed; the gap is data, not code.
 
-#### ✅ L10 — brownfield attribution branch fixed (2026-08-17)
-**Was:** `_check_telemetry_baseline` returned `failed: False` for uninstrumented assets but
-`evaluate_outcome` combined all three checks with `AND`, making `genuine_failure` unreachable.
-The declared `work_order_closeout_attestation` primary evidence was never a decision input.
-**Fix:** `_check_telemetry_baseline` now emits `evidence_role` (`primary`/`supporting`/`unavailable`)
-and `conclusive` on every return path. `evaluate_outcome` lazily calls the new
-`_check_closeout_attestation` only when telemetry is demoted (`evidence_role == "supporting"`).
-The new `_attribute()` pure decision function branches on `evidence_role` and routes
-uninstrumented assets through attestation-as-primary. 12 service-free tests, including a
-regression test for the brownfield path (`test_brownfield_asset_can_now_be_attributed`).
-**Remaining:** no authority downgrade on confirmed failure — audit flag only. Deliberately
-conservative; requires human review gate before any confidence change.
+Two details that are load-bearing if this is ever touched: `OCCURRED_ON` is deliberately **not** a
+`KNOWLEDGE_EDGE` — an event is a fact with its own timestamp, not a temporal assertion that could be
+superseded or carry an authority level, and overloading the type would inject non-claims into every
+authority-filtered query. And the label is `Organisation`, matching the uniqueness constraint in
+`init_schema.cypher`; `Organization` would create a second, unconstrained label indistinguishable in
+query output.
 
 #### 🟡 L4 — timestamp handling detects drift but doesn't normalize, and runs in the wrong place
 The pipeline **detects** drift beyond `TIMESTAMP_DRIFT_TOLERANCE_MINUTES` (60) and flags it for
@@ -186,8 +163,8 @@ scale-out beyond the single-site MVP:
 
 ## Benchmarks — current numbers
 
-**Measured 2026-08-16** on the shipping configuration: 37 questions, 40 NER labels,
-`NVIDIA_NIM_TIMEOUT=60`. Raw output: [`benchmark/RESULTS.md`](../../benchmark/RESULTS.md).
+**Measured 2026-08-16/17** on the shipping configuration: 37 questions, 40 NER labels,
+`NVIDIA_NIM_TIMEOUT=60`. (Sweep 08-16; `run_benchmark`, `run_safety_eval` and `run_brief_eval` re-run 08-17.) Raw output: [`benchmark/RESULTS.md`](../../benchmark/RESULTS.md).
 Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 
 | Metric | Result | Harness |
@@ -195,11 +172,12 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | Layer smoke checks | **13/13 pass** | `verify_layers.py` |
 | Retrieval (fact reaches context) | **37/37 (100%)** CI [91–100%] | `run_benchmark.py` |
 | Query answer quality | **33/37 (89.2%)**, 95% CI [79–97%] | `run_benchmark.py` |
-| Provenance (sources cited) | **37/37 (100%)** CI [91–100%] | `run_benchmark.py` |
+| Provenance — all responses, incl. refusals | **37/37 (100%)** CI [91–100%] | `run_benchmark.py` |
+| Provenance — correct answers only | **33/33 (100%)** CI [91–100%] | `run_benchmark.py` (`sourced/correct`) |
 | Synthesis latency | p50 **32.3 s** · p95 **65.0 s** (nim 23 · openrouter 11) | `run_benchmark.py` |
 | Entity-extraction F1 (Layer 0) | **0.805** on 40 labels — `VALID`, 0 of 15 fell back | `run_model_validation.py` |
 | Compliance gap detection | **P 1.000 · R 0.838 · F1 0.912**, zero false positives | `run_compliance_eval.py` |
-| Retrieval reach by arm | exact **89.2%** · semantic **94.6%** · hybrid **100% (37/37)** (n=37, CIs overlap) | `run_retrieval_baseline.py` |
+| Retrieval reach by arm | exact **33/37 (89.2%)** · semantic **35/37 (94.6%)** · hybrid **35/37 (94.6%)** (n=37, CIs overlap) | `run_retrieval_baseline.py` |
 | Proactive brief quality (Layer 8) | **6/6 graded** — structural only; content expectations unmet, see RESULTS §9 | `run_brief_eval.py` |
 | Adversarial safety | **0 unsafe answers** / 15 questions — 12 refusals, S05 now answers — run validity `VALID` | `run_safety_eval.py` |
 | Concurrency | **2275 req · 0% errors · knee at 50 VU** | `run_load_test.py` |
@@ -243,16 +221,14 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | # | Improvement | Why it matters | Est. |
 |---|---|---|---|
 | 1 | **Streaming synthesis (SSE)** | p95 is **65 s** with no progressive render. The tail is NVIDIA's shared endpoint, which cannot be tuned away, so progressive render is the *only* remaining lever on perceived latency. **Not attempted deliberately:** `ANSWER:/CONFIDENCE:/UNCERTAINTY:/SOURCES_USED:` is a parse contract with two consumers (`routers/search.py`, `workflows/elicitation_workflow.py`) and a measured answer-quality figure attached, so it needs a live NIM run to validate against regression. | 1–2 d |
-| 2 | ~~**Cascade's free-tier dependency**~~ — **CLOSED 2026-08-17: the three tiers are a deliberate choice, not a defect** | Each tier is kept for a different property: **NIM** is free and has the largest token budget (its weakness is latency and model availability, not quota); **OpenRouter** is fast and serves the *same* `llama-3.1-70b`, so a fallthrough does not change which model answered — but it has a smaller token allowance; **Gemini** is fast with a generous allowance, though smaller than NIM's, and it is a different model family. Keeping all three is redundancy across *different* failure modes, which is stronger than a single provider. What already protects the numbers: the benchmark reports its provider mix and marks a Gemini-heavy run `SUSPECT`, and `rate_limited` reaches the client so an exhausted quota can never be read as poor answer quality. Ollama stays unconfigured by design (cloud-only model plane). | n/a |
-| 3 | ~~**NER response-parsing fallback**~~ — **DONE 2026-08-17** | Root cause was `max_tokens: 1024` truncating the JSON on entity-dense documents; `json.loads` then rejected the **whole** response and the document fell to the regex path (ASSET_TAG only), which is what kept the Layer-0 F1 flagged `SUSPECT`. `_salvage_objects` now recovers the complete objects from a truncated or trailing-garbage array and flags `parse_recovered`, so recall degrades proportionally instead of collapsing to one entity type. Raising `max_tokens` was rejected — it only moves the cliff. Unrecoverable input still returns `None`. Pinned by `tests/test_ner_parse.py` (8 cases). **Re-run the model gate to see whether the F1 clears `SUSPECT`.** | done |
-
-| 4 | ~~**Trust boundary: authorization ran but never decided**~~ — **DONE 2026-08-17** | **Three independent defects stacked, any one of which disabled authorization on its own** — which is why none of them ever surfaced as a failure. (a) **`OPA_URL=http://localhost:8181` in `.env`**: inside the API container `localhost` is the API itself, so the policy engine was never reached. (b) **The middleware verified tokens with `jose.jwt.decode(algorithms=["HS256"])` against `SUPABASE_JWT_SECRET`**, but this project's Supabase issues **ES256** tokens signed with an asymmetric JWT signing key — every real token failed to decode, so every caller looked anonymous. (c) **`_ask_opa` returned `True` on any exception**, so (a) was silently absorbed as "allow". Net effect: `kairos.rego` was decorative. Fixes: `.env`/`.env.example` point at `http://kairos-opa:8181`; the middleware's private verifier is **deleted** in favour of `dependencies.resolve_token` (one path, delegating to Supabase, sharing the auth cache, so no extra round-trip); `_ask_opa` returns `self.debug`. Also fixed in the same pass: enforcement was **write-only**, so `read_audit`/`read_compliance`/`read_governance` were dead rules — `_READ_ACTION_MAP` now gates reads on GET/HEAD (**never OPTIONS**: outermost middleware, so gating the CORS preflight 401s every cross-origin request), with `read_nonconformance`/`read_documents`/`read_events` added and all six in `_sensitive_actions` so the catch-all cannot re-grant them; and `site_id` was a **client-supplied query param** on `/assets` + both `/compliance` reads — `dependencies.site_scope` now derives it from the verified token and treats a blank site as *nothing*, not *everything*. Grants mirror `use-role.ts`; `/events/plant-state` is exempt because the app shell renders it for every persona. **Verified live** against all four seeded personas (field worker 403 on six sensitive reads, compliance 200 on conflicts/quarantine/events but 403 on circuit-breaker/documents), plus writes, preflight, the internal service key and the no-token dev bypass. 41 tests in `tests/test_authz_boundary.py`; 34-case policy matrix in `scripts/verify_authz_policy.sh`. | done |
+| 2 | **Backend dependency upgrade — 16 advisories across 4 packages** | Baselined 2026-08-22 in `.github/workflows/deps-audit.yml` with a documented reason per suppression, so the gate catches *new* advisories rather than being red from day one. None is a simple bump. **`setuptools 69.5.1`** — capped by a bare `setuptools<70.0.0` with no recorded reason; fixes need ≥78.1.1 / ≥83.0.0. **Try lifting this one first — most likely stale.** **`starlette 0.37.2`** (7 advisories) — pinned transitively by `fastapi==0.111.1`; fixes need 0.40.0→1.3.1, i.e. a FastAPI major upgrade. **`protobuf 4.25.9`** — transitive from OTEL 1.24.0. **`ecdsa 0.19.2`** — `fix_versions` is **empty**, no released fix exists; arrives via `python-jose[cryptography]`, re-check upstream periodically. Dependabot PR #22 (41-package group, open since 2026-07-25) is the blunt version. | 0.5–2 d |
+| 3 | **Surface held briefs** | `GET /briefs/` returns `suppressed_count` but not *what* is waiting, so an operator sees a number with no way to judge whether the held brief matters. The paging half is done (2026-08-22): `limit` now applies after the governor/frozen filters, the page is trimmed before pushes are recorded, and `delivered + frozen_page` never exceeds `limit`. | 0.5 d |
 
 ### Tier 2
 
 | # | Improvement | Why it matters | Est. |
 |---|---|---|---|
-| 5 | **Soak test** — deferred by decision 2026-08-17, spec below | Nothing yet speaks to memory growth or connection leakage over hours, and the pooled HTTP client + LRU cache are exactly what it would stress. **Needs no model provider** (reads-only endpoints), so it blocks nothing and can be run last. | 2–3 h |
+| 4 | **Soak test** — **RUNNING 2026-08-22** (60 min load → 10 min idle → phase-3 recovery, against **cloud** stores; baseline 315.5 MB RSS / 10 conns). Spec below. | Nothing yet speaks to memory growth or connection leakage over hours, and the pooled HTTP client + LRU cache are exactly what it would stress. **Needs no model provider** (reads-only endpoints), so it blocks nothing and can be run last. | 2–3 h |
 
 #### Soak test — specification (ready to run, nothing blocks it)
 
@@ -279,20 +255,71 @@ stable · p95 drift under constant load · error rate. A rising RSS *slope* is t
 high reading is not. **Limits:** speaks to hours, not days, and says nothing about 10k assets. Run
 against **local stores** if the window is long enough to matter for Aura quota.
 
+| 5 | **Event reorder buffer — Layer 8 normalization's third operation** | Dedup and correlation are built; out-of-order buffering before the trigger queue commits is not. `LATE_ARRIVAL_WINDOW_MINUTES` currently scopes correlation lookups only. **Not a uniform buffer:** a 5-minute hold on a PTW event delivers the safety brief *after* the permit is issued, so it must interact with priority — and it changes dedup semantics, since you would be deduping over a window that is still open. Unobservable single-site with REST-posted events; real on a plant with CMMS/DCS propagation delay. | 2–3 d |
+| 6 | **Layout-aware form / checklist parsing** | `workers/extraction.py` is labelled "DEAD STUBS" and `run_form_extraction` raises — the only dead path in ingestion. **The hard part is destination, not extraction:** a field→value pair means nothing without the form type and field semantics, and then — graph edge at what authority, or quarantine? A handwritten checkbox promoted to canonical fact is what Layer 6 exists to prevent. Spans L3 × L4 × L6. **Measured impact today: none** — retrieval is 37/37 and none of the four benchmark misses (Q02 causal, Q07 topology, Q09 aggregation, Q29 blast-radius) is a form-parsing problem. Value appears at plant scale where field-level aggregation matters. | 3–5 d |
+| 7 | **Graph query policy** | Traversal depth limits, authority pre-filter *before* traversal rather than after, hot-asset Redis precompute, and a query-perf regression test inside the Layer 0 gate. All named in `ARCHITECTURE.md §7` as non-optional. Start from `PROFILE`, as the anchor fix did — the composite-index question was settled that way and the answer was a missing constraint, not an index. | 2–3 d |
+| 8 | **Extend the model gate beyond NER** to OCR and synthesis | OCR has **no labelled ground truth** in the corpus, so this means *creating* ground truth to feed a gate that ships `MODEL_GATE_ENFORCE=False`. Synthesis quality is measured by `run_benchmark.py`, but measurement is not a gate. Low value until enforcement is on. | 2–4 d |
+| 9 | **Model weight signing + submission-pattern audit monitoring** | The remaining two of `ARCHITECTURE.md §8`'s three anti-poisoning mitigations. The third — parameter anomaly detection — is recorded under Known limitations: it needs a per-class distribution the corpus cannot supply. | 2–3 d |
+
+### Measurement gaps — PS evaluation criteria without a runner
+
+`ARCHITECTURE.md §9` names the nine harnesses and closes four of the seven criteria. These three remain.
+
+| # | Criterion | Why it is not trivial | Est. |
+|---|---|---|---|
+| 10 | **Entity extraction accuracy across *document types*** | `run_model_validation.py` reports per *entity type* and per *asset class*. The PS asks per **document type**. Either add the partition, or state why asset class is the more useful cut. Cheapest of the three. | 0.5 d |
+| 11 | **KG linkage completeness** | Undefined and unmeasured; no runner. `verify_layers.py` proves the graph is reachable, not that it is complete. Needs a definition before it needs code. | 1 d |
+| 12 | **Cross-functional knowledge discovery improvement** | The only criterion with neither definition nor runner. **Needs a counterfactual** — what would someone in function X have found *without* KAIROS. A proxy like "distinct document types per answer" measures answer composition, not discovery improvement. Honest route is a narrow definition with the limit stated out loud, as `run_time_to_answer.py` does with its 120 s/document assumption. | 2 d+ |
+
 ### Tier 3 — architectural ceilings
 
 | # | Improvement | Why it matters | Est. |
 |---|---|---|---|
-| 5 | **A real agent loop** | Two of the problem statement's five illustrative tracks say "agentic". There is no tool-use or planning loop anywhere: every LLM call is single-shot inside a hand-written pipeline. This is the main ceiling on an Innovation score, however good the governance architecture is. | 1 w+ |
-| 6 | **Custom P&ID parser (Path A)** | `requirements-cv.txt` pins the YOLOv9 + LayoutLMv3 stack but it is intentionally not installed. Path B (cloud VLM) works and every element is human-verified, so this is an accuracy upgrade, not a gap. | 1 w+ |
+| 13 | **A real agent loop** | Two of the problem statement's five illustrative tracks say "agentic". There is no tool-use or planning loop anywhere: every LLM call is single-shot inside a hand-written pipeline. This is the main ceiling on an Innovation score, however good the governance architecture is. **Recommended form — not a generic agent:** a **bounded re-retrieval loop on the refusal path**. The safety gate currently refuses on insufficient evidence after one retrieval attempt; a loop that reformulates and re-queries before refusing targets exactly the four honest misses (Q02, Q07, Q09, Q29), is measurable against an existing benchmark, never takes an action, and only ever gathers more evidence — so it does not contradict the architecture's position that human authority retains accountability. A generic tool-use loop does. | 2–3 d bounded · 1 w+ generic |
+| 14 | **Custom P&ID parser (Path A)** | `requirements-cv.txt` pins the YOLOv9 + LayoutLMv3 stack but it is intentionally not installed. Path B (cloud VLM) works and every element is human-verified, so this is an accuracy upgrade, not a gap. | 1 w+ |
 
 ### Known limitations — recorded, not planned
 
 - **No supervised ML, permanently — settled, not pending.** PyTorch / scikit-learn / LightGBM are
   not installed and will not be. A 24-document corpus cannot train a model that beats the
   deterministic path. The quantitative story is SPC control charts, Wilson intervals, RRF and 2σ
-  baselines — statistical methods where the data supports them. Full reasoning and the deck framing
-  are in [Open items](#open-items). **Do not re-file this as a gap.**
+  baselines — statistical methods where the data supports them. **Do not re-file this as a gap.**
+
+  *Why it stays unbuilt:* any supervised model trained on 24 documents cannot outperform the
+  deterministic path, and shipping one would mean presenting a model fit on nothing as a credential.
+  The first question it invites — "what was your training set size?" — has no good answer.
+
+  *Framing for any deck or writeup:* "Statistical methods where the data supports them — SPC control
+  charts for drift detection, Wilson intervals on all reported rates, RRF for retrieval fusion.
+  Supervised ML is roadmap, not shipped: a 24-document corpus cannot train a model that outperforms
+  the deterministic path, and we chose not to ship one that looks impressive and measures nothing."
+
+  *The threshold at which this changes:* enough verified operational history to fit a distribution
+  per equipment class. `ARCHITECTURE.md §8`'s extraction anomaly detection is the natural first step
+  and is plain statistics, not a trained model — neither is reachable on the present corpus.
+
+- **The `(asset_id, valid_from, valid_to)` composite index cannot exist — settled 2026-08-22, do not
+  re-file.** `ARCHITECTURE.md §7` asks for it, but `asset_id` is a **node** property and the validity
+  window is a **relationship** property, so no single entity carries all three. `PROFILE` confirms the
+  hot path is anchor → `Expand(All)` → `Filter`, and a relationship index is not consulted for edges
+  reached by expansion. What actually mattered was the **anchor**: restoring the missing
+  `asset_id_unique` constraint changed the plan from `NodeByLabelScan` (10 rows / 11 dbHits) to
+  `NodeUniqueIndexSeek` (1 row / 2 dbHits). Reasoning is recorded in `init_schema.cypher` and the
+  `get_asset_knowledge_at` docstring, both of which previously claimed the composite index existed.
+
+- **Go `GET /ot/coverage/{id}` is deleted on purpose — do not restore it.** Removed 2026-08-16 because
+  it returned hardcoded `{asset}-VIBE` / `{asset}-TEMP` / `75%` for every asset, which Layer 5 forbids
+  outright. Two tests pinning that behaviour survived until 2026-08-22 — one asserting "unknown asset
+  falls back to mock coverage, still 200", i.e. *requiring* the fabrication. They were removed with a
+  comment saying why, because the obvious way to make a red suite green is to re-add the route.
+  Instrumentation coverage derives from **verified topology only**, in Python, at
+  `GET /assets/{id}/ot-coverage`.
+
+- **Dependabot version updates cannot run on push — do not try to wire it.** `interval` accepts only
+  daily / weekly / monthly; there is no event trigger and no API to force a run (the "Check for
+  updates" button is UI-only). Set to **daily** 2026-08-22. It also *looks* idle when working: every
+  ecosystem groups all patterns into one PR, and an open group PR is **rebased in place** rather than
+  replaced. The per-push equivalent is `.github/workflows/deps-audit.yml`.
 
 - **Compliance counts are computed live**, O(clauses × assets) with a subquery per pair; `EXPLAIN`
   confirms `CartesianProduct`, and the dashboard variant is deliberately unbounded because a `LIMIT`
@@ -308,105 +335,17 @@ against **local stores** if the window is long enough to matter for Aura quota.
 
 ## Pending
 
-### Open items
+- **E2E sweep — 3 of 22 rows remain open deliberately.** The model-gate run (~2.5 min, ~15 NIM calls;
+  its output is already measured), voice capture (Groq quota; the path is proven elsewhere), and
+  horizontal-scroll on the remaining routes (a genuine browser check). The other 19 closed
+  2026-08-17 — detail in [`e2e-sweep.md`](./e2e-sweep.md).
 
-- [x] **Deck/writeup vs as-built — SETTLED 2026-08-17. Do not re-raise.**
-  The ML stack named in the deck (PyTorch / scikit-learn / LightGBM) is **deliberately not built and
-  will not be built**. It is not a scheduling gap.
+- **Promoting a non-existent quarantine item returns 500 rather than 404.**
 
-  **Why it stays unbuilt:** the corpus is 24 documents and 40 NER labels. Any supervised model
-  trained on that cannot outperform the deterministic path, and shipping one would mean presenting a
-  model fit on nothing as a credential. The first question it invites — "what was your training set
-  size?" — has no good answer. Choosing not to ship it is the correct engineering call, not an
-  unfinished task.
+- **Audit-pack `vessel` / `compressor` clauses show 0 evidence** — no asset carries a matching
+  `equipment_class`, and the `PESO` / `Factory Act` frameworks are not seeded, so they are
+  intentionally not shown.
 
-  **What is shipped instead, and is the honest quantitative story:** SPC z-score control charts with
-  rolling per-asset-class baselines (`services/circuit_breaker.py`), Wilson confidence intervals on
-  every reported benchmark rate, Reciprocal Rank Fusion for multi-source retrieval
-  (`services/search_service.py`), 2σ telemetry baseline comparison in outcome attribution
-  (`workers/attribution.py`), and a precision/recall/F1 evaluation harness with a per-asset-class
-  deployment gate (`workers/model_validation.py`). Statistical methods where the data supports them.
-
-  **Framing to use in any deck or writeup:** *"Statistical methods where the data supports them — SPC
-  control charts for drift detection, Wilson intervals on all reported rates, RRF for retrieval
-  fusion. Supervised ML is roadmap, not shipped: a 24-document corpus cannot train a model that
-  outperforms the deterministic path, and we chose not to ship one that looks impressive and measures
-  nothing."*
-
-  **The threshold at which this changes:** enough verified operational history to fit a distribution
-  per equipment class — the anomaly detection over extraction outputs described in
-  `ARCHITECTURE.md §8` (flag a parameter that deviates sharply from its class's historical range) is
-  the natural first step, and it is plain statistics rather than a trained model. Neither is
-  reachable on the present corpus.
-
-  The knowledge-coverage heatmap **is** built (`GET /assets/coverage` + `/management/coverage`), so
-  that half of the original slide was already true. Deployment remains out of scope.
-
-- [x] **Timestamp-drift conflict — RESOLVED 2026-08-17 (option 2: ingest lag, never `valid_from`).**
-  `document_pipeline.py` compared `occurred_at` vs `ingested_at`, called the gap "drift", and beyond a
-  60-minute tolerance **overwrote `valid_from` with `ingested_at`** — which would have rewritten the
-  true date of every historical document to its upload time and corrupted the validity windows Layer 4
-  time-travel depends on. It never fired only because `occurred_at` is NULL across the corpus (0 of 24).
-
-  Now: `valid_from` uses the **source** timestamp whenever it is parseable and not future-dated, and
-  the gap is recorded as `ingest_lag_recorded` — an observation, explicitly noted as such in the audit
-  row. A future-dated `occurred_at` is the one genuinely unsafe case (the authority pre-filter is
-  `valid_from <= $as_of`, so a year-3000 date would hide the edge from every present-day query); it
-  falls back to ingest time and logs `activity.occurred_at_in_future`. Unparseable values log and fall
-  back rather than throwing. The pipeline no longer sets `extraction_jobs.timestamp_drift_detected`,
-  so that flag now means only what `services/timestamp_alignment.py` means by it: **cross-source**
-  clock skew. The frontend audit tone map carries both actions, drift as `caution` and ingest lag as
-  `info`.
-
-- [x] **Dead Event read methods — RESOLVED 2026-08-17.** `get_asset_events` was already gone.
-  `get_last_inspection_date` was **fixed rather than deleted**: it matched `(e:Event)`, and no `Event`
-  node is ever written, so the asset-detail `last_inspection_date` was permanently `null`. Inspections
-  *are* recorded — as `INSPECTION_RECORD` edges written by `POST /events/inspection-complete` — so the
-  query now reads the edge that actually exists and excludes superseded ones. Proven against the live
-  graph with a disposable edge (returned the date, excluded it once superseded, probe removed). It
-  reads `None` on the current corpus for an honest reason: no inspection has been recorded yet.
-
-- [x] **Independent re-audit of the conformance score — done 2026-08-17.** Re-scored layer by layer
-  against the code, deliberately *without* reading this file first. Result: **~84%**, not ~94%. The
-  gap was a rubric difference, not arithmetic — the earlier pass scored whether a mechanism existed,
-  the re-audit scored whether it was reachable in the path the architecture specifies. Four
-  requirements were built-but-unreachable (L7's MoC banner, L10's brownfield branch, L12's feedback
-  button, L4's alignment hook). The shallow-tier fixes that followed took it to **~88%**; L10, L4,
-  L3 and L2 carry the remainder.
-
-- [x] **E2E sweep — 19 of 22 open rows closed 2026-08-17.** Verified through the API layer, where
-  these features actually live; four write paths exercised and each restored (plant-state round trip,
-  deviation freeze→unfreeze of 4 briefs, offboarding response → quarantine, MDM probe purged from both
-  stores with the 10 golden assets re-counted intact). **Three remain open deliberately:** the
-  model-gate run (~2.5 min, ~15 NIM calls — its output is already measured), voice capture (Groq
-  quota, path proven elsewhere), and horizontal-scroll on the remaining routes (a genuine browser
-  check). Detail in [`e2e-sweep.md`](./e2e-sweep.md).
-
-### Known non-blocking gaps
-
-- ~~**`GET /assets/{id}` does not surface `identity_confirmed_by`**~~ — **FIXED 2026-08-17.** The
-  read path now joins the Supabase `assets` row for `identity_confirmed_by` / `_at`, which the
-  Neo4j node does not carry. Layer 1's whole claim is human-confirmed identity; the provenance
-  existed but no surface could show *who* confirmed it.
-
-- ~~**`valid_to` stored as a string**~~ — **FIXED 2026-08-17, and it was not cosmetic.** Four
-  queries compared the string property to Cypher's `datetime()`, which yields **NULL** — so
-  `(r.valid_to IS NULL OR r.valid_to > datetime())` was `(false OR null)` and dropped every row.
-  Measured live: **0** active edges matched where the cast form matched **35**. `detect_conflict`
-  therefore never found an existing edge (no conflict was ever raised on edge creation) and
-  `close_validity_windows_for_document` closed nothing (document supersession was a no-op).
-  Nothing errored and no test went red — every affected query just returned a plausible empty
-  list. All sites now use `datetime(r.valid_to)`, and `tests/test_timestamp_alignment.py` scans
-  the source for the broken form so it cannot reappear.
-- ~~**Brief `sources[]` still shows graph internals**~~ — **FIXED 2026-08-17.** `relevant_excerpt`
-  and `document_type` were humanised earlier; the remaining leaks were the raw `DOC-…` id as the
-  title and a null `vault_url`, both now resolved from Supabase. Also fixed: `is_quarantine` was
-  derived from `verification_status != "verified"`, and since every edge starts unverified by
-  design, **every** source was badged as an unverified field observation — including authority-4
-  permits. Edge verification is disclosed in the excerpt instead; the badge now means what it says.
-- Promoting a **non-existent** quarantine item returns **500 rather than 404**.
-- **Audit-pack `vessel`/`compressor` clauses show 0 evidence** (no asset has a matching
-  `equipment_class`); `PESO` / `Factory Act` frameworks are not seeded → intentionally not shown.
 - **`/rca` takes ~90 s** (NIM 70B) and returns `synthesis_available: false` when the graph lacks
   history. Not a bug.
 
@@ -415,10 +354,12 @@ against **local stores** if the window is long enough to matter for Aura quota.
 ## Verification snapshot
 
 - **Benchmarks** (cloud stores, 2026-08-16): see [Benchmarks](#benchmarks--current-numbers) above.
-- **Backend test suite:** ~175 passed · 3 skipped (1 transient flake, passes in isolation).
-  *Stale — not re-measured since 2026-08-16; ~53 tests added, so treat this as a floor.* Write-heavy:
-  run against `--profile local-stores`, **never cloud**.
-- **Service-free tier:** **136 passed** (re-run 2026-08-17), no stack / secrets / network — what CI's `unit` job runs.
+- **Backend test suite:** **412 passed · 0 failed** (full suite, 2026-08-22). Write-heavy: run against
+  `--profile local-stores`, **never cloud**. The long-standing `test_attribution_worker_queues_recheck`
+  flake is gone — it was one of six failures traced to a shared-fixture dedup collision, now fixed.
+- **Service-free tier:** **251 passed** across **23 files** (2026-08-22) — no stack / secrets / network.
+  This is exactly what CI's `unit` job runs; the list is duplicated in `AGENTS.md`, `docs/TESTS.md` and
+  `.github/workflows/tests.yml` and **all three must be updated together** (they have drifted twice).
 - **Frontend:** **145 passed across 57 files**, `tsc` clean, `eslint` 0 errors / 3 pre-existing
   unused-var warnings. Run vitest **in Docker, never on the host** — host package resolution differs
   from the pinned image and makes `auth.test.ts` / `api.test.ts` fail spuriously.
@@ -449,6 +390,8 @@ against **local stores** if the window is long enough to matter for Aura quota.
 | `/documents/{id}/topology` 404 | Only for `pid_drawing` docs; others 404 by design |
 | Frontend SSR fetch timeout | Wrong base URL — check `API_INTERNAL_URL` vs `NEXT_PUBLIC_API_URL` |
 | Work-order dedup test flake | Unique `work_order_id` per run (10-min dedup window; key is business-id scoped since 2026-08-17) |
+| **A test that passes alone and fails in a full run is probably colliding with event dedup** | `shared_asset_id` is **session-scoped**, a full suite finishes well inside `DEDUP_WINDOW_MINUTES` (10), and seven tests POST `/events/inspection-complete` against it — so the first wins and every later one correctly returns `{"status": "deduplicated"}` with **no `quarantine_item_id`**, producing a `KeyError` in whichever test reads it. The dedup is behaving exactly as designed. Six full-suite failures traced to this on 2026-08-22. **Any test that needs its operational event to actually land must use the `fresh_asset_id` fixture, not `shared_asset_id`.** |
+| **A schema statement can be silently dropped and the run still reports success** | `scripts/init_neo4j.py` split `init_schema.cypher` on `;` and *then* filtered chunks starting with `//` — so every statement following a comment block was discarded **before** the execution loop, meaning nothing was logged and the summary still said complete. Six statements had never reached Aura, including **`asset_id_unique`**: the graph's most important node type had no uniqueness constraint (assets are written with `MERGE`, which needs one to be safe under concurrency) and no index, so the Layer 4 hot path planned as a `NodeByLabelScan`. Fixed 2026-08-22 by stripping comment lines *before* splitting, and the loader now reports `statements_applied` / `statements_failed` separately. **After changing the schema file, verify with `SHOW CONSTRAINTS` / `SHOW INDEXES` — do not trust the run summary.** |
 | **Semantic search returns nothing, silently** | A Qdrant filter on a field with **no payload index** returns HTTP 400 on Qdrant Cloud. `SearchService.hybrid_search` gathers with `return_exceptions=True`, so it is swallowed as `search.qdrant_failed` and hybrid retrieval degrades to Elasticsearch-only with no error surfaced. Cost: the superseded-document filter shipped this way and semantic reach measured **0/37** until `run_retrieval_baseline.py` exposed it. **Any new payload filter needs its field added to `PAYLOAD_INDEXES` in `scripts/init_qdrant.py`**, then `make init-all` (idempotent). |
 | **Benchmark / soak numbers spike mid-run for no reason** | You edited a file under `backend/`. `docker-compose.override.yml` mounts `./backend:/app` and runs `uvicorn --reload`, so **every save restarts the live API** — in-flight requests error, p95 spikes ~17x, and RSS resets, which destroys a soak's leak trend. Long measurement runs execute *inside* `kairos-backend-api`, so they are hit by this too. **Do not edit `backend/` or `tests/` while a benchmark or soak is running** — the override mounts both, and `tests/` edits were observed triggering reloads too. Editing `docs/` and `frontend/` is safe; neither is mounted into the API container. |
 | **A `localhost` URL in `.env` for a *container* service silently disables it** | `OPA_URL=http://localhost:8181` resolved to the API container itself, so authorization requests never reached OPA — and `_ask_opa`'s fail-open turned that into "allow everything". The host port mapping (`0.0.0.0:8181->8181`) makes `localhost:8181` work from the **host**, which is what makes the wrong value look right. Inside a container always use the compose service name (`http://kairos-opa:8181`). `.env` is `env_file:`-injected at container **creation**, so a change needs `--force-recreate`, not a reload. |
@@ -511,7 +454,7 @@ against **local stores** if the window is long enough to matter for Aura quota.
 - **Supabase MCP** (`mcp__claude_ai_Supabase__*`) — SQL, migrations, table inspection. Prefer over `docker exec`.
 
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
-**Tests:** service-free tier **222 passed** across **21 files** (no stack/secrets/network) · frontend **145 passed / 57 files, 0 errors** · full suite ~175 passed · 3 skipped *(floor — not re-measured since 2026-08-16)* · 1 known transient flake (`test_attribution_worker_queues_recheck` — passes in isolation) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
+**Tests:** service-free tier **251 passed** across **23 files** (no stack/secrets/network) · frontend **145 passed / 57 files, 0 errors** · full suite **412 passed / 0 failed** (2026-08-22) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
 
 **CI:** `tests.yml` is two tiers — **`unit`** runs the service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config, **authz boundary**) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, a synthesis cascade call per synthesize) and exhausting a provider tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) passes in full. Two CI facts worth knowing: `lint.yml` needs `pull-requests: read` or `dorny/paths-filter` fails with *"Resource not accessible by integration"* and every lint job silently skips on PRs; and `next/font/google` fetches DM Sans/Geist **from Google at build time**, so a runner that cannot reach fonts.googleapis.com fails the build with `Module not found: @vercel/turbopack-next/internal/font/google/font` — transient, retry it, or self-host via `next/font/local` to remove the class.
 

@@ -26,8 +26,22 @@ FOR (o:Organisation) REQUIRE o.org_id IS UNIQUE;
 
 // =============================================================================
 // INDICES — Performance for temporal queries (hot paths)
-// Composite index on (asset_id, valid_from, valid_to) for time-travel queries.
-// Authority-level pre-filtering before traversal.
+//
+// NOT a composite index on (asset_id, valid_from, valid_to), despite what
+// ARCHITECTURE.md §7 asks for. Two reasons, both structural:
+//
+//   1. `asset_id` is a property of the :Asset NODE; the validity window lives on
+//      the KNOWLEDGE_EDGE RELATIONSHIP. There is no single entity carrying all
+//      three properties, so that composite cannot be declared as written.
+//   2. The hot-path queries anchor on (a:Asset {asset_id: $id}) and EXPAND, then
+//      filter r.valid_from/r.valid_to on the edges they reach. A relationship
+//      index serves relationship SCANS — it is not consulted for edges already
+//      reached by expansion — so adding one would likely be a no-op here.
+//
+// Whether the temporal filter can be pushed before expansion is a query-planner
+// question that needs PROFILE against a populated graph, not a DDL change. The
+// single-property edge indexes below are correct and useful regardless of how
+// that lands. See TODO.md §3 (graph query policy).
 // =============================================================================
 
 // Asset lookup
@@ -51,6 +65,12 @@ CREATE INDEX event_occurred_idx IF NOT EXISTS FOR (e:Event) ON (e.occurred_at);
 
 CREATE INDEX edge_valid_from_idx IF NOT EXISTS
 FOR ()-[r:KNOWLEDGE_EDGE]-() ON (r.valid_from);
+
+// Both ends of the window need covering: every temporal query filters on
+// valid_to as well (open edges carry the 9999-12-31 sentinel, never NULL), and
+// superseded-edge lookups filter on valid_to alone.
+CREATE INDEX edge_valid_to_idx IF NOT EXISTS
+FOR ()-[r:KNOWLEDGE_EDGE]-() ON (r.valid_to);
 
 CREATE INDEX edge_authority_idx IF NOT EXISTS
 FOR ()-[r:KNOWLEDGE_EDGE]-() ON (r.authority_level);

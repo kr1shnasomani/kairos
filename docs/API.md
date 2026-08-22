@@ -269,6 +269,65 @@ Key fields:
 
 ---
 
+### `POST /assets/bulk`
+
+Bulk-import assets from an EAM golden record — Layer 1's deterministic bootstrap. `POST /assets/`
+registers one asset at a time; this is the path for loading a plant.
+
+**Auth required:** Yes — `admin` or `engineer`
+
+**Request body:**
+```json
+{
+  "assets": [
+    {
+      "asset_id": "P-101",
+      "tag_number": "P-101",
+      "name": "Feed Pump Alpha",
+      "equipment_class": "pump",
+      "criticality": "safety_critical",
+      "site_id": "SITE_001",
+      "facility_id": "FAC_001",
+      "parent_asset_id": null,
+      "eam_source": "SAP_PM"
+    }
+  ]
+}
+```
+
+- **No `confirmed_by_user_id` per row.** The confirming authority is the caller, taken from the
+  verified token. A per-row field would let one import be attributed to someone else.
+- `asset_id` may be omitted — one is generated, and such a row can never collide.
+- 1–5000 rows. Split larger exports so a single failed request never costs a whole plant.
+
+**Response `200`** — partial success is the contract, not a fallback. One malformed row in a
+500-row export must not cost the other 499, so every row that did not land is reported with its
+index in the submitted payload:
+
+```json
+{
+  "submitted": 4,
+  "created": 2,
+  "created_asset_ids": ["P-101", "ASSET-7QK2M4XB"],
+  "already_present":      [{"row": 1, "asset_id": "EQ-101"}],
+  "duplicate_in_payload": [{"row": 2, "asset_id": "P-101"}],
+  "site_forbidden":       [{"row": 3, "asset_id": "EQ-201", "site_id": "SITE_002"}],
+  "failed":               []
+}
+```
+
+| Bucket | Meaning |
+|---|---|
+| `already_present` | Asset exists. **Skipped, never overwritten** — a re-import cannot replace `identity_confirmed_by`. |
+| `duplicate_in_payload` | Same `asset_id` twice in one file. First wins; usually means the export was joined wrong. |
+| `site_forbidden` | Row targets a site the token does not cover. Checked *before* existence, so the response cannot leak which ids exist in an unreadable site. Admins are cross-site. |
+| `failed` | The write itself errored. Row-level, so one bad row is one bad row. |
+
+Re-posting the whole file after fixing rows is safe: creation is idempotent, so rows that already
+succeeded return as `already_present` rather than duplicating.
+
+---
+
 ### `GET /assets/`
 
 List all registered assets.

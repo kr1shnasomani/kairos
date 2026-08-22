@@ -20,6 +20,77 @@ log = structlog.get_logger(__name__)
 
 router = APIRouter()
 
+# Inbox fetch headroom. The row limit is applied AFTER the frozen/governor filters,
+# so the query fetches wider than the caller's `limit` and the page is trimmed once
+# the filters have run. The cap keeps a large `limit` from becoming an unbounded scan.
+# ponytail: fixed 3x headroom, not a cursor. Paginate if an operator can realistically
+# hold more than `_INBOX_FETCH_MULTIPLIER * limit` unacknowledged briefs.
+_INBOX_FETCH_MULTIPLIER = 3
+_INBOX_FETCH_CAP = 150
+
+# Priority order within what is delivered (architecture Layer 8, trigger governance): PTW
+# safety briefs first, then recurring-failure detections ahead of first-occurrence, then
+# everything else. Previously the split was only critical-vs-rest and the remainder kept
+# created_at order, so a routine brief could sit above a recurring-failure one.
+_RANK = {"critical": 0, "high": 1, "normal": 2, "medium": 2, "low": 3}
+
+
+def _priority_rank(b: dict) -> tuple[int, int]:
+    rank = _RANK.get(b.get("priority") or "normal", 2)
+    recurring = 0 if b.get("trigger_event_type") == "recurring_failure_detected" else 1
+    return (rank, recurring)
+
+
+def page_inbox(
+    all_briefs: list[dict],
+    *,
+    governor_suppressed: bool,
+    plant_suppressed: bool,
+    limit: int,
+) -> dict:
+    """
+    Pure inbox paging: split, suppress, rank, trim. No I/O — the caller resolves
+    governor and plant state and passes the verdicts in.
+
+    Extracted so the paging rules are testable without the stack. Three are
+    load-bearing and easy to break by reordering:
+
+      * `limit` applies AFTER filtering, never in SQL. Limiting the query made held
+        and frozen briefs compete with critical ones for the same N rows, so a user
+        holding N critical briefs never saw a normal-priority brief again even once
+        the governor cleared. The governor defers a brief; it must not hide one.
+      * The page is trimmed BEFORE the caller records pushes. A brief that did not
+        make the page was not delivered and must not spend EEMUA governor budget.
+      * `delivered + frozen_page` never exceeds `limit`. `limit` is the caller's
+        page size, not a per-category allowance.
+    """
+    frozen = [b for b in all_briefs if b.get("delivery_frozen")]
+    unfrozen = [b for b in all_briefs if not b.get("delivery_frozen")]
+
+    # Critical (PTW / safety) always passes: never governor-suppressed, never
+    # plant-state suppressed, never displaced off the page by a routine brief.
+    critical = [b for b in unfrozen if b.get("priority") == "critical"]
+    normal = [b for b in unfrozen if b.get("priority") != "critical"]
+
+    suppressed_count = 0
+    if (governor_suppressed or plant_suppressed) and normal:
+        suppressed_count = len(normal)
+        normal = []
+
+    ranked = sorted(critical + normal, key=_priority_rank)
+    delivered = ranked[:limit]
+    frozen_page = frozen[: max(0, limit - len(delivered))]
+
+    return {
+        "delivered": delivered,
+        "frozen_page": frozen_page,
+        "suppressed_count": suppressed_count,
+        # True pending count within the fetch window, not the page length — the UI
+        # renders this as a standalone "N pending" figure, so it should report what
+        # is waiting rather than what happened to fit on this page.
+        "total_pending": len(ranked) + len(frozen),
+    }
+
 
 def _sign_acknowledgment(secret: str, brief_id: str, user_id: str, action: str, at: str) -> str:
     """
@@ -82,7 +153,7 @@ async def get_my_briefs(
         )
         .or_(f"recipient_user_id.eq.{user_id},recipient_user_id.eq.{site_recipient}" if site_recipient else f"recipient_user_id.eq.{user_id}")
         .order("created_at", desc=True)
-        .limit(limit)
+        .limit(min(limit * _INBOX_FETCH_MULTIPLIER, _INBOX_FETCH_CAP))
     )
     if unacknowledged_only:
         query = query.is_("acknowledged_at", "null")
@@ -90,47 +161,31 @@ async def get_my_briefs(
     result = await asyncio.to_thread(lambda: query.execute())
     all_briefs = result.data or []
 
-    # Frozen briefs are shown but excluded from governor push counting and delivery
-    frozen = [b for b in all_briefs if b.get("delivery_frozen")]
-    unfrozen = [b for b in all_briefs if not b.get("delivery_frozen")]
-
-    # Separate critical (always pass) from non-critical (subject to governor) within unfrozen
-    critical = [b for b in unfrozen if b.get("priority") == "critical"]
-    normal = [b for b in unfrozen if b.get("priority") != "critical"]
-
-    suppressed_count = 0
-    if gov["state"] == "suppressed":
-        suppressed_count = len(normal)
-        normal = []
-        log.info("governor.suppressed_briefs", user_id=user_id, suppressed=suppressed_count)
-
-    # Plant state gate: turnaround/shutdown/emergency suppresses all non-critical briefs
-    if normal and site_id:
+    # Plant state gate: turnaround/shutdown/emergency suppresses all non-critical
+    # briefs. Resolved here (I/O) and passed as a verdict into the pure pager.
+    plant_suppressed = False
+    if site_id:
         plant_state = await bus.get_plant_state(site_id, supabase)
-        if plant_state in ("turnaround", "shutdown", "emergency"):
-            suppressed_count += len(normal)
-            log.info(
-                "governor.plant_state_suppression",
-                user_id=user_id,
-                site_id=site_id,
-                plant_state=plant_state,
-                suppressed=len(normal),
-                reason="plant_state_suppression",
-            )
-            normal = []
+        plant_suppressed = plant_state in ("turnaround", "shutdown", "emergency")
 
-    # Priority order within what is delivered (architecture Layer 8, trigger governance): PTW
-    # safety briefs first, then recurring-failure detections ahead of first-occurrence, then
-    # everything else. Previously the split was only critical-vs-rest and the remainder kept
-    # created_at order, so a routine brief could sit above a recurring-failure one.
-    _RANK = {"critical": 0, "high": 1, "normal": 2, "medium": 2, "low": 3}
+    page = page_inbox(
+        all_briefs,
+        governor_suppressed=gov["state"] == "suppressed",
+        plant_suppressed=plant_suppressed,
+        limit=limit,
+    )
+    delivered = page["delivered"]
+    frozen_page = page["frozen_page"]
+    suppressed_count = page["suppressed_count"]
 
-    def _priority_rank(b: dict) -> tuple[int, int]:
-        rank = _RANK.get(b.get("priority") or "normal", 2)
-        recurring = 0 if b.get("trigger_event_type") == "recurring_failure_detected" else 1
-        return (rank, recurring)
-
-    delivered = sorted(critical + normal, key=_priority_rank)
+    if suppressed_count:
+        log.info(
+            "governor.suppressed_briefs",
+            user_id=user_id,
+            site_id=site_id,
+            suppressed=suppressed_count,
+            reason="plant_state_suppression" if plant_suppressed else "rate_ceiling",
+        )
 
     # Each brief counts against the EEMUA governor exactly ONCE per rolling hour.
     # record_push_once is idempotent per brief_id, so re-opening the inbox (a page
@@ -152,13 +207,13 @@ async def get_my_briefs(
     gov = await bus.get_governor_state(user_id)
 
     # Tag frozen briefs so the frontend can render the freeze banner
-    for b in frozen:
+    for b in frozen_page:
         b["frozen"] = True
         b["freeze_reason"] = "Physical deviation flag pending resolution"
 
     return {
-        "briefs": delivered + frozen,
-        "total_pending": len(delivered) + len(frozen),
+        "briefs": delivered + frozen_page,
+        "total_pending": page["total_pending"],
         "suppressed_count": suppressed_count,
         "governor_state": {
             "push_count_last_hour": gov["push_count_last_hour"],
