@@ -118,7 +118,18 @@ export default function RcaPage() {
         ))}
       </div>
 
-      {loading && <div className="mt-6"><DetailSkeleton /></div>}
+      {loading && (
+        <div className="mt-6">
+          {/* The client budget for this call is 90s because the pack genuinely takes that long
+              (NIM 70B). Say so — an unexplained 90s skeleton reads as a hung page, which is the
+              same wrong conclusion the old 8s abort produced, just slower. */}
+          <p className="text-caption text-muted" role="status">
+            Assembling the pack — synthesis runs against the full evidence set and can take up to
+            90 seconds.
+          </p>
+          <div className="mt-3"><DetailSkeleton /></div>
+        </div>
+      )}
 
       {failed && (
         <Card className="mt-6 p-4 sm:p-5">

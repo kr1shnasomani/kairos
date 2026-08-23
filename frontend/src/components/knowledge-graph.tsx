@@ -309,22 +309,35 @@ function KnowledgeGraphInner({
   const [selectedNode, setSelectedNode] = useState<GraphNodeData | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdgeData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
     const load = async () => {
       setLoading(true);
+      setFailed(false);
       setSelectedNode(null);
       setSelectedEdge(null);
-      const { data } = await getKnowledgeGraph(assetId, asOf);
-      if (!alive) return;
-      setGraphData(data);
-      if (data) setNodes(buildRFNodes(data));
-      setLoading(false);
+      try {
+        const { data } = await getKnowledgeGraph(assetId, asOf);
+        if (!alive) return;
+        setGraphData(data);
+        if (data) setNodes(buildRFNodes(data));
+      } catch {
+        // Without this the rejection was unhandled and `setLoading(false)` never ran, so a
+        // timed-out fetch left the canvas bouncing its loading dots forever with no error and
+        // no way back. `getKnowledgeGraph` throws by design (live-only policy) — the caller
+        // owes it a catch.
+        if (!alive) return;
+        setFailed(true);
+      } finally {
+        if (alive) setLoading(false);
+      }
     };
-    load();
+    void load();
     return () => { alive = false; };
-  }, [assetId, asOf, setNodes]);
+  }, [assetId, asOf, setNodes, reloadKey]);
 
   // Edge colors are baked-in token strings (see lib/graph-theme.tsx), so rebuild
   // whenever the graph data or the resolved theme tokens change.
@@ -362,6 +375,28 @@ function KnowledgeGraphInner({
             />
           ))}
         </span>
+      </div>
+    );
+  }
+
+  if (failed) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center gap-3 rounded-xl border border-line bg-surface px-6 text-center"
+        style={{ height }}
+      >
+        <p className="text-body font-medium text-ink">Could not load the graph for {assetId}.</p>
+        <p className="max-w-sm text-caption text-muted">
+          The knowledge request failed or timed out. Nothing is cached — this shows real data or
+          nothing at all.
+        </p>
+        <button
+          type="button"
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="min-h-9 rounded-lg border border-line bg-surface px-3 text-caption font-semibold text-ink transition-colors hover:bg-surface-2"
+        >
+          Retry
+        </button>
       </div>
     );
   }

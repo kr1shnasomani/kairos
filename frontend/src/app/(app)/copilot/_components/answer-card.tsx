@@ -69,7 +69,12 @@ export function Answer({ data, query = "", streaming }: {
 
   const hasQuarantine = data.sources.some((s) => s.is_quarantine);
   // Non-safety, non-refused, low confidence — show uncertainty block.
-  const uncertain = !data.refused && data.confidence < 0.7;
+  // `null` must NOT count as low: it means the model reported no confidence, and the old
+  // `confidence < 0.7` on a null-coerced-to-0 fired this warning on ~23% of perfectly good
+  // answers. Unknown gets no badge at all — the footer says it is unreported instead.
+  const confidence = data.confidence;
+  const uncertain = !data.refused && confidence !== null && confidence < 0.7;
+  const confidencePct = confidence !== null ? Math.round(confidence * 100) : null;
   // A locally-answered meta question ("what can you do?"). It has no sources because it is
   // not retrieved knowledge, which would otherwise make it the one answer in the app without
   // provenance. Rendered as a labelled system reply so it cannot be read as a governed claim,
@@ -203,7 +208,7 @@ export function Answer({ data, query = "", streaming }: {
         <div className="rounded-lg border border-[color-mix(in_srgb,var(--caution)_35%,var(--line))] bg-[color-mix(in_srgb,var(--caution)_6%,var(--surface))] p-3.5">
           <div className="mb-2 flex items-center gap-2">
             <StatusBadge tone="caution">
-              Low confidence · {Math.round(data.confidence * 100)}%
+              Low confidence · {confidencePct}%
             </StatusBadge>
           </div>
           {SYNTHESIS_ENABLED && data.answer && (

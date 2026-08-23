@@ -31,6 +31,39 @@ class GraphService:
 
     _SAFETY_CRITICAL_KEYWORDS = {"pressure", "temperature", "inspection", "isolation", "material"}
 
+    # Relationship types that record PROVENANCE or STRUCTURE, never a claim about the asset.
+    # Two of these on one asset is the normal, expected state — an archive holding several
+    # documents about a pump is what an archive IS, and a document mentioning two people is not
+    # a disagreement about who they are. `detect_conflict` must never fire on them.
+    #
+    # This mattered: 93 of 94 live conflicts were `DOCUMENTED_BY`, so the entire governance queue
+    # was co-documentation reported as contradiction, and the one real engineering conflict
+    # (HE-301, 18.5 bar against 16.2 bar) was pushed off the first page by the noise.
+    #
+    # WHY THIS IS A TYPE LIST AND NOT A VALUE COMPARISON. The honest check would be "do these two
+    # edges assert different values", but a KNOWLEDGE_EDGE has no value property — the six
+    # mandatory props are validity, authority, document, confidence and verification status.
+    # There is nothing to compare, which is also why `source_a` carries no `value` for these rows.
+    # Adding one is a schema change plus a backfill of every existing edge, i.e. a cloud write,
+    # so the correct move at this scale is to stop asking the question of edges that cannot
+    # answer it. Revisit if edges ever carry their asserted value.
+    NON_ASSERTING_RELATIONSHIPS = frozenset({
+        "DOCUMENTED_BY",             # Asset → Document: provenance, not a claim
+        "MENTIONS_PERSON",           # Document → Person: extraction provenance
+        "MENTIONS_ORGANISATION",     # Document → Organisation: extraction provenance
+        "CONTAINS_TOPOLOGY_ELEMENT", # Document → element: structural
+    })
+
+    @classmethod
+    def is_asserting_relationship(cls, relationship_type: str | None) -> bool:
+        """True when this edge type makes a claim that another source could contradict.
+
+        Shared with `routers/governance.py`, which applies the same rule when reading the
+        conflicts already stored in Supabase — those rows predate this guard and cannot be
+        deleted (cloud data), so they are filtered on the way out instead.
+        """
+        return (relationship_type or "").upper() not in cls.NON_ASSERTING_RELATIONSHIPS
+
     def __init__(self, driver: AsyncDriver, database: str | None = None):
         self.driver = driver
         # Default to the configured database, not a hardcoded "neo4j" — Aura names its DB after the
@@ -352,8 +385,16 @@ class GraphService:
         """
         Checks for an active edge on the same (source, relationship_type) from a DIFFERENT document.
         Returns conflict metadata dict for Supabase insert, or None if no conflict.
+
+        Only *asserting* relationship types are considered — see `NON_ASSERTING_RELATIONSHIPS`.
+        A second document documenting the same asset is not a contradiction, and treating it as
+        one made 93 of 94 conflicts noise.
         """
         if source_label not in self._LABEL_ID_FIELD:
+            return None
+        # Provenance and structural edges cannot contradict one another. Checked before the query
+        # so the common path also stops paying for a Neo4j round trip per ingested document.
+        if not self.is_asserting_relationship(relationship_type):
             return None
         src_field = self._LABEL_ID_FIELD[source_label]
         # Safe: src_field and source_label come from validated whitelist

@@ -53,84 +53,41 @@ These principles are enforced in the data model (every fact is an edge that carr
 At its core Kairos is a pipeline: raw industrial artifacts go in one end, and governed, cited, point-of-action intelligence comes out the other. Between them sits a knowledge graph that remembers not just *what* is true but *when* it was true and *how sure* we are.
 
 ```mermaid
----
-config:
-  layout: dagre
----
 flowchart TB
- subgraph CLIENT["Point of action · Next.js"]
-    direction LR
-        FE1["Field mobile<br>offline-capable PWA"]
-        FE2["Engineer / admin<br>desktop workspace"]
-  end
- subgraph CORE["Application core · FastAPI"]
-    direction LR
-        API["REST API<br>routers to services"]
-        OPA["OPA<br>RBAC authorization"]
-  end
- subgraph ORCH["Async orchestration"]
-    direction LR
-        TMP["Temporal<br>ingestion pipeline"]
-        CEL["Celery<br>6 task queues"]
-        GO["Go<br>OT connectors"]
-        BUS["Redis Streams<br>EEMUA push governor"]
-  end
- subgraph SVC["Intelligence services"]
-    direction LR
-        PERC["Perception<br>OCR · NER · P&amp;ID vision · STT"]
-        SYN["Retrieval + synthesis<br>hybrid search · Copilot · RCA · briefs"]
-        GOVN["Governance<br>conflicts · quarantine · MoC<br>model gate · circuit breaker"]
-        HUM(["Human review"])
-  end
- subgraph DATA["Polyglot knowledge & data stores"]
-    direction LR
-        NEO[("Neo4j Aura<br>temporal graph")]
-        QD[("Qdrant<br>vectors")]
-        ES[("Elasticsearch<br>exact")]
-        SUPA[("Supabase<br>Postgres · Auth · Vault · files")]
-  end
- subgraph EXT["Model plane · cloud only"]
-    direction LR
-        NIM["NVIDIA NIM<br>LLM · NER · OCR<br>cascade: OpenRouter → Gemini → Ollama"]
-        GROQ["Groq<br>Whisper STT"]
-        JINA["Jina<br>embeddings"]
-  end
-    CLIENT -- HTTPS --> CORE
-    CORE -- events / ingest --> ORCH
-    CORE -- query --> SVC
-    ORCH --> SVC
-    SVC -- read / write --> DATA
-    SVC -- inference --> EXT
-    GOVN <--> HUM
-    CORE -.-> OBS["Observability · OTEL to Grafana Cloud"]
+    CLIENT["Point of action<br/>Next.js · field and desktop"]
+    CORE["Application core<br/>FastAPI · OPA · Auth"]
+    ORCH["Async orchestration<br/>Temporal · Celery · Go · Redis Streams"]
+    SVC["Intelligence services<br/>Perception · Synthesis · Governance"]
+    DATA[("Knowledge and data stores<br/>Neo4j · Qdrant · Elasticsearch · Supabase")]
+    EXT["Model plane<br/>NVIDIA NIM · Groq · Jina"]
+    HUM(["Human authority<br/>review · promote · sign off"])
+    OBS["Observability<br/>OTEL to Grafana Cloud"]
 
-     FE1:::box
-     FE2:::box
-     API:::box
-     OPA:::box
-     TMP:::box
-     CEL:::box
-     GO:::box
-     BUS:::box
-     PERC:::box
-     SYN:::box
-     GOVN:::box
-     HUM:::box
-     NEO:::box
-     QD:::box
-     ES:::box
-     SUPA:::box
-     NIM:::box
-     GROQ:::box
-     JINA:::box
-     OBS:::box
-    classDef box fill:#ffffff,stroke:#cbd5e1,color:#1e293b
-    style CLIENT fill:#eef1f6,stroke:#c3ccdb,color:#2b3550
-    style CORE fill:#eaf0fb,stroke:#bcccec,color:#23324e
-    style ORCH fill:#f3eefb,stroke:#d6c6ec,color:#3a2b4e
-    style SVC fill:#e9f7f0,stroke:#aadcc6,color:#1e3b32
-    style DATA fill:#fdf3e7,stroke:#eccfa4,color:#4a3620
-    style EXT fill:#eaf4fb,stroke:#b3d5ec,color:#1f3949
+    CLIENT -->|HTTPS| CORE
+    CORE -->|ingest and events| ORCH
+    CORE -->|query| SVC
+    ORCH --> SVC
+    SVC <-->|read and write| DATA
+    SVC -->|inference| EXT
+    SVC <-->|nothing becomes canonical without this| HUM
+    CORE -.-> OBS
+    ORCH -.-> OBS
+
+    classDef edge fill:#fff1ea,stroke:#d93400,color:#5c1600
+    classDef core fill:#f6f5f3,stroke:#0b1015,color:#0b1015
+    classDef work fill:#f0ede8,stroke:#6b6259,color:#3a342d
+    classDef think fill:#fdf4e6,stroke:#a66a00,color:#4a3000
+    classDef store fill:#edf1f4,stroke:#3e5c6b,color:#1e2e36
+    classDef ext fill:#f7f5f2,stroke:#9a9086,color:#4a443d,stroke-dasharray:4 3
+    classDef human fill:#e9f2ec,stroke:#2f6b3e,color:#1b3f25
+    class CLIENT edge
+    class CORE core
+    class ORCH work
+    class SVC think
+    class DATA store
+    class EXT ext
+    class HUM human
+    class OBS ext
 ```
 
 1. **Ingest & perceive.** Documents, events, and voice notes enter through one gate. OCR and NER lift entities (including equipment tags, process parameters, regulatory clauses, people, and dates) out of unstructured text; P&ID drawings are parsed into a connected topology. Files are stored byte-for-byte in an immutable, SHA-256-deduplicated vault.

@@ -20,6 +20,7 @@ from api.dependencies import (
     site_scope,
 )
 from api.models.asset import AssetBulkImport, AssetCreate
+from api.services.corpus import test_artifact_ids
 from api.services.coverage import CoverageService
 from api.services.graph import GraphService
 from api.services.ot_coverage import OtCoverageService
@@ -613,11 +614,21 @@ async def get_asset_knowledge(
     driver: Neo4jDep,
     supabase: SupabaseDep,
     as_of: str | None = Query(None, description="ISO8601 timestamp for time-travel query"),
+    include_test_data: bool = Query(
+        False,
+        description="Include facts sourced from test/sweep artifacts. Off by default — they are "
+        "~79% of the active vault and drown the real corpus.",
+    ),
 ) -> dict:
     """
     Returns all temporal graph edges (facts) for this asset.
     Accepts a canonical id or a confirmed tag alias (e.g. P-101 → EQ-101).
     Pass as_of for time-travel queries — returns state of knowledge at that moment.
+
+    Facts sourced from test artifacts are excluded by default and **counted** in
+    `excluded_test_documents`. The filter cannot live in Cypher: the classifier is the vault
+    `file_name`, which is a Supabase column, while the Neo4j node carries only `document_id`.
+    See `api/services/corpus.py` for why an unresolvable id is kept rather than dropped.
     """
     graph = GraphService(driver)
     canonical = await resolve_canonical_asset_id(asset_id, graph, supabase)
@@ -632,11 +643,31 @@ async def get_asset_knowledge(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid as_of format: '{as_of}'. Use ISO8601.")
 
     facts = await graph.get_asset_knowledge_at(canonical, as_of=as_of_dt)
+
+    excluded = 0
+    if not include_test_data and facts:
+        doc_ids = [
+            (f.get("edge") or {}).get("document_id")
+            for f in facts
+            if (f.get("edge") or {}).get("document_id")
+        ]
+        artifact_ids = await test_artifact_ids(supabase, doc_ids)
+        if artifact_ids:
+            kept = [
+                f for f in facts
+                if (f.get("edge") or {}).get("document_id") not in artifact_ids
+            ]
+            excluded = len(facts) - len(kept)
+            facts = kept
+
     return {
         "asset_id": canonical,
         "requested_id": asset_id,
         "resolved_from_alias": canonical != asset_id,
         "as_of": as_of or "now",
         "fact_count": len(facts),
+        # Reported, never silent: the denominator stays auditable. A filter that hides how much
+        # it removed is how the linkage figure stayed wrong for as long as it did.
+        "excluded_test_documents": excluded,
         "facts": facts,
     }

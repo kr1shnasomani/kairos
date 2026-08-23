@@ -69,3 +69,67 @@ describe("ConflictsPage", () => {
     await waitFor(() => expect(screen.getByText("CONF-9")).toBeInTheDocument());
   });
 });
+
+describe("parameter & sources column", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  // The flagship engineering conflict. It is the one row that carries `value`, and it is the
+  // reason this column exists — it must keep rendering the disagreement verbatim.
+  it("shows the disagreement when the conflict records contradicting values", async () => {
+    respond([
+      item(1, {
+        parameter: "Max Operating Pressure",
+        source_a: { value: "18.5 bar", source: "Meridian OEM Manual (2019)", authority_level: 3 },
+        source_b: { value: "16.2 bar", source: "Meridian Service Bulletin", authority_level: 3 },
+      }),
+    ]);
+
+    render(<ConflictsPage />);
+
+    await waitFor(() => expect(screen.getByText("18.5 bar vs 16.2 bar")).toBeInTheDocument());
+  });
+
+  // Regression: 93 of 94 live conflicts come from detect_conflict, which never compares values
+  // and therefore stores none. Reading source.value on those rendered the literal "— vs —".
+  it("names both sources instead of printing dashes when no values were recorded", async () => {
+    respond([
+      item(2, {
+        parameter: "DOCUMENTED_BY",
+        source_a: { document_id: "DOC-AAA", authority_level: 4 },
+        source_b: { document_id: "DOC-BBB", authority_level: 4 },
+      }),
+    ]);
+
+    render(<ConflictsPage />);
+
+    await waitFor(() => expect(screen.getByText("DOC-AAA (L4) · DOC-BBB (L4)")).toBeInTheDocument());
+    expect(screen.queryByText(/—\s*vs\s*—/)).not.toBeInTheDocument();
+  });
+
+  // "vs" asserts a disagreement. Co-documentation is not one, so it must not borrow the word.
+  it("reserves 'vs' for a real contradiction", async () => {
+    respond([
+      item(3, {
+        parameter: "DOCUMENTED_BY",
+        source_a: { document_id: "DOC-AAA", authority_level: 4 },
+        source_b: { document_id: "DOC-BBB", authority_level: 4 },
+      }),
+    ]);
+
+    render(<ConflictsPage />);
+
+    await waitFor(() => expect(screen.getByText(/DOC-AAA/)).toBeInTheDocument());
+    expect(screen.queryByText(/ vs /)).not.toBeInTheDocument();
+  });
+
+  it("says so plainly when a conflict records no sources at all", async () => {
+    respond([item(4, { parameter: "DOCUMENTED_BY", source_a: {}, source_b: {} })]);
+
+    render(<ConflictsPage />);
+
+    await waitFor(() => expect(screen.getByText("Sources not recorded")).toBeInTheDocument());
+  });
+});

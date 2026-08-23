@@ -508,10 +508,19 @@ Get all temporal graph facts linked to this asset from Neo4j. Accepts a **canoni
 
 **Auth required:** Yes
 
+Facts sourced from **test/sweep artifacts are excluded by default** and counted in
+`excluded_test_documents`. The classifier is the vault `file_name` (`services/corpus.py`), which is
+a Supabase column — the Neo4j node carries only `document_id` — so this cannot be a Cypher filter.
+A `document_id` with no vault row (e.g. `PROMOTED-<uuid>`) is **kept**: unclassifiable is not
+disposable.
+
+**Auth required:** Yes
+
 **Query params:**
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `as_of` | ISO8601 datetime | `now` | Time-travel: return facts valid at this timestamp |
+| `include_test_data` | bool | `false` | Include facts whose source document is a test artifact |
 
 **Response `200`:**
 ```json
@@ -519,21 +528,33 @@ Get all temporal graph facts linked to this asset from Neo4j. Accepts a **canoni
   "asset_id": "EQ-101",
   "requested_id": "P-101",
   "resolved_from_alias": true,
-  "fact_count": 4,
+  "as_of": "now",
+  "fact_count": 7,
+  "excluded_test_documents": 53,
   "facts": [
     {
-      "rel_type": "HAS_MAX_PRESSURE",
-      "value": "12.5 bar",
-      "authority_level": 1,
-      "document_id": "doc-oisd-clause-6.4",
-      "confidence": 0.98,
-      "valid_from": "2020-01-01T00:00:00Z",
-      "valid_to": null,
-      "verification_status": "verified"
+      "edge": {
+        "edge_id": "EQ-101_DOCUMENTED_BY_DOC-FYBIYN95D7JH_2026-08-22T06:51:22Z",
+        "relationship_type": "DOCUMENTED_BY",
+        "authority_level": 3,
+        "document_id": "DOC-FYBIYN95D7JH",
+        "confidence": 0.95,
+        "valid_from": "2026-08-22T06:51:22Z",
+        "valid_to": "9999-12-31T23:59:59Z",
+        "verification_status": "unverified"
+      },
+      "target": {
+        "document_id": "DOC-FYBIYN95D7JH",
+        "document_type": "oem_manual",
+        "authority_level": 3
+      }
     }
   ]
 }
 ```
+
+> Each fact is `{edge, target}` — the six mandatory edge properties plus the node the edge points
+> at. There is **no `value`** on an edge; see `GET /governance/conflicts` for what that costs.
 
 ---
 
@@ -1852,7 +1873,19 @@ List open knowledge conflicts. Runs lazy SLA escalation before returning results
 
 **Auth required:** Yes (`engineer`, `admin`, `reliability`)
 
-**Query params:** `status` (`open | pending_moc | resolved | all`, default `open`), `track` (`administrative | engineering`), `asset_id`, `limit`, `offset`
+**Query params:** `status` (`open | pending_moc | resolved | all`, default `open`), `track` (`administrative | engineering`), `asset_id`, `include_non_asserting` (bool, default `false`), `limit`, `offset`
+
+Conflicts whose `parameter` is a **provenance or structural** relationship type
+(`GraphService.NON_ASSERTING_RELATIONSHIPS` — `DOCUMENTED_BY`, `MENTIONS_PERSON`,
+`MENTIONS_ORGANISATION`, `CONTAINS_TOPOLOGY_ELEMENT`) are excluded by default. Two documents
+describing one asset is what an archive *is*, not a contradiction. `detect_conflict` no longer
+creates them; rows written before that guard are filtered here, **in the query** — `count` and
+`range` are computed by PostgREST, so filtering in Python would report a total the page can never
+reach. `include_non_asserting=true` returns them.
+
+Note the shape difference this exposes: only conflicts that record an actual disagreement carry
+`value` on their sources. Auto-detected conflicts never did, because a `KNOWLEDGE_EDGE` has no
+value property to compare — which is precisely why they should not have been conflicts.
 
 **Response `200`:**
 ```json
@@ -1879,9 +1912,12 @@ List open knowledge conflicts. Runs lazy SLA escalation before returning results
 }
 ```
 
-Conflict tracks:
-- `engineering` — same parameter, different values from different authority levels
-- `administrative` — same document with conflicting `valid_from/valid_to` windows
+Conflict tracks — assigned by `detect_conflict`, not by the shape of the disagreement:
+- `engineering` — the new edge is authority **≤ 3** *and* the parameter name contains a
+  safety-critical keyword (`pressure`, `temperature`, `inspection`, `isolation`, `material`).
+  24 h SLA, resolvable only through the MoC webhook.
+- `administrative` — everything else. 5-day SLA, resolvable in-app via
+  `POST /governance/conflicts/{id}/resolve`.
 
 `sla_due_at` maps to the existing `sla_deadline` column. `is_overdue` is computed inline. `escalated_at` is populated when SLA escalation fires.
 

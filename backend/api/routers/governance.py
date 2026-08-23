@@ -39,6 +39,12 @@ async def list_conflicts(
     track: str | None = Query(None, description="'administrative' or 'engineering'"),
     asset_id: str | None = Query(None),
     conflict_status: str | None = Query(None, alias="status", description="open, pending_moc, resolved"),
+    include_non_asserting: bool = Query(
+        False,
+        description="Include conflicts on provenance/structural relationship types "
+        "(DOCUMENTED_BY and friends). Off by default — these are co-documentation, not "
+        "contradictions, and they were 93 of 94 stored rows.",
+    ),
     limit: int = Query(50, le=200),
     offset: int = Query(0),
 ) -> dict:
@@ -46,6 +52,13 @@ async def list_conflicts(
     Returns conflicts from the dual-track governance plane.
     - Administrative: minor inconsistencies, lightweight review, 5-day SLA.
     - Engineering: safety-critical contradictions, requires MoC, 24h SLA for critical equipment.
+
+    Rows whose `parameter` is a provenance or structural relationship type are excluded by
+    default. `GraphService.detect_conflict` no longer creates them, but the ones already written
+    cannot be removed — they live in a cloud store — so they are filtered on the way out.
+    Filtered in the QUERY, never in Python: `count` and `range` are computed by PostgREST, so
+    dropping rows afterwards would report a total the page could never show and silently break
+    pagination.
     """
     await SLAService.check_and_escalate(supabase)
 
@@ -54,6 +67,8 @@ async def list_conflicts(
         "conflict_id, track, asset_id, parameter, source_a, source_b, authority_a, authority_b, severity, status, sla_deadline, escalated_at, created_at",
         count="exact",
     )
+    if not include_non_asserting:
+        query = query.not_.in_("parameter", sorted(GraphService.NON_ASSERTING_RELATIONSHIPS))
     if track:
         query = query.eq("track", track)
     if asset_id:

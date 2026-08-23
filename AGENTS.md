@@ -113,8 +113,8 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 Full list: `docs/INFRA.md §9`. Reset: `make nuke → dev → init-all → seed → load-dataset`. Gotcha rebuilds: `--no-deps --build kairos-frontend` (new npm deps) · `--force-recreate kairos-backend-api` (NIM env).
 
 **Tests — Docker only, never the host.** Host package resolution differs from the pinned images and produces false results.
-- Service-free tier (**374 tests**, 33 files, no stack/secrets/network — CI's `unit` job runs exactly this list):
-  `docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ner_parse,superseded_filter,brief_signing,attribution_evidence,authz_boundary,brief_paging,asset_bulk_import,quarantine_item_id,purge_safety,synthesis_stream,graph_query_policy,event_reorder,supply_chain,form_extraction,cross_functional,offboarding_session_id}.py`
+- Service-free tier (**415 tests**, 33 files, no stack/secrets/network — CI's `unit` job runs exactly this list):
+  `docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ner_parse,superseded_filter,brief_signing,attribution_evidence,authz_boundary,brief_paging,asset_bulk_import,quarantine_item_id,purge_safety,synthesis_stream,graph_query_policy,event_reorder,supply_chain,form_extraction,cross_functional,offboarding_session_id,corpus_filter}.py`
 - Full suite (needs the stack; **local stores only, never cloud**): `docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120`
 
 ---
@@ -141,6 +141,8 @@ Full list: `docs/INFRA.md §9`. Reset: `make nuke → dev → init-all → seed 
 - Assets: `MERGE (a:Asset {asset_id: $id}) SET a += $props` — never CREATE.
 - Phase 2 synthesis **only** in `POST /search/synthesize`, never auto-triggered. It derives `query_category` when omitted, so the safety gate applies to every caller. The gate clears on confidence ≥ 0.7 **or** authority ≤ 3, and runs **twice** — on the evidence, then on the result.
 - **Only *relevant, same-asset* evidence may clear the safety gate** (`_authority_candidates`, `services/llm.py`). Rank by `relevance_score`, **never by position** — `SearchService` sorts by `(authority_level, -rrf)`, so a top-K-by-position filter is a no-op.
+- **A conflict needs two *claims*.** `GraphService.NON_ASSERTING_RELATIONSHIPS` (`DOCUMENTED_BY`, `MENTIONS_PERSON`, `MENTIONS_ORGANISATION`, `CONTAINS_TOPOLOGY_ELEMENT`) records provenance/structure, so two of them never contradict. `detect_conflict` returns `None` for them **before** the Cypher, and `/governance/conflicts` filters the same set **in the query** (filtering in Python breaks `count`/`range`). Edges carry no value, so value-comparison would be a schema change — do not attempt it.
+- **Test artifacts are filtered on read, never deleted.** `services/corpus.py` is the one predicate (shared with `run_kg_completeness.py`); they were 87 of 108 active vault documents. An id with no `documents` row (`PROMOTED-<uuid>`) is **kept** — unclassifiable is not disposable — and every caller reports its excluded count.
 - **Compliance findings are clause-scoped** — a gap means no document of that clause's `requires_document_type` is linked to the asset.
 - **PII redaction runs at export, never at ingestion** — redacting on ingest breaks retrieval.
 - **Outbound model calls use `shared_client()`** (`services/http.py`) — pooled **per event loop**, never per-call and never global (Celery runs a fresh loop per task). Always pass an explicit `timeout=`.

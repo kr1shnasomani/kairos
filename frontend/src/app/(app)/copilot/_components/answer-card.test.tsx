@@ -56,3 +56,40 @@ describe("streamed answer text", () => {
     expect(screen.queryByText("Final governed ans")).not.toBeInTheDocument();
   });
 });
+
+describe("unreported confidence is not zero confidence", () => {
+  afterEach(cleanup);
+
+  // Regression: the backend returns confidence: null whenever the synthesis output carries no
+  // parseable CONFIDENCE marker — 130 of 573 non-refused answers in audit_log, ~23%. The client
+  // coerced that to 0, so a perfectly good answer rendered "Low confidence · 0%" and an empty
+  // meter: a score the system never produced.
+  it("does not call a null-confidence answer low confidence", () => {
+    render(<Answer data={{ ...base, answer: "Seal replaced on 12 Mar.", confidence: null }} />);
+
+    expect(screen.queryByText(/Low confidence/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0%/)).not.toBeInTheDocument();
+  });
+
+  it("says confidence was not reported rather than showing a meter", () => {
+    render(<Answer data={{ ...base, answer: "Seal replaced on 12 Mar.", confidence: null }} />);
+
+    expect(screen.getByText(/Confidence not reported/i)).toBeInTheDocument();
+    expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+  });
+
+  // The other half of the fix: a genuinely low score must still warn. Without this, "stop
+  // showing 0%" could be satisfied by suppressing the warning entirely.
+  it("still warns when the model really did report low confidence", () => {
+    render(<Answer data={{ ...base, answer: "Possibly 16 bar.", confidence: 0.4 }} />);
+
+    expect(screen.getByText(/Low confidence · 40%/i)).toBeInTheDocument();
+  });
+
+  it("still renders a real meter when confidence is reported", () => {
+    render(<Answer data={{ ...base, answer: "Seal replaced on 12 Mar.", confidence: 0.9 }} />);
+
+    expect(screen.getByRole("meter")).toBeInTheDocument();
+    expect(screen.queryByText(/Confidence not reported/i)).not.toBeInTheDocument();
+  });
+});

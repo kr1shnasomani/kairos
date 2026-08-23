@@ -40,13 +40,13 @@ because the honest value depends on how much of the corpus has been through extr
 """
 
 import asyncio
-import re
 import sys
 
 from neo4j import AsyncGraphDatabase
 from supabase import create_client
 
 from api.config import Settings
+from api.services.corpus import is_test_artifact
 
 # Minted by `POST /governance/quarantine/{id}/promote` for field knowledge with no vault document.
 _PROMOTED_PREFIX = "PROMOTED-"
@@ -60,7 +60,10 @@ _PROMOTED_PREFIX = "PROMOTED-"
 # truth outside its taxonomy — the metric was answering a question nobody asked.
 #
 # Excluded, never silently: the count is reported so the denominator is always auditable.
-_TEST_FILENAME = re.compile(r"^(ann_test_|dbtest_|test_|probe|tmp|# Kairos)", re.I)
+#
+# The predicate itself now lives in `api/services/corpus.py` — this harness proved the problem,
+# but `GET /assets/{id}/knowledge` needs the same rule and two copies of a filter like this
+# drift. `benchmark/` already imports from `api/`, so the shared home is there.
 
 
 async def measure() -> dict:
@@ -72,7 +75,7 @@ async def measure() -> dict:
     # already filters them out, so requiring them to stay linked would measure the vault's memory
     # rather than the graph's coverage.
     all_active = {r["document_id"]: r for r in rows if r.get("status") == "active"}
-    test_docs = {k: v for k, v in all_active.items() if _TEST_FILENAME.match(v.get("file_name") or "")}
+    test_docs = {k: v for k, v in all_active.items() if is_test_artifact(v.get("file_name"))}
     active = {k: v for k, v in all_active.items() if k not in test_docs}
 
     quarantined_docs: set[str] = set()

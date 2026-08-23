@@ -37,7 +37,10 @@ export function SignalsFeed({
           <Link href="/events" className="text-label font-medium text-accent hover:underline">View all</Link>
         </span>
       </div>
-      <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
+      {/* overflow-x-hidden is load-bearing: `overflow-y-auto` sets only the vertical axis, but CSS
+          forces the other axis to `auto` whenever one is non-visible. The rows overflow by ~4px,
+          which was enough to draw a horizontal scrollbar under this list. */}
+      <div className="mt-2 min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
         {loading ? (
           <div className="mt-1"><ListSkeleton rows={5} /></div>
         ) : rows.length === 0 ? (

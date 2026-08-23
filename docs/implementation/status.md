@@ -230,7 +230,7 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | Concurrency | **2275 req · 0% errors · knee at 50 VU** | `run_load_test.py` |
 | Soak (60 min, cloud stores) | **PASS — no leak signal.** RSS **+8.6 MB/h** · conns +4.2/h · **0.11%** of 37,842 req · idle recovery 4/4 | `run_soak_test.py` |
 | OCR accuracy, paired images | **UNSCOREABLE 4/4** (2026-08-23) — the two OCR defects are fixed and all four images transcribe live, but these documents were ingested before the fix so no text is indexed. Blocked on re-extraction (**D2**), not on code. Never reported as recall 0.0 | `run_ocr_gate.py` — read-only, **no model calls** |
-| KG linkage completeness | **18/23 (78%)** linked · 1 quarantined by design · 4 unexplained · **0 dangling provenance** · 85 test docs excluded from the denominator | `run_kg_completeness.py` — read-only |
+| KG linkage completeness | **16/21 (76%)** linked · 1 quarantined by design · 4 unexplained · **0 dangling provenance** · 87 test docs excluded. Denominator corrected 23 → 21 by **D8** (2026-08-23): two survivors were in neither the manifest nor `dataset/`. Both were linked, so the rate moved 78% → 76% and **the four unexplained did not change** — noise removed, not signal. Predicate shared with `GET /assets/{id}/knowledge` via `api/services/corpus.py` | `run_kg_completeness.py` — read-only |
 | Cross-functional discovery | **NULL on this corpus** — the silo counterfactual does not separate at 24 documents. A corpus limit, recorded rather than hidden | `run_cross_functional.py` (spends embed quota) |
 
 ### How to read these — the caveats that still apply
@@ -305,16 +305,23 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | # | Decision | Options | Consequence of not deciding | Recorded |
 |---|---|---|---|---|
 | D1 | **What makes an OCR extraction quarantine?** | (a) leave it on the weighted average — status quo, the worst scan passes at 0.719; (b) quarantine if **any** span < 0.7; (c) quarantine on a `min_span_confidence` floor | Garbled text from degraded scans reaches the **canonical graph** as verified-grade fact. The safety-relevant direction, and the only open item with a data-integrity consequence | Backlog #15 |
-| D2 | **Re-extract the 4 image documents?** | Requires a one-off backfill writing to Elasticsearch + Supabase | **Currently blocked by the no-cloud-writes rule, so this is decided-by-default.** The cost is that the OCR fix stays invisible: gate `UNSCOREABLE` (`RESULTS.md` §11), L3 capped at 80, linkage capped at 18/23 (§12). Nothing degrades — the numbers simply cannot move | Pending, OCR entry |
+| D2 | **Re-extract the 4 image documents?** | Requires a one-off backfill writing to Elasticsearch + Supabase | **Currently blocked by the no-cloud-writes rule, so this is decided-by-default.** The cost is that the OCR fix stays invisible: gate `UNSCOREABLE` (`RESULTS.md` §11), L3 capped at 80, linkage capped at 16/21 (§12). Nothing degrades — the numbers simply cannot move | Pending, OCR entry |
 | D3 | **The 12 `COMPONENT` labels in `validation_corpus`** | (a) teach the prompt the type; (b) remap the ground truth; (c) leave them `unscoreable` | Model-gate F1 keeps carrying an asterisk. Deliberately deferred — nothing consumes the type and 3 distinct entities cannot validate adding one to production extraction | Pending |
 | D4 | **Full-suite pass count** | Needs a throwaway Supabase project + `CI_SUPABASE_*` | **Decided 2026-08-23: not doing it.** No secrets, no per-push provider spend. Accepted consequence: no current full-suite pass count; the service-free tier is the only enforced backstop | Pitfalls, CI reference |
 | D5 | **Attention-list row wording** | Settled 2026-08-23 — `Overdue quarantine · {input_type}`, reasoning in `attention-list.tsx` | None; recorded so it is not re-opened | Verification snapshot |
 | D6 | **Which asset-list columns to render, and how** | `GET /assets/` now ships `open_work_orders_count` + `compliance_gap_count` on every row and `AssetSummary` carries them, so the **data is available and the backend work is done** | Two columns a design review asked for stay unrendered. Purely presentational — no correctness or safety consequence. Note `docs/design/BACKEND-ASK.md`, referenced by the original ask, **does not exist in this repo** | Pending, B-5 |
 | D7 | **Should a total embedding failure raise instead of degrading silently?** | `_embed_ollama` returns `[]` rather than raising (`services/llm.py`) and `search_service` gathers with `return_exceptions=True`, so search silently degrades to ES + graph with one log line | **Decided 2026-08-23: leave it.** Changing failure semantics on the retrieval hot path is a bigger change than the symptom justifies. Recorded so it reads as a decision, not an oversight — do not "fix" it without re-opening the decision | Pending, B-1 |
+| D8 | **Do `e2e_shift_log.txt` and `kairos_ingest_test.pdf` count as corpus?** | Neither appears in `dataset/00_Reference/dataset_manifest.csv` **or anywhere under `dataset/`**; the manifest holds exactly the other 21 | **Decided 2026-08-23: they do not.** `e2e_` and `kairos_` added to the predicate — both name a file after this system or its harness, never after plant equipment, and both were verified against the whole vault to match only their two targets. A `_test\.ext` stem rule was **rejected**: it would also swallow a plausible real `hydro_test.pdf`. Linkage re-run in the same change: **16/21 (76%)**, four unexplained unchanged | Benchmarks, `RESULTS.md` §12 |
 
 **D1 is the one that matters** — it is the only open item with a data-integrity consequence. D2 and
 D7 are decided (do not re-open them without saying so); D3–D6 are cosmetic or accepted. If only one
 decision gets made, make D1.
+
+**D8 was executed as one package (2026-08-23)** — predicate, harness re-run and every published
+figure moved together, because splitting them is exactly how the linkage number went stale before.
+A manifest **allowlist** was rejected as the mechanism even though it would be exact here:
+`POST /documents/ingest` is a live path, and an allowlist would make every newly ingested document
+invisible in the graph. The denylist stays, and widening it needs the same evidence bar.
 
 ### Next actions — in order, with their safety class
 
@@ -328,20 +335,24 @@ decision gets made, make D1.
 | 2 | **Re-run `run_benchmark.py`** — the 33/37 in `RESULTS.md` §2 is stale and understates quality; four "misses" now answer correctly. Blocks Backlog #13 | 🟡 ~30 min of NIM quota | nothing | ~40 min |
 | 3 | **Record a synthesis verdict** when 2 runs (Backlog #8) | 🟢 | step 2 | ~1 h |
 | 4 | **Consolidate the two downscale helpers** (Backlog #16) | 🟡 one P&ID vision call to re-validate | nothing | ~1 h |
-| 5 | **Form-parsing layout pass** (Backlog #6) | 🟡 | nothing | ~1 d |
-| — | **Re-extract the 4 image documents** — would move the OCR gate, L3's score and linkage 18/23 → 22/23 | 🔴 | **D2 — do not do this** | — |
+| 5 | **Decide D8**, then widen the corpus predicate + re-run `run_kg_completeness.py` + update the quoted figure — one commit | 🟢 | a human decision | ~30 min |
+| 6 | **Form-parsing layout pass** (Backlog #6) | 🟡 | nothing | ~1 d |
+| — | **Re-extract the 4 image documents** — would move the OCR gate, L3's score and linkage 16/21 → 20/21 | 🔴 | **D2 — do not do this** | — |
 | — | **FastAPI major upgrade** (Backlog #2) | 🟢 | see caution below | 1–2 d |
 
 **Caution on the FastAPI upgrade specifically.** It is code-only, but it carries real breakage risk
 across every router *and* there is **no current full-suite pass count** to catch a regression (D4) —
-the 374-test service-free tier is the only backstop, and it cannot exercise queries or routing. Do
+the 415-test service-free tier is the only backstop, and it cannot exercise queries or routing. Do
 not start it casually. `ecdsa` has no released fix regardless, so it closes 7 of 8 advisories, not 8.
 
 **What is already done and must not be re-opened:** the OCR parse and size-ceiling defects (fixed and
 live-verified 2026-08-23), the "no handwriting model" attribution (disproven — the model reads it at
 ~0.90), the composite index (impossible by construction), Go `/ot/coverage` (deleted on purpose),
-supervised ML (settled, permanent). Each is recorded with its reasoning in this file; check before
-re-filing any of them as a gap.
+supervised ML (settled, permanent), and everything under
+[Reported UI/wiring issues](#reported-uiwiring-issues--triaged-and-fixed-2026-08-23) — in particular
+`/system-health` is **not** an outage (all four providers answer 200) and the graph/conflict noise is
+test pollution filtered on read, **never** a cleanup script against a cloud store. Each is recorded
+with its reasoning in this file; check before re-filing any of them as a gap.
 
 ---
 
@@ -449,6 +460,65 @@ a new PS criterion arrives without a harness.
 
 ## Pending
 
+### Reported UI/wiring issues — triaged and fixed 2026-08-23
+
+A second external list (11 items, reported against a local build) was verified item by item against
+`main`, the live stack and the databases — not against the report. **All fixes are frontend or
+read-path only; nothing here writes to a cloud store.**
+
+| # | Reported | Verdict | Fix |
+|---|---|---|---|
+| 1 | `/rca` shows retry, backend works | Real. Reporter's fix was **not in the repo** | `getRcaPack` inherited the 8 s write default on a call that measures ~90 s, so the abort always beat the response. Both synthesis endpoints now share `SYNTHESIS_TIMEOUT_MS` |
+| 2 | Copilot conversation resets on navigation | Real, but **a feature, not a defect** — `useState` with no persistence layer of any kind | Not built. Needs its own scope (lifetime, per-tab vs per-user, logout behaviour) |
+| 3 | `/system-health` shows all models down | **Not a backend fault.** All four providers returned HTTP 200 when probed inside the container; zero probe failures in 24 h of logs | Monitoring is opt-in and off by default, and the off state rendered as `degraded` — a pulsing amber dot identical to a real outage. Added an `idle` tone that does not pulse |
+| 4 · 8 | Copilot shows "Low confidence · 0%" | Real, and the highest-value item | The backend returns `confidence: null` when the model emits no parseable `CONFIDENCE:` marker; the client coerced it to `0`. **130 of 573 non-refused answers (~23%)** were affected. `CopilotAnswer.confidence` is now `number \| null` — the compiler found both readers — and renders "Confidence not reported". The RCA path had the identical bug behind a `Number.isFinite` guard that `?? 0` made unreachable |
+| 5 | Quarantine actions scroll out of reach | **Already fixed** — actions live in an `absolute bottom-0` footer inside a `fixed inset-0` drawer with `pb-24` clearance and body scroll locked; they cannot scroll away | None needed |
+| 6 | Horizontal scrollbar under Recent Signals | Real | `overflow-y-auto` leaves `overflow-x` computed as `auto`; the rows overflow by 4 px — exactly the `pr-1` padding. Added `overflow-x-hidden` to both copies (the graph page had the same pattern) |
+| 7 | Supersede dialog affects page scroll | **Did not reproduce.** Lock works, no jump, position restored | None. Only remaining mechanism is scrollbar-gutter shift on a machine with always-visible scrollbars — ask the reporter to confirm before spending time |
+| 9 · 11 | Graph UI bug / blank item | Unverifiable — no reproduction steps, one entry submitted empty | — |
+| 10 | Conflicts show `DOCUMENTED BY` and `— vs —` | Real, both halves | See [Graph and conflicts were rendering test pollution](#graph-and-conflicts-were-rendering-test-pollution--fixed-2026-08-23) below |
+| — | No theme control on the landing page | Real, and **deliberately not fixed** | `globals.css` documents that surface as single-palette; its `--lp-*` tokens have no dark variant, so mounting `ThemeToggle` would ship a visibly dead control. Needs a landing dark palette authored first |
+
+**Found while fixing, not on the list — the graph could hang forever.** Two independent call sites
+invoked `getKnowledgeGraph` with no `catch`: the page used a bare `.then()`, and `KnowledgeGraph`
+awaited inside an async function called without one. The fetcher throws by design under the
+live-only policy, so a timeout became an unhandled rejection, `setLoading(false)` never ran, and the
+canvas bounced its dots while the tiles read "Loading nodes" — no error, no retry. The page now uses
+`useFetch` like every other page; the canvas has its own error state. Verified live.
+
+---
+
+### Graph and conflicts were rendering test pollution — fixed 2026-08-23
+
+Both surfaces were dominated by rows the test suite wrote into the vault. **Neither fix deletes
+anything**; both filter on read.
+
+**The graph.** `GET /assets/{id}/knowledge` returned **60 edges for EQ-101, ~53 of them pointing at
+`test_*` files**, drawn as an unreadable hairball of one repeated relationship type.
+`run_kg_completeness.py` had already solved this for the benchmark and *reported* its exclusions;
+the API had never been given the same rule. The predicate now lives in `api/services/corpus.py` and
+the harness imports it, so there is one definition rather than two. **EQ-101 is now 7 facts with
+`excluded_test_documents: 53`**, surfaced in the UI as "53 test documents hidden".
+
+**Conflicts.** 93 of 94 stored conflicts were `DOCUMENTED_BY` — two documents describing one asset,
+which is what an archive *is*. `detect_conflict` fires on a shared `relationship_type` from
+different documents and **never compares what they assert**, because a `KNOWLEDGE_EDGE` has no
+value property; that absence is also why those rows carry no `value` and rendered "— vs —".
+`GraphService.NON_ASSERTING_RELATIONSHIPS` now excludes provenance and structural types before the
+query runs, and `GET /governance/conflicts` applies the same set when reading rows written earlier —
+in the query, not in Python, so `count` and `range` stay honest. **The queue is now 1 conflict: the
+real HE-301 pressure contradiction (18.5 bar vs 16.2 bar), which the noise had pushed off page one.**
+
+The conflicts column reads `value` when present and names both sources when not, so the HE-301 row
+is unchanged while the rest show real provenance instead of an em dash. "vs" is reserved for a
+genuine disagreement.
+
+> **Not done, and deliberately:** narrowing detection to compare *values* would need a value
+> property on every edge — a schema change plus a backfill, i.e. a cloud write. Revisit only if
+> edges ever carry their asserted value.
+
+---
+
 ### Triaged from an external bug report — 2026-08-23
 
 A handover list written against branch `feat/beautify` ("KAIROS — non-frontend bugs", B-1…B-7) was
@@ -508,28 +578,6 @@ the report will circulate again and the corrections are worth more than the orig
   claim this project otherwise refuses to make. The new list endpoint copies this degradation
   **deliberately**, so the two surfaces stay consistent; if it is changed, change both. Same
   family as the `_embed_ollama` weakness under B-1.
-- **`landing-figures.test.ts` fails in the running frontend container.** `ENOENT
-  /benchmark/RESULTS.md` — `docker-compose.override.yml` mounts `./benchmark:/benchmark:ro`, but
-  that mount postdates the running container, so it was never applied. Environment drift, not a
-  code defect: `docker compose up -d --force-recreate kairos-frontend` picks it up. Worth knowing
-  because the guard test that proves the landing figures match the benchmark of record is
-  currently **not** proving anything locally.
-
-**Uncommitted working tree — transient, delete this note once committed (as of 2026-08-23)**
-
-Nothing from the triage below is committed, and the tree mixes **two** sessions' work. Separate them
-before staging. From this session: `AGENTS.md` (`CLAUDE.md` is a **symlink** to it — one file, not
-two), `Makefile`, `backend/api/dependencies.py`, `backend/api/routers/elicitation.py`,
-`backend/api/routers/assets.py`, `tests/test_offboarding_session_id.py` (new),
-`frontend/src/lib/types.ts`, `frontend/src/app/(app)/assets/page.test.tsx`,
-`.github/workflows/tests.yml`, and `docs/{API,DATABASE,TESTS}.md` + this file. From another session,
-**not reviewed here**: `backend/api/services/ocr.py`, `benchmark/run_ocr_gate.py`,
-`tests/test_extraction_path.py`, `.github/workflows/deps-audit.yml`, `docs/ARCHITECTURE.md`,
-`docs/PRESENTATION.md`, `docs/implementation/e2e-sweep.md`, and an untracked `print/` directory.
-
-The service-free tier count (**374**) includes that other session's `test_extraction_path.py`
-additions, so it will shift if their work is reverted. Recount rather than trusting the number if
-the tree changes.
 
 **Open — what a fresh session needs to pick these up**
 
@@ -650,16 +698,19 @@ recorded above.
   them in the denominator the metric was reporting test hygiene rather than linkage — the same
   class of error as scoring the model gate against labels outside its taxonomy.
   `run_kg_completeness.py` now excludes them **and reports the count**, so the denominator stays
-  auditable. Verified not to over-exclude: the 23 remaining documents are exactly the golden
-  dataset (`sop_he_*`, `oem_*`, `insp_*`, `ptw_*`, `pid_*`), matching the documented ~24-document
-  corpus, and two borderline names are conservatively kept.
-  **Corrected figure: 18/23 (78%) linked · 1 quarantined by design · 4 unexplained.** The four are
+  auditable. **The "two borderline names conservatively kept" were checked on 2026-08-23 and were
+  not corpus at all** — `e2e_shift_log.txt` and `kairos_ingest_test.pdf` appear in neither
+  `dataset_manifest.csv` nor anywhere under `dataset/`, so the claim that the survivors "are exactly
+  the golden dataset" held for 21 of 23, not 23. Corrected by **D8**; the predicate now lives in
+  `api/services/corpus.py` and is shared with the graph endpoint.
+  **Figure: 16/21 (76%) linked · 1 quarantined by design · 4 unexplained** (denominator corrected by
+  D8, 2026-08-23). The four are
   `regulatory_clause_excerpts.pdf` plus the handwritten and degraded-scan images. **Root cause
   identified and fixed 2026-08-23:** the OCR path returned `nim_returned_no_text` for all four
   images, so no text was indexed and nothing could link. It was never a linkage defect, and it was
   broader than the recorded handwriting limitation — see the OCR entry above. **The four are still
   unlinked**: the parser fix does not retroactively index a document ingested while it was broken,
-  so this figure only moves after the one-off re-extraction, and 18/23 remains the number to quote
+  so this figure only moves after the one-off re-extraction, and 16/21 remains the number to quote
   until then.
 
 - **DIAGNOSED 2026-08-23: the OCR path fails for TWO unrelated reasons, and neither is the
@@ -769,16 +820,23 @@ recorded above.
 ## Verification snapshot
 
 - **Benchmarks** (cloud stores, 2026-08-16): see [Benchmarks](#benchmarks--current-numbers) above.
-- **Backend test suite:** **509 collected** across 46 files (2026-08-23). The last full green run was
-  **412 passed · 0 failed** (2026-08-22); 97 tests have landed since, so **no current pass count
+- **Backend test suite:** **576 collected** across 50 files (2026-08-23). The last full green run was
+  **412 passed · 0 failed** (2026-08-22); 164 tests have landed since, so **no current pass count
   exists** — re-run before quoting one. Write-heavy: run against
   `--profile local-stores`, **never cloud**. The long-standing `test_attribution_worker_queues_recheck`
   flake is gone — it was one of six failures traced to a shared-fixture dedup collision, now fixed.
-- **Service-free tier:** **374 passed** across **33 files** (2026-08-23) — no stack / secrets / network.
+- **Service-free tier:** **415 passed** across **33 files** (2026-08-23) — no stack / secrets / network.
   This is exactly what CI's `unit` job runs; the list is duplicated in `AGENTS.md`, `docs/TESTS.md` and
   `.github/workflows/tests.yml` and **all three must be updated together** (they have drifted twice).
-- **Frontend:** **220 passed across 67 files** (2026-08-23, green), `tsc` clean, `eslint` 0 errors /
-  3 pre-existing unused-var warnings. Run vitest **in Docker, never on the host** — host package
+- **Frontend:** **228 passed across 67 files — fully green** (2026-08-23), `tsc` clean, `eslint`
+  0 errors / 3 pre-existing unused-var warnings. `landing-figures.test.ts` was red until the
+  frontend container was recreated: the `./benchmark:/benchmark:ro` mount postdated the running
+  container, so the file could not collect. `docker compose up -d --force-recreate --no-deps
+  --no-build kairos-frontend` picks it up and rebuilds nothing (`node_modules` is baked into the
+  image; source is bind-mounted). Its 3 tests now actually run, which is why the count rose 225 → 228.
+  One test to know about: `model-gate` pagination is load-sensitive — it times out under full-suite
+  parallelism on a loaded machine and passes alone in ~690 ms. Treat a lone red there as load, not
+  regression. Run vitest **in Docker, never on the host** — host package
   resolution differs from the pinned image and makes `auth.test.ts` / `api.test.ts` fail spuriously.
   **The OOM is fixed by running a one-off container, not by raising `mem_limit`:** the running
   `kairos-frontend` sits at ~1.85 GB of its 2 GB (the Next dev server), so `docker exec` leaves vitest
@@ -849,7 +907,7 @@ recorded above.
 | **An OCR path that fails by returning `""` is invisible, and it has already cost weeks** | Both original OCR defects failed *silently*: a wrong response key (`label`, never returned — the live shape is `text_prediction.text`) and an oversized image, each returning an empty string that the caller reported as `nim_returned_no_text`. That was then read as the Layer-3 "no handwriting model" limitation for weeks, and it is a **key name**: the model reads the corpus's handwriting at ~0.90. Fixed 2026-08-23, and the logs are now deliberately distinguishable — `ocr.no_detections` (model ran, saw nothing) vs `ocr.detections_unparsed` (detections returned but no text field matched — **the schema moved**) vs `ocr.image_downscaled` / `ocr.image_too_large`. **Never add an OCR path that reports failure by returning an empty string**, and if you touch the parser, `ocr.detections_unparsed` is the line that tells you the response schema changed. |
 | **`_shrink_for_inline` and `PIDService._fit_b64` are two copies of one algorithm** | Both re-encode an oversized image under the 180 KB inline cap, and `_NIM_IMAGE_SIZE_LIMIT = 180_000` is defined in **both** `services/ocr.py` and `services/pid.py`. They were written independently, which is exactly why Path B never hit the OCR size bug. **Change one and the other silently drifts.** Two differences to preserve if they are ever merged: the OCR copy tries an **unscaled JPEG first** (which alone took an 11.3x-over scan from 2,027,896 to 102,628 base64 chars, costing no resolution, where `_fit_b64` starts at 0.85 and always resizes), and it returns raw bytes rather than an encoded string. Tracked as Backlog #16. |
 | **OCR confidence is real now — and the quarantine gate still does not use its shape** | `overall_confidence` was hardcoded `0.95` for every OCR extraction until 2026-08-23, so `confidence < 0.7 → quarantine` was applied to a number that could never be below 0.7. It is now the model's own per-span confidence weighted by span length. **The hazard is not closed:** the worst corpus document scores **0.719, above the 0.7 line**, so it still reaches the canonical graph with 4 of 22 spans below 0.7 and one at 0.253. `min_span_confidence` / `low_confidence_spans` / `span_count` are emitted and `ocr.low_confidence_spans` logs it, but nothing gates on them. **Do not "just fix" this — it changes what quarantines and over-tightening pushes clean scans into review, which `ARCHITECTURE.md §3` warns against. It is decision D1.** |
-| **A harness that reads Elasticsearch tells you nothing about the model** | `run_ocr_gate.py` makes **zero** model calls — it compares already-indexed text against a clean sibling. So fixing `services/ocr.py` does **not** move it, and its `UNSCOREABLE 4/4` is not a verdict on OCR quality. The four documents were ingested before the fix; there is no reprocess endpoint and `POST /documents/ingest` dedups on SHA-256, so a re-upload returns `{"status": "duplicate"}`. Same shape applies to `run_kg_completeness.py`'s 18/23. **Both are capped until a re-extraction runs, which is a cloud write — see D2.** |
+| **A harness that reads Elasticsearch tells you nothing about the model** | `run_ocr_gate.py` makes **zero** model calls — it compares already-indexed text against a clean sibling. So fixing `services/ocr.py` does **not** move it, and its `UNSCOREABLE 4/4` is not a verdict on OCR quality. The four documents were ingested before the fix; there is no reprocess endpoint and `POST /documents/ingest` dedups on SHA-256, so a re-upload returns `{"status": "duplicate"}`. Same shape applies to `run_kg_completeness.py`'s 16/21. **Both are capped until a re-extraction runs, which is a cloud write — see D2.** |
 | **`CLAUDE.md` is a symlink to `AGENTS.md`** | They are one file (`CLAUDE.md -> AGENTS.md`). Editing either edits both, and `git status` only ever shows `AGENTS.md`. The "four lists that must stay in sync" for the service-free test tier are therefore really **three files**: `AGENTS.md`, `docs/TESTS.md`, `.github/workflows/tests.yml`. All three drift silently — nothing fails when they disagree, because CI runs its own copy of the list. |
 | **A gate run killed by the Celery soft time limit writes nothing at all** | `time_limit=600 / soft_time_limit=540` was calibrated when nearly every NER call failed fast on a 429, making a full run ~2.5 min. Once the calls actually reach the model each costs tens of seconds and a real run takes ~12 min, so two consecutive runs died on `SoftTimeLimitExceeded` with **no history entry** — strictly worse than recording a degraded one. Raised to 1860/1800 on 2026-08-23. Watch this if the corpus grows: the limit tracks `corpus_size × per-call latency`, and the failure mode is silent absence, not an error row. |
 
@@ -906,7 +964,7 @@ recorded above.
 - **Supabase MCP** (`mcp__claude_ai_Supabase__*`) — SQL, migrations, table inspection. Prefer over `docker exec`.
 
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
-**Tests:** service-free tier **374 passed** across **33 files** (no stack/secrets/network) · frontend **220 passed / 67 files** · full suite **509 collected / 46 files** (2026-08-23; last green run 412 passed / 0 failed on 2026-08-22, superseded — no current pass count) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
+**Tests:** counts live in **one** place — [Verification snapshot](#verification-snapshot). Do not restate them here; this line held a stale copy for long enough to be quoted. Notables: `tests/test_contract.py` (response-shape contracts), `tests/test_model_validation.py` (NER surface-form-overlap matcher). Self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
 
 **CI:** `tests.yml` is two tiers — **`unit`** runs the service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config, **authz boundary**) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Currently unset by choice (2026-08-23), so tier 2 never runs.** Note `--profile local-stores` covers Neo4j + Qdrant only; Supabase has no local counterpart, which is why tier 2 needs a project at all. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, a synthesis cascade call per synthesize) and exhausting a provider tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) passes in full. **`deps-audit.yml`** (added 2026-08-22) is the
 per-push dependency check Dependabot cannot provide — `pip-audit` / `npm audit` / `govulncheck` on push

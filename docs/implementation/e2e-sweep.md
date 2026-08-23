@@ -188,5 +188,9 @@ there is nothing to resolve. Voice notes raised through `/events/work-order` do 
 
 ## Known-good baselines
 
-Backend service-free tier **348 passed** (32 files, 2026-08-23) · frontend **220 passed** (67 files,
-2026-08-23, green) · ruff clean (0.16.0) · Go build + vet clean.
+Backend service-free tier **415 passed** (33 files, 2026-08-23) · frontend **228 passed, 67/67 files
+green** (2026-08-23) · ruff clean (0.16.0) · Go build + vet clean.
+
+`landing-figures.test.ts` needs `./benchmark` mounted into the frontend container; recreate it if
+that file fails to collect. `model-gate` pagination is load-sensitive under full-suite parallelism.
+Detail in [`status.md` § Verification snapshot](./status.md#verification-snapshot).

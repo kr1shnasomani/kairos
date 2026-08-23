@@ -43,13 +43,19 @@ const MODELS: { key: string; name: string; sub: string }[] = [
 ];
 
 const TONE = { healthy: "verified", degraded: "caution", down: "danger" } as const;
-const DOT = { healthy: "bg-verified", degraded: "bg-caution", down: "bg-danger" } as const;
+// `idle` is "we are not measuring this", NOT a health state. It exists because monitoring is
+// opt-in: rendering the off state as `degraded` gave every un-monitored provider a pulsing amber
+// dot identical to a real outage, so a freshly-loaded page looked like four dead providers.
+const DOT = { healthy: "bg-verified", degraded: "bg-caution", down: "bg-danger", idle: "bg-muted" } as const;
 const STORE_RANK: Record<ServiceHealth["status"], number> = { down: 0, degraded: 1, healthy: 2 };
 
 type ProbeRow = (typeof API_GROUPS)[number] & { result?: ProbeResult };
 
 function StatusDot({ tone }: { tone: keyof typeof DOT }) {
-  return <span className={cn("size-2 shrink-0 rounded-full", DOT[tone], tone !== "healthy" && "animate-pulse")} aria-hidden="true" />;
+  // Only a measured non-healthy state pulses. `idle` must stay still — an animated dot reads as
+  // "something needs attention", which is exactly the wrong claim for a provider nobody is probing.
+  const pulses = tone !== "healthy" && tone !== "idle";
+  return <span className={cn("size-2 shrink-0 rounded-full", DOT[tone], pulses && "animate-pulse")} aria-hidden="true" />;
 }
 
 function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
@@ -315,7 +321,7 @@ export default function SystemHealthPage() {
             return (
               <div key={m.key} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface p-4">
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <StatusDot tone={!on ? "degraded" : res?.ok ? "healthy" : busy ? "degraded" : "down"} />
+                  <StatusDot tone={!on ? "idle" : res?.ok ? "healthy" : busy ? "degraded" : "down"} />
                   <div className="min-w-0">
                     <p className="truncate text-body font-medium text-ink">{m.name}</p>
                     <p className="truncate text-label text-muted">{m.sub}</p>

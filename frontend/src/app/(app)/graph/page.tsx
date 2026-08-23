@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PageHeader, Timeline } from "@/components/ui";
 import { KnowledgeGraph } from "@/components/knowledge-graph";
 import type { KnowledgeGraphData } from "@/lib/types";
 import { getKnowledgeGraph } from "@/lib/api";
+import { useFetch } from "@/lib/use-fetch";
 import { cn, nowMs } from "@/lib/utils";
 import { GraphLegend, validityEvents } from "./_components/legend";
 
-// EQ-101 first — it's a canonical asset with live knowledge edges. P-101 is a
-// tag alias that the /assets/{id}/knowledge endpoint does not resolve (404), so
-// it only renders the demo graph; kept as a pick, not the default.
+// EQ-101 first — it's a canonical asset with live knowledge edges. P-101 is a tag alias; the
+// endpoint resolves it but it currently carries no edges, so it renders an empty graph rather
+// than an error. Kept as a pick, not the default.
 const EXAMPLE_ASSETS = ["EQ-101", "V-247", "P-101"];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -19,18 +20,13 @@ export default function GraphPage() {
   const [assetId, setAssetId] = useState("EQ-101");
   const [inputValue, setInputValue] = useState("EQ-101");
   const [asOf, setAsOf] = useState("");
-  const [graphData, setGraphData] = useState<KnowledgeGraphData | null>(null);
-  const [graphSource, setGraphSource] = useState<"live" | "demo" | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    getKnowledgeGraph(assetId, asOf || undefined).then(({ data, source }) => {
-      if (!alive) return;
-      setGraphData(data);
-      setGraphSource(source);
-    });
-    return () => { alive = false; };
-  }, [assetId, asOf]);
+  // Was a bare `.then()` with no `.catch()`. `getKnowledgeGraph` throws on failure (live-only
+  // policy), so a timeout became an unhandled rejection and the summary tiles sat on
+  // "Loading nodes" forever — no error, no retry. `useFetch` is the guard every other page in
+  // the app already uses; it supplies the error and retry states this page was missing.
+  const state = useFetch(() => getKnowledgeGraph(assetId, asOf || undefined), [assetId, asOf]);
+  const graphData: KnowledgeGraphData | null = state.status === "live" ? state.data : null;
 
   function handleLoadGraph(id: string) {
     const trimmed = id.trim().toUpperCase();
@@ -54,9 +50,12 @@ export default function GraphPage() {
           <p className="text-micro font-bold uppercase tracking-[0.1em] text-muted">Selected asset</p>
           <div className="mt-1 flex items-center gap-2">
             <p className="text-title font-semibold text-ink">{assetId}</p>
-            {graphSource && (
+            {/* `DataSource` has a single member ("live"), so the old "Demo" branch was
+                unreachable — the fixture fallbacks it referred to no longer exist. The badge now
+                reports whether this request actually landed. */}
+            {state.status === "live" && (
               <span className="rounded-full bg-accent-soft px-2 py-0.5 text-micro font-semibold text-accent">
-                {graphSource === "live" ? "Live" : "Demo"}
+                Live
               </span>
             )}
           </div>
@@ -65,16 +64,37 @@ export default function GraphPage() {
         <div className="border-b border-line p-4 sm:border-b-0 sm:border-r">
           <p className="text-micro font-bold uppercase tracking-[0.1em] text-muted">Connected knowledge</p>
           <p className="mt-1 text-title font-semibold text-ink">
-            {graphData ? `${graphData.nodes.length} nodes` : "Loading nodes"}
+            {graphData ? `${graphData.nodes.length} nodes` : state.status === "error" ? "Unavailable" : "Loading nodes"}
           </p>
-          <p className="mt-1 text-label text-muted">Assets, evidence, events, and people</p>
+          {/* A filtered view has to say it is filtered. The backend withholds facts sourced from
+              test/sweep artifacts — ~79% of the active vault — and stating the count keeps the
+              denominator auditable instead of quietly shrinking the graph. */}
+          {graphData && graphData.excluded_test_documents > 0 ? (
+            <p className="mt-1 text-label text-muted">
+              {graphData.excluded_test_documents} test {graphData.excluded_test_documents === 1 ? "document" : "documents"} hidden
+            </p>
+          ) : (
+            <p className="mt-1 text-label text-muted">Assets, evidence, events, and people</p>
+          )}
         </div>
         <div className="p-4">
           <p className="text-micro font-bold uppercase tracking-[0.1em] text-muted">Relationships</p>
           <p className="mt-1 text-title font-semibold text-ink">
-            {graphData ? `${graphData.edges.length} relationships` : "Loading relationships"}
+            {graphData
+              ? `${graphData.edges.length} relationships`
+              : state.status === "error" ? "Unavailable" : "Loading relationships"}
           </p>
-          <p className="mt-1 text-label text-muted">Authority and validity remain visible</p>
+          {state.status === "error" ? (
+            <button
+              type="button"
+              onClick={state.retry}
+              className="mt-1 text-label font-semibold text-accent hover:underline"
+            >
+              Retry
+            </button>
+          ) : (
+            <p className="mt-1 text-label text-muted">Authority and validity remain visible</p>
+          )}
         </div>
       </section>
 
@@ -174,7 +194,9 @@ export default function GraphPage() {
               <p className="text-micro font-bold uppercase tracking-[0.1em] text-muted">Validity windows</p>
               {graphData?.edges.length ? <span className="tabular text-label text-muted">{graphData.edges.length}</span> : null}
             </div>
-            <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+            {/* overflow-x-hidden: `overflow-y-auto` alone leaves overflow-x computed as `auto`,
+                which draws a stray horizontal scrollbar. Same fix as management/signals-feed.tsx. */}
+            <div className="mt-3 min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
               {graphData?.edges.length
                 ? <Timeline events={validityEvents(graphData.edges, (id) => graphData.nodes.find((n) => n.id === id)?.label)} />
                 : <p className="text-label text-muted">Relationship windows appear when graph data is available.</p>}

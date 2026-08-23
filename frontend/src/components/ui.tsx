@@ -859,7 +859,19 @@ export function EvidenceLineage({
 // ─── ConfidenceMeter (Task 4) ────────────────────────────────────────────────
 
 /** 0–1 confidence bar with verified / caution / danger banding. */
-export function ConfidenceMeter({ value }: { value: number }) {
+/** `value: null` means the model reported no confidence — NOT that confidence is zero.
+ *  Coercing the two together is how a perfectly good answer ended up wearing a "0%" badge:
+ *  ~23% of successful syntheses return no parseable CONFIDENCE marker. A meter cannot express
+ *  "unknown", so this renders a plain unmeasured state instead of a bar at 0. */
+export function ConfidenceMeter({ value }: { value: number | null }) {
+  if (value == null) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-label font-semibold text-muted">Confidence not reported</span>
+        <span className="text-label text-muted">— judge this answer on its sources</span>
+      </div>
+    );
+  }
   const pct = Math.min(100, Math.max(0, Math.round(value * 100)));
   const tone =
     value >= 0.85 ? "bg-verified" :

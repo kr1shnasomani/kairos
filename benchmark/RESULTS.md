@@ -39,7 +39,7 @@ before quoting it.**
 | Concurrency | **2275 requests · 0% errors · knee at 50 VU** | `run_load_test.py` |
 | Soak — memory / connection leakage | **PASS, no leak signal** over 60 min · RSS +8.6 MB/h · conns +4.2/h · 0.11% of 37,842 requests · 4/4 idle-recovery | `run_soak_test.py` (2026-08-22) |
 | OCR accuracy on paired images | **UNSCOREABLE 4/4** — no OCR text indexed. The path is fixed but the four documents predate the fix; blocked on a re-extraction, see §11 | `run_ocr_gate.py` (2026-08-23) |
-| KG linkage completeness | **18/23 (78%)** linked · 1 quarantined by design · 4 unexplained · **0 dangling provenance** | `run_kg_completeness.py` (2026-08-23) |
+| KG linkage completeness | **16/21 (76%)** linked · 1 quarantined by design · 4 unexplained · **0 dangling provenance** | `run_kg_completeness.py` (re-run 2026-08-23 after D8) |
 | Cross-functional discovery | **NULL on this corpus** — the counterfactual does not separate at 24 documents; a corpus limit, see §13 | `run_cross_functional.py` (2026-08-23) |
 
 ## 1. `verify_layers.py` — per-layer smoke + latency
@@ -544,32 +544,39 @@ as the denominator, rather than the entities you happened to create.
 
 ```
 KG LINKAGE COMPLETENESS
-  linked                 18/23  (78%)
-  excluded — test docs     85   (ann_test_*/scratch: they measure test hygiene, not linkage)
+  linked                 16/21  (76%)
+  excluded — test docs     87   (ann_test_*/scratch: they measure test hygiene, not linkage)
   unlinked — quarantined    1   (Layer 6 working as designed, not a miss)
   unlinked — unexplained    4   <- the real gap
   promoted-only edges       7   (field knowledge, no vault document by design)
   dangling provenance       0   <- edges citing evidence that cannot be produced
 
   by document type (linked/active):
-    inspection_report  5/7  71%      procedure    6/6  100%
-    oem_manual         3/4  75%      shift_log    2/3   66%
+    inspection_report  5/7  71%      procedure    5/5  100%
+    oem_manual         3/4  75%      shift_log    1/2   50%
     ptw                1/1 100%      regulation   0/1    0%
     pid_drawing        1/1 100%
 ```
 
-**The 85 exclusions are the load-bearing detail.** An earlier reading of 70/108 (64%) was a
-measurement artifact: 85 "active" vault documents were test artifacts (`ann_test_*`, `dbtest_*`,
-scratch files) carrying ordinary random `DOC-` ids, so the metric was reporting test hygiene rather
-than linkage. The count is printed rather than silently dropped, so the denominator stays auditable,
-and the 23 that remain are exactly the golden dataset.
+**The 87 exclusions are the load-bearing detail.** An earlier reading of 70/108 (64%) was a
+measurement artifact: the "active" vault is mostly test artifacts (`ann_test_*`, `dbtest_*`, scratch
+files) carrying ordinary random `DOC-` ids, so the metric was reporting test hygiene rather than
+linkage. The count is printed rather than silently dropped, so the denominator stays auditable.
+
+**Denominator corrected 23 → 21 on 2026-08-23 (decision D8).** Two survivors of the earlier
+predicate — `e2e_shift_log.txt` and `kairos_ingest_test.pdf` — appear **neither in
+`dataset/00_Reference/dataset_manifest.csv` nor anywhere under `dataset/`**; the manifest holds
+exactly the other 21. Both were linked, so numerator and denominator each fell by 2 and the rate
+moved 78% → 76%. **The four unexplained did not change**, which is the point: the correction removed
+noise, not signal. The predicate now lives in `api/services/corpus.py` and is shared with
+`GET /assets/{id}/knowledge`, so the harness and the UI cannot disagree about what the corpus is.
 
 **Zero dangling provenance is the safety-relevant line** — every cited `document_id` resolves to a
 vault record or a promoted field item, so no answer can cite evidence that cannot be produced.
 
 **The 4 unexplained are the same 4 as §11** — `regulatory_clause_excerpts.pdf` plus the handwritten
 and degraded-scan images — and they are blocked on the same re-extraction. `regulation 0/1` is that
-PDF. This figure is therefore **capped at 18/23 until the OCR backfill runs**; it is not a linkage
+PDF. This figure is therefore **capped at 16/21 until the OCR backfill runs**; it is not a linkage
 defect.
 
 ---

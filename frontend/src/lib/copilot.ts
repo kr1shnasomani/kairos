@@ -38,7 +38,12 @@ export interface PendingMoc {
 export interface CopilotAnswer {
   answer: string | null;
   sources: CopilotSource[];
-  confidence: number;
+  /** `null` = the model reported no confidence, which is NOT the same as 0. The backend returns
+   *  null whenever the synthesis output carries no parseable `CONFIDENCE:` marker — measured at
+   *  ~23% of successful answers — and coercing that to 0 made the UI assert a low-confidence
+   *  score the system never produced. Nullable on purpose so the compiler forces every reader
+   *  to decide what "unknown" looks like. */
+  confidence: number | null;
   refused: boolean;
   refusal_reason?: string;
   safety_critical: boolean;

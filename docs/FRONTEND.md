@@ -363,9 +363,20 @@ source. Fetchers **throw** on failure. The user always sees **real data**, a **l
   engineering conflicts awaiting MoC sign-off for any cited asset; the banner sits above the prose
   because after it a technician has already read the number.
 
-Default read timeout is **4 s** (`getJson`); `synthesize()` gets **90 s**, which the backend's
-`NVIDIA_NIM_TIMEOUT` must stay under. Guard array reads defensively — `x?.arr.length` still throws when
-`arr` is `undefined` (use `?? []`).
+Default read timeout is **4 s** (`getJson`) and **8 s** for writes (`postJson`). The two endpoints
+that run NIM 70B synthesis — `synthesize()` and `getRcaPack()` — share **`SYNTHESIS_TIMEOUT_MS`
+(90 s)**, which the backend's `NVIDIA_NIM_TIMEOUT` must stay under. Keep them on the one constant:
+`getRcaPack` silently inherited the 8 s write default until 2026-08-23, so `/rca` rendered its retry
+state over a request that was completing normally. Any page on that budget must say the wait is
+expected, or a correct 90 s response reads as a hang.
+
+Guard array reads defensively — `x?.arr.length` still throws when `arr` is `undefined` (use `?? []`).
+
+**`confidence` is `number | null`, and `null` is not `0`.** The backend returns `null` when a
+synthesis carries no parseable `CONFIDENCE:` marker — ~23% of non-refused answers — so coercing it
+made good answers render "Low confidence · 0%" with an empty meter. `ConfidenceMeter` takes
+`number | null` and shows "Confidence not reported" for null; the `< 0.7` uncertainty branch must
+never fire on it. Same rule on `RcaPack.confidence`.
 
 **There are no fixtures left.** `DemoChip` and `lib/{fixtures,assets,governance,documents,events,compliance}.ts`
 were deleted on 2026-08-15, and `DataSource` narrowed to a single member (`"live"`) so a fallback cannot
@@ -603,7 +614,7 @@ All four jobs run in parallel on `ubuntu-latest` with `node:20` and `npm ci` fro
 | `h-screen` → `h-dvh` | ✅ converted |
 | Token colors only (no `bg-white`, `text-gray-*`) | ✅ clean |
 | `@xyflow/react` in `package-lock.json` | ✅ resolved |
-| Test suite | ✅ **220 passed / 67 files** (vitest, one-off container 2026-08-23). Run via `docker compose run --rm --no-deps kairos-frontend npx vitest run` — `docker exec` OOMs because the dev server already holds ~1.85 GB of the 2 GB cap |
+| Test suite | **228 passed / 67 files — fully green** (vitest, 2026-08-23). Needs the `./benchmark` mount; see [`status.md` § Verification snapshot](./implementation/status.md#verification-snapshot). Run via `docker compose run --rm --no-deps kairos-frontend npx vitest run` — `docker exec` OOMs because the dev server already holds ~1.85 GB of the 2 GB cap |
 | eslint | ✅ 0 errors (3 pre-existing unused-var warnings) |
 
 ---

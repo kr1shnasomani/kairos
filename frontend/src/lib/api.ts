@@ -166,6 +166,12 @@ export async function fetchWithSession(path: string, init: RequestInit, timeoutM
 // fail-fast — but still bounded, so a hung backend fails visibly instead of hanging forever.
 const WRITE_TIMEOUT_MS = 8000;
 
+/** Budget for the two endpoints that run NIM 70B synthesis: `/search/synthesize` and
+ *  `/search/rca-pack`. Both measure ~90s end to end, so they cannot share the 8s write default.
+ *  Kept as one constant because they must move together — and must stay above
+ *  `NVIDIA_NIM_TIMEOUT` (60s) so the backend's own cascade gets to run before the client aborts. */
+const SYNTHESIS_TIMEOUT_MS = 90_000;
+
 /** Authenticated write from the browser. Retries once after a silent token refresh on 401. */
 export async function postJson<T>(path: string, body: unknown, timeoutMs = WRITE_TIMEOUT_MS): Promise<T> {
   const makeReq = (tok: string | null) =>
@@ -519,7 +525,7 @@ function finalizeAnswer(live: SynthesizePayload, context: RetrievedContext[]): C
     return {
       answer: null,
       sources: context.map((c) => ({ document_id: c.document_id, title: c.title, authority_level: c.authority_level as CopilotAnswer["sources"][number]["authority_level"], excerpt: c.text.slice(0, 200) })),
-      confidence: 0,
+      confidence: null,
       refused: false,
       safety_critical: false,
     };
@@ -534,7 +540,7 @@ function finalizeAnswer(live: SynthesizePayload, context: RetrievedContext[]): C
       authority_level: (s.authority_level as CopilotAnswer["sources"][number]["authority_level"]) ?? 5,
       excerpt: byId.get(s.document_id)?.text.slice(0, 200) ?? "",
     })),
-    confidence: live.confidence ?? 0,
+    confidence: live.confidence ?? null,
     refused: !!live.refused,
     refusal_reason: live.refusal_reason,
     safety_critical: !!live.safety_critical,
@@ -564,7 +570,7 @@ export async function synthesize(
     // Nothing governed to answer from. This is a real, honest outcome — an empty answer
     // with no sources — never a fixture standing in for one.
     if (results.length === 0) {
-      return { answer: null, sources: [], confidence: 0, refused: false, safety_critical: false };
+      return { answer: null, sources: [], confidence: null, refused: false, safety_critical: false };
     }
 
     const context = results.map((r) => ({
@@ -589,7 +595,7 @@ export async function synthesize(
           authority_level: (c.authority_level as CopilotAnswer["sources"][number]["authority_level"]) ?? 5,
           excerpt: c.text.slice(0, 200),
         })),
-        confidence: 0,
+        confidence: null,
         refused: false,
         safety_critical: false,
         is_synthesizing: true,
@@ -609,7 +615,7 @@ export async function synthesize(
       await postSse(
         "/search/synthesize/stream",
         asOf ? { query, context, as_of: asOf } : { query, context },
-        90000,
+        SYNTHESIS_TIMEOUT_MS,
         (event, data) => {
           if (event === "delta") {
             streamed = (streamed ?? "") + String(data.text ?? "");
@@ -639,7 +645,7 @@ export async function synthesize(
       safety_critical: boolean;
       model?: string;
       pending_moc?: CopilotAnswer["pending_moc"];
-    }>("/search/synthesize", asOf ? { query, context, as_of: asOf } : { query, context }, 90000);
+    }>("/search/synthesize", asOf ? { query, context, as_of: asOf } : { query, context }, SYNTHESIS_TIMEOUT_MS);
 
     return finalizeAnswer(live, context);
   } catch (e) {
@@ -689,12 +695,16 @@ export async function getRcaPack(
   includeQuarantine?: boolean
 ): Promise<RcaPack> {
   try {
+    // SYNTHESIS_TIMEOUT_MS, not the 8s write default. This endpoint runs NIM 70B synthesis and
+    // measures ~90s, so the abort always fired first: the page showed retry while the backend
+    // request completed normally. `synthesize()` already had this budget; rca-pack hits the same
+    // model and was simply never given one.
     const live = await postJson<Partial<RcaPack>>("/search/rca-pack", {
       asset_id: assetId,
       failure_code: failureCode,
       incident_date: incidentDate ?? new Date().toISOString(),
       ...(includeQuarantine !== undefined && { include_quarantine: includeQuarantine }),
-    });
+    }, SYNTHESIS_TIMEOUT_MS);
     if (!live.timeline) throw new Error("no timeline");
     return {
       asset_id: assetId,
@@ -703,7 +713,7 @@ export async function getRcaPack(
       timeline: live.timeline ?? [],
       hypotheses: live.hypotheses ?? [],
       supporting_documents: live.supporting_documents ?? [],
-      confidence: live.confidence ?? 0,
+      confidence: live.confidence ?? null,
       refused: !!live.refused,
       synthesis_available: !!live.synthesis_available,
     };
@@ -1575,7 +1585,13 @@ export async function getKnowledgeGraph(
       });
     });
     return {
-      data: { asset_id: assetId, as_of: raw.as_of, nodes: Array.from(nodesMap.values()), edges },
+      data: {
+        asset_id: assetId,
+        as_of: raw.as_of,
+        nodes: Array.from(nodesMap.values()),
+        edges,
+        excluded_test_documents: raw.excluded_test_documents ?? 0,
+      },
       source: "live",
     };
   } catch (e) {

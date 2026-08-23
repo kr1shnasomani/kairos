@@ -230,12 +230,26 @@ Key methods:
 - `get_asset_knowledge_at(asset_id, as_of)` — KNOWLEDGE_EDGE traversal with optional time-travel. **Deduped by `edge_id`** — the graph can hold multiple physical relationships sharing one logical `edge_id` (Cypher `DISTINCT` can't collapse them), so the same fact would otherwise repeat.
 - `create_knowledge_edge(asset_id, document_id, rel_type, props)` — writes edge with all 6 required properties. `valid_to` defaults to the open-ended sentinel `_OPEN_VALID_TO` (see below) when not supplied; it is never stored as `null`.
 - `merge_document_node(document_id, props)` — MERGE Document node
-- `detect_conflict(asset_id, parameter, new_value, new_authority)` — dual-track conflict detection
+- `detect_conflict(source_id, source_label, relationship_type, new_document_id, new_authority_level)` — dual-track conflict detection. Returns `None` immediately for any type in `NON_ASSERTING_RELATIONSHIPS` (see below), before the Cypher runs.
 - `get_blast_radius(document_id)` — traverses `(source)-[r:KNOWLEDGE_EDGE {document_id}]->(target)` and returns each `{edge, source, target}`. The **affected entity is the `source`** (e.g. the asset), not the target (the document node). Deduped by `edge_id` (re-runs leave duplicate relationships).
 - `close_validity_window(edge_id, closed_at)` — sets `valid_to` on a KNOWLEDGE_EDGE (used by MoC webhook **and** the in-app MoC approve endpoint, via the shared `_resolve_moc_conflict` helper)
 - `create_concept_node(props)` — Concept:Regulation seed
 - `link_concept_to_asset(concept_id, asset_id, props)` — compliance framework linkage
 - `get_event_timeline(asset_id, window_start_iso)` — Event nodes linked to an asset within a date window for RCA pack assembly
+
+**`NON_ASSERTING_RELATIONSHIPS` — what may be called a conflict:**
+`DOCUMENTED_BY`, `MENTIONS_PERSON`, `MENTIONS_ORGANISATION`, `CONTAINS_TOPOLOGY_ELEMENT` record
+**provenance or structure, never a claim**, so two of them can never contradict each other — an
+archive holding several documents about one pump is the normal state, not a disagreement.
+`is_asserting_relationship()` is the single predicate; `routers/governance.py` applies the same set
+when listing conflicts, because rows written before this guard live in a cloud store and cannot be
+deleted.
+
+The honest check would compare the two asserted *values*, but a KNOWLEDGE_EDGE has no value
+property — the six mandatory props are validity, authority, document, confidence and verification
+status. That is also why auto-detected conflicts carry no `value` in `source_a`/`source_b`. Adding
+one is a schema change plus a backfill of every existing edge, so the correct move at this scale is
+to stop asking the question of edges that cannot answer it.
 
 **All 6 properties required on every KNOWLEDGE_EDGE write:**
 `valid_from`, `valid_to`, `authority_level`, `document_id`, `confidence`, `verification_status`
@@ -511,6 +525,36 @@ Exposed via `GET /documents/{id}/redacted`, which also writes a `pii_redacted_ex
 > **Scope:** `ARCHITECTURE.md` describes this pipeline as gating cross-site knowledge
 > promotion. No cross-site promotion endpoint exists in the codebase, so that wiring is not
 > built; the redaction pipeline itself is.
+
+### `corpus` (`services/corpus.py`)
+
+Tells real vault documents apart from **test artifacts** — rows the suite and hand-run sweeps
+write into the vault. They carry ordinary random `DOC-` ids, so **only the file name identifies
+them**, and on 2026-08-23 they were 87 of the 108 active documents. Anything that counts or renders
+documents without excluding them reports test hygiene rather than the plant.
+
+- `is_test_artifact(file_name)` — the single predicate. Anchored prefixes: `ann_test_`, `dbtest_`,
+  `test_`, `e2e_`, `kairos_`, `probe`, `tmp`, `# Kairos`. `e2e_` and `kairos_` were added by
+  decision **D8**: both name a file after this system or its harness rather than after plant
+  equipment. A `_test\.ext` stem rule was rejected — it would also match a plausible real
+  `hydro_test.pdf`, and hiding plant evidence is the one failure this predicate must not have.
+- `test_artifact_ids(supabase, document_ids)` — resolves ids to file names in one bulk lookup
+  (chunked at 200). **Read-only.** Fails *open*: on a lookup error it returns an empty set, so a
+  Supabase blip shows extra noise rather than blanking a real graph.
+- `partition_test_artifacts(rows)` — pure, for callers that already hold `documents` rows.
+
+Two rules that matter:
+- **An id absent from `documents` is never an artifact.** `PROMOTED-<uuid>` ids are minted by
+  quarantine promotion for field knowledge that never had a vault document, so "cannot classify"
+  must mean "keep".
+- **Callers report what they excluded.** `GET /assets/{id}/knowledge` returns
+  `excluded_test_documents`; `run_kg_completeness.py` prints its count. A filter that hides its own
+  effect is how the linkage figure stayed wrong for as long as it did.
+
+Consumed by `routers/assets.py` and `benchmark/run_kg_completeness.py` — the harness imports it
+rather than keeping a second copy, since `benchmark/` already depends on `api/`.
+Covered by `tests/test_corpus_filter.py`, which pins every real corpus file name against
+over-matching.
 
 ### `shared_client` (`services/http.py`)
 

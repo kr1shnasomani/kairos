@@ -6,7 +6,7 @@ All tests run **inside Docker**. There is no host shortcut: host package resolut
 the pinned images and produces false results — `auth.test.ts` and `api.test.ts` fail on the host
 and pass in the container. A host run will lie to you.
 
-### Tier 1 — service-free (374 tests, no stack, no secrets, no network)
+### Tier 1 — service-free (415 tests, no stack, no secrets, no network)
 
 These need nothing running. This is what CI's `unit` job executes on every push.
 
@@ -15,10 +15,10 @@ docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-a
   pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,\
 model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,\
 ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ner_parse,\
-superseded_filter,brief_signing,attribution_evidence,authz_boundary,brief_paging,asset_bulk_import,quarantine_item_id,purge_safety,synthesis_stream,graph_query_policy,event_reorder,supply_chain,form_extraction,cross_functional,offboarding_session_id}.py
+superseded_filter,brief_signing,attribution_evidence,authz_boundary,brief_paging,asset_bulk_import,quarantine_item_id,purge_safety,synthesis_stream,graph_query_policy,event_reorder,supply_chain,form_extraction,cross_functional,offboarding_session_id,corpus_filter}.py
 ```
 
-All **33** files, **374 tests**. `test_attribution_evidence.py` (12 tests) covers the pure
+All **33** files, **415 tests**. `test_attribution_evidence.py` (12 tests) covers the pure
 decision functions `_attribute` and `_classify_attestation` in `workers/attribution.py`,
 including the brownfield regression that `genuine_failure` was unreachable on uninstrumented assets.
 `test_authz_boundary.py` (41 tests) covers the trust boundary — which routes are policy-enforced,
@@ -89,7 +89,7 @@ docker exec kairos-backend-api python scripts/seed_users.py
 
 | Job | Needs | Behaviour |
 |---|---|---|
-| `unit` | nothing | Runs the 374 service-free tests on every push and fork PR, plus the benchmark grader selftest. Must stay green. |
+| `unit` | nothing | Runs the 415 service-free tests on every push and fork PR, plus the benchmark grader selftest. Must stay green. |
 | `integration` | `--profile local-stores` + a **throwaway** `CI_SUPABASE_*` project | Runs the full suite. **Skips with exit 0** when `CI_SUPABASE_URL` is unset, so a missing optional credential is never a red build. |
 
 Neo4j, Qdrant, Elasticsearch and Redis run as local containers in CI, so Aura and Qdrant Cloud
@@ -113,7 +113,7 @@ gh secret set GROQ_API_KEY
 > NIM → OpenRouter → Gemini cascade, and elicitation calls the LLM. Gemini's free tier is a few hundred requests/day and
 > is shared with the benchmark harnesses, so a busy day of pushes exhausts it; once it 429s,
 > synthesis silently returns no answer and *measured answer quality collapses* (observed:
-> 24/25 → 13/25). Tier-1 gives 374 green tests with **zero** provider calls, which is the
+> 24/25 → 13/25). Tier-1 gives 415 green tests with **zero** provider calls, which is the
 > signal CI should be providing. Enable tier 2 only for a deliberate pre-release run, against
 > a throwaway Supabase project.
 
@@ -172,17 +172,18 @@ tests/                        ← project root (NOT inside backend/)
   test_quarantine_item_id.py  ← Layer 6 quarantine id guard: malformed id 404s, never 500s
   test_purge_safety.py        ← purge matchers can never reach real ids (the DOC-X incident)
   test_synthesis_stream.py    ← SSE synthesis: safety-critical categories never stream text
-  test_graph_query_policy.py  ← ARCHITECTURE §7: no unbounded traversal can ship
+  test_graph_query_policy.py  ← ARCHITECTURE §7: no unbounded traversal; + what may be called a conflict
   test_event_reorder.py       ← Layer 8 delay compensation; PTW never waits behind the hold
   test_supply_chain.py        ← ARCHITECTURE §8: served model matches the pin; submission outliers
   test_form_extraction.py     ← form fields reach quarantine ONLY; never a KNOWLEDGE_EDGE
   test_cross_functional.py    ← the function mapping is complete; an unmapped type inflates the result
   test_offboarding_session_id.py ← UUID path params 404 rather than 500 (`maybe_single`, not `single`)
+  test_corpus_filter.py       ← test-artifact predicate: every real corpus name pinned against over-matching
 pytest.ini                    ← project root
 ```
 
-Suite size: **509 tests collected** across 46 files (`pytest tests/ --collect-only`, 2026-08-23).
-The last full green run was **412 passed · 0 failed** (2026-08-22) and is **superseded** — 97 tests
+Suite size: **576 tests collected** across 50 files (`pytest tests/ --collect-only`, 2026-08-23).
+The last full green run was **412 passed · 0 failed** (2026-08-22) and is **superseded** — 164 tests
 have landed since. **There is no current full-suite pass count**: re-run tier 2 against local stores
 to get one, and do not quote 412 as a pass figure for the present tree. **1 known transient flake**
 (`test_briefs.py::test_attribution_worker_queues_recheck` — a work-order POST occasionally 500s under

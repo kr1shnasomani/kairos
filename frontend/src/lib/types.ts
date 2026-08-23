@@ -119,7 +119,10 @@ export interface RcaPack {
   timeline: RcaTimelineEvent[];
   hypotheses: RcaHypothesis[];
   supporting_documents: RcaSupportingDoc[];
-  confidence: number;
+  /** `null` = not reported by the model, not zero. `result-header.tsx` already had a
+   *  `Number.isFinite` guard rendering "Confidence —", but `getRcaPack` coerced null to 0,
+   *  so that branch was unreachable and the meter always drew a real-looking score. */
+  confidence: number | null;
   refused: boolean;
   synthesis_available: boolean;
 }
@@ -207,10 +210,19 @@ export interface AssetDetail extends AssetSummary {
 export type ConflictTrack = "administrative" | "engineering";
 export type ConflictStatus = "open" | "pending_moc" | "resolved";
 
-/** A conflict source is a JSON blob from Supabase; document_id is the field we surface. */
+/** A conflict source is a JSON blob from Supabase, and the two producers write different keys.
+ *  `services/graph.py detect_conflict` writes `document_id` / `authority_level` / `edge_id` /
+ *  `confidence` and **no `value`** — it never compares what the edges assert, so there is no
+ *  contradicting value to record. The seeded engineering conflict (HE-301 pressure limit) does
+ *  carry `value` and a human-readable `source`. Every field is therefore optional, and the UI
+ *  has to degrade rather than assume. */
 export interface ConflictSource {
   document_id?: string;
+  /** The contradicting value, e.g. "18.5 bar". Absent on auto-detected conflicts. */
   value?: string;
+  /** Human-readable provenance, e.g. "Meridian OEM Manual (2019)". Absent on auto-detected. */
+  source?: string;
+  authority_level?: number;
   [key: string]: unknown;
 }
 
@@ -324,6 +336,9 @@ export interface AssetKnowledgeResponse {
   asset_id: string;
   as_of: string;
   fact_count: number;
+  /** Facts dropped because their source document is a test/sweep artifact. Reported rather than
+   *  silent — the denominator has to stay auditable. Absent on an older backend. */
+  excluded_test_documents?: number;
   facts: AssetKnowledgeFact[];
 }
 
@@ -752,6 +767,9 @@ export interface KnowledgeGraphData {
   as_of: string;
   nodes: GraphNodeData[];
   edges: GraphEdgeData[];
+  /** How many facts the backend withheld as test artifacts. Surfaced in the UI: a filtered view
+   *  that does not say it is filtered is the same mistake that kept the linkage figure wrong. */
+  excluded_test_documents: number;
 }
 
 
