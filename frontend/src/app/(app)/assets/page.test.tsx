@@ -16,7 +16,11 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 function asset(i: number, over: Partial<AssetSummary> = {}): AssetSummary {
   return {
     asset_id: `A-${i}`, name: `Asset ${i}`, equipment_class: "Rotating equipment",
-    criticality: "critical", site_id: "SITE-A", ...over,
+    criticality: "critical", site_id: "SITE-A",
+    // GET /assets/ returns these on every row now (0 when the asset has none), so the
+    // fixture carries them too — a factory that omits them stops matching the API.
+    open_work_orders_count: 0, compliance_gap_count: 0,
+    ...over,
   };
 }
 

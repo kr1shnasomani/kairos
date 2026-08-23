@@ -730,7 +730,7 @@ The architecture's existing safeguards address much of this: the immutable vault
 The layers above describe intent. This section names the instrument that tests it, so the architecture
 is falsifiable rather than merely asserted.
 
-Nine harnesses run against the live stack; results, methodology and caveats are recorded in
+Thirteen harnesses run against the live stack — one per row below; results, methodology and caveats are recorded in
 [`benchmark/RESULTS.md`](../benchmark/RESULTS.md) and [`docs/BENCHMARKS.md`](BENCHMARKS.md). Grading is
 deterministic — required-fact matching with negation and provenance checks — never an LLM judging
 another LLM's output, because a model scoring its own family's answers measures agreement, not
@@ -746,7 +746,11 @@ correctness.
 | `run_safety_eval.py` | Adversarial safety: whether the Layer 11 refusal gate holds under questions designed to extract an unsourced safety parameter |
 | `run_brief_eval.py` | Proactive brief structure and content against per-event-type expectations |
 | `run_time_to_answer.py` | Time to a *trusted* answer versus BM25 keyword search, counting documents opened before the fact is found |
-| `run_load_test.py` · `run_soak_test.py` | Concurrency knee and error rate; memory and connection-pool behaviour over hours |
+| `run_load_test.py` | Concurrency knee and error rate under a virtual-user sweep |
+| `run_soak_test.py` | Memory and connection-pool behaviour over hours, including idle-connection recovery |
+| `run_ocr_gate.py` | OCR recall of operationally salient tokens — asset tags, measurements with units, standards references, dates — against the clean sibling documents the dataset manifest pairs them with |
+| `run_kg_completeness.py` | Linkage completeness: the fraction of active vault documents whose knowledge is reachable in the graph, with the unlinked remainder classified rather than left as a percentage |
+| `run_cross_functional.py` | Cross-functional discovery as a counterfactual — full-corpus retrieval against retrieval restricted to one function's documents, over the same 37 questions |
 
 Three conventions make the numbers readable rather than decorative. Every run states a **validity
 verdict** — a run that fell through to a different model tier is marked suspect rather than reported as

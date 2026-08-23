@@ -180,6 +180,14 @@ export interface AssetSummary {
   criticality: string; // safety_critical | critical | non_critical
   site_id?: string | null;
   parent_asset_id?: string | null;
+  /**
+   * Issue counts, now returned by `GET /assets/` as well as `GET /assets/{id}` — the list
+   * previously omitted them, which blocked two columns the design review asked for.
+   * Always numeric, never null: an asset with no rows is `0`. A backend lookup failure also
+   * yields `0` (logged server-side), so these are "best known", not guaranteed-live.
+   */
+  open_work_orders_count: number;
+  compliance_gap_count: number;
 }
 
 export interface AssetsResponse {
@@ -190,8 +198,8 @@ export interface AssetsResponse {
 }
 
 export interface AssetDetail extends AssetSummary {
-  open_work_orders_count: number;
-  compliance_gap_count: number;
+  // open_work_orders_count / compliance_gap_count are inherited from AssetSummary — the list
+  // endpoint returns them too now, so they are no longer detail-only.
   last_inspection_date: string | null;
 }
 

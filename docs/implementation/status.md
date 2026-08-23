@@ -3,7 +3,11 @@
 > **Single source of truth for open work.** What's **built** ([Layer completion](#layer-completion)),
 > how faithfully it matches the design ([Conformance](#architecture--implementation-conformance)),
 > the **current measured numbers** ([Benchmarks](#benchmarks--current-numbers)), and **what's left**
-> ([Backlog](#improvement-backlog) · [Pending](#pending)).
+> ([Open decisions](#open-decisions--blocked-on-a-human-call-not-on-work) · [Backlog](#improvement-backlog) · [Pending](#pending)).
+>
+> **[Open decisions](#open-decisions--blocked-on-a-human-call-not-on-work) is where to look first if
+> you are picking up this project.** Those items are specified and cheap; they are waiting on a call,
+> not on engineering.
 >
 > **This file tracks open items.** Completed work is removed once done — the git history holds it,
 > and a status file that never forgets stops being a status file. Raw benchmark output lives in
@@ -95,7 +99,7 @@ are the external-plant integrations, which are mock **by design**.
 | 0 · Empirical Validation & Model Safety | 🟡 | 94 | Corpus grows from human promotions/annotations; scores per entity type, per asset class **and per document type**; `make model-gate` exits non-zero on regression. **92 → 94 on 2026-08-23:** a run now records `validity` / `fallback_extractions` / `extraction_paths`, so a run that never reached the model can no longer be read as a measurement, and only a `VALID` run may serve as the baseline. Still not auto-run by CI/CD, and `MODEL_GATE_ENFORCE` ships off — which is what keeps this from a higher score |
 | 1 · Deterministic Identity & MDM | 🟡 | 88 | Human-confirmed `MERGE` assets, alias resolution **with a confirm endpoint**, quarantine for unlinkable knowledge, **and the golden-record bulk import the architecture opens with** (`POST /assets/bulk`, 2026-08-22 — confirming authority from the verified token, partial success with per-row reporting, existing assets skipped never overwritten, cross-site rows refused *before* the existence check). The EAM *connector* is still a fixture; the import path it would feed is now real |
 | 2 · Immutable Evidence Vault | ✅ | 97 | Supabase Storage, SHA-256 dedup, version chain, never-delete; supersession now propagates to ES + Qdrant. **IAM-derived access tags** now stamped at ingestion (migration 017) — all 6 of the things the spec says each artifact receives. Tags derive from KAIROS's own enforced RBAC and say so (`derived_from: kairos_rbac`); there is no external source-system IAM feed to read |
-| 3 · Multimodal Perception | 🟡 | 80 | Two-path OCR, NIM NER, P&ID **vision** (Path B) + element-by-element verification gate, voice. Form/checklist parsing now has a live path to quarantine (2026-08-23); layout-awareness outstanding. **The 80 is understated and the reason was misattributed.** It was read as a handwriting-model gap; probing the CV endpoint on 2026-08-23 showed the model transcribes the handwritten notes at 0.91 confidence. The OCR path fails for two *engineering* reasons instead — a response key the parser never reads (`text_prediction.text`), and a 180 KB base64 ceiling the degraded scans exceed 11-13x. Re-score this layer once both are fixed; do not treat 80 as a model verdict. |
+| 3 · Multimodal Perception | 🟡 | 80 | Two-path OCR, NIM NER, P&ID **vision** (Path B) + element-by-element verification gate, voice. Form/checklist parsing now has a live path to quarantine (2026-08-23); layout-awareness outstanding. **The 80 is understated and the reason was misattributed.** It was read as a handwriting-model gap; probing the CV endpoint on 2026-08-23 showed the model transcribes the handwritten notes at 0.91 confidence. The OCR path fails for two *engineering* reasons instead — a response key the parser never reads (`text_prediction.text`), and a 180 KB base64 ceiling the degraded scans exceed 11-13x. **Both fixed 2026-08-23** and all four images now return text (see Pending). The score still cannot move yet: nothing downstream reads OCR output that never reached Elasticsearch, so re-scoring waits on the one-off re-extraction, not on further code. |
 | 4 · Temporal Reality Graph | 🟡 | 92 | 6 edge props ✅, time-travel ✅, blast-radius ✅, **all 6 node types now written** (Event via `OCCURRED_ON` from all 6 event routes; Person/Organisation from extraction), and **timestamp alignment now runs on the document-ingestion path** by correlating a document against sibling events for the same asset. Also fixed: `valid_to` was compared to `datetime()` as a string, which yields NULL in Cypher — conflict detection and document supersession were both matching zero rows. Existing corpus is not backfilled with the new node types |
 | 5 · Zero-Copy OT Virtualization | 🔵 | 70 | Mock historian by design; `PIWebAPIClient` built; connector registry self-reports config state; OPC-UA/Honeywell/GraphQL fail loudly rather than empty-as-success. Coverage map is derived from verified topology **only — never joined to the historian tag registry**, which is half the spec's derivation |
 | 6 · Quarantine Knowledge | ✅ | 97 | One-way gate, searchable+labelled, 4 review actions, SLA escalation. No per-item domain-owner assignment |
@@ -225,6 +229,9 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | Adversarial safety | **0 unsafe answers** / 15 questions — 12 refusals, S05 now answers — run validity `VALID` | `run_safety_eval.py` |
 | Concurrency | **2275 req · 0% errors · knee at 50 VU** | `run_load_test.py` |
 | Soak (60 min, cloud stores) | **PASS — no leak signal.** RSS **+8.6 MB/h** · conns +4.2/h · **0.11%** of 37,842 req · idle recovery 4/4 | `run_soak_test.py` |
+| OCR accuracy, paired images | **UNSCOREABLE 4/4** (2026-08-23) — the two OCR defects are fixed and all four images transcribe live, but these documents were ingested before the fix so no text is indexed. Blocked on re-extraction (**D2**), not on code. Never reported as recall 0.0 | `run_ocr_gate.py` — read-only, **no model calls** |
+| KG linkage completeness | **18/23 (78%)** linked · 1 quarantined by design · 4 unexplained · **0 dangling provenance** · 85 test docs excluded from the denominator | `run_kg_completeness.py` — read-only |
+| Cross-functional discovery | **NULL on this corpus** — the silo counterfactual does not separate at 24 documents. A corpus limit, recorded rather than hidden | `run_cross_functional.py` (spends embed quota) |
 
 ### How to read these — the caveats that still apply
 
@@ -288,6 +295,56 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 
 ---
 
+## Open decisions — blocked on a human call, not on work
+
+> Everything here is **specified, understood and cheap to execute**. None of it is waiting on
+> engineering; each is waiting on someone deciding what the right answer is. Kept separate from the
+> [Backlog](#improvement-backlog) so a reader can tell "nobody has built this" from "nobody has
+> decided this".
+
+| # | Decision | Options | Consequence of not deciding | Recorded |
+|---|---|---|---|---|
+| D1 | **What makes an OCR extraction quarantine?** | (a) leave it on the weighted average — status quo, the worst scan passes at 0.719; (b) quarantine if **any** span < 0.7; (c) quarantine on a `min_span_confidence` floor | Garbled text from degraded scans reaches the **canonical graph** as verified-grade fact. The safety-relevant direction, and the only open item with a data-integrity consequence | Backlog #15 |
+| D2 | **Re-extract the 4 image documents?** | Requires a one-off backfill writing to Elasticsearch + Supabase | **Currently blocked by the no-cloud-writes rule, so this is decided-by-default.** The cost is that the OCR fix stays invisible: gate `UNSCOREABLE` (`RESULTS.md` §11), L3 capped at 80, linkage capped at 18/23 (§12). Nothing degrades — the numbers simply cannot move | Pending, OCR entry |
+| D3 | **The 12 `COMPONENT` labels in `validation_corpus`** | (a) teach the prompt the type; (b) remap the ground truth; (c) leave them `unscoreable` | Model-gate F1 keeps carrying an asterisk. Deliberately deferred — nothing consumes the type and 3 distinct entities cannot validate adding one to production extraction | Pending |
+| D4 | **Full-suite pass count** | Needs a throwaway Supabase project + `CI_SUPABASE_*` | **Decided 2026-08-23: not doing it.** No secrets, no per-push provider spend. Accepted consequence: no current full-suite pass count; the service-free tier is the only enforced backstop | Pitfalls, CI reference |
+| D5 | **Attention-list row wording** | Settled 2026-08-23 — `Overdue quarantine · {input_type}`, reasoning in `attention-list.tsx` | None; recorded so it is not re-opened | Verification snapshot |
+| D6 | **Which asset-list columns to render, and how** | `GET /assets/` now ships `open_work_orders_count` + `compliance_gap_count` on every row and `AssetSummary` carries them, so the **data is available and the backend work is done** | Two columns a design review asked for stay unrendered. Purely presentational — no correctness or safety consequence. Note `docs/design/BACKEND-ASK.md`, referenced by the original ask, **does not exist in this repo** | Pending, B-5 |
+| D7 | **Should a total embedding failure raise instead of degrading silently?** | `_embed_ollama` returns `[]` rather than raising (`services/llm.py`) and `search_service` gathers with `return_exceptions=True`, so search silently degrades to ES + graph with one log line | **Decided 2026-08-23: leave it.** Changing failure semantics on the retrieval hot path is a bigger change than the symptom justifies. Recorded so it reads as a decision, not an oversight — do not "fix" it without re-opening the decision | Pending, B-1 |
+
+**D1 is the one that matters** — it is the only open item with a data-integrity consequence. D2 and
+D7 are decided (do not re-open them without saying so); D3–D6 are cosmetic or accepted. If only one
+decision gets made, make D1.
+
+### Next actions — in order, with their safety class
+
+> For an agent picking this up cold. **Safety class is the first thing to read**: 🟢 writes nothing
+> outside the repo · 🟡 spends provider quota · 🔴 writes to a cloud store (**forbidden** without an
+> explicit ask — see the rule at the top of `AGENTS.md`).
+
+| Order | Action | Class | Blocked by | Est. |
+|---|---|---|---|---|
+| 1 | **Decide D1**, then add the predicate to `services/ocr.py` | 🟢 | a human decision | ~1 h |
+| 2 | **Re-run `run_benchmark.py`** — the 33/37 in `RESULTS.md` §2 is stale and understates quality; four "misses" now answer correctly. Blocks Backlog #13 | 🟡 ~30 min of NIM quota | nothing | ~40 min |
+| 3 | **Record a synthesis verdict** when 2 runs (Backlog #8) | 🟢 | step 2 | ~1 h |
+| 4 | **Consolidate the two downscale helpers** (Backlog #16) | 🟡 one P&ID vision call to re-validate | nothing | ~1 h |
+| 5 | **Form-parsing layout pass** (Backlog #6) | 🟡 | nothing | ~1 d |
+| — | **Re-extract the 4 image documents** — would move the OCR gate, L3's score and linkage 18/23 → 22/23 | 🔴 | **D2 — do not do this** | — |
+| — | **FastAPI major upgrade** (Backlog #2) | 🟢 | see caution below | 1–2 d |
+
+**Caution on the FastAPI upgrade specifically.** It is code-only, but it carries real breakage risk
+across every router *and* there is **no current full-suite pass count** to catch a regression (D4) —
+the 374-test service-free tier is the only backstop, and it cannot exercise queries or routing. Do
+not start it casually. `ecdsa` has no released fix regardless, so it closes 7 of 8 advisories, not 8.
+
+**What is already done and must not be re-opened:** the OCR parse and size-ceiling defects (fixed and
+live-verified 2026-08-23), the "no handwriting model" attribution (disproven — the model reads it at
+~0.90), the composite index (impossible by construction), Go `/ot/coverage` (deleted on purpose),
+supervised ML (settled, permanent). Each is recorded with its reasoning in this file; check before
+re-filing any of them as a gap.
+
+---
+
 ## Improvement backlog
 
 > **Numbers are retired, never renumbered.** The gaps are deliberate: items are cross-referenced by
@@ -303,6 +360,7 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 
 | # | Improvement | Why it matters | Est. |
 |---|---|---|---|
+| 15 | **OCR confidence gating — the number is honest, the gate is not yet** | `overall_confidence` now reports the model's own length-weighted per-span confidence instead of a hardcoded `0.95` (2026-08-23), so a garbled scan and a clean one are finally distinguishable. **The hazard is not closed.** The worst corpus document scores **0.719 — above the `0.7` quarantine line — so it would still reach the canonical graph**, carrying `EO-xxx` for `EQ-xxx` and a mangled date, while 4 of its 22 spans sit below 0.7 and one at 0.253. A single average cannot express "4 of 22 spans are unreliable", and the dangerous failure here is one misread value (`16.2 bar` as `18.5 bar`), not a poor mean. Closing it means gating on **shape** rather than average — quarantine when any span falls below `_LOW_CONFIDENCE_SPAN`, or on a `min_span_confidence` floor. **This is a policy decision, not a code gap:** it changes what quarantines, and over-tightening pushes clean documents into a review queue, which is the failure mode `ARCHITECTURE.md §3` explicitly warns against. The signals (`min_span_confidence`, `low_confidence_spans`, `span_count`) are already emitted and `ocr.low_confidence_spans` logs every affected document, so the gate is one predicate once the rule is chosen. | ~1 h once decided |
 | 2 | **Backend dependency advisories — 10 left, both blocked upstream** | Was 16 across 4 packages; **protobuf and setuptools cleared 2026-08-23** and their suppressions removed, so the gate now catches a regression in either. The unlock was one transitive package: `setuptools` was **not** a stale cap — OTEL 0.45b0 imported `pkg_resources`, which setuptools 78+ removes, so lifting it alone crashed `api.main` on import. OTEL ≥0.49b0 drops `pkg_resources` but needs protobuf 5, which `grpcio-tools 1.62.3` forbade; `qdrant-client` asks only for `grpcio-tools>=1.41.0` and `temporalio` declares `protobuf>=3.20` with no ceiling, so pinning **`grpcio-tools>=1.66`** moved protobuf to 5.29.6 and OTEL to 1.28.0/0.49b0 with **both clients untouched**. What is left is genuinely blocked, not deferred: **`starlette 0.37.2`** (7 advisories) is pinned transitively by `fastapi==0.111.1` (`>=0.37.2,<0.38.0`) and the fixes run 0.40.0 → 1.3.1, i.e. a **FastAPI major upgrade** — a separate piece of work with real breakage risk across every router. **`ecdsa 0.19.2`** has an **empty `fix_versions`**: no released fix exists at all, so nothing can be done but re-check upstream periodically; it arrives via `python-jose[cryptography]`, and dropping that dependency is the only other lever. Dependabot PR #22 (41-package group) remains the blunt alternative. | FastAPI major: 1–2 d |
 
 ### Tier 2
@@ -315,15 +373,17 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | # | Improvement | Why it matters | Est. |
 |---|---|---|---|
 | 6 | **Form / checklist parsing — path is live and the destination is settled; layout-awareness is the remaining half** | **The dead stub is gone (2026-08-23).** Its docstring claimed "form extraction is handled by Temporal activities" — untrue; nothing in `document_pipeline.py` touched forms, so the comment was hiding the gap rather than pointing at an implementation. **The destination question that kept this unbuilt is answered: quarantine, always.** `api/services/forms.py` writes no `KNOWLEDGE_EDGE` and assigns no authority level, because a ticked checkbox has neither a signer nor a citable source — Layer 6's one-way gate with human-only promotion is exactly the mechanism for this, and `tests/test_form_extraction.py` asserts via AST that the module cannot write to the graph. Reuses the existing `field_observation` `input_type` (a form field *is* field input) so no CHECK-constraint migration is needed, and each item carries a note stating its own ceiling so a reviewer is not relying on a module docstring. **What is left is the title's actual subject.** The parser is deterministic `label: value` + checkbox state, no model call. Measured on the two real corpus forms: 2 and 1 fields — high precision, low recall. That trade is deliberate for a one-way gate (noise trains reviewers to bulk-approve), and live data already caught one over-match: an unspaced hyphen was splitting asset tags, turning `XV-203` into label `XV` / value `203`. True layout-aware parsing — cell geometry, ruled boxes, multi-column tables — needs a vision model and is the upgrade path. | ~1 d for the vision pass |
+| 16 | **Two copies of the inline-image downscale** | `OCRService._shrink_for_inline` and `PIDService._fit_b64` solve the same problem in two modules, and `_NIM_IMAGE_SIZE_LIMIT = 180_000` is defined in both. They were written independently — which is *why* Path B never hit the OCR size bug — and were deliberately not merged when the OCR fix landed, because consolidating touches the live-validated P&ID path. Two behavioural differences to preserve if merged: the OCR copy tries an **unscaled JPEG first** (which alone took the corpus's 11.3x-over scan from 2,027,896 to 102,628 base64 chars, costing no resolution, where `_fit_b64` starts at 0.85 and always resizes), and it returns raw bytes rather than an encoded string. Cross-referenced in both docstrings so they cannot drift unnoticed. | ~1 h + one P&ID vision call to re-validate |
 | 7 | **Graph query policy — hot-asset Redis precompute only** | Four of the five `ARCHITECTURE.md §7` requirements are now closed or settled. **Composite index:** impossible, settled 2026-08-22 (`asset_id` is a node property, the validity window a relationship property). **Traversal depth limits:** `graph.MAX_TRAVERSAL_DEPTH` is the single policy bound, interpolated into the one variable-length traversal, and `tests/test_graph_query_policy.py` fails if any unbounded `*` ships. **Authority pre-filter before traversal:** no multi-hop query exists for it to apply to — the Layer 4 hot path is a 1-hop expand, where filter-after-expand *is* the plan (`PROFILE`: `NodeUniqueIndexSeek` → `Expand(All)` → `Filter`). **Query-perf regression test:** `make graph-perf` (`scripts/verify_graph_perf.py`) asserts plan **shape**, so it catches the anchor regression that already happened once without going flaky as the corpus grows. **Left: hot-asset Redis precompute.** Deliberately not built — at this corpus size it is speculative, and a precomputed view that goes stale after a knowledge write is precisely the 'silent propagation of outdated information' the architecture calls the most dangerous failure mode. Build it when a `PROFILE` on a real corpus shows the seek+expand is no longer enough, and give it explicit invalidation on every `KNOWLEDGE_EDGE` write. | 1–2 d when triggered |
-| 8 | **OCR gate built 2026-08-23 — and it found the OCR path is returning nothing** | **The stated blocker was false.** This entry said "OCR has no labelled ground truth in the corpus"; `dataset/00_Reference/dataset_manifest.csv` declares **three pairings by design** — files 20→6, 21→12, and 22/23→24 (`shift_log.txt`, "same 2 events"). The dataset was built for this test. `benchmark/run_ocr_gate.py` scores **recall of operationally salient tokens** (asset tags, measurements with units, standards references, dates) against the clean sibling's text — deliberately not character error rate, which weights whitespace equally with reading `16.2 bar` as `18.5 bar`, the most dangerous error this system can make and a real limit in this corpus. Recall not F1: an OCR pass that drops a pressure limit is the failure being caught; extra tokens are only noise. **First run scored nothing, and that is the finding** — see Pending. An image with no OCR output is reported `UNSCOREABLE`, never as recall 0.0: "produced nothing" and "produced wrong text" are different failures, and averaging the first into an accuracy number reports the wrong problem. **Synthesis gating is deliberately NOT folded in.** Quality is already measured by `run_benchmark.py` at ~30 min of model quota per run; a gate that expensive cannot run per change. The honest form is to record a verdict when the benchmark runs, not to make the gate run the benchmark. | OCR done; synthesis verdict ~1 h |
+| 8 | **OCR gate built 2026-08-23 — and it found the OCR path is returning nothing** | **The stated blocker was false.** This entry said "OCR has no labelled ground truth in the corpus"; `dataset/00_Reference/dataset_manifest.csv` declares **three pairings by design** — files 20→6, 21→12, and 22/23→24 (`shift_log.txt`, "same 2 events"). The dataset was built for this test. `benchmark/run_ocr_gate.py` scores **recall of operationally salient tokens** (asset tags, measurements with units, standards references, dates) against the clean sibling's text — deliberately not character error rate, which weights whitespace equally with reading `16.2 bar` as `18.5 bar`, the most dangerous error this system can make and a real limit in this corpus. Recall not F1: an OCR pass that drops a pressure limit is the failure being caught; extra tokens are only noise. **First run scored nothing, and that was the finding** — it surfaced two engineering defects in `services/ocr.py`, both **fixed and live-verified 2026-08-23** (see Pending). The gate is still `UNSCOREABLE` until the four images are re-extracted and re-indexed, because this harness reads Elasticsearch and makes no model calls of its own. An image with no OCR output is reported `UNSCOREABLE`, never as recall 0.0: "produced nothing" and "produced wrong text" are different failures, and averaging the first into an accuracy number reports the wrong problem. **Synthesis gating is deliberately NOT folded in.** Quality is already measured by `run_benchmark.py` at ~30 min of model quota per run; a gate that expensive cannot run per change. The honest form is to record a verdict when the benchmark runs, not to make the gate run the benchmark. | OCR done; synthesis verdict ~1 h |
 
 ### Measurement gaps — PS evaluation criteria without a runner
 
-`ARCHITECTURE.md §9` names the nine harnesses and closes four of the seven criteria. These three remain.
-
-| # | Criterion | Why it is not trivial | Est. |
-|---|---|---|---|
+**None remain (2026-08-23).** `ARCHITECTURE.md §9` names the thirteen harnesses, and the last three
+criteria without a runner closed together: **#10** per-document-type extraction accuracy, **#11** KG
+linkage completeness, **#12** cross-functional discovery. The heading is kept rather than deleted
+because those numbers are cross-referenced by number from elsewhere in this file — re-open it only if
+a new PS criterion arrives without a harness.
 
 ### Tier 3 — architectural ceilings
 
@@ -389,6 +449,185 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 
 ## Pending
 
+### Triaged from an external bug report — 2026-08-23
+
+A handover list written against branch `feat/beautify` ("KAIROS — non-frontend bugs", B-1…B-7) was
+verified item by item against `main` and the live stack. Two claims did not reproduce, one was
+already fixed, and the rest are recorded below with what verification actually showed. Kept because
+the report will circulate again and the corrections are worth more than the original list.
+
+**Closed 2026-08-23**
+
+- **B-2 · `make benchmark` ran nothing.** Real. `benchmark/` is a directory, so Make considered the
+  target satisfied and printed `'benchmark' is up to date` at exit 0. The report's stated cause was
+  wrong — `.PHONY` *is* declared, it just omitted this target, and `benchmark` was the **only**
+  collision (`test/` does not exist; the directory is `tests/`). No CI impact: `tests.yml` invokes
+  `run_benchmark.py` directly and never used the target. Fixed.
+- **B-3 · `GET /elicitation/offboarding/sessions` → 500.** Real, but larger than reported and both
+  suggested causes were wrong. Not route shadowing (no `/sessions` route exists to shadow, and
+  `/offboarding` is correctly declared above `/{session_id}`) and not a serialiser. See the
+  UUID-path-param row in [Known Pitfalls](#backend--database--models--api). **Every** not-found on
+  the three `/{session_id}` routes returned 500, not just the reported literal. Fixed.
+- **B-5 · `GET /assets/` omits the issue counts.** Real, and not a defect — the endpoint did what
+  it was written to do; it blocked two columns a design review asked for. Both counts now ship on
+  every list row, sharing the detail endpoint's definitions so the two surfaces cannot disagree.
+  Cost is **two queries per page regardless of page size** (bulk fetch by the page's asset ids,
+  tallied in the router) rather than the detail handler's per-asset pair, which would be an N+1 of
+  100 round trips on a 50-row page. Server-side `GROUP BY` was the first choice and is unavailable:
+  PostgREST aggregates are disabled on this project (`PGRST123`), and both remedies — enabling them
+  or adding a DB function — are cloud DDL. `AssetSummary` in `frontend/src/lib/types.ts` now
+  carries the fields, so the data is available to the UI; **which columns to render, and how, is
+  still the design review's call** and was deliberately not decided here. The referenced
+  `docs/design/BACKEND-ASK.md` does not exist in this repo.
+
+**Not defects**
+
+- **B-1 · "Embedding provider unreachable, demo-blocking."** Did not reproduce. `JINA_API_KEY` is
+  populated here; a live `embed()` returns a 1024-dim vector and there were zero `embed.jina_failed`
+  / `embed.ollama_failed` in 24 h of API logs. `.env` is gitignored, so the reporter's copy was
+  simply unpopulated. **Their benchmark figures are void, not bad** — the run self-reported
+  `INVALID`. One real weakness sits underneath the false alarm and is *not* fixed: `_embed_ollama`
+  returns `[]` rather than raising (`services/llm.py`), and `search_service` gathers with
+  `return_exceptions=True`, so a total embedding failure degrades search to ES + graph with one log
+  line and no error. Deliberately left alone — changing failure semantics on the retrieval hot path
+  is a bigger change than the symptom justifies. Recorded so it is a decision, not an oversight.
+- **B-4 · Landing claims 91% against `RESULTS.md`'s 89%.** Already fixed on `main` before the report
+  was read: `page.tsx` reads `89%` / `33/37`, the guard test `landing-figures.test.ts` exists, and
+  its `it.fails()` marker was removed with a comment dating the resolution. The report was written
+  against `feat/beautify`. The `0.91` elsewhere on the page is a mockup confidence score, unrelated.
+
+**Found while closing B-5 on 2026-08-23 — recorded, not fixed (out of scope for that task)**
+
+- **`GET /assets/{asset_id}` can report a silent, wrong `0`.** The detail handler gathers its
+  Supabase enrichment with `return_exceptions=True` and substitutes `0` for any lookup that
+  raised, so a dropped connection renders as "no work orders" rather than an error. Reproduced
+  live: `P-101` returned `0` on one call and the true `6` on the next two, with
+  `asset.enrichment_failed … error=<ConnectionTerminated …>` in the log each time. Intermittent
+  and cloud-side (HTTP/2 connection reset), so it is not a code defect exactly — but the failure
+  mode is invisible to the caller, and a fabricated `0` on a maintenance count is the kind of
+  claim this project otherwise refuses to make. The new list endpoint copies this degradation
+  **deliberately**, so the two surfaces stay consistent; if it is changed, change both. Same
+  family as the `_embed_ollama` weakness under B-1.
+- **`landing-figures.test.ts` fails in the running frontend container.** `ENOENT
+  /benchmark/RESULTS.md` — `docker-compose.override.yml` mounts `./benchmark:/benchmark:ro`, but
+  that mount postdates the running container, so it was never applied. Environment drift, not a
+  code defect: `docker compose up -d --force-recreate kairos-frontend` picks it up. Worth knowing
+  because the guard test that proves the landing figures match the benchmark of record is
+  currently **not** proving anything locally.
+
+**Uncommitted working tree — transient, delete this note once committed (as of 2026-08-23)**
+
+Nothing from the triage below is committed, and the tree mixes **two** sessions' work. Separate them
+before staging. From this session: `AGENTS.md` (`CLAUDE.md` is a **symlink** to it — one file, not
+two), `Makefile`, `backend/api/dependencies.py`, `backend/api/routers/elicitation.py`,
+`backend/api/routers/assets.py`, `tests/test_offboarding_session_id.py` (new),
+`frontend/src/lib/types.ts`, `frontend/src/app/(app)/assets/page.test.tsx`,
+`.github/workflows/tests.yml`, and `docs/{API,DATABASE,TESTS}.md` + this file. From another session,
+**not reviewed here**: `backend/api/services/ocr.py`, `benchmark/run_ocr_gate.py`,
+`tests/test_extraction_path.py`, `.github/workflows/deps-audit.yml`, `docs/ARCHITECTURE.md`,
+`docs/PRESENTATION.md`, `docs/implementation/e2e-sweep.md`, and an untracked `print/` directory.
+
+The service-free tier count (**374**) includes that other session's `test_extraction_path.py`
+additions, so it will shift if their work is reverted. Recount rather than trusting the number if
+the tree changes.
+
+**Open — what a fresh session needs to pick these up**
+
+Each item states the blocker, the exact next step, and how to prove it worked. Read the
+cloud-data rule in `AGENTS.md` § Non-Negotiable Rules → Both **before** touching B-7.
+
+---
+
+**B-7 · Test writes pollute the demo database** — *blocked on a user decision, not on work*
+
+*Status.* A complete fix was written, dry-run, and **reverted on instruction** on 2026-08-23. Do not
+re-apply it without the user explicitly asking: every version of this deletes live cloud rows, and
+the standing rule forbids that. The pollution is cosmetic (two screens) and grows by roughly one
+programme per `test_elicitation.py` run — it is not a functional break, so waiting costs little.
+
+*Why the obvious fix is dangerous.* `scripts/purge_test_data.py` is invoked by an **autouse session
+fixture** in `tests/conftest.py`. Adding a table to `SUPABASE_TARGETS` therefore arms an irreversible
+delete that fires on the next suite run without anyone choosing it. That is why this was reverted
+rather than left in place unused.
+
+*The reverted implementation, so it need not be re-derived.* Three pieces, all in
+`backend/scripts/purge_test_data.py`:
+1. `OFFBOARDING_EMAIL_PREFIXES = ("resp_", "qtest_", "detail_", "retiring_")` — the four prefixes
+   `tests/test_elicitation.py` actually persists (lines 110, 127, 157, 177). Two traps here. The
+   fourth, `retiring_`, is easy to miss — the original bug report listed only three. And the file
+   contains a **fifth**, `field_` (line 145), which must **not** be added: it belongs to
+   `test_offboarding_requires_engineer_or_admin`, which asserts **403**, so the row is never
+   created and no `field_` session has ever existed. Widening the pattern to cover it would add
+   delete surface for zero rows — and needlessly widening a delete pattern in this script is
+   precisely what destroyed four real documents once before. Re-derive this list from the test
+   file if it has changed, and check whether each call is expected to *succeed*.
+2. `_offboarding_test_session_ids(sb)` — select `id, personnel_email`, filter with
+   `str.startswith(OFFBOARDING_EMAIL_PREFIXES)` **in Python**, return ids.
+3. In `_purge_supabase`, delete `quarantine_items` whose `session_context.session_id` is in that set
+   (JSONB, so also filtered in Python — PostgREST cannot filter a nested key against a list), then
+   `sb.table("offboarding_sessions").delete().in_("id", ids)`.
+
+*Two constraints that are easy to get wrong.*
+- **Match by explicit id, never `LIKE`.** In SQL `_` is a single-character wildcard, so `resp_%` also
+  matches `respX…`. Every existing prefix in that file is underscore-free, so this hazard is new and
+  the file's own conventions do not protect against it. (This script has already destroyed real data
+  once — see the `DOC-X` comment at the top of it.)
+- **No child pass is needed.** `db/schema.sql:306` makes `offboarding_session_items.session_id`
+  `ON DELETE CASCADE`, so items follow their parent.
+
+*Expected dry run* (verified 2026-08-23): 16 of 17 sessions, 96 of 101 items via cascade, 4
+`quarantine_items`; `EXPERT-RKUMAR` / `ramesh.kumar@kairos.local` preserved as the only real seed
+programme. **If the numbers differ, stop** — the prefixes have drifted from the test suite.
+
+*Acceptance test — the one that matters.* Deleting rows only proves the symptom was swept up. Run the
+suite, then re-count `offboarding_sessions`: the count must be **unchanged by the run**. That proves
+the cause is gone. It requires a full-suite run, which itself writes to cloud Supabase — so it needs
+the same user decision.
+
+---
+
+**B-6 · Data-quality observations from the external report — verify before building on any of it**
+
+Mixed accuracy. Anyone designing a UI against the original list will build the wrong thing.
+
+*Wrong as reported:* `operational_events.priority` **does not exist as a column at all** — the cited
+`priority TEXT NOT NULL DEFAULT 'normal'` in `db/schema.sql` belongs to `briefs`. Priority lives only
+in `payload` JSONB, unconstrained, on a subset of rows; `docs/DATABASE.md` now says so at the table.
+`ner_annotations` has 20 rows, not 0. `documents.status` (108 active / 8 superseded) and
+`assets.eam_source` are not single-value — though `eam_source` is skewed by test pollution (B-7), so
+re-measure after any cleanup rather than trusting either number.
+
+*Confirmed:* `audit_log` is ~69% one action (`synthesis`); `details.description` holds stringified
+JSON inside a JSON field (11 rows), so it needs double-parsing to render as structure; actor identity
+is inconsistent across tables (`audit_log.performed_by` alone mixes UUIDs, `dev-user`, `system`,
+`test-runner`, `e2e-sweep`, `service-kairos-connector`), so an avatar cannot be a fixed column;
+`offboarding_sessions` has no name field, only `personnel_id` / `personnel_email`, so a full name
+**cannot** be derived and must not be fabricated; `brief_feedback` is empty.
+
+*Next step.* No code change. Re-measure anything load-bearing before designing against it — the
+counts above were taken on a polluted database. `docs/design/DATA-CONTRACT.md`, referenced by the
+original report, **does not exist in this repo**.
+
+---
+
+**B-1 residue · embedding failure degrades search near-silently** — *recorded decision, not an oversight*
+
+`services/llm.py` `_embed_ollama` returns `[]` rather than raising, and `search_service` gathers with
+`return_exceptions=True`. A total embedding failure therefore yields an empty query vector, Qdrant
+errors, the exception is swallowed, and search quietly falls back to ES + graph with one
+`search.qdrant_failed` log line. The user sees plausible, thinner results and no error.
+
+*Why it is still open.* Making `embed` raise changes failure semantics on the retrieval hot path,
+which is reached by `search_service.py`, `brief_engine.py` and `routers/search.py`. That is a larger
+change than the symptom justifies, and the graceful degradation is partly deliberate. **Left alone
+on purpose 2026-08-23** — do not "fix" it casually.
+
+*If picked up.* The low-risk half is observability, not semantics: make the degradation visible
+(a metric, or promoting the log to error with the query attached) so a silent failure is detectable
+without changing what callers receive. Same family as the `GET /assets/{asset_id}` false-zero
+recorded above.
+
+
 - **E2E sweep — 22/22 rows closed** (last 3 on 2026-08-22). Horizontal scroll: 0 overflow across all
   35 static routes at 375 px, with the detector validated against an injected 900 px element. Voice
   capture: real speech → vault → Groq Whisper (0.926) → `quarantine_items` `pending`, 50.4 s. The
@@ -404,7 +643,7 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
   the type, and 3 distinct entities cannot validate adding one to production extraction (the same
   reasoning already recorded for `ORGANIZATION`).
 
-- **Linkage triaged 2026-08-23 — the gap is 4 documents, and they are the known L3 limitation.**
+- **Linkage triaged 2026-08-23 — the gap is 4 documents, and it is *not* the L3 handwriting limitation.**
   The first reading (70/108 = 64%, "34 unexplained") was a *measurement* artifact, not a corpus
   gap: **85 of 108 "active" vault documents were test artifacts** (`ann_test_*`, `dbtest_*`,
   scratch files) carrying ordinary random `DOC-` ids, so only the file name identified them. With
@@ -416,9 +655,12 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
   corpus, and two borderline names are conservatively kept.
   **Corrected figure: 18/23 (78%) linked · 1 quarantined by design · 4 unexplained.** The four are
   `regulatory_clause_excerpts.pdf` plus the handwritten and degraded-scan images. **Root cause
-  identified 2026-08-23:** the OCR path returns `nim_returned_no_text` for all four images, so no
-  text is indexed and nothing can link — see the OCR entry above. It is not a linkage defect and
-  it is broader than the recorded handwriting limitation.
+  identified and fixed 2026-08-23:** the OCR path returned `nim_returned_no_text` for all four
+  images, so no text was indexed and nothing could link. It was never a linkage defect, and it was
+  broader than the recorded handwriting limitation — see the OCR entry above. **The four are still
+  unlinked**: the parser fix does not retroactively index a document ingested while it was broken,
+  so this figure only moves after the one-off re-extraction, and 18/23 remains the number to quote
+  until then.
 
 - **DIAGNOSED 2026-08-23: the OCR path fails for TWO unrelated reasons, and neither is the
   handwriting limitation the docs record.** All four image documents carry
@@ -444,12 +686,76 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
   gap and as the explanation for the unlinked documents; the handwriting model demonstrably works
   and the failure is a key name. Re-read L3's score once fixed.
 
-  **The fix is small and not yet applied** — `backend/` is bind-mounted into the API container
-  with `uvicorn --reload`, so editing it mid-benchmark would have restarted the API and destroyed
-  the run. Two changes: parse `text_prediction.text` (with the existing keys kept as fallbacks),
-  and downscale an oversized image before encoding instead of silently returning `""`. Both paths
-  currently fail **silently by returning an empty string**, which is how this stayed invisible —
-  they should log distinctly enough that the two causes are never conflated again.
+  **FIXED AND LIVE-VERIFIED 2026-08-23 — all four images now return text.** `services/ocr.py`:
+  `_detection_text` reads `text_prediction.text` with `label`/`text` kept as fallbacks, and
+  `_shrink_for_inline` re-encodes an oversized image (Pillow 12.3.0, already a dependency) instead
+  of returning `""`. Probed against the live CV endpoint, writing nothing:
+
+  | Image | base64 | Before | After |
+  |---|---|---|---|
+  | `handwritten_shift_log.png` | 94,180 (0.5x) | no text | **362 chars**, clean |
+  | `handwritten_inspection_note.png` | 94,312 (0.5x) | no text | **364 chars**, clean |
+  | `scanned_inspection_degraded.png` | 2,027,896 (11.3x) | never reached the model | **726 chars** |
+  | `scanned_oem_bulletin_degraded.png` | 2,389,960 (13.3x) | never reached the model | **1,005 chars** |
+
+  An unscaled JPEG re-encode alone cleared the limit for both scans (2,027,896 → 102,628), so no
+  resolution was traded away. The degraded scans transcribe with visible character errors
+  (`EO-xxx` for `EQ-xxx`, `202--01-15`) — expected for deliberately degraded input, and precisely
+  what `run_ocr_gate.py`'s salient-token recall exists to quantify. **Do not read these as clean.**
+
+  **The silent-failure mode is closed too**, which was half the bug: `ocr.no_detections` (the model
+  ran and saw nothing) and `ocr.detections_unparsed` (detections came back but no text field
+  matched — the schema-drift case, logged with the observed keys) can no longer be confused, and
+  `ocr.image_downscaled` / `ocr.image_too_large` separate a re-encode from a genuine ceiling.
+  7 service-free tests in `tests/test_extraction_path.py` cover both helpers (355 pass, ruff clean).
+
+  **SECOND DEFECT, found by fixing the first (2026-08-23).** `ocr.py` hardcoded
+  `overall_confidence: 0.95` on **every** OCR extraction regardless of transcription quality, so a
+  garbled scan and a clean one were indistinguishable to every downstream gate — and CLAUDE.md's
+  `< 0.7 → quarantine` rule was being applied to a number that could never be below 0.7. The CV API
+  returns per-span confidence and the code was discarding it. **This was dormant until the parse fix
+  landed**: before it, the two degraded scans produced no text at all, so nothing could reach the
+  graph on a false 0.95.
+
+  Now reported honestly — `overall_confidence` is the model's own per-span confidence weighted by
+  span length, alongside `min_span_confidence`, `low_confidence_spans` and `span_count`, because one
+  average cannot express "4 of 22 spans are unreliable" and the dangerous failure is a single misread
+  value, not a poor mean. Measured live:
+
+  | Image | overall | min span | spans < 0.7 |
+  |---|---|---|---|
+  | `handwritten_shift_log.png` | 0.903 | 0.736 | 0/11 |
+  | `handwritten_inspection_note.png` | 0.872 | 0.720 | 0/12 |
+  | `scanned_inspection_degraded.png` | 0.860 | 0.692 | 1/19 |
+  | `scanned_oem_bulletin_degraded.png` | **0.719** | **0.253** | **4/22** |
+
+  Length-weighting is what separates them: the plain mean rates the worst scan 0.805, the weighted
+  mean 0.719, while the clean handwritten notes hold at ~0.90. This does **not** contradict the
+  deliberate decision at `_native`/`extract_text` not to *scale* confidence for handwriting — that
+  guards against pushing clean transcriptions under the threshold, and the handwritten notes score
+  0.87–0.90 unaided.
+
+  **The hazard is not fully closed, and this is a policy decision, not a code gap.** The worst
+  document still scores **0.719 — above the 0.7 line — so it would reach the canonical graph**,
+  carrying `EO-xxx` for `EQ-xxx` and a mangled date. Closing it means gating on the *shape* rather
+  than the average (any span below 0.7, or a `min_span_confidence` floor), which changes what
+  quarantines and is therefore deliberately left for an explicit decision. Until then the signals
+  are recorded and `ocr.low_confidence_spans` logs every affected document. 12 service-free tests
+  cover both defects (374 pass, ruff clean).
+
+  **Not merged with its twin.** `PIDService._fit_b64` (`services/pid.py`) already solved this for
+  Path B — which is why that path never hit the bug — and `_NIM_IMAGE_SIZE_LIMIT` is defined in both
+  modules. Consolidating them touches the live-validated P&ID path and was left out of scope; the
+  cross-reference is recorded in both docstrings so the two copies cannot drift unnoticed.
+
+  **Third change, and it is the one the plan was missing (found 2026-08-23):** fixing `ocr.py` does
+  **not** by itself move the OCR gate, the L3 score, or the 4 unlinked documents. `run_ocr_gate.py`
+  makes **no model calls** — it compares text already indexed in Elasticsearch — so the four images
+  stay `UNSCOREABLE` until their text is re-extracted and re-indexed. There is no reprocess endpoint,
+  and `POST /documents/ingest` dedups on SHA-256, so re-uploading the same bytes returns
+  `{"status": "duplicate"}`. Closing this therefore needs a **one-off backfill** that re-runs OCR for
+  those 4 document ids and indexes the result — a write path, unlike the parser fix, and the only
+  part of this work that touches the golden corpus.
 
 - **Audit-pack `vessel` / `compressor` clauses show 0 evidence** — no asset carries a matching
   `equipment_class`, and the `PESO` / `Factory Act` frameworks are not seeded, so they are
@@ -463,10 +769,12 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 ## Verification snapshot
 
 - **Benchmarks** (cloud stores, 2026-08-16): see [Benchmarks](#benchmarks--current-numbers) above.
-- **Backend test suite:** **412 passed · 0 failed** (full suite, 2026-08-22). Write-heavy: run against
+- **Backend test suite:** **509 collected** across 46 files (2026-08-23). The last full green run was
+  **412 passed · 0 failed** (2026-08-22); 97 tests have landed since, so **no current pass count
+  exists** — re-run before quoting one. Write-heavy: run against
   `--profile local-stores`, **never cloud**. The long-standing `test_attribution_worker_queues_recheck`
   flake is gone — it was one of six failures traced to a shared-fixture dedup collision, now fixed.
-- **Service-free tier:** **348 passed** across **32 files** (2026-08-23) — no stack / secrets / network.
+- **Service-free tier:** **374 passed** across **33 files** (2026-08-23) — no stack / secrets / network.
   This is exactly what CI's `unit` job runs; the list is duplicated in `AGENTS.md`, `docs/TESTS.md` and
   `.github/workflows/tests.yml` and **all three must be updated together** (they have drifted twice).
 - **Frontend:** **220 passed across 67 files** (2026-08-23, green), `tsc` clean, `eslint` 0 errors /
@@ -476,12 +784,15 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
   `kairos-frontend` sits at ~1.85 GB of its 2 GB (the Next dev server), so `docker exec` leaves vitest
   no headroom. `docker compose run --rm --no-deps kairos-frontend npx vitest run` gets its own budget
   and finishes in ~13 s.
-  The one failure found on 2026-08-22 was **stale, not a regression**, and is fixed: the test still
-  expected the pre-redesign attention-list label `Overdue quarantine · {input_type}`, while
-  `attention-list.tsx:32` has rendered `Quarantine: {content ?? input_type}` since the
-  template-fidelity redesign. The **test** was corrected rather than the shipped copy — but the two
-  rows in that list now read inconsistently (`Overdue conflict · {track}` vs `Quarantine: {content}`)
-  and nothing in `FE.md` specifies either, so the wording is an open design question, not a settled one.
+  The one failure found on 2026-08-22 was **stale, not a regression**, and is fixed. The wording it
+  disagreed about is now **settled, and the reasoning is in the code** (`attention-list.tsx`): the row
+  renders `Overdue quarantine · {input_type}`, matching the sibling `Overdue conflict · {track}`
+  row so the two read as one queue. "Overdue" is factual rather than decoration — the list
+  is `sla.overdue_quarantine_items`, and being past SLA is the only reason a row is under "Needs
+  attention" at all. `content ?? input_type` was considered and **deliberately rejected**: `SLAService`
+  selects only `item_id, asset_id, input_type, sla_due_at`, so `content` is always undefined, and were
+  it ever added to that select, `elicitation_response` rows store a JSON array string and the list
+  would render raw `[{"answer": …}]`. Both labels are asserted in `management/page.test.tsx`.
 - **P&ID Path B:** live-validated on `dataset/02_Document_Corpus/pid_line3_isolation_boundary.png`.
 - **Cloud stores:** Neo4j Aura + Qdrant Cloud + Supabase + Grafana Cloud. Default local stack ≈ 13
   containers; ~2–3 GB idle RAM.
@@ -503,6 +814,7 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | Area | Fix |
 |---|---|
 | `quarantine_items` FK failure | `asset_id = None`, never `""` |
+| **A UUID path param must be validated before the query** | Any route whose `{id}` lands on a UUID column returns **500, not 404**, if the segment is unparseable: PostgREST raises `22P02` and the global handler turns it into a server error. Two guards exist and any new such route needs one — `dependencies.valid_quarantine_item_id` and `valid_offboarding_session_id`. Second half of the same bug: **`.single()` raises `PGRST116` on zero rows**, so a *well-formed but absent* id also 500s and the handler's own `if not result.data → 404` becomes unreachable dead code. Use `.maybe_single()`. Found on `/elicitation/offboarding/*` 2026-08-23 (the reported symptom was `GET /elicitation/offboarding/sessions` — there is no `/sessions` route, so the literal was swallowed by `/{session_id}`). Covered by `test_quarantine_item_id.py` + `test_offboarding_session_id.py`. |
 | Supabase login / refresh error | Fresh anon client — never the service-role client |
 | NIM env not picked up | `--force-recreate`, not `--restart` |
 | `audit_log` sort failure | Column is `timestamp`, not `created_at` |
@@ -534,6 +846,11 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | **Ground truth outside the prompt's taxonomy scores as model failure** | `validation_corpus` carried 12 `COMPONENT` labels; `_NER_PROMPT` requests 10 types and `COMPONENT` is not among them, so the model could never produce one. Those 12 (23% of the corpus) were guaranteed false negatives, **and each also booked a false positive** against whatever in-taxonomy type the model gave the same span — one mismatch punished twice. Reported F1 was 0.6733; excluding them it is 0.7816. `NER_ENTITY_TYPES` in `api/services/ner.py` is now the single source of truth, `test_ner_taxonomy_matches_the_prompt` fails if it drifts from the prompt text, and the gate reports `scored_labels` / `unscoreable_labels` / `unscoreable_by_type`. **Adding an entity type means editing the constant AND the prompt**, and any corpus label outside the constant is silently excluded from the score — check `unscoreable_by_type` before trusting a gate number. |
 | **A model-gate score is meaningless without its `validity`** | `NERService.extract_entities` degrades to a regex last resort that only matches `ASSET_TAG`, and it self-reports the path it took in the result's `model` field. Until 2026-08-23 the *worker* gate ignored that, so a run where 52 of 55 calls returned 429/500 was written to history as `passed: true`, F1 0.7317 — the regex's score under the model's name, and **higher** than the model's real 0.6733. `FallbackCountingNER` (`api/services/ner.py`) now wraps the service for both the worker and `run_model_validation.py`, and the run records `validity` / `fallback_extractions` / `extraction_paths`. Two consequences to obey: **a run without `validity: "VALID"` is not a measurement**, and `_latest_valid_baseline` deliberately skips both SUSPECT and pre-2026-08-23 rows, so the first clean run has no baseline and reports `passed: true` by default — that is a fresh-install state, not a pass. Filter validity **in Python**: a PostgREST `.neq("details->>validity","SUSPECT")` matches nothing, because legacy rows have no such key and `NULL != 'x'` is NULL. |
 | **The gate re-extracted every document once per asset-class partition** | `evaluate()` built `doc_predictions` locally, so the global pass and each per-class pass extracted the same documents independently — the comment above the partition loop asserted the opposite invariant with nothing enforcing it. Cost: double the model calls, and global vs per-class scores computed from two different extractions that could disagree. A run-scoped `cache` threaded through every `evaluate()` call fixed it: **55 calls → 27, and 3 → 27 reaching the model.** If you add another `evaluate()` call site, pass the same cache or you silently restore the duplication. |
+| **An OCR path that fails by returning `""` is invisible, and it has already cost weeks** | Both original OCR defects failed *silently*: a wrong response key (`label`, never returned — the live shape is `text_prediction.text`) and an oversized image, each returning an empty string that the caller reported as `nim_returned_no_text`. That was then read as the Layer-3 "no handwriting model" limitation for weeks, and it is a **key name**: the model reads the corpus's handwriting at ~0.90. Fixed 2026-08-23, and the logs are now deliberately distinguishable — `ocr.no_detections` (model ran, saw nothing) vs `ocr.detections_unparsed` (detections returned but no text field matched — **the schema moved**) vs `ocr.image_downscaled` / `ocr.image_too_large`. **Never add an OCR path that reports failure by returning an empty string**, and if you touch the parser, `ocr.detections_unparsed` is the line that tells you the response schema changed. |
+| **`_shrink_for_inline` and `PIDService._fit_b64` are two copies of one algorithm** | Both re-encode an oversized image under the 180 KB inline cap, and `_NIM_IMAGE_SIZE_LIMIT = 180_000` is defined in **both** `services/ocr.py` and `services/pid.py`. They were written independently, which is exactly why Path B never hit the OCR size bug. **Change one and the other silently drifts.** Two differences to preserve if they are ever merged: the OCR copy tries an **unscaled JPEG first** (which alone took an 11.3x-over scan from 2,027,896 to 102,628 base64 chars, costing no resolution, where `_fit_b64` starts at 0.85 and always resizes), and it returns raw bytes rather than an encoded string. Tracked as Backlog #16. |
+| **OCR confidence is real now — and the quarantine gate still does not use its shape** | `overall_confidence` was hardcoded `0.95` for every OCR extraction until 2026-08-23, so `confidence < 0.7 → quarantine` was applied to a number that could never be below 0.7. It is now the model's own per-span confidence weighted by span length. **The hazard is not closed:** the worst corpus document scores **0.719, above the 0.7 line**, so it still reaches the canonical graph with 4 of 22 spans below 0.7 and one at 0.253. `min_span_confidence` / `low_confidence_spans` / `span_count` are emitted and `ocr.low_confidence_spans` logs it, but nothing gates on them. **Do not "just fix" this — it changes what quarantines and over-tightening pushes clean scans into review, which `ARCHITECTURE.md §3` warns against. It is decision D1.** |
+| **A harness that reads Elasticsearch tells you nothing about the model** | `run_ocr_gate.py` makes **zero** model calls — it compares already-indexed text against a clean sibling. So fixing `services/ocr.py` does **not** move it, and its `UNSCOREABLE 4/4` is not a verdict on OCR quality. The four documents were ingested before the fix; there is no reprocess endpoint and `POST /documents/ingest` dedups on SHA-256, so a re-upload returns `{"status": "duplicate"}`. Same shape applies to `run_kg_completeness.py`'s 18/23. **Both are capped until a re-extraction runs, which is a cloud write — see D2.** |
+| **`CLAUDE.md` is a symlink to `AGENTS.md`** | They are one file (`CLAUDE.md -> AGENTS.md`). Editing either edits both, and `git status` only ever shows `AGENTS.md`. The "four lists that must stay in sync" for the service-free test tier are therefore really **three files**: `AGENTS.md`, `docs/TESTS.md`, `.github/workflows/tests.yml`. All three drift silently — nothing fails when they disagree, because CI runs its own copy of the list. |
 | **A gate run killed by the Celery soft time limit writes nothing at all** | `time_limit=600 / soft_time_limit=540` was calibrated when nearly every NER call failed fast on a 429, making a full run ~2.5 min. Once the calls actually reach the model each costs tens of seconds and a real run takes ~12 min, so two consecutive runs died on `SoftTimeLimitExceeded` with **no history entry** — strictly worse than recording a degraded one. Raised to 1860/1800 on 2026-08-23. Watch this if the corpus grows: the limit tracks `corpus_size × per-call latency`, and the failure mode is silent absence, not an error row. |
 
 ### Frontend — build & runtime
@@ -558,7 +875,7 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | Area | Fix |
 |---|---|
 | **Neo4j + Qdrant are CLOUD** (Aura + Qdrant Cloud, via `.env`) | Local `kairos-neo4j`/`kairos-qdrant` containers are **profile-gated** — they do NOT start by default; `docker compose --profile local-stores up` brings them back for offline dev/tests. Cloud creds live in `.env` only (never in compose). Aura DB is named after the instance (e.g. `2016aa75`), **not** `neo4j` — always open sessions with `database=settings.NEO4J_DATABASE` (GraphService defaults to it). Cloud Qdrant **requires payload indexes** on any filter field (`asset_id`, `document_id`, `is_quarantine`) — `init_qdrant.py` creates them; without them filtered searches 400. Every Qdrant client must pass `api_key=settings.QDRANT_API_KEY` or it 403s. |
-| **Never run the write-heavy test suite against cloud** | `pytest tests/` creates + purges test entities; the teardown purge is unreliable against cloud Supabase (transient Cloudflare 500s) and **pollutes the golden data**. Run tests with local stores (`--profile local-stores`, point `.env` at them) or in CI. To restore clean golden data: truncate Supabase operational tables + wipe Neo4j/Qdrant/ES, then `init-all → seed → load-dataset`. |
+| **Never run the write-heavy test suite against cloud** | `pytest tests/` creates + purges test entities; the teardown purge is unreliable against cloud Supabase (transient Cloudflare 500s) and **pollutes the golden data**. **There is no fully-local option.** `--profile local-stores` covers Neo4j and Qdrant only — the suite writes to Supabase heavily and there is **no local Supabase** in `docker-compose.yml` (the one postgres there is Temporal's), so Supabase is always a hosted project. The only safe full-suite run is against a **throwaway Supabase project** via CI's `integration` tier, and that tier is **deliberately left disabled** (2026-08-23 decision): `CI_SUPABASE_*` is unset, so the job gates off and exits 0 and no provider quota is spent per push. **Consequence accepted, not a defect: there is no current full-suite pass count**, and the service-free tier (374) is the only enforced backstop. To restore clean golden data: truncate Supabase operational tables + wipe Neo4j/Qdrant/ES, then `init-all → seed → load-dataset`. **Measured extent, 2026-08-23** (the accepted consequence, quantified): `offboarding_sessions` 17 rows of which **16 are test-minted** (`resp_`/`qtest_`/`detail_`/`retiring_` + uid, from `test_elicitation.py`) leaving one real seed programme (`EXPERT-RKUMAR`); 96 of 101 `offboarding_session_items`; 4 `quarantine_items`; 68 of 86 Supabase `assets` carry `eam_source` `test`/`integration_test`; 95 of 137 `operational_events` belong to test assets; `audit_log.performed_by` includes `test-runner` and `e2e-sweep`. `scripts/purge_test_data.py` does **not** cover the off-boarding family — `SUPABASE_TARGETS` has no entry for either table, which is why that family accumulates while `ASSET-TEST-*` does not. Demo-visible on `/offboarding` and `/management`. Cleanup is **deliberately not automated**: the purge runs as an autouse session fixture (`conftest.py`), so adding the off-boarding tables there arms an irreversible delete against cloud data on the next unguarded suite run. See Pending. |
 | **Pointing the app at `--profile local-stores`** | The compose admin user is hardcoded to `neo4j` (Neo4j rejects any other initial admin name). To point the app at the local container, also set `NEO4J_USERNAME=neo4j` / `NEO4J_PASSWORD=$NEO4J_LOCAL_PASSWORD` in `.env`. |
 | **What the benchmark writes** | `run_benchmark.py` + `verify_layers.py` write **only `audit_log` rows** (one per synthesis, ~37 per full sweep) — append-only, no golden data touched, no schema change. `run_compliance_eval.py` and `run_load_test.py` are read-only; `run_model_validation.py` writes one `model_gate_result` row (`--no-persist` to skip). Safe to run against cloud; it does spend NIM/Jina quota. |
 | **Benchmark checkpoints must live on a mounted path** | `run_benchmark.py --checkpoint` writes each graded question as it lands so a crash costs the remainder, not the run — but `/tmp` is **container-local**, and a rebuild mid-run wipes it. Use `/app/.benchmark_runs/` (bind-mounted to `backend/.benchmark_runs/` by `docker-compose.override.yml`). Launch detached with `docker exec -d` and write logs there too. |
@@ -589,9 +906,9 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 - **Supabase MCP** (`mcp__claude_ai_Supabase__*`) — SQL, migrations, table inspection. Prefer over `docker exec`.
 
 **Supabase:** project `ernffgrvdcikwwhkhiix` · bucket `kairos-vault` (private, immutable, 500 MB max)  
-**Tests:** service-free tier **348 passed** across **32 files** (no stack/secrets/network) · frontend **220 passed / 67 files** · full suite **412 passed / 0 failed** (2026-08-22) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
+**Tests:** service-free tier **374 passed** across **33 files** (no stack/secrets/network) · frontend **220 passed / 67 files** · full suite **509 collected / 46 files** (2026-08-23; last green run 412 passed / 0 failed on 2026-08-22, superseded — no current pass count) · incl. `tests/test_contract.py` (response-shape contracts) + `tests/test_model_validation.py` (NER surface-form-overlap matcher) · self-cleans on teardown · Package: `ghcr.io/kr1shnasomani/kairos`
 
-**CI:** `tests.yml` is two tiers — **`unit`** runs the service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config, **authz boundary**) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, a synthesis cascade call per synthesize) and exhausting a provider tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) passes in full. **`deps-audit.yml`** (added 2026-08-22) is the
+**CI:** `tests.yml` is two tiers — **`unit`** runs the service-free tests (PII, query classification, retrieval fusion, spreadsheet/email ingestion, NER matching, P&ID, auth cache, config, **authz boundary**) with **no secrets and no network**, so it is green on every push and fork PR; **`integration`** runs the full suite against `--profile local-stores` and *skips with exit 0* unless `CI_SUPABASE_*` is set. **Never point CI at the production Supabase / Aura / Qdrant Cloud project** — the suite creates+purges entities and `make init-all` reinitialises schema, so it would corrupt the golden dataset on every push. Use a throwaway Supabase project, and set the secrets with `gh secret set CI_SUPABASE_URL` (etc.) yourself — they are never read from `.env` by any script in this repo. **Currently unset by choice (2026-08-23), so tier 2 never runs.** Note `--profile local-stores` covers Neo4j + Qdrant only; Supabase has no local counterpart, which is why tier 2 needs a project at all. **Recommended: leave tier 2 disabled** — it costs ~20 provider calls per push (Jina embed per `/search`, a synthesis cascade call per synthesize) and exhausting a provider tier makes synthesis silently return no answer, which reads as collapsed answer quality. `frontend.yml` (tsc·eslint·build·audit) passes in full. **`deps-audit.yml`** (added 2026-08-22) is the
 per-push dependency check Dependabot cannot provide — `pip-audit` / `npm audit` / `govulncheck` on push
 and PR to `main` plus `workflow_dispatch`, path-filtered to the manifests. Its `pip-audit` step carries
 a **documented suppression baseline** (see Backlog #2): remove an `--ignore-vuln` line as soon as its

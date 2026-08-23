@@ -16,7 +16,12 @@ from fastapi import APIRouter, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from api.config import get_settings
-from api.dependencies import CurrentUserDep, SupabaseDep, TemporalDep
+from api.dependencies import (
+    CurrentUserDep,
+    OffboardingSessionIdDep,
+    SupabaseDep,
+    TemporalDep,
+)
 
 log = structlog.get_logger(__name__)
 router = APIRouter()
@@ -423,14 +428,16 @@ async def list_offboarding_programmes(
 
 @router.get("/offboarding/{session_id}", summary="Get off-boarding programme detail with all session items")
 async def get_offboarding_programme(
-    session_id: str,
+    session_id: OffboardingSessionIdDep,
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
 ) -> dict:
+    # maybe_single(), not single(): single() raises PGRST116 on zero rows, which made the
+    # 404 below unreachable and turned every unknown session into a 500.
     session_result = await asyncio.to_thread(
-        lambda: supabase.table("offboarding_sessions").select("*").eq("id", session_id).single().execute()
+        lambda: supabase.table("offboarding_sessions").select("*").eq("id", session_id).maybe_single().execute()
     )
-    if not session_result.data:
+    if not (session_result and session_result.data):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session '{session_id}' not found")
 
     items_result = await asyncio.to_thread(
@@ -445,7 +452,7 @@ async def get_offboarding_programme(
 
 @router.get("/offboarding/{session_id}/questions", summary="Return questions for all items in this off-boarding session")
 async def get_offboarding_questions(
-    session_id: str,
+    session_id: OffboardingSessionIdDep,
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
 ) -> dict:
@@ -470,7 +477,7 @@ async def get_offboarding_questions(
 
 @router.post("/offboarding/{session_id}/responses", summary="Submit responses for an off-boarding session item")
 async def submit_offboarding_responses(
-    session_id: str,
+    session_id: OffboardingSessionIdDep,
     payload: OffboardingResponseRequest,
     current_user: CurrentUserDep,
     supabase: SupabaseDep,
@@ -482,10 +489,10 @@ async def submit_offboarding_responses(
         .select("id, session_number, equipment_family, questions")
         .eq("id", payload.item_id)
         .eq("session_id", session_id)
-        .single()
+        .maybe_single()
         .execute()
     )
-    if not item_result.data:
+    if not (item_result and item_result.data):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Item '{payload.item_id}' not found in session '{session_id}'")
 
     item = item_result.data
@@ -495,10 +502,10 @@ async def submit_offboarding_responses(
         lambda: supabase.table("offboarding_sessions")
         .select("personnel_id, total_sessions")
         .eq("id", session_id)
-        .single()
+        .maybe_single()
         .execute()
     )
-    session = session_result.data or {}
+    session = (session_result.data if session_result else None) or {}
 
     # Insert into quarantine_items with offboarding_response input_type
     quarantine_row = await asyncio.to_thread(

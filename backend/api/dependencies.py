@@ -368,3 +368,35 @@ def valid_quarantine_item_id(item_id: str) -> str:
 
 
 QuarantineItemIdDep = Annotated[str, Depends(valid_quarantine_item_id)]
+
+
+def valid_offboarding_session_id(session_id: str) -> str:
+    """Reject a malformed `offboarding_sessions.id` before it reaches PostgREST.
+
+    Same failure as `valid_quarantine_item_id` above, on a different table: the column is
+    UUID, so a non-UUID path segment raised `22P02` and surfaced as a **500** on a public
+    route. `GET /elicitation/offboarding/sessions` is the case that exposed it — there is
+    no `/sessions` route, so the literal was matched by `/offboarding/{session_id}` and
+    looked up as an id. A route that does not exist must answer 404, not 500.
+
+    Fixing the shape is only half of it: the handlers also called `.single()`, which raises
+    `PGRST116` on zero rows, so a *well-formed* id for an absent programme 500'd too and
+    each handler's own 404 branch was unreachable. Those now use `.maybe_single()`.
+
+    404 rather than 422, for the reason given above — one user-visible outcome ("that
+    programme is not there") should not split across two status codes on id shape.
+
+    ponytail: a sibling of the quarantine guard rather than a generalisation of it. Merging
+    the two into one factory is a refactor of working code, not this bug.
+    """
+    try:
+        uuid.UUID(session_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session '{session_id}' not found",
+        ) from None
+    return session_id
+
+
+OffboardingSessionIdDep = Annotated[str, Depends(valid_offboarding_session_id)]

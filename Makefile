@@ -1,10 +1,16 @@
 # KAIROS — Developer Makefile (100% Dockerized)
 # Usage: make <target>
 
+# Every target here is a command, not a file. `benchmark` in particular MUST stay
+# listed: the repo has a `benchmark/` directory, so without this Make considers the
+# target satisfied by the directory and prints "'benchmark' is up to date" while
+# silently running nothing — exit 0, no benchmark, a green CI step that did no work.
 .PHONY: help dev prod stop nuke logs ps \
         api workers connectors \
         init-neo4j init-qdrant init-all \
+        seed load-dataset purge-test-data wipe-local reset-local \
         test test-api test-connectors \
+        verify benchmark model-gate \
         lint format
 
 # Default target

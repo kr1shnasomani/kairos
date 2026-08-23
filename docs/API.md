@@ -345,12 +345,38 @@ List all registered assets.
 **Response `200`:**
 ```json
 {
-  "items": [...],
+  "items": [
+    {
+      "asset_id": "EQ-101",
+      "name": "Boiler Feed Pump A",
+      "equipment_class": "pump",
+      "criticality": "safety_critical",
+      "site_id": "SITE_001",
+      "open_work_orders_count": 5,
+      "compliance_gap_count": 59
+    }
+  ],
   "total": 5,
   "limit": 50,
   "offset": 0
 }
 ```
+
+> **`open_work_orders_count` / `compliance_gap_count` are on every row** (added 2026-08-23; the
+> list previously omitted them and only `GET /assets/{asset_id}` carried them, which blocked two
+> columns the design review asked for). Definitions are shared with the detail endpoint —
+> `operational_events` of type `work_order_created`, and `knowledge_conflicts` with
+> `status = "open"` — so the list and the detail page can never disagree about the same number.
+>
+> **Always numeric, never null**: an asset with no rows is `0`. A failed Supabase lookup is also
+> `0`, logged as `asset.list_counts_failed`; treat these as "best known" rather than
+> guaranteed-live.
+>
+> Cost is **two queries per page regardless of page size** — the counts are fetched in bulk for
+> the page's asset ids and tallied in the router, not queried per asset. Do not "simplify" this
+> into the detail handler's per-asset `count="exact"` pair: that is an N+1 costing 100 round
+> trips on a 50-row page. A server-side `GROUP BY` would be better still, but PostgREST
+> aggregates are disabled on this project (`PGRST123`).
 
 ---
 
@@ -649,7 +675,7 @@ Poll the extraction pipeline status for a document.
   "document_id": "doc-uuid",
   "pipeline_stage": "complete",
   "progress_percent": 100,
-  "ocr_confidence": 0.95,
+  "ocr_confidence": 0.903,
   "ner_entity_count": 12,
   "graph_edges_created": 8,
   "review_items_pending": 2,
@@ -659,6 +685,8 @@ Poll the extraction pipeline status for a document.
 ```
 
 Pipeline stages (in order): `pending → ocr_pending → ocr_complete → ner_pending → ner_complete → graph_pending → graph_complete → index_pending → complete` (or `failed`).
+
+`ocr_confidence` is the **model's own** per-span confidence weighted by span length — not a constant. It was hardcoded to `0.95` for every OCR extraction until 2026-08-23. Native-text paths (digital PDF, plain text, spreadsheet, email) report `1.0` because nothing was read off an image. A value below `0.5` sets `pipeline_stage: review_required`; the `< 0.7` quarantine rule applies downstream.
 
 ---
 
@@ -2727,7 +2755,16 @@ Get a specific off-boarding programme with all session items and their statuses.
 }
 ```
 
-**`404`** if not found.
+**`404`** if not found — including when `{session_id}` is not a well-formed UUID.
+
+> **`{session_id}` is validated before the query runs** (`dependencies.valid_offboarding_session_id`,
+> a sibling of `valid_quarantine_item_id`). `offboarding_sessions.id` is a UUID column, so an
+> unparseable segment previously reached PostgREST as `22P02` and surfaced as a **500** on a public
+> route — `GET /elicitation/offboarding/sessions` was the reported case, since there is no
+> `/sessions` route and the literal was matched by `/{session_id}`. A well-formed id for an absent
+> programme 500'd too, because `.single()` raises `PGRST116` on zero rows and left each handler's
+> own 404 unreachable; the handlers use `.maybe_single()`. Both halves apply to all three
+> `/{session_id}` routes. Fixed 2026-08-23, pinned by `tests/test_offboarding_session_id.py`.
 
 ---
 

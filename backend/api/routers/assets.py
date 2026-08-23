@@ -318,10 +318,71 @@ async def create_asset(
     return {"asset_id": asset_id, "tag_number": payload.tag_number, "status": "created"}
 
 
+async def _issue_counts(supabase, asset_ids: list[str]) -> dict[str, dict[str, int]]:
+    """Open work orders + open compliance gaps for a page of assets, in two queries total.
+
+    The obvious implementation — the detail handler's two `count="exact"` queries, per asset —
+    is an N+1 that costs 100 Supabase round trips for a 50-row page. This fetches only the
+    `asset_id` column for the page's assets and tallies in Python, so cost is fixed at two
+    queries regardless of page size.
+
+    Server-side `GROUP BY` would be better still, but PostgREST aggregates are disabled on this
+    project (`PGRST123`), and the alternatives — enabling them or adding a DB function — are both
+    cloud DDL.
+
+    Definitions are copied from `get_asset` deliberately: the list and the detail page must not
+    disagree about the same number. Note `open_work_orders_count` counts `work_order_created`
+    events, which is what the detail endpoint has always returned.
+
+    Degrades the way `get_asset` does — a failed lookup yields 0 and a warning, never a 500 on
+    the list. Absent assets get 0, never null, so the column is always numeric.
+    """
+    blank = {"open_work_orders_count": 0, "compliance_gap_count": 0}
+    if not asset_ids:
+        return {}
+
+    wo_future = asyncio.to_thread(
+        lambda: supabase.table("operational_events")
+        .select("asset_id", count="exact")
+        .in_("asset_id", asset_ids)
+        .eq("event_type", "work_order_created")
+        .execute()
+    )
+    gap_future = asyncio.to_thread(
+        lambda: supabase.table("knowledge_conflicts")
+        .select("asset_id", count="exact")
+        .in_("asset_id", asset_ids)
+        .eq("status", "open")
+        .execute()
+    )
+    wo_result, gap_result = await asyncio.gather(wo_future, gap_future, return_exceptions=True)
+
+    counts: dict[str, dict[str, int]] = {aid: dict(blank) for aid in asset_ids}
+    for field, result in (("open_work_orders_count", wo_result), ("compliance_gap_count", gap_result)):
+        if isinstance(result, BaseException):
+            log.warning("asset.list_counts_failed", field=field, error=str(result))
+            continue
+        rows = result.data or []
+        # PostgREST caps rows server-side (`db-max-rows`). A silent cap would undercount every
+        # asset on the page, so compare against the exact count and say so rather than serve a
+        # number that looks fine and is wrong.
+        if result.count is not None and len(rows) < result.count:
+            log.warning(
+                "asset.list_counts_truncated",
+                field=field, returned=len(rows), total=result.count,
+            )
+        for row in rows:
+            aid = row.get("asset_id")
+            if aid in counts:
+                counts[aid][field] += 1
+    return counts
+
+
 @router.get("/", summary="List all registered assets")
 async def list_assets(
     current_user: CurrentUserDep,
     driver: Neo4jDep,
+    supabase: SupabaseDep,
     site_id: str | None = Query(None),
     equipment_class: str | None = Query(None),
     limit: int = Query(50, le=500),
@@ -338,7 +399,13 @@ async def list_assets(
         skip=offset,
         limit=limit,
     )
-    return {"items": result["assets"], "total": result["total"], "limit": limit, "offset": offset}
+    assets = result["assets"]
+    counts = await _issue_counts(supabase, [a["asset_id"] for a in assets if a.get("asset_id")])
+    items = [
+        {**a, **counts.get(a.get("asset_id"), {"open_work_orders_count": 0, "compliance_gap_count": 0})}
+        for a in assets
+    ]
+    return {"items": items, "total": result["total"], "limit": limit, "offset": offset}
 
 
 # NOTE: must stay ABOVE "/{asset_id}" — FastAPI matches in declaration order, so a later

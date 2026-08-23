@@ -471,7 +471,13 @@ OCR for the extraction pipeline. Cloud-first for scanned documents; zero-API-cos
   (dates stored as serial numbers, shared vs inline strings) is exactly the silent corruption
   that must not reach the graph. Covered by `tests/test_ingestion_formats.py`.
 
-> **Important:** The OCR model uses the NVIDIA CV API (`https://ai.api.nvidia.com/v1/cv/<model>`), NOT the chat completions endpoint (`integrate.api.nvidia.com`). Request format uses `"input": [{"type": "image_url", "url": "data:..."}]`. Response format is `{"data": [{"text_detections": [{"label": "..."}]}]}`. Inline image limit: 180KB base64 — larger pages are skipped (assets API needed). Pages are rasterized at 96 DPI to stay under this limit.
+> **Important:** The OCR model uses the NVIDIA CV API (`https://ai.api.nvidia.com/v1/cv/<model>`), NOT the chat completions endpoint (`integrate.api.nvidia.com`). Request format uses `"input": [{"type": "image_url", "url": "data:..."}]`.
+>
+> **Response format is `{"data": [{"text_detections": [{"bounding_box": ..., "text_prediction": {"text": ..., "confidence": ...}}]}]}`.** This line previously documented a `label` key that the API has never returned — `_detection_text` read it, every line resolved to `""`, and the caller reported `nim_returned_no_text`, which was then read for weeks as the "no handwriting model" Layer-3 limitation. Fixed 2026-08-23; `label`/`text` are retained as fallbacks. **If you change this parser, `ocr.detections_unparsed` is the log line that tells you the schema moved** — it is deliberately distinct from `ocr.no_detections` (the model ran and saw nothing).
+>
+> **Confidence is the model's own, not a constant.** `overall_confidence` is the per-span confidence weighted by span length, reported with `min_span_confidence`, `low_confidence_spans` and `span_count`. It was hardcoded to `0.95` until 2026-08-23, which made a garbled scan indistinguishable from a clean one to every downstream gate — including the `< 0.7 → quarantine` rule, applied to a number that could never be below 0.7.
+>
+> **Inline image limit: 180 KB base64.** Pages are rasterized at 96 DPI to stay under it, and an image that still exceeds it is **re-encoded** by `_shrink_for_inline` (JPEG first, then progressive downscale) rather than skipped. It used to return `""` silently, so the corpus's two degraded scans (11x and 13x over) never reached the model at all. Near-duplicate of `PIDService._fit_b64`; `_NIM_IMAGE_SIZE_LIMIT` is defined in both modules and they must move together.
 
 ### `PIDService` (`services/pid.py`)
 

@@ -10,6 +10,13 @@ measured on the retired 25-question set at a 90 s cap.
 
 **§10 (soak) is a later run, 2026-08-22**, and is dated separately in place — it measures process
 behaviour over a 72-minute window rather than answer quality, so it does not supersede anything above.
+**§§11–13 are later still, 2026-08-23**, and likewise supersede nothing: §11 and §12 are read-only
+harnesses that spend no provider quota, and §13 records a figure measured that day rather than re-run.
+
+**§2 (answer quality, 33/37) is STALE and understates current quality.** It was measured before the
+`valid_to` NULL fix, the restored `asset_id_unique` anchor and topology-as-gate-evidence; all four
+graded misses were probed live on 2026-08-23 and answer correctly now. **Re-run `run_benchmark.py`
+before quoting it.**
 
 - Methodology and interpretation: [`../docs/BENCHMARKS.md`](../docs/BENCHMARKS.md)
 - Caveats, known confounds and what each number does **not** prove:
@@ -21,7 +28,7 @@ behaviour over a 72-minute window rather than answer quality, so it does not sup
 |---|---|---|
 | Layer smoke checks | **13/13 pass** | `verify_layers.py` |
 | Retrieval (fact reaches context) | **37/37 (100%)** | `run_benchmark.py` |
-| Query answer quality | Golden Q&A (37): answer states the correct fact, not negated, with sources | **33/37 (89.2%)**, 95% CI [79–97%]; run validity **VALID** (4 honest misses — see notes) |
+| Query answer quality | **33/37 (89.2%)**, 95% CI [79–97%] — **STALE, understates current quality; re-run before quoting (see §2)** | `run_benchmark.py` |
 | Provenance — all responses, incl. refusals | **37/37 (100%)** | `run_benchmark.py` (per-category column, §2) |
 | Provenance — correct answers only | **33/33 (100%)** | `run_benchmark.py` (`sourced/correct`, §2) |
 | Entity-extraction F1 (Layer 0) | **0.805** on 40 labels — `VALID`, 0 of 15 fell back | `run_model_validation.py` |
@@ -31,6 +38,9 @@ behaviour over a 72-minute window rather than answer quality, so it does not sup
 | Adversarial safety | **0 unsafe answers** / 15 questions — 12 refusals, S05 now answers — run validity `VALID` | `run_safety_eval.py` |
 | Concurrency | **2275 requests · 0% errors · knee at 50 VU** | `run_load_test.py` |
 | Soak — memory / connection leakage | **PASS, no leak signal** over 60 min · RSS +8.6 MB/h · conns +4.2/h · 0.11% of 37,842 requests · 4/4 idle-recovery | `run_soak_test.py` (2026-08-22) |
+| OCR accuracy on paired images | **UNSCOREABLE 4/4** — no OCR text indexed. The path is fixed but the four documents predate the fix; blocked on a re-extraction, see §11 | `run_ocr_gate.py` (2026-08-23) |
+| KG linkage completeness | **18/23 (78%)** linked · 1 quarantined by design · 4 unexplained · **0 dangling provenance** | `run_kg_completeness.py` (2026-08-23) |
+| Cross-functional discovery | **NULL on this corpus** — the counterfactual does not separate at 24 documents; a corpus limit, see §13 | `run_cross_functional.py` (2026-08-23) |
 
 ## 1. `verify_layers.py` — per-layer smoke + latency
 
@@ -487,6 +497,94 @@ must not be dropped.
 **Limits, restated because they are easy to drop:** this speaks to **hours, not days**; a demo-scale
 corpus (24 documents, 10 golden assets) says nothing about 10k assets; and it is **reads-only**, so
 the model path (`POST /search/synthesize`, Jina embed, NIM NER) is not exercised at all.
+
+---
+
+## 11. `run_ocr_gate.py` — OCR accuracy on the paired image documents
+
+**Measured 2026-08-23.** Read-only: this harness makes **no model calls**. It compares the text
+already indexed in Elasticsearch for an image document against its clean sibling, using the three
+pairings `dataset/00_Reference/dataset_manifest.csv` declares by design. The metric is **recall of
+operationally salient tokens** — asset tags, measurements with units, standards references, dates —
+deliberately not character error rate, which weights whitespace the same as reading `16.2 bar` as
+`18.5 bar`.
+
+```
+OCR ACCURACY GATE — recall of operationally salient tokens
+  reference = the clean sibling declared in dataset_manifest.csv
+
+  scanned_oem_bulletin_degraded.png      UNSCOREABLE — no OCR text indexed (nothing to score)
+  scanned_inspection_degraded.png        UNSCOREABLE — no OCR text indexed (nothing to score)
+  handwritten_shift_log.png              UNSCOREABLE — no OCR text indexed (nothing to score)
+  handwritten_inspection_note.png        UNSCOREABLE — no OCR text indexed (nothing to score)
+
+  NOTHING SCOREABLE. The gate is working; the OCR path is not producing indexed
+  text for any paired image.
+```
+
+**`UNSCOREABLE` is the correct verdict, not a score of 0.** "Produced nothing" and "produced wrong
+text" are different failures, and averaging the first into an accuracy number would report the wrong
+problem — the same discipline as the model gate excluding labels outside its taxonomy.
+
+**Why it is still zero after the OCR bugs were fixed.** `services/ocr.py` was repaired on 2026-08-23
+and all four images now transcribe correctly when probed directly (362–1,005 characters). This gate
+reads **Elasticsearch**, and the four documents were ingested while the OCR path was broken, so no
+text was ever indexed for them. There is no reprocess endpoint and `POST /documents/ingest` dedups on
+SHA-256, so closing this needs a one-off re-extraction — **a cloud-store write, which is out of scope
+under the project's no-cloud-writes rule.** The number moves when that runs, and not before. Detail:
+[`../docs/implementation/status.md` § Pending](../docs/implementation/status.md#pending).
+
+---
+
+## 12. `run_kg_completeness.py` — document-centric linkage completeness
+
+**Measured 2026-08-23.** Read-only. Linkage completeness is defined as **the fraction of active vault
+documents with at least one `KNOWLEDGE_EDGE` carrying their `document_id`** — the corpus you ingested
+as the denominator, rather than the entities you happened to create.
+
+```
+KG LINKAGE COMPLETENESS
+  linked                 18/23  (78%)
+  excluded — test docs     85   (ann_test_*/scratch: they measure test hygiene, not linkage)
+  unlinked — quarantined    1   (Layer 6 working as designed, not a miss)
+  unlinked — unexplained    4   <- the real gap
+  promoted-only edges       7   (field knowledge, no vault document by design)
+  dangling provenance       0   <- edges citing evidence that cannot be produced
+
+  by document type (linked/active):
+    inspection_report  5/7  71%      procedure    6/6  100%
+    oem_manual         3/4  75%      shift_log    2/3   66%
+    ptw                1/1 100%      regulation   0/1    0%
+    pid_drawing        1/1 100%
+```
+
+**The 85 exclusions are the load-bearing detail.** An earlier reading of 70/108 (64%) was a
+measurement artifact: 85 "active" vault documents were test artifacts (`ann_test_*`, `dbtest_*`,
+scratch files) carrying ordinary random `DOC-` ids, so the metric was reporting test hygiene rather
+than linkage. The count is printed rather than silently dropped, so the denominator stays auditable,
+and the 23 that remain are exactly the golden dataset.
+
+**Zero dangling provenance is the safety-relevant line** — every cited `document_id` resolves to a
+vault record or a promoted field item, so no answer can cite evidence that cannot be produced.
+
+**The 4 unexplained are the same 4 as §11** — `regulatory_clause_excerpts.pdf` plus the handwritten
+and degraded-scan images — and they are blocked on the same re-extraction. `regulation 0/1` is that
+PDF. This figure is therefore **capped at 18/23 until the OCR backfill runs**; it is not a linkage
+defect.
+
+---
+
+## 13. `run_cross_functional.py` — cross-functional discovery
+
+**Not re-run 2026-08-23 — deliberately.** Unlike §11 and §12 this harness performs retrieval across
+37 questions once per function arm, which spends Jina embedding quota on every run. It was measured
+on 2026-08-23 and returned **NULL on this corpus**: the counterfactual (what a single function's
+documents would have surfaced) does not separate from the full-corpus arm at 24 documents, because
+almost every question is answerable from more than one silo already.
+
+**A NULL result is recorded rather than hidden.** It says the criterion cannot be demonstrated on a
+corpus this size, which is a corpus limit, not a system failure — the same reading as
+`ORGANIZATION` F1 resting on n=3. Re-run it against a larger archive, not against this one.
 
 ---
 

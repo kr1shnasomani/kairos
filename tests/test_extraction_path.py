@@ -139,3 +139,122 @@ def test_organisation_label_matches_the_schema_spelling():
     create a second, unconstrained label that looks identical in query output."""
     assert "Organisation" in GraphService._LABEL_ID_FIELD
     assert "Organization" not in GraphService._LABEL_ID_FIELD
+
+
+# --- CV-API response parsing and the inline size ceiling -------------------------------------
+# Both of these failed by returning "", which is how a wrong dict key spent weeks being read as
+# the documented "no handwriting model" limitation. The assertions below are about the two
+# failures staying distinguishable, not just about a happy path.
+
+import base64  # noqa: E402
+
+from api.services.ocr import _NIM_IMAGE_SIZE_LIMIT  # noqa: E402
+
+
+def test_detection_text_reads_the_live_cv_schema():
+    """`text_prediction.text` is what the CV API actually returns — the original bug."""
+    detection = {"bounding_box": [0, 0, 10, 10], "text_prediction": {"text": "EQ-101", "confidence": 0.91}}
+    assert OCRService._detection_text(detection) == "EQ-101"
+
+
+def test_detection_text_keeps_the_older_keys_as_fallbacks():
+    assert OCRService._detection_text({"label": "PT-204"}) == "PT-204"
+    assert OCRService._detection_text({"text": "16.2 bar"}) == "16.2 bar"
+
+
+def test_detection_text_prefers_text_prediction_over_a_stale_key():
+    detection = {"label": "wrong", "text_prediction": {"text": "right"}}
+    assert OCRService._detection_text(detection) == "right"
+
+
+def test_detection_text_is_empty_for_shapes_it_cannot_read():
+    """Must return "", never raise — a schema change should log, not 500 the pipeline."""
+    for junk in ({}, {"text_prediction": None}, {"text_prediction": {}}, None, "string", 7):
+        assert OCRService._detection_text(junk) == ""
+
+
+def _png_bytes(width: int, height: int) -> bytes:
+    """Incompressible noise — worst case for the encoder, so the scaling path is really exercised."""
+    import io as _io
+    import os as _os
+
+    from PIL import Image
+
+    img = Image.frombytes("RGB", (width, height), _os.urandom(width * height * 3))
+    buf = _io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_oversized_image_is_re_encoded_under_the_inline_limit():
+    """The degraded scans are 11-13x over; before this they never reached the model at all."""
+    raw = _png_bytes(900, 900)
+    assert len(base64.b64encode(raw)) > _NIM_IMAGE_SIZE_LIMIT, "fixture must exceed the limit"
+
+    shrunk = OCRService._shrink_for_inline(raw)
+    assert shrunk is not None, "a real image must be re-encodable, not dropped"
+    data, mime = shrunk
+    assert mime == "image/jpeg"
+    assert len(base64.b64encode(data)) <= _NIM_IMAGE_SIZE_LIMIT
+
+
+def test_an_image_already_under_the_limit_survives_re_encoding():
+    data, mime = OCRService._shrink_for_inline(_png_bytes(80, 80))
+    assert mime == "image/jpeg"
+    assert len(base64.b64encode(data)) <= _NIM_IMAGE_SIZE_LIMIT
+
+
+def test_shrink_returns_none_for_bytes_that_are_not_an_image():
+    """None means "say so"; the caller logs and returns "" rather than crashing the pipeline."""
+    assert OCRService._shrink_for_inline(b"not an image at all") is None
+
+
+# --- model-reported confidence ----------------------------------------------------------------
+# `overall_confidence` was hardcoded to 0.95 for every OCR extraction, so a badly garbled scan and
+# a clean one were indistinguishable to every downstream gate — and CLAUDE.md's `< 0.7 -> quarantine`
+# rule was being applied to a number that could never be below 0.7. These pin the real signal.
+
+
+def test_detection_span_carries_the_models_own_confidence():
+    span = OCRService._detection_span(
+        {"text_prediction": {"text": "16.2 bar", "confidence": 0.91}}
+    )
+    assert span == ("16.2 bar", 0.91)
+
+
+def test_missing_confidence_defaults_to_zero_never_to_a_flattering_constant():
+    """An unknown confidence must not be able to lift a document over the quarantine threshold."""
+    for detection in ({"text_prediction": {"text": "PT-204"}},
+                      {"label": "PT-204"},
+                      {"text_prediction": {"text": "x", "confidence": "high"}}):
+        text, confidence = OCRService._detection_span(detection)
+        assert text
+        assert confidence == 0.0
+
+
+def test_weighted_confidence_is_length_weighted_not_a_plain_mean():
+    """A long garbled line must move the number more than a two-character margin mark."""
+    spans = [("a" * 100, 0.5), ("b", 1.0)]
+    weighted = OCRService._weighted_confidence(spans)
+    plain = (0.5 + 1.0) / 2
+    assert weighted < plain
+    # tolerance matches the implementation's 4-dp rounding, not float epsilon
+    assert abs(weighted - (100 * 0.5 + 1 * 1.0) / 101) < 1e-4
+
+
+def test_weighted_confidence_of_nothing_is_zero_not_one():
+    assert OCRService._weighted_confidence([]) == 0.0
+
+
+def test_weighted_confidence_separates_the_corpus_documents():
+    """
+    Regression guard on the measured spread (2026-08-23, live CV probe). The clean handwritten
+    note and the worst degraded scan must not land on the same side of the quarantine threshold.
+    """
+    clean = [("SHIFT LOG - PRODUCTION UNIT 2", 0.913), ("Date: 15-Jan-2026", 0.903),
+             ("EQ-101 pump sounded a bit different tonight", 0.895)]
+    garbled = [("FISCHER PUMPS LTD..-SERVICE BULLETIN", 0.843),
+               ("Issue date: 202--01-15 SSperredess none", 0.253),
+               ("Distribution: Al operetors of EO-xxx series", 0.402)]
+    assert OCRService._weighted_confidence(clean) > 0.85
+    assert OCRService._weighted_confidence(garbled) < OCRService._weighted_confidence(clean)

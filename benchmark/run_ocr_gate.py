@@ -13,9 +13,15 @@ The metric is **recall of operationally salient tokens** — asset tags, measure
 standards references, dates — not character error rate. See `api/services/ocr_gate.py` for why.
 
 COST
-  One OCR call per image (4 images) against NIM Nemotron. Small, but it is model quota: do not
-  run this concurrently with `run_benchmark.py`, which pace-limits itself to stay on NIM and
-  reports INVALID if any question hits a 429.
+  **Zero model calls. This harness is read-only.** It compares text already indexed in
+  Elasticsearch — the image document's against its clean sibling's — and touches Supabase only with
+  a SELECT on `documents`. It is free to run and safe to run alongside anything.
+
+  The corollary is the part that matters: **fixing `services/ocr.py` does not change this gate's
+  output on its own.** The gate reads what ingestion already indexed, so a document ingested while
+  OCR was broken stays UNSCOREABLE until its text is re-extracted and re-indexed. There is no
+  reprocess endpoint, and `POST /documents/ingest` dedups on SHA-256, so re-uploading the same bytes
+  returns `{"status": "duplicate"}` and does nothing.
 
 REPORTS, DOES NOT BLOCK
   Consistent with `MODEL_GATE_ENFORCE=False`: this prints numbers and exits 0 even on a poor

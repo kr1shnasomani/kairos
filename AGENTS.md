@@ -6,6 +6,31 @@
 **2. Match your domain in the table below and invoke ALL listed skills before writing code.** Skills are orders, not suggestions.  
 **3. Read every file you will touch. Trace the full call chain.**
 
+> ## 🛑 NEVER WRITE TO A CLOUD STORE
+>
+> **Do not create, modify or delete data in Supabase, Neo4j Aura, Qdrant Cloud or Elasticsearch —
+> ever — without the user explicitly asking for that specific write in that specific session.**
+> These hold the **golden dataset**, every benchmark figure is measured against it, and there is no
+> backup. "It's just a backfill / re-index / one-off script" is exactly the thing this forbids.
+>
+> This is **stricter** than the older "Vault: never delete" and "tests: local stores only" rules
+> below, which cover narrower cases and have been mistaken for the whole rule.
+>
+> **Reads are fine.** So are: the service-free test tier, anything under
+> `-e KAIROS_SKIP_TEST_CLEANUP=1`, and the read-only harnesses (`run_ocr_gate.py`,
+> `run_kg_completeness.py`). `tests/conftest.py` runs `purge_test_data.py` as an **autouse session
+> teardown** — always pass `KAIROS_SKIP_TEST_CLEANUP=1` unless you have decided otherwise on purpose.
+>
+> Consequence you must accept rather than fix: some numbers are pinned below their true value
+> because closing the gap needs a write. See
+> [`status.md` § Open decisions](docs/implementation/status.md#open-decisions--blocked-on-a-human-call-not-on-work) — **D2**.
+
+> **Picking up this project fresh? Start at
+> [`status.md` § Open decisions](docs/implementation/status.md#open-decisions--blocked-on-a-human-call-not-on-work).**
+> Those items are specified and cheap — they are waiting on a human call, not on engineering, so
+> they are the wrong thing to "just implement" and the right thing to ask about. **D1 (what makes an
+> OCR extraction quarantine) is the only open item with a data-integrity consequence.**
+>
 > **Hit a bug, a build failure, or something that looks wrong?** Check
 > [`docs/implementation/status.md` § Known Pitfalls](docs/implementation/status.md#known-pitfalls)
 > **before debugging** — it is almost certainly already documented there. That file also holds open
@@ -88,8 +113,8 @@ Full manifest with descriptions: `.agents/SKILL_MANIFEST.md`
 Full list: `docs/INFRA.md §9`. Reset: `make nuke → dev → init-all → seed → load-dataset`. Gotcha rebuilds: `--no-deps --build kairos-frontend` (new npm deps) · `--force-recreate kairos-backend-api` (NIM env).
 
 **Tests — Docker only, never the host.** Host package resolution differs from the pinned images and produces false results.
-- Service-free tier (**348 tests**, 32 files, no stack/secrets/network — CI's `unit` job runs exactly this list):
-  `docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ner_parse,superseded_filter,brief_signing,attribution_evidence,authz_boundary,brief_paging,asset_bulk_import,quarantine_item_id,purge_safety,synthesis_stream,graph_query_policy,event_reorder,supply_chain,form_extraction,cross_functional}.py`
+- Service-free tier (**374 tests**, 33 files, no stack/secrets/network — CI's `unit` job runs exactly this list):
+  `docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-api pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ner_parse,superseded_filter,brief_signing,attribution_evidence,authz_boundary,brief_paging,asset_bulk_import,quarantine_item_id,purge_safety,synthesis_stream,graph_query_policy,event_reorder,supply_chain,form_extraction,cross_functional,offboarding_session_id}.py`
 - Full suite (needs the stack; **local stores only, never cloud**): `docker exec kairos-backend-api python -m pytest tests/ -q --timeout=120`
 
 ---
@@ -111,6 +136,7 @@ Full list: `docs/INFRA.md §9`. Reset: `make nuke → dev → init-all → seed 
 ### Backend
 - **Neo4j edges — all 6 on every write:** `valid_from · valid_to · authority_level · document_id · confidence · verification_status`. `valid_to` uses sentinel `9999-12-31`, never NULL.
 - Vault: permanent. Never delete. Supersede by closing `valid_to`. Supabase Storage: immutable.
+  **This is the narrow case — the broad rule is 🛑 NEVER WRITE TO A CLOUD STORE at the top of this file.**
 - Quarantine: one-way gate. `confidence < 0.7` → quarantine. Human-only promotion. No auto-promote.
 - Assets: `MERGE (a:Asset {asset_id: $id}) SET a += $props` — never CREATE.
 - Phase 2 synthesis **only** in `POST /search/synthesize`, never auto-triggered. It derives `query_category` when omitted, so the safety gate applies to every caller. The gate clears on confidence ≥ 0.7 **or** authority ≤ 3, and runs **twice** — on the evidence, then on the result.
@@ -131,6 +157,14 @@ Full list: `docs/INFRA.md §9`. Reset: `make nuke → dev → init-all → seed 
 - **Site scope comes from the token, never the query string** — `dependencies.site_scope`. A blank `site_id` means *no* rows, not *all* rows.
 
 ### Both
+- **NEVER modify or delete data in a cloud store.** Supabase (`ernffgrvdcikwwhkhiix`), Neo4j Aura and
+  Qdrant Cloud hold the demo/golden data and have **no local equivalent** — `docker-compose.yml` has
+  no local Supabase (its one postgres is Temporal's), so a bad delete is unrecoverable. Reads are
+  fine. Standing user instruction, 2026-08-23. Two traps: (1) `backend/scripts/purge_test_data.py`
+  runs as an **autouse session fixture** (`tests/conftest.py`), so merely adding a table to
+  `SUPABASE_TARGETS` arms an irreversible cloud delete on the next suite run — no one has to invoke
+  it; (2) the **full test suite writes heavily to cloud Supabase**. Only the service-free tier is
+  safe to run. Propose cleanup as a dry run and stop — the deletion is the user's call.
 - Root-cause errors — one fix in the shared function beats guards at every caller.
 - `structlog` only. Never `print()`, never stdlib `logging`.
 - Routers thin: handler → service → result. No business logic in routers.

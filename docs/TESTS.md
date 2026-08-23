@@ -6,7 +6,7 @@ All tests run **inside Docker**. There is no host shortcut: host package resolut
 the pinned images and produces false results — `auth.test.ts` and `api.test.ts` fail on the host
 and pass in the container. A host run will lie to you.
 
-### Tier 1 — service-free (348 tests, no stack, no secrets, no network)
+### Tier 1 — service-free (374 tests, no stack, no secrets, no network)
 
 These need nothing running. This is what CI's `unit` job executes on every push.
 
@@ -15,10 +15,10 @@ docker compose run --rm --no-deps -e KAIROS_SKIP_TEST_CLEANUP=1 kairos-backend-a
   pytest -q tests/test_{pii,query_category,search_fusion,ingestion_formats,http_pool,\
 model_validation,pid,auth_cache,config_guardrail,briefs_countersign,topology_verify,\
 ot_coverage,phase_gate,extraction_path,timestamp_alignment,model_gate_classes,ner_parse,\
-superseded_filter,brief_signing,attribution_evidence,authz_boundary,brief_paging,asset_bulk_import,quarantine_item_id,purge_safety,synthesis_stream,graph_query_policy,event_reorder,supply_chain,form_extraction,cross_functional}.py
+superseded_filter,brief_signing,attribution_evidence,authz_boundary,brief_paging,asset_bulk_import,quarantine_item_id,purge_safety,synthesis_stream,graph_query_policy,event_reorder,supply_chain,form_extraction,cross_functional,offboarding_session_id}.py
 ```
 
-All **32** files, **348 tests**. `test_attribution_evidence.py` (12 tests) covers the pure
+All **33** files, **374 tests**. `test_attribution_evidence.py` (12 tests) covers the pure
 decision functions `_attribute` and `_classify_attestation` in `workers/attribution.py`,
 including the brownfield regression that `genuine_failure` was unreachable on uninstrumented assets.
 `test_authz_boundary.py` (41 tests) covers the trust boundary — which routes are policy-enforced,
@@ -31,6 +31,11 @@ the page is trimmed *before* pushes are recorded so an off-page brief cannot spe
 budget, and `delivered + frozen_page` never exceeds `limit`.
 `test_quarantine_item_id.py` (10 tests) covers `dependencies.valid_quarantine_item_id` and
 asserts all four quarantine-by-id routes are wired to it.
+`test_offboarding_session_id.py` (14 tests) covers `routers/elicitation._session_uuid` and pins
+the fix for the off-boarding 500s: `offboarding_sessions.id` is a UUID column, so an unparseable
+path segment reached PostgREST as 22P02 and surfaced as a 500 on a public route. It also asserts
+no off-boarding handler has gone back to `.single()` — that raises PGRST116 on zero rows, which
+made each handler's own 404 unreachable and turned every unknown programme into a 500.
 `test_purge_safety.py` (24 tests) asserts no purge prefix or exact id can match a real id —
 including `WO-2026-0714`, whose promoted item the compliance caveat cites — that every prefix
 ends in `-`, and that nothing sits in both a prefix and an `_EXACT` list.
@@ -84,7 +89,7 @@ docker exec kairos-backend-api python scripts/seed_users.py
 
 | Job | Needs | Behaviour |
 |---|---|---|
-| `unit` | nothing | Runs the 348 service-free tests on every push and fork PR, plus the benchmark grader selftest. Must stay green. |
+| `unit` | nothing | Runs the 374 service-free tests on every push and fork PR, plus the benchmark grader selftest. Must stay green. |
 | `integration` | `--profile local-stores` + a **throwaway** `CI_SUPABASE_*` project | Runs the full suite. **Skips with exit 0** when `CI_SUPABASE_URL` is unset, so a missing optional credential is never a red build. |
 
 Neo4j, Qdrant, Elasticsearch and Redis run as local containers in CI, so Aura and Qdrant Cloud
@@ -108,7 +113,7 @@ gh secret set GROQ_API_KEY
 > NIM → OpenRouter → Gemini cascade, and elicitation calls the LLM. Gemini's free tier is a few hundred requests/day and
 > is shared with the benchmark harnesses, so a busy day of pushes exhausts it; once it 429s,
 > synthesis silently returns no answer and *measured answer quality collapses* (observed:
-> 24/25 → 13/25). Tier-1 gives 348 green tests with **zero** provider calls, which is the
+> 24/25 → 13/25). Tier-1 gives 374 green tests with **zero** provider calls, which is the
 > signal CI should be providing. Enable tier 2 only for a deliberate pre-release run, against
 > a throwaway Supabase project.
 
@@ -172,12 +177,14 @@ tests/                        ← project root (NOT inside backend/)
   test_supply_chain.py        ← ARCHITECTURE §8: served model matches the pin; submission outliers
   test_form_extraction.py     ← form fields reach quarantine ONLY; never a KNOWLEDGE_EDGE
   test_cross_functional.py    ← the function mapping is complete; an unmapped type inflates the result
+  test_offboarding_session_id.py ← UUID path params 404 rather than 500 (`maybe_single`, not `single`)
 pytest.ini                    ← project root
 ```
 
-Suite size: **412 tests collected** (`pytest tests/ --collect-only`, 2026-08-22). The last full green
-run was ~175 passed · 3 skipped before ~116 tests were added, so that figure is superseded — re-run
-tier 2 against local stores for a current pass count. **1 known transient flake**
+Suite size: **509 tests collected** across 46 files (`pytest tests/ --collect-only`, 2026-08-23).
+The last full green run was **412 passed · 0 failed** (2026-08-22) and is **superseded** — 97 tests
+have landed since. **There is no current full-suite pass count**: re-run tier 2 against local stores
+to get one, and do not quote 412 as a pass figure for the present tree. **1 known transient flake**
 (`test_briefs.py::test_attribution_worker_queues_recheck` — a work-order POST occasionally 500s under
 concurrent load; passes deterministically in isolation).
 

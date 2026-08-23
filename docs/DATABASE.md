@@ -260,6 +260,15 @@ event_subtype    TEXT          -- migration 012: 'recurring' when recurring fail
 ```
 Indices: `event_type`, `asset_id`, `occurred_at DESC`, `compound_event_id`
 
+> **There is no `priority` column here.** `GET /events` derives it from `payload.priority` and
+> defaults to `"normal"` when the key is absent (`routers/events.py`), so priority is unconstrained
+> JSONB — no CHECK, no default, and present on only a subset of rows. `models/event.py` documents
+> `critical, high, normal, low` on `WorkOrderEvent`, but nothing enforces that at the database.
+> A UI filter must therefore derive its options from the data present rather than hard-code the
+> four levels, or it renders dead options. (The `priority TEXT NOT NULL DEFAULT 'normal'` in
+> `db/schema.sql` belongs to **`briefs`**, not to this table — an easy misread, and one that has
+> already produced a wrong bug report.)
+
 #### `briefs` — Proactive brief delivery log
 ```sql
 brief_id          UUID PRIMARY KEY

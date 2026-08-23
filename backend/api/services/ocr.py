@@ -23,6 +23,10 @@ log = structlog.get_logger(__name__)
 _NIM_CV_BASE = "https://ai.api.nvidia.com/v1/cv"
 _NIM_IMAGE_SIZE_LIMIT = 180_000  # base64 chars; larger images need the assets API
 
+# A span the model itself does not trust. Matches the `< 0.7` quarantine threshold in CLAUDE.md so
+# "the model is unsure about this text" and "this knowledge needs a human" mean the same number.
+_LOW_CONFIDENCE_SPAN = 0.7
+
 _TEXT_MIMES = ("text/plain", "text/markdown", "text/csv")
 
 # Spreadsheets: work-order exports, asset registries, inspection logs.
@@ -83,12 +87,14 @@ class OCRService:
             return self._empty("could_not_rasterize")
 
         blocks = []
+        spans: list[tuple[str, float]] = []
         for page_num, (img_bytes, img_mime) in enumerate(images):
-            page_text = await self._nim_ocr(img_bytes, img_mime)
+            page_text, page_spans = await self._nim_ocr(img_bytes, img_mime)
             if page_text:
+                spans.extend(page_spans)
                 blocks.append({
                     "text": page_text,
-                    "confidence": 0.95,
+                    "confidence": self._weighted_confidence(page_spans),
                     "page": page_num + 1,
                     "extraction_method": "nim_ocr",
                 })
@@ -97,10 +103,28 @@ class OCRService:
             return self._empty("nim_returned_no_text")
 
         full_text = "\n".join(b["text"] for b in blocks)
+        confidence = self._weighted_confidence(spans)
+        weak = [c for _, c in spans if c < _LOW_CONFIDENCE_SPAN]
+        if weak:
+            # Not an error — a degraded scan legitimately transcribes badly in places. Logged so a
+            # document that reached the canonical graph on a passing average can still be traced.
+            log.warning("ocr.low_confidence_spans", weak=len(weak), total=len(spans),
+                        min_confidence=round(min(c for _, c in spans), 3),
+                        overall_confidence=round(confidence, 3))
         return {
             "text": full_text,
             "blocks": blocks,
-            "overall_confidence": 0.95,
+            # The model's own confidence, weighted by how much text each span carries — NOT the
+            # hardcoded 0.95 this used to report. That constant meant a badly garbled scan and a
+            # clean one were indistinguishable to every downstream gate, and the `< 0.7` quarantine
+            # rule was being applied to a number that could never be below 0.7.
+            "overall_confidence": confidence,
+            # A single average cannot express "4 of 22 spans are unreliable", and the dangerous
+            # failure here is one misread value (`16.2 bar` as `18.5 bar`), not a poor mean. These
+            # carry that shape to anything that wants to act on it.
+            "min_span_confidence": round(min((c for _, c in spans), default=0.0), 4),
+            "low_confidence_spans": len(weak),
+            "span_count": len(spans),
             "requires_review": False,
             "block_count": len(blocks),
             "extraction_method": "nim_ocr",
@@ -113,16 +137,37 @@ class OCRService:
             "handwriting_suspect": True,
         }
 
-    async def _nim_ocr(self, img_bytes: bytes, img_mime: str) -> str:
+    @staticmethod
+    def _weighted_confidence(spans: list[tuple[str, float]]) -> float:
+        """
+        Mean of the model's per-span confidence, weighted by span length.
+
+        Length-weighted rather than plain: a long garbled line should move the number more than a
+        two-character margin mark. Measured on the corpus this is what separates the documents —
+        plain mean rates the worst scan 0.805, weighted rates it 0.719, while the clean handwritten
+        notes stay at 0.90.
+        """
+        chars = sum(len(text) for text, _ in spans)
+        if not chars:
+            return 0.0
+        return round(sum(len(text) * conf for text, conf in spans) / chars, 4)
+
+    async def _nim_ocr(self, img_bytes: bytes, img_mime: str) -> tuple[str, list[tuple[str, float]]]:
+        """Returns (joined text, [(span text, span confidence), ...]) — empty on every failure."""
         if not self.api_key:
             log.error("ocr.no_nim_key", hint="Set NVIDIA_NIM_API_KEY in .env")
-            return ""
+            return "", []
 
         b64 = base64.b64encode(img_bytes).decode()
         if len(b64) > _NIM_IMAGE_SIZE_LIMIT:
-            log.warning("ocr.image_too_large", b64_len=len(b64), limit=_NIM_IMAGE_SIZE_LIMIT,
-                        hint="Use assets API for images >180KB base64")
-            return ""
+            shrunk = self._shrink_for_inline(img_bytes)
+            if shrunk is None:
+                log.error("ocr.image_too_large", b64_len=len(b64), limit=_NIM_IMAGE_SIZE_LIMIT,
+                          hint="Could not re-encode under the inline limit; use the NIM assets API")
+                return "", []
+            img_bytes, img_mime = shrunk
+            b64 = base64.b64encode(img_bytes).decode()
+            log.info("ocr.image_downscaled", b64_len=len(b64), limit=_NIM_IMAGE_SIZE_LIMIT, mime=img_mime)
 
         # CV API: model name in URL, "input" array (not chat messages format)
         url = f"{_NIM_CV_BASE}/{self.model}"
@@ -147,19 +192,112 @@ class OCRService:
             resp.raise_for_status()
             body = resp.json()
             # CV API response: {"data": [{"index": 0, "text_detections": [...]}]}
-            # Each detection has a "label" field with the detected text
             detections = body.get("data", [{}])[0].get("text_detections", [])
             if not detections:
+                # The model ran and saw no text. Distinct from the case below on purpose.
                 log.info("ocr.no_detections", model=self.model)
-                return ""
-            lines = [d.get("label") or d.get("text") or "" for d in detections]
-            return "\n".join(line for line in lines if line).strip()
+                return "", []
+            spans = [s for s in (self._detection_span(d) for d in detections) if s[0]]
+            text = "\n".join(s[0] for s in spans).strip()
+            if not text:
+                # Detections came back but none yielded text — a schema mismatch, not a blank page.
+                # This is the failure that hid the original bug: it used to be indistinguishable
+                # from "no detections", so a response-key change read as a model limitation.
+                log.error("ocr.detections_unparsed", model=self.model, detection_count=len(detections),
+                          observed_keys=sorted({k for d in detections[:3] if isinstance(d, dict) for k in d}),
+                          hint="text_detections present but no text field matched — CV schema changed?")
+            return text, spans
         except httpx.HTTPStatusError as exc:
             log.error("ocr.nim_error", status=exc.response.status_code, body=exc.response.text[:200])
-            return ""
+            return "", []
         except Exception as exc:
             log.error("ocr.nim_failed", error=str(exc))
+            return "", []
+
+    @staticmethod
+    def _detection_text(detection: Any) -> str:
+        """
+        Pull the text out of one CV-API detection.
+
+        The live response keys each detection `{"bounding_box": ..., "text_prediction": {"text": ...}}`.
+        This used to read `label` or `text`, which the response has never carried, so every line
+        resolved to "" and the caller reported `nim_returned_no_text` — read ever since as the
+        documented "no handwriting model" limitation. It was a key name: the model transcribes the
+        corpus's handwritten notes at 0.91 confidence. `label`/`text` stay as fallbacks so a future
+        schema does not re-break this silently.
+        """
+        if not isinstance(detection, dict):
             return ""
+        prediction = detection.get("text_prediction")
+        if isinstance(prediction, dict) and prediction.get("text"):
+            return str(prediction["text"])
+        for key in ("label", "text"):
+            if detection.get(key):
+                return str(detection[key])
+        return ""
+
+    @classmethod
+    def _detection_span(cls, detection: Any) -> tuple[str, float]:
+        """
+        One detection as (text, confidence).
+
+        Confidence defaults to 0.0 when the response omits it, never to a flattering constant: an
+        unknown confidence must not be able to lift a document over the quarantine threshold.
+        """
+        text = cls._detection_text(detection)
+        confidence = 0.0
+        if isinstance(detection, dict):
+            prediction = detection.get("text_prediction")
+            if isinstance(prediction, dict) and isinstance(prediction.get("confidence"), (int, float)):
+                confidence = float(prediction["confidence"])
+        return text, confidence
+
+    @staticmethod
+    def _shrink_for_inline(img_bytes: bytes) -> tuple[bytes, str] | None:
+        """
+        Re-encode an oversized image to fit the CV API's inline base64 ceiling.
+
+        Returning "" was previously the entire behaviour, so the corpus's two degraded scans (11x
+        and 13x over the limit) never reached the model at all and were reported as "no text" —
+        an encoding limit wearing a model verdict's clothes.
+
+        JPEG first, dimensions second: these are photographic scans, where re-encoding buys far more
+        than dropping resolution, and resolution is what the OCR model actually needs. Returns None
+        if even the smallest step does not fit, so the caller can say so rather than guess.
+
+        NOTE — near-duplicate of `PIDService._fit_b64` (`services/pid.py`), which solved the same
+        problem for Path B and is why that path never hit this bug. Deliberately not merged here:
+        that path is live-validated and out of scope for this fix. Two differences matter if they
+        are ever consolidated — this one tries an unscaled JPEG **first** (which alone took the
+        corpus's 11.3x-over scan from 2,027,896 to 102,628 base64 chars, costing no resolution,
+        where `_fit_b64` starts at 0.85 and always resizes), and it returns raw bytes rather than
+        an encoded string. `_NIM_IMAGE_SIZE_LIMIT` is likewise defined in both modules.
+        """
+        try:
+            from PIL import Image
+        except Exception as exc:  # Pillow is a hard dependency; treat absence as loud, not silent
+            log.error("ocr.pillow_unavailable", error=str(exc))
+            return None
+        try:
+            img = Image.open(io.BytesIO(img_bytes))
+            img.load()
+            img = img.convert("RGB")  # JPEG carries no alpha channel
+            for scale in (1.0, 0.75, 0.5, 0.35, 0.25):
+                candidate = img if scale == 1.0 else img.resize(
+                    (max(1, round(img.width * scale)), max(1, round(img.height * scale))),
+                    Image.LANCZOS,
+                )
+                buf = io.BytesIO()
+                candidate.save(buf, format="JPEG", quality=85, optimize=True)
+                data = buf.getvalue()
+                # base64 expands 3 bytes to 4; compute rather than encode, to avoid building a
+                # multi-megabyte string per attempt just to measure it.
+                if 4 * ((len(data) + 2) // 3) <= _NIM_IMAGE_SIZE_LIMIT:
+                    return data, "image/jpeg"
+            return None
+        except Exception as exc:
+            log.error("ocr.downscale_failed", error=str(exc))
+            return None
 
     def _extract_native_pdf(self, pdf_bytes: bytes) -> dict[str, Any]:
         try:

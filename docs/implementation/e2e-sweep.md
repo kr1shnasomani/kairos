@@ -142,10 +142,14 @@ quarantine by design), and an MDM registration (probe assets purged from Supabas
 | 38 `/field/voice` capture | Spends Groq transcription quota. The path is proven end-to-end elsewhere in this file (upload → SHA-256 dedup → vault → Whisper → quarantine `voice_note`, never auto-promoted). |
 | 110 horizontal scroll on the remaining routes | Genuinely a browser check — no API stands in for layout. Three routes were checked at 375 px; the rest were not. |
 
-**One gap found and recorded, not fixed** (out of scope for a verification pass): `GET /assets/{id}`
-reads the Neo4j node, which carries `identity_confirmed` but not `identity_confirmed_by`/`_at`. The
-human attribution *is* stored (Supabase `assets` + `audit_log`) — it is simply not surfaced by the
-read API, so a UI cannot show who confirmed an identity.
+**One gap found here, since fixed.** `GET /assets/{id}` read only the Neo4j node, which carries
+`identity_confirmed` but not `identity_confirmed_by`/`_at` — so on the layer whose entire claim is
+deterministic, human-confirmed identity, the attribution was stored (Supabase `assets` + `audit_log`)
+but unreachable by any UI. `routers/assets.py` now fans out a Supabase identity lookup alongside the
+existing enrichments and merges it into the response: the **graph node wins on the boolean** (it is
+the canonical MDM record) and Supabase supplies `identity_confirmed_by` / `identity_confirmed_at`. The
+lookup is in the same `asyncio.gather` as the other enrichments and degrades to `None` on failure, so
+it cannot make the endpoint slower or fail it.
 
 **Write paths: 6/6 verified** — ingest, quarantine promote, MoC approve, elicitation
 trigger+submit, voice capture, RCA pack. Each was driven with real authenticated users and **the
