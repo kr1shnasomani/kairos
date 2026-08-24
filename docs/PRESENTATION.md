@@ -14,21 +14,22 @@ Every beat says which of those it is buying.
 
 ## 1. Timing — pick your version
 
-Measured, not guessed: **1,281 spoken words + ~63 s of clicking and loading.**
+Measured, not guessed: **1,303 spoken words + ~63 s of clicking and loading.**
+(Recount 2026-08-24, after the Beat 3 / 6 / 8 accuracy rewrites added 22 words — **+9 s**.)
 
 Four passages in [§4](#4-the-script) are tagged **⟨CUT FOR 8:00⟩**. They are the four cheapest things
 to lose, in the order to lose them. Skipping all four saves **61 seconds**.
 
 | Your slot | What to present | Lands at |
 |---|---|---|
-| **Hard 8:00 bell** | Cuts **1–8** from the [cut ladder](#12-cut-ladder) — the four tagged ⟨CUT FOR 8:00⟩ **plus cuts 5–8**. Strike them out on your printout before you go up | **7:56** |
-| **8:00 + grace** (most likely) | Cuts **1–4** only — the four tagged passages | **8:33** |
-| **Confirmed 10:00** | Cuts **3 and 4**, plus **Module B** from [§11](#11-optional-modules) | **9:49** |
+| **Hard 8:00 bell** | Cuts **1–8** from the [cut ladder](#12-cut-ladder) — the four tagged ⟨CUT FOR 8:00⟩ **plus cuts 5–8**. **This now lands at 8:05 — over the bell.** Add **cut 9** to clear it | **7:58** |
+| **8:00 + grace** (most likely) | Cuts **1–4** only — the four tagged passages | **8:42** |
+| **Confirmed 10:00** | Cuts **3 and 4**, plus **Module B** from [§11](#11-optional-modules) | **9:58** |
 
-> **The full script with nothing cut is 9:34.** It does not fit a hard 8:00 bell, and it no longer
+> **The full script with nothing cut is 9:43.** It does not fit a hard 8:00 bell, and it no longer
 > fits 10:00 with an optional module bolted on — pick a row above rather than improvising.
 
-Those times assume 150 words a minute. At 140 you land at 10:12 for the full version, so if you are a
+Those times assume 150 words a minute. At 140 you land at 10:22 for the full version, so if you are a
 slow talker, present the 8:00 version even when you have grace.
 
 **Do not** add both optional modules. **Do not** improvise an extra screen. There is no room.
@@ -51,7 +52,7 @@ why the offer at the top of [§9](#9-qa-bank) is worth making.
 | 1 | `make dev`. Check every container is up. Open `/system-health` once, then close it | A cold start on stage is fatal |
 | 2 | Build the 10 tabs in [§3](#3-the-10-screens-you-will-show), in that order, already logged in | Tab order **is** the script order |
 | 3 | Ask Copilot **Q14** in Tab 5. Leave the answer and its sources on screen | Turns 32 s into a 0 s tab switch |
-| 4 | Ask the **hydrotest** question in Tab 6. Leave the refusal card on screen | Same reason |
+| 4 | Ask the **torque** question (S03, EQ-101 seal housing bolts) in Tab 6. Confirm the refusal card renders, then leave it on screen | Same reason. **Not the hydrotest question** — the corpus states 17.82 bar, so it answers. See Beat 6 |
 | 5 | Generate the RCA pack in Tab 7 (`EQ-101`, `SEAL-FAIL`, 15-Jul-2026) | Takes ~90 s live. Never run it live |
 | 6 | Warm the pipeline by ingesting `dataset/demo-ingest/2-preflight/run4_eq102_bearing.pdf`. Then open Tab 2 and **pick** `dataset/demo-ingest/3-demo/oem_bulletin_fp_sb_2026_20.pdf` — **do not** upload it | Beat 3 is your only live moment. Warm on a *different* fresh file — ingest is idempotent, so the stage file must be one nothing has seen. See [§13](#13-demo-ingest-assets) |
 | 7 | Zoom the browser to 110–125%. Pick light or dark and stay there | The back row must be able to read the source chips |
@@ -77,7 +78,7 @@ anything.
 | Screen | Why not |
 |---|---|
 | `/rca` **Generate** button | ~90 s of dead air. Tab 7 is pre-generated |
-| `/governance/model-gate` **Run** button | ~2.5-minute background job, ~15 model calls |
+| `/governance/model-gate` **Run** button | **~12-minute** background job, **27 extractions** (the old "~2.5 min / ~15 calls" figure came from a run where nearly every call failed fast on a 429 — `e2e-sweep.md` row 27) |
 | Any file in `benchmark/` | `run_safety_eval.py` burns provider quota and then reports `INVALID` |
 | `/management/cross-site` | Deliberate empty state. Correct, but not a demo screen |
 | `/system-health` model probes | They spend quota. Off by default for a reason |
@@ -96,9 +97,9 @@ sidebar, they are seeing role-based access control without you claiming anything
 | **3** | `/documents/<pid-id>/topology` | admin | P&ID topology graph on screen | Beat 3 |
 | **4** | `/briefs/<eq101-brief-id>` | admin | EQ-101 brief open | Beat 4 |
 | **5** | `/copilot` | admin | **Q14 asked**, answer + source chips visible | Beat 5 |
-| **6** | `/copilot` (second browser profile) | admin | **Hydrotest question asked**, refusal card visible | Beat 6 |
+| **6** | `/copilot` (second browser profile) | admin | **Torque question (S03) asked**, refusal card visible | Beat 6 |
 | **7** | `/rca` | admin | EQ-101 `SEAL-FAIL` pack **already generated** | Beat 7 |
-| **8** | `/governance/moc/<id>` | admin | MoC for the 16.2 bar change, blast radius visible | Beat 8 |
+| **8** | `/governance/moc/MOC-2026-HE301` | admin | MoC for the 16.2 bar change, blast radius visible. **Signed, not pending** — read the data note in Beat 8 | Beat 8 |
 | **9** | `/compliance` | `compliance@kairos.local` | Gap dashboard. `/compliance/audit-pack` one click away | Beat 9 |
 | **10** | `/field/voice` in a **390 px wide window** | `field_worker@kairos.local` | Recorder screen | Beat 10 |
 
@@ -163,7 +164,7 @@ the four problem numbers.
 
 ---
 
-### Beat 3 · Everything gets in · ends **2:33** *(Technical Excellence)*
+### Beat 3 · Everything gets in · ends **2:36** *(Technical Excellence)*
 
 **SCREEN** — Tab 2, `/documents/ingest`, then Tab 3, `/documents/<id>/topology`.
 **DO** — Click **Upload** as you start the first sentence. Keep talking while it runs. Point at the
@@ -181,7 +182,8 @@ trip and the run completes. The degraded scans in the corpus *quarantine* by des
 *(point at the finished timeline)*
 
 > "Eight seconds. Same door for scans, spreadsheets, forms, handwritten shift logs and voice notes —
-> and a blurry scan the OCR cannot read with confidence is **held for a human**, not guessed at."
+> and a blurry scan the OCR cannot read with confidence is never guessed at. **It lands in
+> quarantine**, and only a human can promote it out."
 
 *(switch to Tab 3)*
 
@@ -191,7 +193,7 @@ trip and the run completes. The degraded scans in the corpus *quarantine* by des
 
 ---
 
-### Beat 4 · The brief nobody asked for · ends **3:17** *(Innovation · Business Impact)*
+### Beat 4 · The brief nobody asked for · ends **3:20** *(Innovation · Business Impact)*
 
 **SCREEN** — Tab 4, `/briefs/<eq101-brief-id>`.
 **DO** — Point at each of the three items as you say them. Point at the **unverified** label on the
@@ -212,7 +214,7 @@ third one and leave your hand there for a second.
 
 ---
 
-### Beat 5 · The answer, and where it came from · ends **4:02** *(UX · Technical Excellence)*
+### Beat 5 · The answer, and where it came from · ends **4:05** *(UX · Technical Excellence)*
 
 **SCREEN** — Tab 5, `/copilot`, answer already on screen.
 **DO** — Read the question off the screen so the room knows you did not pick it just now. Then point
@@ -234,24 +236,25 @@ at the source chips.
 
 ---
 
-### Beat 6 · The refusal · ends **5:02** *(Innovation — this is your peak)*
+### Beat 6 · The refusal · ends **5:10** *(Innovation — this is your peak)*
 
 **SCREEN** — Tab 6, `/copilot`, refusal card already on screen.
-**DO** — Slow right down. After "It could just multiply", **stop talking for two seconds** and let
+**DO** — Slow right down. After "a number that looks right", **stop talking for two seconds** and let
 them read the card. This is the beat they will remember you for.
 
 **SAY:**
 
 > "This is the one I want you to remember.
 >
-> I asked it a safety question — **the hydrotest pressure for a heat exchanger series.** A procedure in
-> this corpus says hydrotest is 110% of operating pressure. The system has that rule. It has the
-> pressure. **It could just multiply.**"
+> I asked it a safety question — **the torque value for the EQ-101 seal housing bolts.** It has the
+> pump, the seal, the whole repair history. And the model underneath **knows what bolts like these are
+> usually torqued to.** It could hand you a number that looks right."
 
 *(two seconds of silence)*
 
-> "It refuses. Because no document states that value **for this series**, and doing that maths quietly
-> would be a guess with a citation stuck on it. So it hands you the sources instead.
+> "It refuses. Because **no document here states a torque for that joint** — and a number from the
+> model's training instead of this plant's paperwork is how people get hurt. So it hands you the
+> sources instead.
 >
 > We tested this. **Fifteen questions built to make it guess** — wrong facts planted in them, prompt
 > injection, evidence that only exists in an unverified note. **Zero unsafe answers.**
@@ -259,9 +262,17 @@ them read the card. This is the beat they will remember you for.
 > A system that always answers is easy to build and impossible to trust in a plant. Knowing when to
 > stay quiet is the harder half."
 
+> **Why not the hydrotest question (changed 2026-08-24).** The old script used *"what is the hydrotest
+> pressure for the HE-3xx series?"* and claimed no document states that value. **That is false.**
+> `MP-HE-HYDROTEST-03` (`DOC-4FMS3URRGAWT`) §4 states it verbatim: *"…would change the calculated
+> hydrotest pressure to 17.82 bar."* It is the only `17.82` in the corpus, and the system **answers**
+> that question — correctly, with six sources. Asking it on stage and calling the answer a refusal
+> contradicts itself in front of the room. The torque question is a true gap: **zero corpus hits** for
+> `torque` or `Nm`. Verify the refusal card in the UI during pre-flight before you commit to it.
+
 ---
 
-### Beat 7 · Root cause · ends **5:30** *(Business Impact)* · **⟨CUT FOR 8:00 — the whole beat⟩**
+### Beat 7 · Root cause · ends **5:38** *(Business Impact)* · **⟨CUT FOR 8:00 — the whole beat⟩**
 
 **SCREEN** — Tab 7, `/rca`, pack already generated.
 **DO** — Scroll once through the timeline, then stop on the ranked causes. Do not read them out.
@@ -278,28 +289,58 @@ straight to Tab 8.
 
 ---
 
-### Beat 8 · Knowledge that goes stale · ends **6:18** *(Innovation · Technical Excellence)*
+### Beat 8 · Knowledge that goes stale · ends **6:27** *(Innovation · Technical Excellence)*
 
-**SCREEN** — Tab 8, `/governance/moc/<id>`, blast radius visible.
-**DO** — Point at the six affected documents. Then point at the pending-MoC banner.
+**SCREEN** — Tab 8, `/governance/moc/MOC-2026-HE301`, blast radius visible.
+**DO** — Point at the six affected items. Do **not** point at a pending-MoC banner — there isn't one
+(see the data note below). Land on the sign-off line instead.
 
 **SAY:**
 
 > "Now the harder half. A vendor bulletin drops the maximum pressure on a heat exchanger class **from
 > 18.5 bar to 16.2**.
 >
-> The danger is not the new number. It is everything downstream still quoting the old one. Kairos
-> traces it — **four operating procedures and two inspection records** are now wrong. All six flagged.
+> The danger is not the new number. It is everything downstream still quoting the old one — **four
+> operating procedures and two inspection records**. All six on this record.
 >
-> And it does **not** change the graph by itself. A safety limit goes into a formal **Management of
-> Change**, and until an engineer signs, every answer touching that pressure carries this banner.
+> And the bulletin does **not** change the graph by itself. A safety limit routes through a formal
+> **Management of Change** — this one carries an engineer's sign-off and the timestamp it happened.
+> No signature, no change to the canonical value.
 >
 > We never delete either. The old fact is **closed**, not removed — so an investigation can still ask
 > what the plant believed in March."
 
+> **⚠ Data note — read before you show this screen (verified 2026-08-24).** The old script claimed a
+> live **pending**-MoC banner on every answer touching that pressure. It will not appear, and three
+> other details on this screen do not survive a judge clicking through:
+>
+> | Claim in the old script | What the data actually holds |
+> |---|---|
+> | MoC is pending an engineer's signature | `MOC-2026-HE301` is **`status: approved`** (signed 2026-08-16) and its conflict is **`resolved`** |
+> | "every answer carries this banner" | The banner needs `knowledge_conflicts.status = 'pending_moc'`. **Zero of 94 conflicts** are in that state — 86 `open`, 8 `resolved`. The banner is unreachable |
+> | "Kairos traces it" (blast radius) | `blast_radius` is six **hand-authored strings with no `document_id`** — nothing links them to the vault, and they were inserted ad hoc (no seed script in the repo references this MoC) |
+> | Source chips open the originals | `conflicting_sources` cite `DOC-MERIDIAN-HE301-MANUAL` and `DOC-MERIDIAN-HE301-SB` — **neither exists in `documents`**. The real bulletin is `DOC-OQUQAWWSZADC` |
+>
+> Three of the six blast-radius labels are also wrong against the corpus: `SOP-HE-301-04`,
+> `SOP-HE-302-04` and `SOP-HE-303-04` are all **"Normal Operation"** documents, not *"Shell-side
+> isolation" / "Tube bundle removal" / "Hydrotest procedure"*. And `SOP-HE-GEN-11` — which really does
+> still carry the superseded 18.5 bar figure — is **missing** from the blast radius entirely.
+>
+> **Say the MoC is signed, not pending.** Do not invite a click into the source chips on this screen.
+>
+> **The stronger version of this beat is a search, not the MoC page.** The downstream drift is real
+> and demonstrable: `SOP-HE-GEN-11` and `MP-HE-HYDROTEST-03` both still state 18.5 bar *and* both
+> carry a "Note on Pending Revision" naming bulletin `MHT-PB-2026-11`. That is genuine, linked,
+> clickable evidence of stale knowledge. Consider showing that instead of, or before, Tab 8.
+>
+> Fixing the underlying record — flipping the conflict to `pending_moc`, repointing the source IDs at
+> `DOC-OQUQAWWSZADC`, linking the blast radius to real `document_id`s — is a **write to cloud
+> Supabase** and therefore a human call, not something to do before the demo. See CLAUDE.md's
+> cloud-store rule.
+
 ---
 
-### Beat 9 · The auditor's view · ends **6:48** *(Business Impact · Scalability)*
+### Beat 9 · The auditor's view · ends **6:57** *(Business Impact · Scalability)*
 
 **SCREEN** — Tab 9, `/compliance`, logged in as the compliance officer. Then one click to
 `/compliance/audit-pack`.
@@ -308,15 +349,32 @@ word "one click".
 
 **SAY:**
 
-> "The same graph answers the auditor. **OISD, PESO, the Factories Act** — mapped against what the
-> plant actually holds. Forty-seven findings, and one click builds the **evidence pack**, with a human
-> signature line on it. ⟨CUT FOR 8:00 — the rest of this beat⟩ Precision on our test set is **1.000** —
-> zero false alarms across fifty-two clause and asset pairs. In compliance, false alarms are the
-> direction that hurts."
+> "The same graph answers the auditor. **OISD 117 and ISO 45001** — clause by clause, mapped against
+> what the plant actually holds" — *(point at the donut, do not read the count)* — "and one click
+> builds the **evidence pack**, with a human signature line on it. ⟨CUT FOR 8:00 — the rest of this
+> beat⟩ On the ten-asset benchmark scope, precision is **1.000** — zero false alarms across fifty-two
+> clause and asset pairs. In compliance, false alarms are the direction that hurts."
+
+> **⚠ Data note — verified live 2026-08-25.** Two things in the old line do not survive the screen:
+>
+> | Old claim | What `/compliance` actually renders |
+> |---|---|
+> | "OISD, **PESO, the Factories Act**" | The gap engine holds **two** frameworks: `OISD_117` (8 clauses) and `ISO_45001` (4 clauses). **PESO and the Factories Act are not in it.** Their clause text is real and sits in the vault (`regulatory_clause_excerpts.pdf`), but no clause of either is mapped, so neither can appear on this dashboard |
+> | "**Forty-seven** findings" | Live: **233 findings — 212 gaps + 21 unverified evidence.** The donut's centre reads **212**, and the framework bar is **ISO 45001 at 200**, dwarfing OISD 117 at 12 |
+>
+> The 47 in `benchmark/RESULTS.md` §4 was measured when the registry held the **10 canon assets**.
+> It now holds **55**, and 4 ISO clauses × 50 assets is where the 200 comes from. The harness ground
+> truth (52 pairs) was never re-scoped, so **`P 1.000 · R 0.838` describes the 10-asset scope, not the
+> screen behind you.** Say "on the benchmark scope" — that is the sentence as written above.
+>
+> **Do not say a findings number out loud.** It moves with every ingest, and §6 already tells you to
+> point at a number the room can see rather than read it. If a judge asks why ISO 45001 is so large,
+> the honest answer is that the clause set applies plant-wide while the registry has grown past the
+> canon ten — it is a scoping gap in the demo data, not a detection error.
 
 ---
 
-### Beat 10 · The wrench, and the knowledge cliff · ends **7:23** *(UX)*
+### Beat 10 · The wrench, and the knowledge cliff · ends **7:32** *(UX)*
 
 **SCREEN** — Tab 10, `/field/voice` in the 390 px window, logged in as the field worker.
 **DO** — Bring the narrow window forward so the phone shape is obvious. Do not tap record.
@@ -332,7 +390,7 @@ word "one click".
 
 ---
 
-### Beat 11 · Under the hood · ends **7:56** *(Technical Excellence)*
+### Beat 11 · Under the hood · ends **8:05** *(Technical Excellence)*
 
 **SCREEN** — Tab 1, scrolled to the architecture diagram (`#system`).
 **DO** — Point at the diagram once. Do not walk through it. Thirty seconds, then move.
@@ -348,7 +406,7 @@ word "one click".
 
 ---
 
-### Beat 12 · Evidence · ends **8:43** *(Technical Excellence)*
+### Beat 12 · Evidence · ends **8:52** *(Technical Excellence)*
 
 **SCREEN** — Tab 1, the **Evals** section: the bar chart, then the coloured card under it.
 **DO** — Point at the card that says *"Fixed rules, never another model."* Do not read the bars out
@@ -371,7 +429,7 @@ one by one.
 
 ---
 
-### Beat 13 · Close · ends **9:34** *(Scalability · Business Impact)*
+### Beat 13 · Close · ends **9:43** *(Scalability · Business Impact)*
 
 **SCREEN** — Tab 1. Either the hero at the top, or hold on the architecture diagram.
 **DO** — Stop clicking. Face the room for the last three sentences.
@@ -402,29 +460,29 @@ Full version. **⚑** marks a ⟨CUT FOR 8:00⟩ passage.
 |---|---|---|---|---|
 | 1 The problem | Tab 1 top → stats | **0:53** | 121 | ⚑ one sentence |
 | 2 Search box | Tab 1 stats | **1:33** | 103 | |
-| 3 Ingest + P&ID | Tab 2 → Tab 3 | **2:33** | 114 | |
-| 4 Brief | Tab 4 | **3:17** | 100 | |
-| 5 Answer | Tab 5 | **4:02** | 102 | |
-| 6 **Refusal** | Tab 6 | **5:02** | 135 | |
-| 7 RCA | Tab 7 | **5:30** | 58 | ⚑ whole beat |
-| 8 Blast radius | Tab 8 | **6:18** | 111 | |
-| 9 Compliance | Tab 9 | **6:48** | 60 | ⚑ last two sentences |
-| 10 Field | Tab 10 | **7:23** | 74 | |
-| 11 Architecture | Tab 1 | **7:56** | 70 | |
-| 12 Evidence | Tab 1 | **8:43** | 105 | ⚑ last paragraph |
-| 13 Close | Tab 1 | **9:34** | 128 | |
+| 3 Ingest + P&ID | Tab 2 → Tab 3 | **2:36** | 122 | |
+| 4 Brief | Tab 4 | **3:20** | 100 | |
+| 5 Answer | Tab 5 | **4:05** | 102 | |
+| 6 **Refusal** | Tab 6 | **5:10** | 146 | |
+| 7 RCA | Tab 7 | **5:38** | 58 | ⚑ whole beat |
+| 8 Blast radius | Tab 8 | **6:27** | 114 | |
+| 9 Compliance | Tab 9 | **6:57** | 60 | ⚑ last two sentences |
+| 10 Field | Tab 10 | **7:32** | 74 | |
+| 11 Architecture | Tab 1 | **8:05** | 70 | |
+| 12 Evidence | Tab 1 | **8:52** | 105 | ⚑ last paragraph |
+| 13 Close | Tab 1 | **9:43** | 128 | |
 
-**With the four ⚑ cut (cuts 1–4), the clock runs:** 0:44 · 1:25 · 2:25 · 3:09 · 3:54 · 4:54 ·
-*(skip)* · 5:42 · 6:01 · 6:36 · 7:09 · 7:47 · **8:33**.
+**With the four ⚑ cut (cuts 1–4), the clock runs:** 0:44 · 1:25 · 2:28 · 3:12 · 3:57 · 5:02 ·
+*(skip)* · 5:51 · 6:10 · 6:45 · 7:18 · 7:56 · **8:42**.
 
-**For a hard 8:00 bell you need cuts 1–8**, which lands at **7:56**. Cuts 1–6 land at 8:17 — still
-over. Do not talk faster to fix this; cut the ladder.
+**For a hard 8:00 bell you now need cuts 1–9**, which lands at **7:58**. Cuts 1–8 land at **8:05** —
+over the bell since the 2026-08-24 accuracy rewrites. Do not talk faster to fix this; cut the ladder.
 
 **Two checkpoints. Only two.**
 
-- **Tab 6 — the refusal — must be on screen by 5:00** (by 4:50 on the cut version). If it is not, you
+- **Tab 6 — the refusal — must be on screen by 5:10** (by 5:00 on the cut version). If it is not, you
   are speaking too slowly. Speed up. Do not start cutting yet.
-- **Tab 8 — blast radius — must be finished by 6:15** (5:40 on the cut version). If it is not, drop
+- **Tab 8 — blast radius — must be finished by 6:25** (5:50 on the cut version). If it is not, drop
   the ⚑ passages in Beats 9 and 12 on the fly.
 
 Everything **after** Beat 6 can be squeezed. Everything **before** it cannot.
@@ -442,7 +500,7 @@ Everything **after** Beat 6 can be squeezed. Everything **before** it cannot.
 - **Three lines are the whole pitch.** Say these three slower than everything else, and pause after
   each:
   1. *"The most dangerous gaps are the ones nobody knows to search for."*
-  2. *"It could just multiply."* … *"It refuses."*
+  2. *"It could hand you a number that looks right."* … *"It refuses."*
   3. *"Knowing when to stay quiet is the harder half."*
 - **Hands off the trackpad while a sentence is running.** Switch tabs in the gap between beats, never
   under a clause. Clicking mid-sentence reads as nerves.
@@ -472,7 +530,7 @@ judge asks *"what else is in there?"*, you answer in one sentence instead of cli
 | `/copilot` (session 1) | 5 | Cited answer, ranked by authority |
 | `/copilot` (session 2) | 6 | Safety refusal instead of a plausible guess |
 | `/rca` | 7 | Failure timeline plus causes ranked by evidence |
-| `/governance/moc/<id>` | 8 | Blast radius, Management of Change, nothing deleted |
+| `/governance/moc/MOC-2026-HE301` | 8 | Blast radius, Management of Change, nothing deleted |
 | `/compliance` | 9 | Regulatory gap detection against real clause text |
 | `/compliance/audit-pack` | 9 | Auto-built audit evidence with a human signature line |
 | `/field/voice` | 10 | Mobile field capture, offline queue, straight into quarantine |
@@ -490,7 +548,7 @@ Have these bookmarked. Do **not** open them unprompted.
 | `/assets` · `/assets/<id>` | "What does one machine's record look like?" |
 | `/documents` · `/documents/<id>` | "Where do the source documents live?" |
 | `/events` | "What triggers a brief?" |
-| `/audit` | "Is any of this auditable?" — 630 logged actions |
+| `/audit` | "Is any of this auditable?" — **1,419** logged actions (live count 2026-08-25; it grows with every run, so check it or say "over a thousand") |
 | `/system-benchmarks` | "Show me the numbers inside the product" |
 | `/system-information` | "Explain the 13 layers" |
 | `/management` | "What does a plant manager see?" |
@@ -502,7 +560,7 @@ Have these bookmarked. Do **not** open them unprompted.
 
 | Route | Why not |
 |---|---|
-| `/governance/model-gate` | The **Run** button is a ~2.5-minute background job and ~15 model calls |
+| `/governance/model-gate` | The **Run** button is a **~12-minute** background job and **27 extractions**. Corrected 2026-08-25 — the old ~2.5 min figure was a 429-failed run |
 | `/system-health` | Admin-only, and the model probes spend provider quota |
 | `/management/cross-site` | An honest "no data — this is a single-site deployment" state. Correct, but it looks like a bug to someone who does not know that |
 | `/governance/sla` · `/governance/circuit-breaker` | Real, but they need a paragraph of setup each to make sense. Q&A material |
@@ -514,8 +572,13 @@ Have these bookmarked. Do **not** open them unprompted.
 
 **If someone says "you only showed us a slice":** every one of the 44 routes has been driven
 end-to-end, five personas each, with the results written down in
-`docs/implementation/e2e-sweep.md` — including six write paths where the **negative** case was
-checked too, meaning the role that must be blocked actually is.
+`docs/implementation/e2e-sweep.md` — including **twelve write paths** driven end-to-end, **three of
+them with the negative case checked too** (engineer promote → 403, field_worker MoC approve → 403,
+engineer countersign → 403), meaning the role that must be blocked actually is.
+
+> Corrected 2026-08-25: the old line said "six write paths where the negative case was checked too",
+> which merged two different counts. The sweep records **12** verified write paths and **3** negative
+> cases. Both numbers are better than the old sentence — just say them separately.
 
 ---
 
@@ -541,6 +604,9 @@ are easy to say by accident when you are nervous.
 | "McKinsey says downtime costs a refinery $20–50 million" | That is the **gap between median and top-quartile performers**, not a downtime bill. Keep the comparison in the sentence or do not use the figure |
 | Any figure from the problem statement, presented as ours | The 35%, the 7–12 systems, the 18–22%, the quarter retiring — **none is independently traceable** to a findable study. They are the organisers' framing and fine to reference as such. Say "the problem statement puts it at…", never "we found that…" |
 | "100% accurate" *(about anything)* | Nothing in this system is 100% except retrieval reach and provenance on that run, and both have a confidence interval |
+| "We map OISD, PESO and the Factories Act" | **Only OISD 117 and ISO 45001 are mapped into the gap engine.** PESO and Factories Act clause text sits in the vault unmapped. Saying otherwise is contradicted by the framework bar on the screen behind you |
+| "Forty-seven compliance findings" | Stale — that was the 10-asset benchmark scope. Live is **233**. Point at the donut instead of naming a number that moves with every ingest |
+| "There is a pending Management of Change on the pressure change" | `MOC-2026-HE301` is **approved**, and **no** conflict anywhere is in `pending_moc`. Say the MoC is **signed** — see the Beat 8 data note |
 
 ---
 
@@ -557,10 +623,10 @@ are easy to say by accident when you are nervous.
 | **"Is the data real?"** | It is authored, on purpose — 32 files modelling a petrochemical complex, with a canon file as the answer key. No historian, no EAM connection. It is written on our landing page, not hidden. That is the boundary of this MVP. |
 | **"Why is answer quality only 89%?"** | It is not — that was the 17-Aug run. The current figure is **36 of 37 (97.3%), VALID**, re-run 2026-08-24 with retrieval at 37/37 and provenance at 37/37. The jump came from a real bug our own harness caught: `/search` was not filtering test-artifact noise out of results before ranking. Both runs are published in `benchmark/RESULTS.md` §2 — we did not delete the bad one. The single remaining miss is Q02 (causal); it retrieved correctly, so it is a synthesis-quality gap, not a retrieval gap. |
 | **"How fast is an answer?"** | **8.2 seconds at the median** on the current run, 16.9 s average, with a 60-second cap on Llama 3.1 70B. It was 32 s a week ago; the same fix that moved answer quality moved latency. **No p95 was recorded on this run**, so do not quote a tail figure. A shorter cap would give a prettier number that is actually measuring the fallback model, not the one we ship. |
-| **"What stops someone poisoning the knowledge base?"** | Four things. Low-confidence extractions cannot reach the graph without a human promoting them. Safety limits need a signed Management of Change. The vault never deletes, so the original always survives. And every promotion is written to the audit log. |
+| **"What stops someone poisoning the knowledge base?"** | Four things. Anything extracted below 0.7 confidence lands in **quarantine** and cannot reach the graph until a human promotes it — the gate is one-way, nothing auto-promotes. Safety limits need a signed Management of Change. The vault never deletes, so the original always survives. And every promotion is written to the audit log. |
 | **"How do you know your own retrieval works?"** | Because our own baseline harness caught it failing. It measured vector search at **0 out of 37** one day — that is how we found a filter on an unindexed field silently erroring, which had quietly degraded the whole system to keyword search only. No unit test caught that. The benchmark did. |
 | **"Does it scale?"** | 2,275 requests with 0% errors, and the knee at 50 concurrent users. A 60-minute soak on cloud stores with no leak signal and 0.11% errors across 37,842 requests. What that does **not** prove is a ten-thousand-asset plant, and we say so on the page. |
-| **"Have you actually measured everything the problem statement asks for?"** | Yes — there are **thirteen** harnesses in `benchmark/`, one per criterion, including the three that landed last: OCR recall by document type, knowledge-graph linkage completeness, and cross-functional discovery measured as a counterfactual against single-function retrieval. |
+| **"Have you actually measured everything the problem statement asks for?"** | Yes — **thirteen** harnesses, one per criterion — **twelve in `benchmark/`, plus `run_model_validation.py` under `backend/scripts/`.** Say it that way: a judge who lists `benchmark/` counts twelve. They include the three that landed last: OCR recall by document type, knowledge-graph linkage completeness, and cross-functional discovery measured as a counterfactual against single-function retrieval. |
 | **"What if the AI provider goes down?"** | Answers fall through NIM → OpenRouter → Gemini → local. OpenRouter serves the **same** Llama 3.1 70B, so falling through does not change which model answered. And the benchmark marks a run invalid if a fallback answered it. |
 | **"What if the vision model can't read our drawings?"** | It says so. A P&ID it cannot parse falls back to a placeholder that the screen labels as a placeholder — it never invents a valve tag. And even a good parse stays **candidate** until an engineer checks it element by element. |
 | **"Does it work offline?"** | Field capture does. Voice notes and deviation flags queue on the device and sync when signal comes back. |
@@ -587,7 +653,7 @@ Use this to check yourself, and to answer *"did you actually build all of it?"*
 | Universal document ingestion & knowledge graph agent | **3** | A vendor bulletin nothing has seen, uploaded live → vault → entities → graph in ~8 s, and a P&ID turned into topology |
 | Expert knowledge copilot | **5**, **10** | A cited answer ranked by authority; the same product running in a 390 px phone window |
 | Maintenance intelligence & RCA agent | **4**, **7** | A brief assembled from a work-order event with nobody asking; an RCA timeline with ranked causes |
-| Quality & regulatory compliance intelligence | **9** | OISD / PESO / Factories Act gap dashboard, and a one-click audit evidence pack |
+| Quality & regulatory compliance intelligence | **9** | An **OISD 117 / ISO 45001** clause-by-asset gap dashboard, and a one-click audit evidence pack. *(PESO and Factories Act clause text is in the vault but is **not** mapped into the gap engine — see the Beat 9 data note)* |
 | Lessons learned & failure intelligence | **4**, **8** | A repeat failure pattern across three sister pumps surfaced unasked; the blast radius of a spec that went stale |
 
 ### "Evaluation focus" — every item has a number or a screen
@@ -598,9 +664,9 @@ Use this to check yourself, and to answer *"did you actually build all of it?"*
 | Query answer quality on domain-expert questions | **36/37 (97.3%)**, VALID, across 15 categories, graded by fixed rules — current, re-run 2026-08-24 |
 | Knowledge graph linkage completeness | **18/21 (85%) active vault documents linked**, document-centric. `run_kg_completeness.py` classifies the unlinked remainder instead of leaving a bare percentage — 1 correctly quarantined (Layer 6), 2 correctly held for review by the span-confidence gate, 0 dangling provenance |
 | Time to answer vs traditional search | Beat 5 tells the story. **If pushed for the number, give the reframe before the figure — never the figure alone.** Our harness models a searcher who *already knows what to ask*, on a 20-document corpus where BM25 hits the fact at rank 1.35. That is the one case this product is not built for. On that basis the modelled saving is **9.5%**, and we publish it rather than inflate it. The saving this system exists for is in **Beat 4**, where nobody searched at all, and **Beat 5**, where the answer spanned three systems and normally takes a week. Neither is inside that 9.5%, and no benchmark we have measures them |
-| Compliance gap detection accuracy | **Precision 1.000 · recall 0.838 · F1 0.912**, zero false alarms — Beat 9 |
+| Compliance gap detection accuracy | **Precision 1.000 · recall 0.838 · F1 0.912**, zero false alarms — Beat 9. **Scope it when you say it:** measured against 52 clause×asset pairs over the **10 canon assets**. The registry now holds **55** assets and the live dashboard shows **233 findings**, so the figure describes the benchmark scope, not the screen |
 | Cross-functional knowledge discovery | Beat 4 shows it: one work order pulls in a vendor bulletin, a repair record and a field note from four separate systems, unasked. `run_cross_functional.py` measures it as a counterfactual — full corpus versus one function's documents, same 37 questions |
-| Validated with real industrial documents | **State the boundary plainly.** The corpus is authored. The regulatory clause text inside it is real and public — OISD-STD-105/128/134, PESO Rules 2016, Factories Act sections 31, 36 and 87 |
+| Validated with real industrial documents | **State the boundary plainly.** The corpus is authored. The regulatory clause text inside it is real and public — OISD-STD-105/128/134, PESO Rules 2016, Factories Act sections 31, 36 and 87 (`regulatory_clause_excerpts.pdf`). **That is the corpus, not the gap engine** — only OISD 117 and ISO 45001 clauses are mapped for gap detection |
 
 > **On the last three harnesses.** All three have published, current results in
 > `benchmark/RESULTS.md` §11–13. `run_ocr_gate.py`: 2/4 paired images scoreable (2 correctly held
@@ -622,8 +688,9 @@ Use this to check yourself, and to answer *"did you actually build all of it?"*
 ## 11. Optional modules
 
 **Only if you have been told you have ten minutes.** Insert after Beat 11. Pick **one**, and take
-cuts 3 and 4 to pay for it — the full script *plus* a module is **10:09**, already over the wall.
-Module B with cuts 3–4 lands **9:49**; Module A with cuts 2–4 lands **9:46**. Never both modules.
+cuts 3 and 4 to pay for it — the full script *plus* a module is **10:18**, already over the wall.
+Module B with cuts 3–4 lands **9:58**; Module A with cuts 2–4 lands **9:55**. Never both modules.
+*(Recomputed 2026-08-25 off the 9:43 full script.)*
 
 ### Module A · Governance is real, not a slide · **+45 s**
 
@@ -646,9 +713,14 @@ again.
 **SAY:**
 
 > "Because every fact has a start and an end date, you can ask the graph what it knew on any day.
-> Today EQ-101 carries seven facts. As of 2020 — **nothing**, because none of it was true yet. That is
+> Today EQ-101 carries eight facts. As of 2020 — **nothing**, because none of it was true yet. That is
 > exactly what an incident investigation needs, and it is why we close facts instead of overwriting
 > them."
+
+> **Check the count before you use this module.** `GET /assets/EQ-101/knowledge` returned
+> `fact_count: 8` on 2026-08-25 (72 raw edges, 54 test documents excluded) — the script said *seven*,
+> which was stale. **It rises with every ingest**, including your own Beat 3 upload, so re-read it at
+> pre-flight. The *"as of 2020 — nothing"* half is stable: **0** facts were valid at end-2020.
 
 ---
 
@@ -667,9 +739,10 @@ Savings are measured, not guessed.
 | 6 | **Beat 3** — the "PDFs, spreadsheets, forms…" list | **−6 s** | Medium. That list **is** "heterogeneous formats" |
 | 7 | **Beat 10** — the interview sentence. Keep the phone and the quarantine | **−10 s** | High. Drops the knowledge-cliff payoff |
 | 8 | **Beat 8** — the "we never delete" paragraph | **−11 s** | High. Drops time travel, one of your three best ideas |
+| **9** | **Beat 2** — the sentence *"A technician who has never heard that this pump failed this way before does not go looking."* | **−7 s** | High. It is the one concrete image in an abstract beat. Added 2026-08-24 only because the Beat 3 / 6 / 8 accuracy rewrites cost 9 s |
 
-**Cuts 1–4 land you at 8:33** — that is the version for an 8:00 slot *with grace*.
-**Cuts 1–8 land at 7:56**, which is the only version that clears a hard 8:00 bell — and by cut 7 you
+**Cuts 1–4 land you at 8:42** — that is the version for an 8:00 slot *with grace*.
+**Cuts 1–9 land at 7:58**, which is the only version that clears a hard 8:00 bell — and by cut 7 you
 are into muscle, not fat. Rehearse whichever one matches your actual slot; do not rehearse the full
 script and hope to cut live.
 
@@ -681,7 +754,8 @@ script and hope to cut live.
 ## 13. Demo-ingest assets
 
 Everything Beat 3 needs is in **`dataset/demo-ingest/`** (untracked — it is not in git). Created 2026-08-24.
-**Nothing here has been ingested.** Every upload is yours to make.
+**Runs 1 and 2 are spent** (ingested 2026-08-24 evening — see the table below). Runs 3, 4 and 5 are
+untouched, and run 5 is the only one that matters on stage.
 
 ### Why these files exist at all
 
@@ -707,9 +781,9 @@ moment you upload it. Never reuse one.
 
 | # | File | When |
 |---|---|---|
-| 1 | `1-tonight/run1_eq103_coupling.pdf` | Tonight, rehearsal 1 |
-| 2 | `1-tonight/run2_he301_cleaning.pdf` | Tonight, rehearsal 2 |
-| 3 | `1-tonight/run3_he302_gasket.pdf` | Tonight, rehearsal 3 |
+| 1 | ~~`1-tonight/run1_eq103_coupling.pdf`~~ | **SPENT** — `DOC-D47USJNBJD73`, 24-Aug 19:19 UTC |
+| 2 | ~~`1-tonight/run2_he301_cleaning.pdf`~~ | **SPENT** — `DOC-HXCHGWGKP5QF`, 24-Aug 19:27 UTC |
+| 3 | `1-tonight/run3_he302_gasket.pdf` | Tonight, rehearsal 3 — the last rehearsal file you have |
 | 4 | `2-preflight/run4_eq102_bearing.pdf` | Tomorrow, warm-up before you go up |
 | 5 | `3-demo/oem_bulletin_fp_sb_2026_20.pdf` | **On stage.** Named plausibly — judges see the filename |
 
@@ -724,6 +798,23 @@ ninety seconds earlier.
 | run3 | *"What is the gasket replacement rule for HE-302?"* | every second opening |
 | run4 | *"How often should EQ-102 bearings be regreased?"* | 2,400 operating hours |
 | **demo** | *"What seal inspection interval does Fischer recommend for EQ-101 in thermal cycling service?"* | **5,000 operating hours** |
+
+### Verify every ingest — the timeline going green is not proof
+
+`run1` finished at `pipeline_stage: complete`, 100%, no error — and **never reached Elasticsearch**.
+Exact-token search missed it entirely; only the semantic arm found it, at rank 3. The UI showed
+nothing wrong. `run2`, eight minutes later, was clean, so this is intermittent, not systematic — which
+is exactly why you check rather than assume.
+
+After each ingest, take the `document_id` from the response and run:
+
+```
+docker exec kairos-backend-api python /app/scripts/verify_ingest.py DOC-XXXXXXXX
+```
+
+Read-only, four lines out, one per store — Supabase, Neo4j, Qdrant, Elasticsearch. Non-zero exit if
+any store is missing it. **Do this after the pre-flight warm-up on run4**; if Elasticsearch fails
+there, expect it on stage and lean on the timeline rather than a Copilot follow-up.
 
 Verified 2026-08-24: 5 distinct SHA-256s, none in the vault, all text-layer extractable with `fitz`,
 none caught by the corpus filter. Content is canon-consistent — every asset tag, person, OEM and ID
