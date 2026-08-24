@@ -34,6 +34,7 @@ import type {
   PlantOperatingState,
   GovernorEventState,
   DocumentStatus,
+  DocumentPipelineStage,
   TopologyGraph,
   TopologyNode,
   TopologyEdge,
@@ -1315,9 +1316,37 @@ export function supersedeDocument(documentId: string, formData: FormData) {
   return postMultipart<VaultDocument>(`/documents/${documentId}/supersede`, formData);
 }
 
+// The live payload names the stage `pipeline_stage` and uses the worker's own vocabulary
+// (`ocr_running`, `ner_running`, `pid_topology_queued`); the UI shape is `stage` over
+// `DocumentPipelineStage`. Adapt here — same pattern as audit-log/topology. Without this the
+// cast silently yields `stage: undefined`, which renders every row "pending" on a document that
+// completed AND re-arms the poll forever, since `undefined` never equals "complete".
+type RawDocumentStatus = {
+  document_id: string;
+  pipeline_stage?: string;
+  updated_at: string;
+  error?: string | null;
+};
+
+// Worker stage -> UI stage. Unlisted values pass through, so a stage added backend-side shows up
+// as itself rather than vanishing. `pid_topology_queued` is a P&ID-only detour that happens
+// during graph linking, so it maps there.
+const PIPELINE_STAGE_ALIASES: Record<string, DocumentPipelineStage> = {
+  ocr_running: "ocr",
+  ner_running: "ner",
+  pid_topology_queued: "graph_linking",
+};
+
 export async function getDocumentStatus(documentId: string): Promise<Fetched<DocumentStatus | null>> {
   try {
-    const data = await getJson<DocumentStatus>(`/documents/${documentId}/status`);
+    const raw = await getJson<RawDocumentStatus>(`/documents/${documentId}/status`);
+    const stage = raw.pipeline_stage ?? "queued";
+    const data: DocumentStatus = {
+      document_id: raw.document_id,
+      stage: PIPELINE_STAGE_ALIASES[stage] ?? (stage as DocumentPipelineStage),
+      updated_at: raw.updated_at,
+      details: raw.error ?? null,
+    };
     return { data, source: "live" };
   } catch (e) {
     // Live-only: never substitute fixture data for a failed fetch. The caller
