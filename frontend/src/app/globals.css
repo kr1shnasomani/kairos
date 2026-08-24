@@ -31,6 +31,11 @@
 
   --radius: 8px;
   --radius-lg: 12px;
+
+  /* Overlay scrim. One token so every dialog/panel/drawer dims identically.
+     The nav rail is permanently dark (.sidebar-scope), so a heavy black wash
+     turns its icons into mud — the dark theme therefore dims less, not more. */
+  --scrim: rgb(0 0 0 / 0.45);
 }
 
 :root[data-theme="dark"] {
@@ -52,6 +57,8 @@
   --info: #5b8def;
   --link: #7aa2f7;
   --validation: #a78bfa;
+
+  --scrim: rgb(0 0 0 / 0.28);
 }
 
 /* Map tokens → Tailwind v4 utilities (bg-surface, text-ink, border-line, …) */
@@ -150,6 +157,9 @@
 
 html {
   color-scheme: light;
+  /* Overlays lock `overflow: hidden` on <html>; without a reserved gutter the
+     scrollbar disappears and the whole shell (rail included) jumps ~15px right. */
+  scrollbar-gutter: stable;
 }
 html[data-theme="dark"] {
   color-scheme: dark;
@@ -624,7 +634,11 @@ button:not(:disabled),
   from { opacity: 0; transform: translateY(0.5rem); }
   to { opacity: 1; transform: translateY(0); }
 }
-.app-route { animation: app-route-enter 0.2s ease-out both; }
+/* `backwards`, never `both`: a retained `transform: translateY(0)` makes this a
+   containing block for every `position: fixed` descendant, which pinned overlays
+   (quarantine ItemPanel, modals) to the route element and scrolled them with the
+   page instead of the viewport. */
+.app-route { animation: app-route-enter 0.2s ease-out backwards; }
 
 @keyframes drawer-in {
   from { transform: translateX(-100%); }
@@ -679,6 +693,27 @@ button:not(:disabled),
   flex-direction: column;
   justify-content: flex-start;
   padding-inline: 0.5rem;
+}
+
+/* Short viewports (laptop at 125% scale, browser with two toolbar rows): the
+   expanded rail needs ~640px of nav and only gets ~395px, so groups scroll out
+   of sight with no scrollbar to hint at it. Compress the rhythm instead of
+   scrolling — measured 639px → ~505px, which fits every viewport ≥700px.
+   Below that it still scrolls, which is the honest outcome. Height-scoped so
+   full-height screens and the mobile drawer keep their touch-sized rows. */
+@media (max-height: 820px) {
+  [data-rail] .rail-brand-row {
+    padding-block: 1rem;
+  }
+  [data-rail] .rail-nav {
+    --rail-section-gap: 0.75rem;
+  }
+  [data-rail] .rail-link {
+    padding-block: 0.25rem;
+  }
+  [data-rail] .rail-group-header {
+    padding-bottom: 0.25rem;
+  }
 }
 
 /* The rail scrolls; the scrollbar never shows. Review item 2, second half. */

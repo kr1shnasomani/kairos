@@ -264,25 +264,20 @@ export function Modal({
     }
 
     document.addEventListener("keydown", onKeyDown);
-    // Locking body alone did not stop scrolling — confirmed live: window.scrollY kept moving
-    // with body.style.overflow already "hidden". <html>, not <body>, is this app's actual
-    // scrolling element, so both must be locked or the page scrolls behind a modal that is
-    // itself position:fixed and therefore appears to have scrolled its content away.
-    const prevBodyOverflow = document.body.style.overflow;
-    const prevHtmlOverflow = document.documentElement.style.overflow;
-    document.body.style.overflow = "hidden";
-    document.documentElement.style.overflow = "hidden";
+    // No scroll lock. `overflow: hidden` on <html> takes the document out of the
+    // scrollport, which kills `position: sticky` everywhere — measured live: the nav
+    // rail jumped to railTop -900 the instant an overlay opened. Overlays are
+    // position:fixed and their scroll panes use overscroll-contain, so the page
+    // staying scrollable behind them is harmless; a broken rail is not.
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = prevBodyOverflow;
-      document.documentElement.style.overflow = prevHtmlOverflow;
       previouslyFocused.current?.focus?.();
     };
   }, []);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-4" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <button type="button" className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-black/40" aria-label="Close dialog" onClick={onClose} />
+      <button type="button" className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-[var(--scrim)]" aria-label="Close dialog" onClick={onClose} />
       <div
         ref={panelRef}
         tabIndex={-1}

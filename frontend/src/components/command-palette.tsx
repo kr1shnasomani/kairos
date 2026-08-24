@@ -63,7 +63,7 @@ function PaletteDialog({ onClose, items }: { onClose: () => void; items: Palette
   let lastGroup = "";
   return (
     <div className="fixed inset-0 z-50 flex justify-center p-4 pt-[14vh]" role="dialog" aria-modal="true" aria-label="Command palette">
-      <button type="button" className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-black/40" aria-label="Close palette" onClick={onClose} />
+      <button type="button" className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-[var(--scrim)]" aria-label="Close palette" onClick={onClose} />
       <div
         className="relative h-fit w-full max-w-lg animate-[panel-in_150ms_ease-out] overflow-hidden rounded-xl border border-line bg-surface shadow-xl"
         onKeyDown={onKeyDown}

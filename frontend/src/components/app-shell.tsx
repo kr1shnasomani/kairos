@@ -570,7 +570,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {mobileDrawerOpen && (
         <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
-          <button className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-black/40" aria-label="Close menu" onClick={() => setMobileDrawerOpen(false)} />
+          <button className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-[var(--scrim)]" aria-label="Close menu" onClick={() => setMobileDrawerOpen(false)} />
           <div className="sidebar-scope absolute inset-y-0 left-0 w-[316px] max-w-[86vw] overflow-y-auto border-r border-line outline-none animate-[drawer-in_250ms_ease-out]">
             <SidebarContent onNavigate={() => setMobileDrawerOpen(false)} role={role} user={user} />
           </div>
@@ -581,7 +581,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {moreOpen && (
         <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
           <button
-            className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-black/40"
+            className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-[var(--scrim)]"
             aria-label="Close menu"
             onClick={() => setMoreOpen(false)}
           />
