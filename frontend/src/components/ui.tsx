@@ -275,8 +275,11 @@ export function Modal({
     };
   }, []);
 
+  // z-[200] tops every other overlay on purpose: action modals stack ON a slide-in panel
+  // (quarantine ItemPanel is z-[100]), and underneath it the panel's scrim both dimmed the
+  // modal and swallowed its clicks. A modal is the last thing opened, so it is always topmost.
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+    <div className="fixed inset-0 z-[200] grid place-items-center p-4" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <button type="button" className="absolute inset-0 animate-[overlay-in_150ms_ease-out] bg-[var(--scrim)]" aria-label="Close dialog" onClick={onClose} />
       <div
         ref={panelRef}
