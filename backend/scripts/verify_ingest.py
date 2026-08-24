@@ -20,8 +20,9 @@ log = structlog.get_logger()
 
 
 async def check_supabase(document_id: str) -> tuple[bool, str]:
-    from api.config import get_settings
     from supabase import create_client
+
+    from api.config import get_settings
 
     settings = get_settings()
     client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
