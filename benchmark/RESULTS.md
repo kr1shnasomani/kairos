@@ -55,8 +55,8 @@ history and caveats, see:
 **Current — 2026-08-24, checkpoint `run_20260824_1351_postfix.jsonl`:**
 
 ```
-Retrieval (fact reaches context):    37/37 (100%)
-Answer quality (correct/total):      36/37 (97.3%)
+Retrieval (fact reaches context):    37/37 (100%)  95% CI [91–100%]
+Answer quality (correct/total):      36/37 (97.3%) 95% CI [86–100%]
 Answer provenance (sourced/correct): 37/37 (100%) all responses · 36/36 correct answers
 Synthesis latency:                   p50 8242 ms · avg 16879 ms
 Provider mix:                        nim 31 · openrouter 2 · refused 4

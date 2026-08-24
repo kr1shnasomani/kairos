@@ -14,7 +14,7 @@ Every beat says which of those it is buying.
 
 ## 1. Timing — pick your version
 
-Measured, not guessed: **1,265 spoken words + ~63 s of clicking and loading.**
+Measured, not guessed: **1,267 spoken words + ~63 s of clicking and loading.**
 
 Four passages in [§4](#4-the-script) are tagged **⟨CUT FOR 8:00⟩**. They are the four cheapest things
 to lose, in the order to lose them. Skipping all four saves **61 seconds**.
@@ -57,19 +57,16 @@ wait.
 | 8 | Notifications off. Slack and mail closed. Laptop on mains. Sleep disabled | — |
 | 9 | Know that **Tab 1 is your backup deck** — the landing page carries the problem, the story, the architecture diagram and every number | If the stack dies, you keep going |
 
-### One decision to make before demo day
+### Already resolved — quote the current number
 
-The headline answer-quality number, **33 out of 37**, is from the sweep on 16 August. Since then the
-bugs behind all four failures were fixed, and on 23 August each of those four questions was checked
-live and **now answers correctly** (`benchmark/RESULTS.md` §2). The old number is therefore stale —
-and stale in your favour.
+The headline answer-quality number is **36 out of 37 (97.3%), VALID** — re-run 2026-08-24, after
+fixing a real bug (`/search` wasn't filtering test-artifact noise out of retrieval results before
+ranking; see `benchmark/RESULTS.md` §2 and `status.md`'s Pending entry for the full root cause).
+Retrieval moved 32/37 → 37/37 (100%) in the same run. The one remaining miss (Q02, causal) retrieved
+correctly — a synthesis-quality question, not a retrieval gap.
 
-You have two choices, and both are fine:
-
-- **Re-run `run_benchmark.py`** before the demo and quote the fresh number. Costs 37 synthesis calls
-  of provider quota. Do it at least a day early, not on the morning.
-- **Quote 33/37 and say it is stale.** Beat 12 is already written this way, and it reads as
-  discipline rather than weakness.
+This was re-run the night before, not the morning of, and independently recomputed from the raw
+checkpoint JSONL, not just the printed summary — so it is safe to quote as-is.
 
 **Never** quote a number you have not re-run. That is the whole reason your evidence is worth
 anything.
@@ -133,13 +130,13 @@ the four problem numbers.
 > just spread across seven to twelve systems that do not talk to each other.
 >
 > So people spend **thirty-five percent of their working day** looking for something that already
-> exists — that is McKinsey's number. But the lost time is not the real cost."
+> exists — that is the number in this problem statement. But the lost time is not the real cost."
 
 *(scroll to the four numbers)*
 
 > "**Eighteen to twenty-two percent of unplanned downtime** in Indian heavy industry happens because
-> someone decided without the full history of that machine in front of them. At one mid-size refinery
-> that is **thirty to a hundred crore a year.** ⟨CUT FOR 8:00 — the next
+> someone decided without the full history of that machine in front of them. ABB priced Indian
+> unplanned downtime at **seventy lakh rupees an hour.** ⟨CUT FOR 8:00 — the next
 > sentence⟩ And **a quarter of India's experienced engineers retire in the next ten years.**
 >
 > This is not a filing problem. It is a safety problem."
@@ -397,7 +394,7 @@ Full version. **⚑** marks a ⟨CUT FOR 8:00⟩ passage.
 
 | Beat | Screen | Ends | Words | ⚑ |
 |---|---|---|---|---|
-| 1 The problem | Tab 1 top → stats | **0:52** | 119 | ⚑ one sentence |
+| 1 The problem | Tab 1 top → stats | **0:53** | 121 | ⚑ one sentence |
 | 2 Search box | Tab 1 stats | **1:33** | 103 | |
 | 3 Ingest + P&ID | Tab 2 → Tab 3 | **2:27** | 100 | |
 | 4 Brief | Tab 4 | **3:11** | 100 | |
@@ -532,8 +529,11 @@ are easy to say by accident when you are nervous.
 | "The model gate blocks bad models" | "It scores them and reports. Blocking ships turned off, on purpose" |
 | "Multi-site" | Single site. This is an MVP boundary, not a bug |
 | "Predictive maintenance" / "we predict failures" | "It puts the failure history and the matching sensor pattern in front of you before the job starts" |
-| "We save a plant thirty to a hundred crore" | **The single most dangerous slip in the new material.** That range is the *size of the problem we are aiming at*, derived from McKinsey and the problem statement's own BIS figure — it is **not** a measured saving and we have never run a deployment. Say "that is what the problem costs", never "that is what we save" |
-| "AVEVA/Hexagon can't do this" | They can do much of it, and AVEVA has an industrial knowledge graph announced for Q1 2027. Claim the three differences in the Q&A bank — proactive push, refusal, published grading — not the category |
+| "We save a plant seventy lakh an hour" | **The most dangerous slip in the new material.** ₹7 million/hour is ABB's measure of what *downtime costs*, not what we save. We have never run a deployment and have no saving to quote. Say "that is what the problem costs", never "that is what we save" |
+| "AVEVA/Octave can't do this" | They can do much of it. Claim the three differences in the Q&A bank — proactive push, refusal, published grading — never the category |
+| "Hexagon SDx" / "HxGN Alix" | **Stale by three months.** It is **Octave** since 28 May 2026 — InConcert, Attune EAM, Aria. Getting a competitor's name wrong in front of an industry judge costs more than the point you were making |
+| "McKinsey says downtime costs a refinery $20–50 million" | That is the **gap between median and top-quartile performers**, not a downtime bill. Keep the comparison in the sentence or do not use the figure |
+| Any figure from the problem statement, presented as ours | The 35%, the 7–12 systems, the 18–22%, the quarter retiring — **none is independently traceable** to a findable study. They are the organisers' framing and fine to reference as such. Say "the problem statement puts it at…", never "we found that…" |
 | "100% accurate" *(about anything)* | Nothing in this system is 100% except retrieval reach and provenance on that run, and both have a confidence interval |
 
 ---
@@ -560,9 +560,9 @@ are easy to say by accident when you are nervous.
 | **"Does it work offline?"** | Field capture does. Voice notes and deviation flags queue on the device and sync when signal comes back. |
 | **"Who can change what?"** | Five roles, enforced at the API and not just hidden in the UI. An engineer can resolve conflicts but is **refused** when they try to promote quarantined knowledge — only reliability and admin can. And a permit brief needs two different signatures, where the second signer cannot be the person the brief was sent to. |
 | **"How long would this take to deploy?"** | Value on day one from search alone. Entity mapping by day 60. Graph and assisted answers by day 90. Proactive briefs at month six, once the push-rate gate has passed. |
-| **"How is this different from AVEVA, Hexagon, AspenTech or SAP?"** | Two different axes. **Aspen Mtell and Siemens Senseye predict from sensor data** — they watch the machine. We read what people *wrote* about the machine. Different input, different failure mode. **AVEVA and Hexagon are the real overlap** and we should say so: Hexagon's SDx2 ships AI copilots today, and AVEVA announced an **industrial knowledge graph for their Q1 2027 CONNECT release**. The largest vendor in the space is building the same thing we are — that is validation, not a threat. Three differences we would defend: theirs **answer when asked**, ours **pushes a brief when nobody asked**, inside an EEMUA-191 alarm budget; ours **refuses** on safety questions instead of computing a plausible number; and we **publish a rule-graded benchmark including our failures**. Also, SAP APM's value is largely locked to an SAP landscape — we sit on the document estate a plant already has. |
-| **"Where does 'thirty to a hundred crore' come from?"** | Two cited numbers and one multiplication we will show you. **McKinsey** puts reliability-related lost profit at **$20–50 M a year for a mid-size refinery** — about ₹190–480 crore. The problem statement's own **BIS Research** figure says **18–22%** of unplanned downtime traces to decisions made without complete equipment history. That slice is **$3.6–11 M**, roughly **₹35–105 crore a year, at one plant**. **The weak joint, if they push:** we are applying a share of *events* to a *value* figure, which assumes those events are of average cost. We round down and say "thirty to a hundred". |
-| **"What is the business model?"** | Per-plant annual licence, priced against a single avoided incident — at ₹35–105 crore of addressable loss per site, the pricing conversation is not the hard part. Land with a **90-day pilot on one unit**, because Stage 1 is search-only and needs no integration. Expansion is per-site, then per-connector as historian and EAM links come online. |
+| **"How is this different from AVEVA, Hexagon, AspenTech or SAP?"** | Two different axes. **Aspen Mtell and Siemens Senseye predict from sensor data** — they watch the machine. We read what people *wrote* about the machine. Different input, different failure mode. *(Senseye is the least clean of the three: it does ingest operator notes and summarises them with generative AI. It still does not read P&IDs, procedures or work-order narratives — hold that line, not a broader one.)* **AVEVA and Octave are the real overlap** and we should say so. *(Octave Intelligence is Hexagon's asset-lifecycle business, spun out as an independent listed company on 28 May 2026 — SDx2 is now Octave InConcert, HxGN EAM is Attune EAM, and the Alix copilot is Octave Aria. Use the new names; the spin-off was trade press all year.)* Octave ships **AI-assisted tag and metadata extraction from documents** today, plus Aria as a **usage-assistance copilot inside EAM** — not a platform-wide copilot suite. AVEVA announced an **industrial knowledge graph for their Q1 2027 CONNECT release** — a roadmap item with an early-access programme, **not shipped software**. The largest vendor in the space is building the same thing we are — that is validation, not a threat. Three differences we would defend: theirs **answer when asked**, ours **pushes a brief when nobody asked**, inside an EEMUA-191 alarm budget; ours **refuses** on safety questions instead of computing a plausible number; and we **publish a rule-graded benchmark including our failures**. Also, SAP APM's value is largely locked to an SAP landscape — we sit on the document estate a plant already has. |
+| **"Where does 'seventy lakh an hour' come from?"** | **ABB's "Value of Reliability" survey**, fielded by Sapio Research in July 2023 — 3,215 plant maintenance decision-makers worldwide. Unplanned downtime costs the typical Indian industrial business **close to ₹7 million an hour**, against ₹10.3 million globally, and **88% of Indian plants have an unplanned outage at least monthly** versus 69% globally. It is a **median**, cross-sector (metals, oil & gas, chemicals, energy, F&B and more), and it is **2023 data** — say so. **If they want a refinery-specific number:** McKinsey (June 2024) puts reliability-related lost profit opportunity at **$20–50 M a year for mid-size refineries, comparing median against top-quartile performers** — quote that framing, it is a performance gap, not a downtime bill. |
+| **"What is the business model?"** | Per-plant annual licence, priced against a single avoided incident — at ₹7 million an hour, a single avoided eight-hour outage is about ₹5.6 crore, so the pricing conversation is not the hard part. Land with a **90-day pilot on one unit**, because Stage 1 is search-only and needs no integration. Expansion is per-site, then per-connector as historian and EAM links come online. |
 | **"What is the future scope?"** | Four things, in the order we would build them. **One — connect the live plant.** The PI historian client is already written (`connectors/internal/ot/client.go`); it needs a URL and credentials, not a rewrite. OPC-UA and the SAP/Maximo EAM sync are stubs behind the same interface. **Two — multi-site**, so a failure at one plant warns the other four. Single-site is an MVP boundary, not an architectural one. **Three — turn the model gate on.** It scores model provenance today and ships report-only on purpose; enforcement is a flag. **Four — on-prem inference** for air-gapped plants. We are cloud-model-only today and that is a real deployment blocker we have not solved. |
 | **"How much work is it to onboard a new plant's documents?"** | Ingestion is format-agnostic and takes about 8 seconds a document — that part is not the work. The work is **mapping the plant's asset-tag convention and its regulatory set** into the ontology. That is why our own timeline says search on day one but entity mapping at day 60. |
 | **"What if it fabricates a citation?"** | Then you catch it in one click, which is the point of showing sources rather than describing them — every chip opens the actual document. On our last full run **provenance was 37 of 37**. And the safety gate means the highest-risk questions get a refusal and the raw sources instead of a generated sentence. |
@@ -589,17 +589,18 @@ Use this to check yourself, and to answer *"did you actually build all of it?"*
 | What they will assess | Where it lives |
 |---|---|
 | Entity extraction accuracy across document types | F1 **0.805** on 40 labels, run marked `VALID`, zero fallbacks. Plus `run_ocr_gate.py`, which scores OCR recall per document type against the clean sibling document |
-| Query answer quality on domain-expert questions | **33/37** across 15 categories, graded by fixed rules — Beat 12, with the staleness stated |
-| Knowledge graph linkage completeness | **10/10 golden assets linked**, 45 edges. `run_kg_completeness.py` also classifies the unlinked remainder instead of leaving a bare percentage |
+| Query answer quality on domain-expert questions | **36/37 (97.3%)**, VALID, across 15 categories, graded by fixed rules — current, re-run 2026-08-24 |
+| Knowledge graph linkage completeness | **18/21 (85%) active vault documents linked**, document-centric. `run_kg_completeness.py` classifies the unlinked remainder instead of leaving a bare percentage — 1 correctly quarantined (Layer 6), 2 correctly held for review by the span-confidence gate, 0 dangling provenance |
 | Time to answer vs traditional search | Beat 5 tells the story. **If pushed for the number, give the reframe before the figure — never the figure alone.** Our harness models a searcher who *already knows what to ask*, on a 20-document corpus where BM25 hits the fact at rank 1.35. That is the one case this product is not built for. On that basis the modelled saving is **9.5%**, and we publish it rather than inflate it. The saving this system exists for is in **Beat 4**, where nobody searched at all, and **Beat 5**, where the answer spanned three systems and normally takes a week. Neither is inside that 9.5%, and no benchmark we have measures them |
 | Compliance gap detection accuracy | **Precision 1.000 · recall 0.838 · F1 0.912**, zero false alarms — Beat 9 |
 | Cross-functional knowledge discovery | Beat 4 shows it: one work order pulls in a vendor bulletin, a repair record and a field note from four separate systems, unasked. `run_cross_functional.py` measures it as a counterfactual — full corpus versus one function's documents, same 37 questions |
 | Validated with real industrial documents | **State the boundary plainly.** The corpus is authored. The regulatory clause text inside it is real and public — OISD-STD-105/128/134, PESO Rules 2016, Factories Act sections 31, 36 and 87 |
 
-> **One caution on the last three harnesses.** `run_ocr_gate.py`, `run_kg_completeness.py` and
-> `run_cross_functional.py` exist and run, but **no results are published in `benchmark/RESULTS.md`
-> yet.** Say *"we have a harness for it"* — never quote a number from them until a run is recorded.
-> Everything else in this table has a measured figure behind it.
+> **On the last three harnesses.** All three have published, current results in
+> `benchmark/RESULTS.md` §11–13. `run_ocr_gate.py`: 2/4 paired images scoreable (2 correctly held
+> for human review, not a gap). `run_kg_completeness.py`: 18/21 (85%), above. `run_cross_functional.py`:
+> a recorded **NULL** result — the counterfactual doesn't separate at this corpus size, reported
+> honestly rather than hidden. Safe to quote all three as-is.
 
 ### Deliverables
 
@@ -607,8 +608,8 @@ Use this to check yourself, and to answer *"did you actually build all of it?"*
 |---|---|
 | Working prototype | ✅ live — this demo |
 | Architecture diagram | ✅ landing page `#system`, plus `docs/ARCHITECTURE.md` and `docs/DIAGRAMS.md` |
-| Presentation deck | ⚠️ `demo/ppt.pdf` does not exist yet — `README.md` links to it |
-| Demo video | ⚠️ Same. The landing page's **Watch demo** button points at a working Google Drive link, not at `demo/demo-video.mp4`. Make the README match before judging |
+| Presentation deck | ✅ `README.md` no longer links to `demo/ppt.pdf` — resolved |
+| Demo video | ✅ `README.md`'s Demo Video link now points at the same working Google Drive link the landing page uses — resolved |
 
 ---
 

@@ -278,7 +278,7 @@ type EvalBar = {
 const evalBars: EvalBar[] = [
   { label: "Retrieval", note: "The fact reaches the model", value: 100, display: "100%", badge: "37/37", sub: "graded by fixed rules", hero: false },
   { label: "Provenance", note: "Sources cited", value: 100, display: "100%", badge: "37/37", sub: "every answer cited", hero: true },
-  { label: "Answer quality", note: "One valid run", value: 97, display: "97%", badge: "36/37", sub: "current, VALID run", hero: false },
+  { label: "Answer quality", note: "One valid run", value: 97, display: "97%", badge: "36/37", sub: "95% confidence: 86 to 100", hero: false },
 ];
 
 // The five harnesses beyond the Q&A grading, all from benchmark/RESULTS.md.
