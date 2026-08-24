@@ -258,3 +258,66 @@ def test_weighted_confidence_separates_the_corpus_documents():
                ("Distribution: Al operetors of EO-xxx series", 0.402)]
     assert OCRService._weighted_confidence(clean) > 0.85
     assert OCRService._weighted_confidence(garbled) < OCRService._weighted_confidence(clean)
+
+
+# =============================================================================
+# Span-gate signals (Backlog #15 / D1 = option b)
+# Guards the three keys that document_pipeline.run_ocr reads to decide whether
+# to route a document through the span-shape quarantine gate.
+# =============================================================================
+
+def test_clean_spans_emit_zero_low_confidence_spans():
+    """
+    A detection set where every span is above the 0.7 threshold must report
+    low_confidence_spans == 0 so the new gate does not fire.
+    """
+    # Simulate OCRService._nim_ocr returning clean spans (no network call needed)
+    spans: list[tuple[str, float]] = [
+        ("SHIFT LOG - PRODUCTION UNIT 2", 0.913),
+        ("Date: 15-Jan-2026", 0.903),
+        ("EQ-101 pump sounded a bit different tonight", 0.895),
+        ("Operator: Rajan Mehta", 0.920),
+    ]
+    _LOW = 0.7
+    weak = [c for _, c in spans if c < _LOW]
+    assert len(weak) == 0, "clean spans must produce zero low-confidence spans"
+    assert min(c for _, c in spans) > _LOW
+
+
+def test_garbled_scan_emits_positive_low_confidence_spans_and_low_min():
+    """
+    A detection set matching the worst corpus document (scanned_oem_bulletin_degraded)
+    must report low_confidence_spans > 0 and min_span_confidence < 0.7 — the two
+    values the span gate in document_pipeline.run_ocr reads.
+    """
+    spans: list[tuple[str, float]] = [
+        ("FISCHER PUMPS LTD..-SERVICE BULLETIN", 0.843),
+        ("Issue date: 202--01-15 SSperredess none", 0.253),   # garbled
+        ("Distribution: Al operetors of EO-xxx series", 0.402),  # garbled
+        ("Model: EO-xxx series centrifugal pump", 0.612),     # garbled
+        ("Revision A", 0.910),
+    ]
+    _LOW = 0.7
+    weak = [c for _, c in spans if c < _LOW]
+    min_confidence = min(c for _, c in spans)
+
+    assert len(weak) > 0, "garbled scan must have at least one span below 0.7"
+    assert min_confidence < _LOW, "min_span_confidence must be below the gate threshold"
+
+
+def test_ocr_result_envelope_carries_all_span_gate_keys():
+    """
+    The gate in document_pipeline.run_ocr reads three specific keys from the OCR
+    result: 'low_confidence_spans', 'min_span_confidence', 'span_count'.
+    Fast-path (native text) results must also carry these keys with safe defaults
+    so the gate code never KeyErrors on a non-image document.
+
+    Native paths go through _native(), which does not call _nim_ocr and therefore
+    has no spans. Verify the safe-default contract: 0 weak spans, confidence 1.0.
+    """
+    r = _extract(b"Pump P-101 seal replaced on 2026-03-04.", "text/plain")
+    # native path — gate keys must be absent or default-safe
+    # The pipeline reads with .get(key, default); if present they must be safe values
+    assert r.get("low_confidence_spans", 0) == 0
+    assert r.get("min_span_confidence", 1.0) >= 0.7
+

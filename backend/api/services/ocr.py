@@ -16,12 +16,12 @@ import httpx
 import structlog
 
 from api.services.http import shared_client
+from api.services.image_utils import _NIM_IMAGE_SIZE_LIMIT, shrink_image_for_nim
 
 log = structlog.get_logger(__name__)
 
 # CV API — model name is part of the URL path, not the payload
 _NIM_CV_BASE = "https://ai.api.nvidia.com/v1/cv"
-_NIM_IMAGE_SIZE_LIMIT = 180_000  # base64 chars; larger images need the assets API
 
 # A span the model itself does not trust. Matches the `< 0.7` quarantine threshold in CLAUDE.md so
 # "the model is unsure about this text" and "this knowledge needs a human" mean the same number.
@@ -257,47 +257,12 @@ class OCRService:
         """
         Re-encode an oversized image to fit the CV API's inline base64 ceiling.
 
-        Returning "" was previously the entire behaviour, so the corpus's two degraded scans (11x
-        and 13x over the limit) never reached the model at all and were reported as "no text" —
-        an encoding limit wearing a model verdict's clothes.
-
-        JPEG first, dimensions second: these are photographic scans, where re-encoding buys far more
-        than dropping resolution, and resolution is what the OCR model actually needs. Returns None
-        if even the smallest step does not fit, so the caller can say so rather than guess.
-
-        NOTE — near-duplicate of `PIDService._fit_b64` (`services/pid.py`), which solved the same
-        problem for Path B and is why that path never hit this bug. Deliberately not merged here:
-        that path is live-validated and out of scope for this fix. Two differences matter if they
-        are ever consolidated — this one tries an unscaled JPEG **first** (which alone took the
-        corpus's 11.3x-over scan from 2,027,896 to 102,628 base64 chars, costing no resolution,
-        where `_fit_b64` starts at 0.85 and always resizes), and it returns raw bytes rather than
-        an encoded string. `_NIM_IMAGE_SIZE_LIMIT` is likewise defined in both modules.
+        Thin wrapper around `image_utils.shrink_image_for_nim` — algorithm and
+        constant now live there so OCR and PID share a single implementation.
+        Returns raw (bytes, mime) because the CV API call in `_nim_ocr` passes
+        bytes directly, unlike the VLM path which needs a b64 string.
         """
-        try:
-            from PIL import Image
-        except Exception as exc:  # Pillow is a hard dependency; treat absence as loud, not silent
-            log.error("ocr.pillow_unavailable", error=str(exc))
-            return None
-        try:
-            img = Image.open(io.BytesIO(img_bytes))
-            img.load()
-            img = img.convert("RGB")  # JPEG carries no alpha channel
-            for scale in (1.0, 0.75, 0.5, 0.35, 0.25):
-                candidate = img if scale == 1.0 else img.resize(
-                    (max(1, round(img.width * scale)), max(1, round(img.height * scale))),
-                    Image.LANCZOS,
-                )
-                buf = io.BytesIO()
-                candidate.save(buf, format="JPEG", quality=85, optimize=True)
-                data = buf.getvalue()
-                # base64 expands 3 bytes to 4; compute rather than encode, to avoid building a
-                # multi-megabyte string per attempt just to measure it.
-                if 4 * ((len(data) + 2) // 3) <= _NIM_IMAGE_SIZE_LIMIT:
-                    return data, "image/jpeg"
-            return None
-        except Exception as exc:
-            log.error("ocr.downscale_failed", error=str(exc))
-            return None
+        return shrink_image_for_nim(img_bytes)
 
     def _extract_native_pdf(self, pdf_bytes: bytes) -> dict[str, Any]:
         try:

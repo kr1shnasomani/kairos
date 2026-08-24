@@ -14,8 +14,6 @@ verification before it becomes canonical (Layer 7), so an imperfect extraction i
 safe by design — the model pre-populates the review, a human confirms.
 """
 
-import base64
-import io
 import json
 import os
 from typing import Any
@@ -24,13 +22,11 @@ import httpx
 import structlog
 
 from api.services.http import shared_client
+from api.services.image_utils import shrink_image_for_nim_b64
 
 log = structlog.get_logger(__name__)
 
-# Inline base64 cap for the NIM chat endpoint; larger drawings are downscaled to fit.
-# ponytail: downscale-to-fit instead of the NVCF assets-upload API. Wire the assets
-# API if fine instrumentation on large drawings is being lost after downscale.
-_NIM_IMAGE_SIZE_LIMIT = 180_000
+# Inline base64 cap — defined in image_utils, imported above for reference in _fit_b64.
 _PID_DPI = 150  # rasterize PDFs denser than OCR (96) — drawings are detail-heavy
 
 _TOPOLOGY_KEYS = ("equipment_nodes", "isolation_valves", "instrumentation_loops", "isolation_boundaries")
@@ -171,21 +167,12 @@ class PIDService:
 
     @staticmethod
     def _fit_b64(img_bytes: bytes, img_mime: str) -> tuple[str, str] | None:
-        """Base64 the image, downscaling with Pillow until it fits the inline cap."""
-        b64 = base64.b64encode(img_bytes).decode()
-        if len(b64) <= _NIM_IMAGE_SIZE_LIMIT:
-            return (b64, img_mime)
-        try:
-            from PIL import Image
+        """Base64 the image, downscaling with Pillow until it fits the inline cap.
 
-            im = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-            for scale in (0.85, 0.7, 0.55, 0.4, 0.3):
-                buf = io.BytesIO()
-                im.resize((int(im.width * scale), int(im.height * scale))).save(buf, format="JPEG", quality=85)
-                b64 = base64.b64encode(buf.getvalue()).decode()
-                if len(b64) <= _NIM_IMAGE_SIZE_LIMIT:
-                    return (b64, "image/jpeg")
-            return None
-        except Exception as exc:
-            log.warning("pid.downscale_failed", error=str(exc))
-            return None
+        Thin wrapper around `image_utils.shrink_image_for_nim_b64` — algorithm
+        and constant now live there so OCR and PID share a single implementation.
+        If the image is already under the ceiling it is returned as-is (original
+        mime type preserved), otherwise it is re-encoded as JPEG with progressive
+        downscale.
+        """
+        return shrink_image_for_nim_b64(img_bytes, img_mime)

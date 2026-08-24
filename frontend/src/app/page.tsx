@@ -263,8 +263,7 @@ const audiences = [
   { name: "Off-boarding", title: "Before the knowledge walks", shot: "offboarding", body: "Guided interviews that capture what someone knows before they leave, while they are still there to ask." },
 ] as const;
 
-// Measured 2026-08-16/17 on the live stack, per benchmark/RESULTS.md. Answer quality
-// is a range because that file is explicit that run-to-run variance is real.
+// Measured 2026-08-24 on the live stack, per benchmark/RESULTS.md.
 type EvalBar = {
   label: string;
   note: string;
@@ -279,7 +278,7 @@ type EvalBar = {
 const evalBars: EvalBar[] = [
   { label: "Retrieval", note: "The fact reaches the model", value: 100, display: "100%", badge: "37/37", sub: "graded by fixed rules", hero: false },
   { label: "Provenance", note: "Sources cited", value: 100, display: "100%", badge: "37/37", sub: "every answer cited", hero: true },
-  { label: "Answer quality", note: "One valid run", value: 89, display: "89%", badge: "33/37", sub: "95% confidence: 79 to 97", hero: false },
+  { label: "Answer quality", note: "One valid run", value: 97, display: "97%", badge: "36/37", sub: "current, VALID run", hero: false },
 ];
 
 // The five harnesses beyond the Q&A grading, all from benchmark/RESULTS.md.
@@ -298,10 +297,12 @@ const evalSuites: {
   {
     // The PS names "knowledge graph linkage completeness" as an evaluation
     // focus, so it belongs on the page as its own figure rather than implied.
+    // Document-centric (run_kg_completeness.py), not the raw asset count —
+    // that query has no test-artifact filter, see status.md.
     name: "Knowledge graph linkage",
-    headline: "10 / 10",
-    headlineNote: "Every asset in the dataset linked, 45 connections",
-    rows: [["Assets linked", "100%"], ["Edges", "45"], ["Alias resolution", "2/2"], ["MDM identity", "2/2"]],
+    headline: "18 / 21",
+    headlineNote: "Active vault documents with a verified knowledge edge",
+    rows: [["Documents linked", "85%"], ["Dangling provenance", "0"], ["Alias resolution", "2/2"], ["MDM identity", "2/2"]],
   },
   {
     name: "Proactive briefs · Layer 8",

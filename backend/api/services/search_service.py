@@ -10,6 +10,7 @@ from typing import Any
 import structlog
 
 from api.models.document import SearchResult
+from api.services.corpus import test_artifact_ids
 from api.services.graph import GraphService
 from api.services.llm import LLMService
 from api.services.search_engine import SearchEngineService
@@ -30,11 +31,15 @@ class SearchService:
         vector: VectorStoreService,
         engine: SearchEngineService,
         llm: LLMService,
+        supabase: Any = None,
     ):
         self.graph = graph
         self.vector = vector
         self.engine = engine
         self.llm = llm
+        # Optional: without it, test-artifact filtering below is skipped (fails open, same as
+        # corpus.test_artifact_ids itself) rather than breaking callers that predate this param.
+        self.supabase = supabase
 
     async def hybrid_search(
         self,
@@ -94,6 +99,30 @@ class SearchService:
             log.error("search.es_failed", error=str(gathered[0]))
         if isinstance(gathered[1], Exception):
             log.error("search.qdrant_failed", error=str(gathered[1]))
+
+        # Test-artifact filtering — MUST happen before _fuse truncates to `limit`, not after.
+        # The graph source in particular returns one hit per DOCUMENTED_BY edge with no
+        # relevance signal of its own beyond RRF rank, so on an asset with many test-sweep
+        # edges (see services/corpus.py's module docstring) it was filling every result slot
+        # with content-free "documented by" stubs before real evidence was ever ranked.
+        if self.supabase is not None:
+            all_ids = (
+                [h.get("document_id") for h in es_raw]
+                + [h.get("payload", {}).get("document_id") for h in qdrant_raw]
+                + [h.get("edge", {}).get("document_id") for h in graph_raw]
+                + [h.get("payload", {}).get("document_id") for h in quarantine_raw]
+            )
+            artifact_ids = await test_artifact_ids(self.supabase, all_ids)
+            if artifact_ids:
+                before = len(es_raw) + len(qdrant_raw) + len(graph_raw) + len(quarantine_raw)
+                es_raw = [h for h in es_raw if h.get("document_id") not in artifact_ids]
+                qdrant_raw = [h for h in qdrant_raw if h.get("payload", {}).get("document_id") not in artifact_ids]
+                graph_raw = [h for h in graph_raw if h.get("edge", {}).get("document_id") not in artifact_ids]
+                quarantine_raw = [
+                    h for h in quarantine_raw if h.get("payload", {}).get("document_id") not in artifact_ids
+                ]
+                after = len(es_raw) + len(qdrant_raw) + len(graph_raw) + len(quarantine_raw)
+                log.info("search.test_artifacts_excluded", excluded=before - after, remaining=after)
 
         return self._fuse(
             [

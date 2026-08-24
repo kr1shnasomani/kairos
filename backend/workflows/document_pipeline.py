@@ -323,6 +323,8 @@ async def run_ocr(
     result = await ocr.extract_text(file_bytes, mime_type=mime_type)
 
     overall_confidence = result.get("overall_confidence", 0.0)
+    low_confidence_spans = result.get("low_confidence_spans", 0)
+    min_span_confidence = result.get("min_span_confidence", 1.0)
     requires_review = overall_confidence < 0.5
 
     if requires_review:
@@ -358,6 +360,52 @@ async def run_ocr(
             document_id=document_id,
             confidence=overall_confidence,
         )
+
+    elif low_confidence_spans > 0:
+        # Span-shape gate (D1 = option b): the average-confidence gate above is blind to
+        # partial failures — a scan where most spans are fine but one reads "18.5 bar"
+        # instead of "16.2 bar" can pass at 0.719. A single garbled span is the dangerous
+        # failure mode for safety-critical facts, so any span below _LOW_CONFIDENCE_SPAN
+        # quarantines the document for human review regardless of the overall mean.
+        requires_review = True
+        await asyncio.to_thread(
+            lambda: supabase.table("extraction_jobs").update({
+                "pipeline_stage": "review_required",
+                "progress_pct": 20,
+                "ocr_confidence": overall_confidence,
+                "review_pending": 1,
+                "error": (
+                    f"OCR span-confidence gate: {low_confidence_spans} span(s) below 0.7 "
+                    f"(min={min_span_confidence:.3f}, overall={overall_confidence:.3f})"
+                ),
+            }).eq("job_id", job_id).execute()
+        )
+
+        redis = _get_redis()
+        await asyncio.to_thread(
+            lambda: redis.xadd(
+                "kairos:events:review_required",
+                {
+                    "document_id": document_id,
+                    "job_id": job_id,
+                    "reason": "low_confidence_spans",
+                    "ocr_confidence": str(overall_confidence),
+                    "low_confidence_spans": str(low_confidence_spans),
+                    "min_span_confidence": str(min_span_confidence),
+                    "extraction_method": result.get("extraction_method", "unknown"),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+        )
+
+        log.warning(
+            "activity.ocr_span_gate_triggered",
+            document_id=document_id,
+            low_confidence_spans=low_confidence_spans,
+            min_span_confidence=min_span_confidence,
+            overall_confidence=overall_confidence,
+        )
+
     else:
         # Advance to NER stage
         await asyncio.to_thread(
@@ -379,9 +427,12 @@ async def run_ocr(
         "text": result.get("text", ""),
         "overall_confidence": overall_confidence,
         "requires_review": requires_review,
+        "low_confidence_spans": low_confidence_spans,
+        "min_span_confidence": min_span_confidence,
         "block_count": result.get("block_count", 0),
         "extraction_method": result.get("extraction_method", "unknown"),
     }
+
 
 
 # =============================================================================

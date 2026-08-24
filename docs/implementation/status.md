@@ -217,20 +217,20 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 |---|---|---|
 | Layer smoke checks | **13/13 pass** | `verify_layers.py` |
 | Retrieval (fact reaches context) | **37/37 (100%)** CI [91–100%] | `run_benchmark.py` |
-| Query answer quality | **33/37 (89.2%)**, 95% CI [79–97%] — **STALE, and understates current quality.** Measured 2026-08-16/17, before the `valid_to` NULL fix, the restored `asset_id_unique` anchor and topology-as-gate-evidence. All four graded misses were probed live on 2026-08-23 and **all four now answer correctly**. Re-run before quoting | `run_benchmark.py` |
+| Query answer quality | **36/37 (97.3%)**, `VALID` — **current, re-measured 2026-08-24** after the `/search` test-artifact fix (see [Pending](#search-was-also-serving-test-pollution-ahead-of-real-evidence--fixed-2026-08-24)). Retrieval went 32/37 → 37/37 alongside it; `personnel` 0/3 → 3/3. One remaining miss (Q02, causal) retrieved correctly — synthesis variance, not a retrieval gap | `run_benchmark.py` |
 | Provenance — all responses, incl. refusals | **37/37 (100%)** CI [91–100%] | `run_benchmark.py` |
 | Provenance — correct answers only | **33/33 (100%)** CI [91–100%] | `run_benchmark.py` (`sourced/correct`) |
-| Synthesis latency | p50 **32.1 s** · p95 **66.0 s** · mean **34.1 s** | `run_benchmark.py` |
+| Synthesis latency | p50 **8.2 s** · mean **16.9 s** — current, 2026-08-24 re-run (was p50 32.1 s · p95 66.0 s · mean 34.1 s on 2026-08-17; not a regression, opposite direction) | `run_benchmark.py` |
 | Entity-extraction F1 (Layer 0) | **0.805** on 40 labels — `VALID`, 0 of 15 fell back | `run_model_validation.py` |
 | Model gate, in-app (Layer 0) | **0.7816** (P 0.723 · R 0.850) on **40 scored labels** of the 52-row `validation_corpus` — `VALID`, **0 of 27 extractions fell back**. 12 `COMPONENT` labels reported as `unscoreable` (2026-08-23) | `POST /governance/model-gate/run` |
 | Compliance gap detection | **P 1.000 · R 0.838 · F1 0.912**, zero false positives | `run_compliance_eval.py` |
-| Retrieval reach by arm | exact **33/37 (89.2%)** · semantic **35/37 (94.6%)** · hybrid **35/37 (94.6%)** (n=37, CIs overlap) | `run_retrieval_baseline.py` |
+| Retrieval reach by arm | exact **33/37 (89.2%)** · semantic **35/37 (94.6%)** · hybrid **35/37 (94.6%)** (n=37, CIs overlap) — **STALE.** Measured 2026-08-17, before the 2026-08-24 `/search` test-artifact fix, and the harness doesn't inherit it even if re-run as-is (constructs `SearchService` without `supabase`) | `run_retrieval_baseline.py` |
 | Proactive brief quality (Layer 8) | **6/6 graded** — structural only; content expectations unmet, see RESULTS §9 | `run_brief_eval.py` |
-| Adversarial safety | **0 unsafe answers** / 15 questions — 12 refusals, S05 now answers — run validity `VALID` | `run_safety_eval.py` |
+| Adversarial safety | **0 unsafe answers** / 15 questions — 12 refusals, S05 now answers — run validity `VALID`. Measured 2026-08-17; calls `GET /search` directly so it inherits the 2026-08-24 fix, but **not re-run since** — do not re-run on demo day (provider-quota risk) | `run_safety_eval.py` |
 | Concurrency | **2275 req · 0% errors · knee at 50 VU** | `run_load_test.py` |
 | Soak (60 min, cloud stores) | **PASS — no leak signal.** RSS **+8.6 MB/h** · conns +4.2/h · **0.11%** of 37,842 req · idle recovery 4/4 | `run_soak_test.py` |
-| OCR accuracy, paired images | **UNSCOREABLE 4/4** (2026-08-23) — the two OCR defects are fixed and all four images transcribe live, but these documents were ingested before the fix so no text is indexed. Blocked on re-extraction (**D2**), not on code. Never reported as recall 0.0 | `run_ocr_gate.py` — read-only, **no model calls** |
-| KG linkage completeness | **16/21 (76%)** linked · 1 quarantined by design · 4 unexplained · **0 dangling provenance** · 87 test docs excluded. Denominator corrected 23 → 21 by **D8** (2026-08-23): two survivors were in neither the manifest nor `dataset/`. Both were linked, so the rate moved 78% → 76% and **the four unexplained did not change** — noise removed, not signal. Predicate shared with `GET /assets/{id}/knowledge` via `api/services/corpus.py` | `run_kg_completeness.py` — read-only |
+| OCR accuracy, paired images | **2/4 scoreable** (2026-08-24, after **D2**'s backfill) — handwriting mean recall **0.333**, a recorded Layer 3 limitation (no separate handwriting model), not a new regression. The other 2 (degraded scans) correctly triggered the 2026-08-24 span-confidence gate and stopped at `review_required` — quarantine working as designed, not a shortfall. See [D2 executed](#d2-ocr-backfill-executed--2-of-4-documents-fixed-2026-08-24) | `run_ocr_gate.py` — read-only, **no model calls** |
+| KG linkage completeness | **18/21 (85%)** linked · 1 quarantined by design · 2 unexplained · **0 dangling provenance** · 87 test docs excluded. Moved from 16/21 by the same **D2** backfill — 2 of the 4 previously-unexplained documents now have real graph edges; the other 2 remain correctly quarantined, which is the ceiling here, not a gap | `run_kg_completeness.py` — read-only |
 | Cross-functional discovery | **NULL on this corpus** — the silo counterfactual does not separate at 24 documents. A corpus limit, recorded rather than hidden | `run_cross_functional.py` (spends embed quota) |
 
 ### How to read these — the caveats that still apply
@@ -292,6 +292,35 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 - **Neither the load sweep nor the soak speaks to scale.** 50 VU and a 24-document corpus are not
   evidence for 10k assets, and the soak speaks to hours, not days. Both are **reads-only** — the
   model path is never exercised by either.
+- **Time-to-answer's reduction fell 25.6% → 9.5%, for two honest reasons, not a regression.** BM25's
+  mean rank *improved* on the wider question set (1.52 → 1.35), so the baseline itself got better;
+  and KAIROS machine time rose (15.7 s → 26.7 s) because the 60 s cap keeps work on NIM instead of
+  truncating onto a faster fallback. The old figure also used a **180 s** client budget — twice what
+  the browser allows — so it counted calls the product would have aborted. Now pinned to the
+  frontend's real 90 s budget, paced like `run_benchmark.py`.
+- **Retrieval-baseline's first run measured semantic-only at 0/37**, which is what exposed a real
+  regression: the superseded-document filter added a Qdrant filter on `status`, Qdrant Cloud rejects
+  filters on unindexed fields with HTTP 400, and `hybrid_search`'s `return_exceptions=True` swallowed
+  the error as a log line. Hybrid retrieval had silently degraded to Elasticsearch-only across the
+  whole system, and no test caught it — only this baseline did. Fixed by adding `status` to
+  `PAYLOAD_INDEXES` in `scripts/init_qdrant.py`. Report hybrid as *matching*, not beating, the best
+  single arm — margins are within the n=37 confidence interval.
+- **The adversarial-safety score was earned, not observed — three defects had to be fixed before it
+  measured anything, each found by the harness itself:** run 1 read `0 unsafe · VALID` but was a
+  false green (the harness didn't follow redirects, so all 15 requests hit a 307 and returned
+  nothing — zero answers scored as zero unsafe); run 2 found 2 real unsafe answers (a value stated
+  for the wrong asset, and a fabricated extrapolation no source covers); run 3 over-corrected to
+  `SUSPECT` (15/15 refused, including answerable questions); run 4 reached `0 unsafe · 14 refusals ·
+  VALID` after three code fixes in `services/llm.py` (a classification regex too literal to match
+  "maximum allowable operating pressure"; the authority anchor comparing evidence to evidence instead
+  of evidence to the question's actual asset; family references like "HE-3xx series" escaping the
+  anchor entirely). Run 5 is current: **S05 now answers** after engineer-verified P&ID topology was
+  admitted as gate evidence.
+- **The proactive-brief eval's 7 unmet soft targets are correct aspirational targets, not defects.**
+  They're cross-references to related assets and prior-event terms the embedding-based brief engine
+  doesn't surface from its retrieval window. Promoting them to graded (`must_all`) would need either
+  a wider retrieval window or structured link-traversal in `BriefEngine` — not built, left as
+  `should_contain` (reported, not scored) until that path exists.
 
 ---
 
@@ -305,7 +334,7 @@ Methodology: [`docs/BENCHMARKS.md`](../BENCHMARKS.md).
 | # | Decision | Options | Consequence of not deciding | Recorded |
 |---|---|---|---|---|
 | D1 | **What makes an OCR extraction quarantine?** | (a) leave it on the weighted average — status quo, the worst scan passes at 0.719; (b) quarantine if **any** span < 0.7; (c) quarantine on a `min_span_confidence` floor | Garbled text from degraded scans reaches the **canonical graph** as verified-grade fact. The safety-relevant direction, and the only open item with a data-integrity consequence | Backlog #15 |
-| D2 | **Re-extract the 4 image documents?** | Requires a one-off backfill writing to Elasticsearch + Supabase | **Currently blocked by the no-cloud-writes rule, so this is decided-by-default.** The cost is that the OCR fix stays invisible: gate `UNSCOREABLE` (`RESULTS.md` §11), L3 capped at 80, linkage capped at 16/21 (§12). Nothing degrades — the numbers simply cannot move | Pending, OCR entry |
+| D2 | **Re-extract the 4 image documents?** | Requires a one-off backfill writing to Neo4j + Qdrant + Elasticsearch + Supabase | **Decided and executed 2026-08-24, with explicit per-write authorization** (the standing no-cloud-writes rule requires that in-session for each write; given here). 2 of 4 completed the full pipeline; 2 correctly quarantined by the span-gate instead of indexing — see [D2 executed](#d2-ocr-backfill-executed--2-of-4-documents-fixed-2026-08-24) | Pending, D2 executed |
 | D3 | **The 12 `COMPONENT` labels in `validation_corpus`** | (a) teach the prompt the type; (b) remap the ground truth; (c) leave them `unscoreable` | Model-gate F1 keeps carrying an asterisk. Deliberately deferred — nothing consumes the type and 3 distinct entities cannot validate adding one to production extraction | Pending |
 | D4 | **Full-suite pass count** | Needs a throwaway Supabase project + `CI_SUPABASE_*` | **Decided 2026-08-23: not doing it.** No secrets, no per-push provider spend. Accepted consequence: no current full-suite pass count; the service-free tier is the only enforced backstop | Pitfalls, CI reference |
 | D5 | **Attention-list row wording** | Settled 2026-08-23 — `Overdue quarantine · {input_type}`, reasoning in `attention-list.tsx` | None; recorded so it is not re-opened | Verification snapshot |
@@ -516,6 +545,111 @@ genuine disagreement.
 > **Not done, and deliberately:** narrowing detection to compare *values* would need a value
 > property on every edge — a schema change plus a backfill, i.e. a cloud write. Revisit only if
 > edges ever carry their asserted value.
+
+---
+
+### `/search` was also serving test pollution ahead of real evidence — fixed 2026-08-24
+
+Same failure class as the graph/conflicts entry above, one layer over: `/search` never applied
+`api/services/corpus.py`'s test-artifact filter at all — not "applied it too late", **never called
+it**. `SearchService`'s graph retrieval source returns one hit per `DOCUMENTED_BY` edge with no
+relevance signal beyond RRF rank, so on an asset with heavy test-sweep history it filled every
+result slot with content-free `"<asset> documented by <id>. Verification: unverified."` stubs
+before real evidence was ever ranked.
+
+**Found via the 2026-08-24 `run_benchmark.py` re-run** (triggered because `personnel` regressed
+0/3 sometime between the 2026-08-17 and 2026-08-22 checkpoints — unrelated to that day's OCR work,
+which landed after the regression was already present). Confirmed live on `EQ-101`: **56 of 68 raw
+retrieval candidates were test artifacts**; `GET /search?asset_id=EQ-101&limit=20` returned 18 of 20
+results as graph stubs, and the document actually containing the answer
+(`DOC-4O66SJPAHVBY` — a work-order sign-off form naming both the technician and the reviewing
+engineer) never appeared even at limit 20.
+
+**Fix.** `search_service.py` / `search.py` — `SearchService` now takes an optional `supabase` client
+and excludes test-artifact candidates via `corpus.test_artifact_ids()` **before** `_fuse()`
+truncates to `limit`, not after — filtering post-truncation would still lose real evidence to junk
+that had already outranked it. Reuses the existing predicate; no new filtering logic, no cloud
+writes, no schema change.
+
+**Verified in order, not just claimed:**
+1. Live re-test of the exact failing call — `DOC-4O66SJPAHVBY` now ranks in the top 5, containing
+   both "Suresh Yadav" and "Ananya Iyer".
+2. Full service-free test suite: 418 passed, 0 failed — unchanged.
+3. `run_benchmark.py --retrieval-only` (zero API cost): retrieval 32/37 → **37/37 (100%)**,
+   `personnel` 0/3 → 3/3.
+4. Full paced re-run with synthesis, independently recomputed from the raw checkpoint JSONL, not
+   the printed summary: **36/37 (97.3%)**, `personnel` 3/3, zero `429`s, `VALID`. The one remaining
+   miss (Q02, causal) retrieved correctly (`retr=1`) — a synthesis-quality question, not a
+   retrieval gap, not something this fix targets, and not reproduced on the 2026-08-17 run
+   (consistent with normal LLM answer variance across runs, not a regression).
+
+**Not re-measured after this fix, and flagged rather than assumed current:**
+- **§5 (`run_time_to_answer.py`)** and **§8 (`run_safety_eval.py`)** both call `GET /search`
+  directly, so they inherit the fix automatically, but neither has been re-run — §8 in particular
+  carries its own house rule ("do not re-run on demo day," provider-quota risk), so both stay
+  dated to their last measurement until there is a safe window to re-run them.
+- **§7 (`run_retrieval_baseline.py`) does *not* inherit the fix even if re-run as-is** — it
+  constructs `SearchService` directly and never passes `supabase`, so the filtering block's
+  `if self.supabase is not None` guard skips it entirely. Its 89.2%/94.6%/94.6% figures reflect
+  pre-fix behaviour. Giving this harness the same `supabase` argument is a small, low-risk
+  follow-up — not done tonight, recorded here so it isn't mistaken for "already covered."
+
+**A second instance of the same bug class, found while checking the landing page for stale
+figures.** `run_benchmark.py`'s own KG-linkage line —
+`MATCH (a:Asset) RETURN count(a)` / `MATCH (a:Asset)-[:KNOWLEDGE_EDGE]-() RETURN count(DISTINCT a)`
+— has **zero test-artifact filtering**, unlike `run_kg_completeness.py` (§12), which already
+filters via this same `corpus.py` predicate. It read `10/10 (100%) · 45 edges` on 2026-08-17; on
+2026-08-24 the same unfiltered query reads `16/55 (29%) · 172 edges` — not a regression, the graph
+now simply holds far more test-sweep assets than it did, and this line was never excluding them.
+**Not fixed that session** — the landing page's "Knowledge graph linkage" tile was pointed at §12's
+already-filtered, already-correct figure instead, which needed no new code (then 16/21, 76% — see
+below for why this number has since moved to 18/21). Applying the same `corpus.py` filter inside
+`run_benchmark.py`'s own KG-linkage query, so its asset-centric figure is trustworthy too, is a
+small follow-up, not done here.
+
+---
+
+### D2 (OCR backfill) executed — 2 of 4 documents fixed 2026-08-24
+
+D2 had been standing as "decided-by-default" — blocked by the no-cloud-writes rule, so the OCR fix
+(2026-08-23) stayed invisible: 4 documents ingested a month earlier, before the fix, had no indexed
+text and no graph edges. Investigated and executed the same night, **with explicit per-write
+authorization** given in-session for this specific backfill, as the standing rule requires.
+
+**Traced before writing anything.** All 4 documents: zero `KNOWLEDGE_EDGE`s, zero Elasticsearch
+text — a genuinely clean slate, so a re-run could only add correct data, never conflict with
+anything already there. `run_ocr`/`run_ner`/`link_to_graph`/`index_vectors`/`index_text` are
+independent activity functions (not sandboxed to a Temporal worker context), callable directly —
+`index_vectors` (Qdrant) and `index_text` (Elasticsearch) run in parallel with no shared
+dependency, so the local-only and cloud-only halves of the write are genuinely separable. A
+read-only OCR probe was run first, before any write, to know the outcome in advance.
+
+**The probe found something the D2 plan hadn't accounted for:** 2 of the 4 documents are the exact
+"worst scan" and "borderline scan" D1 itself was written to describe (`min_span_confidence` 0.253
+and 0.692) — so re-running them now correctly triggers the *same night's* `/search`-adjacent
+span-confidence gate and routes to `review_required` instead of completing. That is the quarantine
+rule working as designed, not a shortfall of the backfill: **only 2 of the 4 were ever going to
+fully index**, and executing D2 honestly means reporting that split rather than forcing all 4
+through.
+
+**Result, verified read-only after the write:**
+- `DOC-ER8TZ9NHV5JH` (handwritten_inspection_note) and `DOC-FZMVRGMACDVX` (handwritten_shift_log):
+  completed the full chain — 3 graph edges each, indexed to both Qdrant and Elasticsearch.
+- `DOC-DVYFFXYFE9YD` (scanned_inspection_degraded) and `DOC-ZCUGJE4ZAAT2` (scanned_oem_bulletin_degraded):
+  stopped at `run_ocr`, `pipeline_stage: review_required`, with real confidence data
+  (`OCR span-confidence gate: 1 span(s) below 0.7`, `4 span(s) below 0.7`) replacing the old,
+  uninformative `nim_returned_no_text` error.
+- OCR gate (§11): `UNSCOREABLE 4/4` → 2/4 scoreable. Handwriting mean recall **0.333** — a
+  recorded Layer 3 limitation (no handwriting-specific model), not a new regression.
+- KG linkage (§12): **16/21 (76%) → 18/21 (85%)**, unexplained gap 4 → 2. 18/21 is the correct
+  ceiling for this backfill, not a partial result — the remaining 2 are correctly quarantined
+  pending human review, and promoting them without one would violate the project's own
+  human-only-promotion rule.
+
+**Left as-is, cosmetic only:** the 2 completed jobs still carry stale `review_pending: 1` and
+`error: "nim_returned_no_text"` fields on their `extraction_jobs` row — `mark_complete` only
+updates `pipeline_stage`/`progress_pct`, not those two. Visible only on
+`GET /documents/{id}/status` for these two specific documents; harmless, low-priority follow-up.
 
 ---
 

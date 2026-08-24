@@ -14,18 +14,21 @@ Every beat says which of those it is buying.
 
 ## 1. Timing — pick your version
 
-Measured, not guessed: **1,219 spoken words + ~63 s of clicking and loading.**
+Measured, not guessed: **1,265 spoken words + ~63 s of clicking and loading.**
 
 Four passages in [§4](#4-the-script) are tagged **⟨CUT FOR 8:00⟩**. They are the four cheapest things
 to lose, in the order to lose them. Skipping all four saves **61 seconds**.
 
 | Your slot | What to present | Lands at |
 |---|---|---|
-| **Hard 8:00 bell** | Full script **minus the four ⟨CUT FOR 8:00⟩ passages**. Strike them out on your printout before you go up | **8:09** |
-| **8:00 + grace** (most likely) | Everything as written | **9:10** |
-| **Confirmed 10:00** | Everything, plus **one** module from [§11](#11-optional-modules) | **9:55** |
+| **Hard 8:00 bell** | Cuts **1–8** from the [cut ladder](#12-cut-ladder) — the four tagged ⟨CUT FOR 8:00⟩ **plus cuts 5–8**. Strike them out on your printout before you go up | **7:50** |
+| **8:00 + grace** (most likely) | Cuts **1–4** only — the four tagged passages | **8:27** |
+| **Confirmed 10:00** | Everything as written, **minus cut #4**, plus **Module B** from [§11](#11-optional-modules) | **9:55** |
 
-Those times assume 150 words a minute. At 140 you land at 9:45 for the full version, so if you are a
+> **The full script with nothing cut is 9:28.** It does not fit a hard 8:00 bell, and it no longer
+> fits 10:00 with an optional module bolted on — pick a row above rather than improvising.
+
+Those times assume 150 words a minute. At 140 you land at 10:05 for the full version, so if you are a
 slow talker, present the 8:00 version even when you have grace.
 
 **Do not** add both optional modules. **Do not** improvise an extra screen. There is no room.
@@ -118,7 +121,7 @@ the heading is when that beat **ends**.
 
 ---
 
-### Beat 1 · The problem · ends **0:47** *(Business Impact)*
+### Beat 1 · The problem · ends **0:52** *(Business Impact)*
 
 **SCREEN** — Tab 1, `/`, the top of the landing page.
 **DO** — Stand still. Do not click anything for the first two sentences. Then scroll down slowly to
@@ -135,14 +138,15 @@ the four problem numbers.
 *(scroll to the four numbers)*
 
 > "**Eighteen to twenty-two percent of unplanned downtime** in Indian heavy industry happens because
-> someone decided without the full history of that machine in front of them. ⟨CUT FOR 8:00 — the next
+> someone decided without the full history of that machine in front of them. At one mid-size refinery
+> that is **thirty to a hundred crore a year.** ⟨CUT FOR 8:00 — the next
 > sentence⟩ And **a quarter of India's experienced engineers retire in the next ten years.**
 >
 > This is not a filing problem. It is a safety problem."
 
 ---
 
-### Beat 2 · Why a search box does not fix it · ends **1:15** *(Innovation)*
+### Beat 2 · Why a search box does not fix it · ends **1:33** *(Innovation)*
 
 **SCREEN** — Tab 1, still on the problem section.
 **DO** — Nothing. Just talk. This beat is the idea the whole project rests on, so let it be still.
@@ -155,11 +159,13 @@ the four problem numbers.
 > That is why they fail. **The most dangerous gaps are the ones nobody knows to search for.** A
 > technician who has never heard that this pump failed this way before does not go looking.
 >
-> So Kairos does not wait to be asked."
+> So Kairos does not wait to be asked. It reads everything the plant already has into one graph — what
+> is true, when it was true, and who said so — then pushes what matters to whoever is about to touch
+> the machine."
 
 ---
 
-### Beat 3 · Everything gets in · ends **2:09** *(Technical Excellence)*
+### Beat 3 · Everything gets in · ends **2:27** *(Technical Excellence)*
 
 **SCREEN** — Tab 2, `/documents/ingest`, then Tab 3, `/documents/<id>/topology`.
 **DO** — Click **Upload** as you start the first sentence. Keep talking while it runs. Point at the
@@ -183,7 +189,7 @@ pipeline timeline when it turns green — that takes about 8 seconds. Then switc
 
 ---
 
-### Beat 4 · The brief nobody asked for · ends **2:53** *(Innovation · Business Impact)*
+### Beat 4 · The brief nobody asked for · ends **3:11** *(Innovation · Business Impact)*
 
 **SCREEN** — Tab 4, `/briefs/<eq101-brief-id>`.
 **DO** — Point at each of the three items as you say them. Point at the **unverified** label on the
@@ -204,7 +210,7 @@ third one and leave your hand there for a second.
 
 ---
 
-### Beat 5 · The answer, and where it came from · ends **3:38** *(UX · Technical Excellence)*
+### Beat 5 · The answer, and where it came from · ends **3:56** *(UX · Technical Excellence)*
 
 **SCREEN** — Tab 5, `/copilot`, answer already on screen.
 **DO** — Read the question off the screen so the room knows you did not pick it just now. Then point
@@ -226,7 +232,7 @@ at the source chips.
 
 ---
 
-### Beat 6 · The refusal · ends **4:38** *(Innovation — this is your peak)*
+### Beat 6 · The refusal · ends **4:56** *(Innovation — this is your peak)*
 
 **SCREEN** — Tab 6, `/copilot`, refusal card already on screen.
 **DO** — Slow right down. After "It could just multiply", **stop talking for two seconds** and let
@@ -253,7 +259,7 @@ them read the card. This is the beat they will remember you for.
 
 ---
 
-### Beat 7 · Root cause · ends **5:06** *(Business Impact)* · **⟨CUT FOR 8:00 — the whole beat⟩**
+### Beat 7 · Root cause · ends **5:24** *(Business Impact)* · **⟨CUT FOR 8:00 — the whole beat⟩**
 
 **SCREEN** — Tab 7, `/rca`, pack already generated.
 **DO** — Scroll once through the timeline, then stop on the ranked causes. Do not read them out.
@@ -270,7 +276,7 @@ straight to Tab 8.
 
 ---
 
-### Beat 8 · Knowledge that goes stale · ends **5:54** *(Innovation · Technical Excellence)*
+### Beat 8 · Knowledge that goes stale · ends **6:12** *(Innovation · Technical Excellence)*
 
 **SCREEN** — Tab 8, `/governance/moc/<id>`, blast radius visible.
 **DO** — Point at the six affected documents. Then point at the pending-MoC banner.
@@ -291,7 +297,7 @@ straight to Tab 8.
 
 ---
 
-### Beat 9 · The auditor's view · ends **6:24** *(Business Impact · Scalability)*
+### Beat 9 · The auditor's view · ends **6:42** *(Business Impact · Scalability)*
 
 **SCREEN** — Tab 9, `/compliance`, logged in as the compliance officer. Then one click to
 `/compliance/audit-pack`.
@@ -308,7 +314,7 @@ word "one click".
 
 ---
 
-### Beat 10 · The wrench, and the knowledge cliff · ends **6:59** *(UX)*
+### Beat 10 · The wrench, and the knowledge cliff · ends **7:17** *(UX)*
 
 **SCREEN** — Tab 10, `/field/voice` in the 390 px window, logged in as the field worker.
 **DO** — Bring the narrow window forward so the phone shape is obvious. Do not tap record.
@@ -324,7 +330,7 @@ word "one click".
 
 ---
 
-### Beat 11 · Under the hood · ends **7:32** *(Technical Excellence)*
+### Beat 11 · Under the hood · ends **7:50** *(Technical Excellence)*
 
 **SCREEN** — Tab 1, scrolled to the architecture diagram (`#system`).
 **DO** — Point at the diagram once. Do not walk through it. Thirty seconds, then move.
@@ -340,7 +346,7 @@ word "one click".
 
 ---
 
-### Beat 12 · Evidence · ends **8:19** *(Technical Excellence)*
+### Beat 12 · Evidence · ends **8:37** *(Technical Excellence)*
 
 **SCREEN** — Tab 1, the **Evals** section: the bar chart, then the coloured card under it.
 **DO** — Point at the card that says *"Fixed rules, never another model."* Do not read the bars out
@@ -362,7 +368,7 @@ one by one.
 
 ---
 
-### Beat 13 · Close · ends **9:10** *(Scalability · Business Impact)*
+### Beat 13 · Close · ends **9:28** *(Scalability · Business Impact)*
 
 **SCREEN** — Tab 1. Either the hero at the top, or hold on the architecture diagram.
 **DO** — Stop clicking. Face the room for the last three sentences.
@@ -391,28 +397,31 @@ Full version. **⚑** marks a ⟨CUT FOR 8:00⟩ passage.
 
 | Beat | Screen | Ends | Words | ⚑ |
 |---|---|---|---|---|
-| 1 The problem | Tab 1 top → stats | **0:47** | 106 | ⚑ one sentence |
-| 2 Search box | Tab 1 stats | **1:15** | 70 | |
-| 3 Ingest + P&ID | Tab 2 → Tab 3 | **2:09** | 100 | |
-| 4 Brief | Tab 4 | **2:53** | 100 | |
-| 5 Answer | Tab 5 | **3:38** | 102 | |
-| 6 **Refusal** | Tab 6 | **4:38** | 135 | |
-| 7 RCA | Tab 7 | **5:06** | 58 | ⚑ whole beat |
-| 8 Blast radius | Tab 8 | **5:54** | 111 | |
-| 9 Compliance | Tab 9 | **6:24** | 60 | ⚑ last two sentences |
-| 10 Field | Tab 10 | **6:59** | 74 | |
-| 11 Architecture | Tab 1 | **7:32** | 70 | |
-| 12 Evidence | Tab 1 | **8:19** | 105 | ⚑ last paragraph |
-| 13 Close | Tab 1 | **9:10** | 128 | |
+| 1 The problem | Tab 1 top → stats | **0:52** | 119 | ⚑ one sentence |
+| 2 Search box | Tab 1 stats | **1:33** | 103 | |
+| 3 Ingest + P&ID | Tab 2 → Tab 3 | **2:27** | 100 | |
+| 4 Brief | Tab 4 | **3:11** | 100 | |
+| 5 Answer | Tab 5 | **3:56** | 102 | |
+| 6 **Refusal** | Tab 6 | **4:56** | 135 | |
+| 7 RCA | Tab 7 | **5:24** | 58 | ⚑ whole beat |
+| 8 Blast radius | Tab 8 | **6:12** | 111 | |
+| 9 Compliance | Tab 9 | **6:42** | 60 | ⚑ last two sentences |
+| 10 Field | Tab 10 | **7:17** | 74 | |
+| 11 Architecture | Tab 1 | **7:50** | 70 | |
+| 12 Evidence | Tab 1 | **8:37** | 105 | ⚑ last paragraph |
+| 13 Close | Tab 1 | **9:28** | 128 | |
 
-**With all four ⚑ cut, the clock runs:** 0:39 · 1:07 · 2:01 · 2:45 · 3:30 · 4:30 · *(skip)* · 5:18 ·
-5:37 · 6:12 · 6:45 · 7:23 · **8:09**.
+**With the four ⚑ cut (cuts 1–4), the clock runs:** 0:44 · 1:25 · 2:19 · 3:03 · 3:48 · 4:48 ·
+*(skip)* · 5:36 · 5:55 · 6:30 · 7:03 · 7:41 · **8:27**.
+
+**For a hard 8:00 bell you need cuts 1–8**, which lands at **7:50**. Cuts 1–6 land at 8:11 — still
+over. Do not talk faster to fix this; cut the ladder.
 
 **Two checkpoints. Only two.**
 
-- **Tab 6 — the refusal — must be on screen by 4:40** (by 4:30 on the 8:00 version). If it is not, you
+- **Tab 6 — the refusal — must be on screen by 5:00** (by 4:50 on the cut version). If it is not, you
   are speaking too slowly. Speed up. Do not start cutting yet.
-- **Tab 8 — blast radius — must be finished by 6:00** (5:20 on the 8:00 version). If it is not, drop
+- **Tab 8 — blast radius — must be finished by 6:15** (5:40 on the cut version). If it is not, drop
   the ⚑ passages in Beats 9 and 12 on the fly.
 
 Everything **after** Beat 6 can be squeezed. Everything **before** it cannot.
@@ -523,11 +532,18 @@ are easy to say by accident when you are nervous.
 | "The model gate blocks bad models" | "It scores them and reports. Blocking ships turned off, on purpose" |
 | "Multi-site" | Single site. This is an MVP boundary, not a bug |
 | "Predictive maintenance" / "we predict failures" | "It puts the failure history and the matching sensor pattern in front of you before the job starts" |
+| "We save a plant thirty to a hundred crore" | **The single most dangerous slip in the new material.** That range is the *size of the problem we are aiming at*, derived from McKinsey and the problem statement's own BIS figure — it is **not** a measured saving and we have never run a deployment. Say "that is what the problem costs", never "that is what we save" |
+| "AVEVA/Hexagon can't do this" | They can do much of it, and AVEVA has an industrial knowledge graph announced for Q1 2027. Claim the three differences in the Q&A bank — proactive push, refusal, published grading — not the category |
 | "100% accurate" *(about anything)* | Nothing in this system is 100% except retrieval reach and provenance on that run, and both have a confidence interval |
 
 ---
 
 ## 9. Q&A bank
+
+> **Open Q&A with this offer, once:** *"Everything you saw was asked before I came up, because a live
+> answer takes about thirty seconds. If you want, give me a question now and I will run it in front of
+> you."* Q&A is not on the clock. It converts the one real weakness of a pre-cached demo — *"is any of
+> this live?"* — into the strongest proof you have. Have `/copilot` already open on a spare tab.
 
 | They ask | You say |
 |---|---|
@@ -544,6 +560,13 @@ are easy to say by accident when you are nervous.
 | **"Does it work offline?"** | Field capture does. Voice notes and deviation flags queue on the device and sync when signal comes back. |
 | **"Who can change what?"** | Five roles, enforced at the API and not just hidden in the UI. An engineer can resolve conflicts but is **refused** when they try to promote quarantined knowledge — only reliability and admin can. And a permit brief needs two different signatures, where the second signer cannot be the person the brief was sent to. |
 | **"How long would this take to deploy?"** | Value on day one from search alone. Entity mapping by day 60. Graph and assisted answers by day 90. Proactive briefs at month six, once the push-rate gate has passed. |
+| **"How is this different from AVEVA, Hexagon, AspenTech or SAP?"** | Two different axes. **Aspen Mtell and Siemens Senseye predict from sensor data** — they watch the machine. We read what people *wrote* about the machine. Different input, different failure mode. **AVEVA and Hexagon are the real overlap** and we should say so: Hexagon's SDx2 ships AI copilots today, and AVEVA announced an **industrial knowledge graph for their Q1 2027 CONNECT release**. The largest vendor in the space is building the same thing we are — that is validation, not a threat. Three differences we would defend: theirs **answer when asked**, ours **pushes a brief when nobody asked**, inside an EEMUA-191 alarm budget; ours **refuses** on safety questions instead of computing a plausible number; and we **publish a rule-graded benchmark including our failures**. Also, SAP APM's value is largely locked to an SAP landscape — we sit on the document estate a plant already has. |
+| **"Where does 'thirty to a hundred crore' come from?"** | Two cited numbers and one multiplication we will show you. **McKinsey** puts reliability-related lost profit at **$20–50 M a year for a mid-size refinery** — about ₹190–480 crore. The problem statement's own **BIS Research** figure says **18–22%** of unplanned downtime traces to decisions made without complete equipment history. That slice is **$3.6–11 M**, roughly **₹35–105 crore a year, at one plant**. **The weak joint, if they push:** we are applying a share of *events* to a *value* figure, which assumes those events are of average cost. We round down and say "thirty to a hundred". |
+| **"What is the business model?"** | Per-plant annual licence, priced against a single avoided incident — at ₹35–105 crore of addressable loss per site, the pricing conversation is not the hard part. Land with a **90-day pilot on one unit**, because Stage 1 is search-only and needs no integration. Expansion is per-site, then per-connector as historian and EAM links come online. |
+| **"What is the future scope?"** | Four things, in the order we would build them. **One — connect the live plant.** The PI historian client is already written (`connectors/internal/ot/client.go`); it needs a URL and credentials, not a rewrite. OPC-UA and the SAP/Maximo EAM sync are stubs behind the same interface. **Two — multi-site**, so a failure at one plant warns the other four. Single-site is an MVP boundary, not an architectural one. **Three — turn the model gate on.** It scores model provenance today and ships report-only on purpose; enforcement is a flag. **Four — on-prem inference** for air-gapped plants. We are cloud-model-only today and that is a real deployment blocker we have not solved. |
+| **"How much work is it to onboard a new plant's documents?"** | Ingestion is format-agnostic and takes about 8 seconds a document — that part is not the work. The work is **mapping the plant's asset-tag convention and its regulatory set** into the ontology. That is why our own timeline says search on day one but entity mapping at day 60. |
+| **"What if it fabricates a citation?"** | Then you catch it in one click, which is the point of showing sources rather than describing them — every chip opens the actual document. On our last full run **provenance was 37 of 37**. And the safety gate means the highest-risk questions get a refusal and the raw sources instead of a generated sentence. |
+| **"Who built what?"** | *(Agree this answer before you go up — name the owner of ingestion/OCR, graph and governance, retrieval and synthesis, and frontend, and let that person take questions in their area.)* |
 
 ---
 
@@ -568,7 +591,7 @@ Use this to check yourself, and to answer *"did you actually build all of it?"*
 | Entity extraction accuracy across document types | F1 **0.805** on 40 labels, run marked `VALID`, zero fallbacks. Plus `run_ocr_gate.py`, which scores OCR recall per document type against the clean sibling document |
 | Query answer quality on domain-expert questions | **33/37** across 15 categories, graded by fixed rules — Beat 12, with the staleness stated |
 | Knowledge graph linkage completeness | **10/10 golden assets linked**, 45 edges. `run_kg_completeness.py` also classifies the unlinked remainder instead of leaving a bare percentage |
-| Time to answer vs traditional search | Beat 5 tells the story. **If pushed for the number:** our own harness says BM25 already finds the fact at rank 1.35 on a 20-document corpus, so the modelled human time saving is only **9.5%**. Corpus size sets that floor, and we publish it rather than inflate it |
+| Time to answer vs traditional search | Beat 5 tells the story. **If pushed for the number, give the reframe before the figure — never the figure alone.** Our harness models a searcher who *already knows what to ask*, on a 20-document corpus where BM25 hits the fact at rank 1.35. That is the one case this product is not built for. On that basis the modelled saving is **9.5%**, and we publish it rather than inflate it. The saving this system exists for is in **Beat 4**, where nobody searched at all, and **Beat 5**, where the answer spanned three systems and normally takes a week. Neither is inside that 9.5%, and no benchmark we have measures them |
 | Compliance gap detection accuracy | **Precision 1.000 · recall 0.838 · F1 0.912**, zero false alarms — Beat 9 |
 | Cross-functional knowledge discovery | Beat 4 shows it: one work order pulls in a vendor bulletin, a repair record and a field note from four separate systems, unasked. `run_cross_functional.py` measures it as a counterfactual — full corpus versus one function's documents, same 37 questions |
 | Validated with real industrial documents | **State the boundary plainly.** The corpus is authored. The regulatory clause text inside it is real and public — OISD-STD-105/128/134, PESO Rules 2016, Factories Act sections 31, 36 and 87 |
@@ -637,8 +660,10 @@ Savings are measured, not guessed.
 | 7 | **Beat 10** — the interview sentence. Keep the phone and the quarantine | **−10 s** | High. Drops the knowledge-cliff payoff |
 | 8 | **Beat 8** — the "we never delete" paragraph | **−11 s** | High. Drops time travel, one of your three best ideas |
 
-**Cuts 1–4 land you at 8:09.** That is the version to rehearse.
-**All eight land at 7:32**, and by then you are cutting muscle, not fat.
+**Cuts 1–4 land you at 8:27** — that is the version for an 8:00 slot *with grace*.
+**Cuts 1–8 land at 7:50**, which is the only version that clears a hard 8:00 bell — and by cut 7 you
+are into muscle, not fat. Rehearse whichever one matches your actual slot; do not rehearse the full
+script and hope to cut live.
 
 **Never cut, at any length:** Beat 2 · Beat 6 · the last three sentences of Beat 13. Those three
 **are** the differentiator. Everything else is supporting evidence for them.

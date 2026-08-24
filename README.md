@@ -3,7 +3,7 @@
 
 <div align="center">
 
-[Problem Statement](./docs/PROBLEM_STATEMENT.md) · [Solution](./docs/ARCHITECTURE.md) · [Presentation](./demo/ppt.pdf) · [Documentation](./demo/docs.pdf) · [Demo Video](./demo/demo-video.mp4)
+[Problem Statement](./docs/PROBLEM_STATEMENT.md) · [Solution](./docs/ARCHITECTURE.md) · [Demo Video](https://drive.google.com/file/d/18ZO95MckNtESg-Z2ruRBNnKq6JyB57rP/view) · [Documentation](./docs/)
 
 A 13-layer platform organised into five planes: **perception, knowledge, governance, retrieval, and delivery**. A FastAPI core orchestrates five datastores, durable Temporal workflows, Celery workers, and Go OT connectors, with a Next.js interface on top.
 

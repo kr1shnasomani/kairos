@@ -84,7 +84,32 @@ init-neo4j:
 init-qdrant:
 	docker compose exec kairos-backend-api python scripts/init_qdrant.py
 
-init-all: init-neo4j init-qdrant
+# Local Elasticsearch is per-machine and never synced from the cloud stores, so a fresh clone
+# always starts with an empty search index. db/snapshots/kairos-es-data.tar.gz is a checked-in
+# snapshot of that index for the golden dataset — restoring it here means every laptop that
+# clones this repo gets identical local search data with zero manual steps and zero OCR/NIM cost.
+import-search-index:
+	@if [ -f db/snapshots/kairos-es-data.tar.gz ]; then \
+		docker compose stop kairos-elasticsearch; \
+		docker run --rm -v kairos_kairos-elasticsearch_data:/data -v "$(PWD)/db/snapshots":/backup alpine \
+			sh -c "rm -rf /data/* && tar xzf /backup/kairos-es-data.tar.gz -C /data"; \
+		docker compose up -d kairos-elasticsearch; \
+		echo "Local search index restored from db/snapshots/kairos-es-data.tar.gz"; \
+	else \
+		echo "No snapshot at db/snapshots/kairos-es-data.tar.gz — run 'make export-search-index' on a machine with real data first."; \
+	fi
+
+# Run this after `load-dataset`, whenever the golden dataset changes, then commit the updated
+# tarball — it's how the snapshot above stays current.
+export-search-index:
+	docker compose stop kairos-elasticsearch
+	@mkdir -p db/snapshots
+	docker run --rm -v kairos_kairos-elasticsearch_data:/data -v "$(PWD)/db/snapshots":/backup alpine \
+		tar czf /backup/kairos-es-data.tar.gz -C /data .
+	docker compose up -d kairos-elasticsearch
+	@echo "Wrote db/snapshots/kairos-es-data.tar.gz — commit it so every clone stays in sync."
+
+init-all: init-neo4j init-qdrant import-search-index
 	@echo "All datastores initialized."
 
 # =============================================================================

@@ -121,6 +121,7 @@ async def search(
         vector=VectorStoreService(qdrant, settings),
         engine=SearchEngineService(es, settings),
         llm=LLMService(settings),
+        supabase=supabase,
     )
     results = await svc.hybrid_search(
         query=q,
@@ -173,6 +174,7 @@ async def search_asset(
         vector=VectorStoreService(qdrant, settings),
         engine=SearchEngineService(es, settings),
         llm=LLMService(settings),
+        supabase=supabase,
     )
     results = await svc.hybrid_search(
         query=q,
