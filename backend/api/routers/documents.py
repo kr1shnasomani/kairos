@@ -26,6 +26,7 @@ from api.dependencies import (
     require_role,
 )
 from api.models.document import DocumentStatus, ExtractionResult, VaultDocument
+from api.services.corpus import is_test_artifact
 from api.services.graph import GraphService
 from api.services.metrics import ingestion_duration
 from api.services.ner import NERService
@@ -289,13 +290,32 @@ async def list_documents(
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
-    """Lists documents in the vault with optional filtering by asset, type, or status."""
+    """Lists documents in the vault with optional filtering by asset, type, or status.
+
+    Test-sweep artifacts are excluded — filtered here at the query level, never deleted,
+    same predicate `governance.py`/`assets.py` already use (`api/services/corpus.py`). This
+    endpoint paginates with `.range()`, so the exclusion has to live in the query itself: a
+    page-then-filter-in-Python approach would under-fill pages and understate `total`. On this
+    vault the split is stark — 87 of 108 active documents are test artifacts, almost entirely
+    `.txt`, so an unfiltered first page shows nothing but test noise ahead of every real PDF
+    and image (they only start appearing past position 87). `excluded_test_documents` is
+    reported per the project's own rule that a filter must never hide its own effect.
+
+    Excluded ids are resolved via a plain `file_name` scan + `is_test_artifact()` in Python,
+    not `.ilike()` — this Supabase project's PostgREST/Cloudflare edge 500s on `ilike`
+    entirely (confirmed: fails even as the only filter on an otherwise-plain query, while
+    `.eq()`/`.neq()`/`.in_()` all work), so pattern-matching has to happen client-side and the
+    exclusion applied as a plain `.not_.in_()` id list instead.
+    """
+    base_filters_query = supabase.table("documents").select("document_id, file_name")
     query = supabase.table("documents").select("*", count="exact")
 
     if document_type:
         query = query.eq("document_type", document_type)
+        base_filters_query = base_filters_query.eq("document_type", document_type)
     if doc_status:
         query = query.eq("status", doc_status)
+        base_filters_query = base_filters_query.eq("status", doc_status)
 
     if asset_id:
         # Get document IDs linked to this asset first
@@ -307,13 +327,26 @@ async def list_documents(
         )
         linked_ids = [r["document_id"] for r in (link_result.data or [])]
         if not linked_ids:
-            return {"items": [], "total": 0, "limit": limit, "offset": offset}
+            return {"items": [], "total": 0, "limit": limit, "offset": offset, "excluded_test_documents": 0}
         query = query.in_("document_id", linked_ids)
+        base_filters_query = base_filters_query.in_("document_id", linked_ids)
+
+    candidates = await asyncio.to_thread(lambda: base_filters_query.execute())
+    excluded_ids = [r["document_id"] for r in (candidates.data or []) if is_test_artifact(r.get("file_name"))]
+    excluded_test_documents = len(excluded_ids)
+    # Chunked, not one `.not_.in_()` with the whole list — Supabase/PostgREST puts every value
+    # in the URL (see corpus.py's own `_LOOKUP_CHUNK`), so a long enough exclusion list becomes
+    # an over-long query string. 87+ test artifacts already exist on this vault; chunking is
+    # what keeps this endpoint correct as that count keeps growing, not just today.
+    _CHUNK = 200
+    for start in range(0, len(excluded_ids), _CHUNK):
+        query = query.not_.in_("document_id", excluded_ids[start : start + _CHUNK])
 
     result = await asyncio.to_thread(
         lambda: query.order("ingested_at", desc=True).range(offset, offset + limit - 1).execute()
     )
     items = result.data or []
+    total = result.count or 0
 
     # Attach asset_links per document (one batch query, no N+1) so consumers such as
     # the projects portfolio can classify documents by the equipment class of their
@@ -335,9 +368,10 @@ async def list_documents(
 
     return {
         "items": items,
-        "total": result.count or 0,
+        "total": total,
         "limit": limit,
         "offset": offset,
+        "excluded_test_documents": excluded_test_documents,
     }
 
 

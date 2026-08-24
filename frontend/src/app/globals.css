@@ -690,3 +690,16 @@ button:not(:disabled),
   width: 0;
   height: 0;
 }
+
+/* next.config.ts sets `devIndicators: false`, but Next overrides that flag the
+ * moment the dev overlay's error count is non-zero — it re-shows the logo badge
+ * carrying the issue count, which lands in screenshots and over the UI during
+ * manual testing. The badge lives in the shadow root of <nextjs-portal>, which
+ * page CSS cannot reach, so hide the host element instead.
+ * Dev-only element; the rule is inert in a production build.
+ * Trade-off: this also hides the full-screen error overlay. Errors still reach
+ * the browser console and `docker logs kairos-frontend`. */
+nextjs-portal,
+script[data-nextjs-dev-overlay] {
+  display: none !important;
+}

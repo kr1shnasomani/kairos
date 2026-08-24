@@ -264,11 +264,18 @@ export function Modal({
     }
 
     document.addEventListener("keydown", onKeyDown);
-    const prevOverflow = document.body.style.overflow;
+    // Locking body alone did not stop scrolling — confirmed live: window.scrollY kept moving
+    // with body.style.overflow already "hidden". <html>, not <body>, is this app's actual
+    // scrolling element, so both must be locked or the page scrolls behind a modal that is
+    // itself position:fixed and therefore appears to have scrolled its content away.
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = prevOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
       previouslyFocused.current?.focus?.();
     };
   }, []);

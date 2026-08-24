@@ -331,9 +331,16 @@ export interface Fetched<T> {
 // ~1s+). A genuine down/hanging backend still surfaces as an error+retry after the
 // timeout — we never substitute fabricated data. Slow endpoints pass an even
 // longer timeout (e.g. compliance gaps at 5s).
-async function getJson<T>(path: string, timeoutMs = 4000): Promise<T> {
+async function getJson<T>(path: string, timeoutMs = 4000, requireAuth = false): Promise<T> {
   const makeRequest = async () => {
-    const token = await getStrictReadToken();
+    // `getStrictReadToken()` withholds the token outside strict-auth mode (most reads run on
+    // the backend's dev-bypass instead, deliberately a low-privilege "engineer" mock user).
+    // A role-gated endpoint can't rely on that bypass to grant it anything — `requireAuth`
+    // sends whatever real token is actually in the browser, so a role check is checking the
+    // signed-in user's real role, not the dev-bypass default. Without this, /health/model
+    // 403'd every time monitoring was toggled on: no header → dev-bypass "engineer" → admin
+    // required → denied, 100% reproducible, not a flaky probe.
+    const token = requireAuth ? getToken() : await getStrictReadToken();
     return fetch(`${API_BASE}${path}`, {
       cache: "no-store",
       headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -384,7 +391,7 @@ export type ModelProbe = { provider: string; ok: boolean; status?: number; model
 export async function probeModel(provider: string): Promise<ModelProbe> {
   try {
     const r = await getJson<{ provider: string; ok: boolean; status?: number; model?: string; latency_ms?: number; detail?: string | null }>(
-      `/health/model?provider=${provider}`, 25000,
+      `/health/model?provider=${provider}`, 25000, true,
     );
     return { provider: r.provider, ok: r.ok, status: r.status, model: r.model, latencyMs: r.latency_ms, detail: r.detail };
   } catch (e) {
@@ -511,7 +518,7 @@ type SynthesizePayload = {
   pending_moc?: CopilotAnswer["pending_moc"];
 };
 
-type RetrievedContext = { document_id: string; title: string; text: string; authority_level: number };
+type RetrievedContext = { document_id: string; title: string; text: string; authority_level: number; vault_url?: string };
 
 /**
  * Maps a `/search/synthesize` payload onto `CopilotAnswer`, re-attaching each cited source to the
@@ -524,7 +531,7 @@ function finalizeAnswer(live: SynthesizePayload, context: RetrievedContext[]): C
   if (!live.refused && !live.answer?.trim()) {
     return {
       answer: null,
-      sources: context.map((c) => ({ document_id: c.document_id, title: c.title, authority_level: c.authority_level as CopilotAnswer["sources"][number]["authority_level"], excerpt: c.text.slice(0, 200) })),
+      sources: context.map((c) => ({ document_id: c.document_id, title: c.title, authority_level: c.authority_level as CopilotAnswer["sources"][number]["authority_level"], excerpt: c.text.slice(0, 200), vault_url: c.vault_url })),
       confidence: null,
       refused: false,
       safety_critical: false,
@@ -539,6 +546,7 @@ function finalizeAnswer(live: SynthesizePayload, context: RetrievedContext[]): C
       title: byId.get(s.document_id)?.title ?? s.document_id,
       authority_level: (s.authority_level as CopilotAnswer["sources"][number]["authority_level"]) ?? 5,
       excerpt: byId.get(s.document_id)?.text.slice(0, 200) ?? "",
+      vault_url: byId.get(s.document_id)?.vault_url,
     })),
     confidence: live.confidence ?? null,
     refused: !!live.refused,
@@ -563,7 +571,7 @@ export async function synthesize(
     // search first (exactly what the benchmark does). Without this the answer is always empty.
     const qs = new URLSearchParams({ q: query, limit: "6" });
     if (asOf) qs.set("as_of", asOf);
-    const search = await getJson<{ results: Array<{ document_id: string; snippet?: string; title?: string; authority_level?: number; asset_id?: string | null; relevance_score?: number }> }>(
+    const search = await getJson<{ results: Array<{ document_id: string; snippet?: string; title?: string; authority_level?: number; asset_id?: string | null; relevance_score?: number; vault_url?: string }> }>(
       `/search?${qs.toString()}`, 12000,
     );
     const results = search.results ?? [];
@@ -576,17 +584,23 @@ export async function synthesize(
     const context = results.map((r) => ({
       text: r.snippet ?? "",
       document_id: r.document_id,
-      title: r.title ?? r.document_id,
+      // `||`, not `??` — a graph-only hit can carry title: "" (empty, not null/undefined) when
+      // its target node has no title property, and `??` does not treat "" as absent. Every
+      // downstream source-card render reads title from this one field, so catching it here
+      // once covers all of them rather than re-guarding at each call site.
+      title: r.title || r.document_id,
       authority_level: r.authority_level ?? 5,
       // Required by the safety gate. It clears only if one of the most RELEVANT sources is
       // authoritative; without a score it falls back to considering every source, which let a
       // single unrelated regulation in the context clear a safety-critical refusal.
       relevance_score: r.relevance_score,
       asset_id: r.asset_id ?? null,
+      // Lets a source card link straight to the file. Carried through unused by synthesis
+      // itself — the model never sees it — purely so the UI can re-attach it after the fact.
+      vault_url: r.vault_url,
     }));
 
     if (onSources) {
-      const byId = new Map(context.map((c) => [c.document_id, c]));
       onSources({
         answer: null,
         sources: context.map((c) => ({
@@ -594,6 +608,7 @@ export async function synthesize(
           title: c.title,
           authority_level: (c.authority_level as CopilotAnswer["sources"][number]["authority_level"]) ?? 5,
           excerpt: c.text.slice(0, 200),
+          vault_url: c.vault_url,
         })),
         confidence: null,
         refused: false,

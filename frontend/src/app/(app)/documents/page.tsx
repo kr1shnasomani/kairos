@@ -42,6 +42,11 @@ export default async function DocumentsPage() {
             { key: "superseded", label: "Superseded", value: items.length - activeCount },
           ]}
         />
+        {!!data.excluded_test_documents && (
+          <p className="mt-2 text-caption text-muted">
+            {data.excluded_test_documents} test-sweep document{data.excluded_test_documents === 1 ? "" : "s"} hidden — filtered from this view, never deleted.
+          </p>
+        )}
       </section>
 
       {items.length === 0 ? (

@@ -236,7 +236,13 @@ class SearchService:
                 document_id=edge.get("document_id") or "",
                 asset_id=asset_id,
                 document_type=target.get("document_type", "unknown"),
-                title=target.get("title") or "",
+                # A graph-only hit's target node often carries no `title` property (assets,
+                # concepts, and some Document nodes never got one set). "" used to flow straight
+                # through every caller's `title ?? fallback` — `??` only catches null/undefined,
+                # not empty string — leaving copilot source cards with a blank line where the
+                # title belongs. document_id is always present and is what every other retrieval
+                # method already falls back to.
+                title=target.get("title") or edge.get("document_id") or "",
                 # A graph hit used to carry snippet="" — it entered the ranking but gave
                 # synthesis nothing to read, so a fact that existed only as an edge was
                 # invisible to the answer. Render the relationship as text instead.

@@ -85,10 +85,17 @@ export function ItemPanel({
   useEffect(() => {
     previouslyFocused.current = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
-    const prevOverflow = document.body.style.overflow;
+    // Locking body alone did not stop scrolling — confirmed live: window.scrollY kept moving
+    // with body.style.overflow already "hidden". <html>, not <body>, is this app's actual
+    // scrolling element, so both must be locked or the table behind this fixed panel scrolls
+    // out from under it.
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = prevOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
       previouslyFocused.current?.focus?.();
     };
   }, []);

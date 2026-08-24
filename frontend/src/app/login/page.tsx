@@ -3,10 +3,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getMe, login } from "@/lib/auth";
-import { getToken } from "@/lib/api";
 
 function workspacePath(role?: string) {
   return role === "field_worker" ? "/briefs" : "/management";
@@ -19,11 +18,10 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Already signed in → go directly to the role's workspace, not the public landing.
-  useEffect(() => {
-    if (!getToken()) return;
-    getMe().then((user) => router.replace(workspacePath(user?.role)));
-  }, [router]);
+  // Deliberately no "already signed in → skip to workspace" auto-redirect here — every
+  // visit to /login shows the sign-in form, even with a valid stored token. Otherwise a
+  // leftover session from earlier testing silently swaps the page mid-view, which is
+  // exactly the wrong thing to have happen while presenting.
 
   // Real login → POST /auth/login (Supabase). Stores tokens, then routes directly in.
   async function doLogin(em: string, pw: string) {

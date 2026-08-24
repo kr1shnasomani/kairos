@@ -315,6 +315,9 @@ export interface DocumentsResponse {
   total: number;
   limit: number;
   offset: number;
+  /** Test-sweep artifacts withheld from `items`/`total` — reported rather than silent, same
+   *  rule as the knowledge-graph views. Absent on an older backend. */
+  excluded_test_documents?: number;
 }
 
 // --- Asset knowledge (GET /assets/{id}/knowledge, /aliases) ---

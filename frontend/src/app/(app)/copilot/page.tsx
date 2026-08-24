@@ -63,13 +63,65 @@ function InfoPopover({ turnCount, asOf, onClose }: { turnCount: number; asOf: st
   );
 }
 
+// sessionStorage, not localStorage: the conversation should survive navigating away and back
+// within a tab (the reported bug), but a closed tab or a fresh login is a clean slate rather
+// than the last presenter's questions still sitting there.
+const STORAGE_KEY = "kairos:copilot:turns";
+
 export default function CopilotPage() {
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [hydrated, setHydrated] = useState(false);
   const [input, setInput] = useState("");
   const [asOf, setAsOf] = useState("");
   const [infoOpen, setInfoOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const nextId = useRef(0);
+
+  // Restored client-side only, after mount — reading sessionStorage during the initial
+  // render would fight SSR hydration, since the server always renders the empty state.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      const restored: Turn[] = raw ? JSON.parse(raw) : [];
+      if (restored.length > 0) {
+        // A turn saved mid-flight restores stuck, and nothing re-triggers `run()` for it — two
+        // shapes, both need catching. Retrieval hadn't even returned yet: `answer` is still
+        // null. Retrieval returned but synthesis hadn't: `onSources` already replaced `answer`
+        // with a partial CopilotAnswer carrying `is_synthesizing: true` (confirmed live — this
+        // is the shape that actually gets saved in practice, since retrieval is fast and wins
+        // the race almost every time). Either way it would render <Thinking/> forever without
+        // this; convert both into a normal retryable error instead of a permanently stuck spinner.
+        const settled = restored.map((t) =>
+          (t.answer === null || t.answer.is_synthesizing) && !t.error
+            ? { ...t, answer: null, error: "Interrupted — synthesis was still running when you left this page.", streaming: undefined }
+            : t
+        );
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- reading external sessionStorage state on mount is what effects are for
+        setTurns(settled);
+        nextId.current = Math.max(0, ...settled.map((t) => t.id + 1));
+      }
+    } catch {
+      // Corrupt or unavailable storage — start with an empty conversation rather than throw.
+    }
+    setHydrated(true);
+  }, []);
+
+  // Guarded on `hydrated` so this can't fire on mount, before the restore above has applied,
+  // and overwrite a saved conversation with the empty initial state.
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(turns));
+    } catch {
+      // Storage full or unavailable — the conversation still works in-memory, it just won't
+      // survive navigation this time.
+    }
+  }, [turns, hydrated]);
+
+  function newChat() {
+    setTurns([]);
+    nextId.current = 0;
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -128,6 +180,21 @@ export default function CopilotPage() {
 
   return (
     <div data-testid="copilot-workspace" className="relative flex flex-col h-[calc(100dvh-56px)] md:h-[calc(100dvh-64px)] w-full">
+      {/* New chat — only meaningful once there is a conversation to leave behind */}
+      {!empty && (
+        <button
+          type="button"
+          onClick={newChat}
+          aria-label="Start a new chat"
+          className="absolute right-14 top-4 z-40 inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-3 text-caption font-medium text-muted transition-colors hover:border-[color-mix(in_srgb,var(--accent)_50%,var(--line))] hover:bg-accent-soft hover:text-accent"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          New chat
+        </button>
+      )}
+
       {/* ⓘ absolute top-right inside the workspace */}
       <button
         id="copilot-info-btn"

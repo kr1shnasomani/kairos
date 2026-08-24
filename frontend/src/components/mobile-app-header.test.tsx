@@ -15,7 +15,7 @@ describe("MobileAppHeader", () => {
     fireEvent.click(screen.getByRole("button", { name: /open menu/i }));
     fireEvent.click(screen.getByRole("button", { name: /search workspace/i }));
     fireEvent.click(screen.getByRole("button", { name: /open calendar/i }));
-    fireEvent.click(screen.getByRole("button", { name: /create asset/i }));
+    fireEvent.click(screen.getByRole("button", { name: /ingest document/i }));
     fireEvent.click(screen.getByRole("button", { name: /open briefs/i }));
     fireEvent.click(screen.getByRole("button", { name: /open user menu/i }));
 

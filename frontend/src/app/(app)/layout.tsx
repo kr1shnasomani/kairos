@@ -6,9 +6,16 @@ import { AppShell } from "@/components/app-shell";
 // server page's throw-on-fallback would otherwise fail the production build's SSG.
 export const dynamic = "force-dynamic";
 
-// Longest-prefix map — mirrors PAGE_LABELS in app-shell.tsx.
-// Server-side: Next.js uses this to set <title> on SSR/refresh.
-// Client-side: AppShell's JSX <title> takes over on navigation.
+// Longest-prefix map — this is the ONLY title-setting mechanism for every page under
+// (app), both on SSR/refresh and on client-side navigation (Next.js resolves
+// generateMetadata on every transition, not just the first load; no page in this route
+// group sets its own <title>, and AppShell doesn't either — a route missing from this
+// list, or listed only under a shorter prefix, shows the wrong title in both cases,
+// not just on refresh, which is how /system-benchmarks and /management/coverage were
+// found and fixed 2026-08-24: the first had no entry at all (bare "Kairos"), the second
+// fell through to the generic "/management" entry ("Kairos: Overview") because a
+// specific one wasn't listed above it. `.find()` returns the first array match, so a
+// specific prefix MUST be listed before any shorter prefix it also satisfies.
 const ROUTE_LABELS: [string, string][] = [
   ["/briefs", "Briefs"],
   ["/copilot", "Copilot"],
@@ -21,7 +28,9 @@ const ROUTE_LABELS: [string, string][] = [
   ["/projects", "Projects"],
   ["/management/cross-site", "Cross-Site Patterns"],
   ["/management/plant-state", "Plant State"],
+  ["/management/coverage", "Coverage"],
   ["/management", "Overview"],
+  ["/system-benchmarks", "System Benchmarks"],
   ["/documents/ingest", "Document Ingest"],
   ["/documents/compare", "Document Compare"],
   ["/documents", "Documents"],

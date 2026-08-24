@@ -51,6 +51,9 @@ export function Answer({ data, query = "", streaming }: {
 }) {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [feedbackFailed, setFeedbackFailed] = useState(false);
+  // Collapsed by default — a multi-source answer used to dump every source card open,
+  // pushing the confidence meter and feedback buttons below the fold.
+  const [sourcesOpen, setSourcesOpen] = useState(false);
 
   // Phase-2 trust loop. These buttons used to set local state only, so the rating the
   // architecture calls "direct input to outcome attribution and Layer 0" went nowhere.
@@ -229,12 +232,36 @@ export function Answer({ data, query = "", streaming }: {
         </div>
       )}
 
-      {/* Sources with authority + quarantine badges */}
-      {data.sources.length > 0 && (
+      {/* Sources with authority + quarantine badges. Gated on !is_synthesizing like the
+          footer below — `onSources` delivers a partial CopilotAnswer with sources already
+          populated the moment retrieval finishes, well before the answer text is ready, so
+          without this gate the source cards appeared first and the answer visibly caught up
+          to them afterward. */}
+      {!data.is_synthesizing && data.sources.length > 0 && (
         <div>
-          <p className="text-micro font-bold uppercase tracking-[0.1em] text-muted">
-            {data.refused ? "Sources — verify directly" : "Sources"}
-          </p>
+          <button
+            type="button"
+            onClick={() => setSourcesOpen((v) => !v)}
+            aria-expanded={sourcesOpen}
+            className="flex w-full items-center gap-1.5 text-micro font-bold uppercase tracking-[0.1em] text-muted hover:text-ink"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={cn("shrink-0 transition-transform", sourcesOpen && "rotate-90")}
+              aria-hidden="true"
+            >
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+            {data.refused ? "Sources — verify directly" : "Sources"} · {data.sources.length}
+          </button>
+          {sourcesOpen && (
           <div className="mt-2 space-y-2">
             {data.sources.map((s) => (
               <div
@@ -249,15 +276,28 @@ export function Answer({ data, query = "", streaming }: {
                 {s.excerpt && (
                   <p className="text-caption leading-relaxed text-muted">{s.excerpt}</p>
                 )}
-                <SourceChip quarantine={s.is_quarantine}>{s.document_id}</SourceChip>
+                <div className="flex flex-wrap items-center gap-2">
+                  <SourceChip quarantine={s.is_quarantine}>{s.document_id}</SourceChip>
+                  {s.vault_url && (
+                    <a
+                      href={s.vault_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-label text-accent underline hover:no-underline"
+                    >
+                      View file ↗
+                    </a>
+                  )}
+                </div>
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 
       {/* Entity annotation chips */}
-      {data.entities && data.entities.length > 0 && (
+      {!data.is_synthesizing && data.entities && data.entities.length > 0 && (
         <EntityAnnotations entities={data.entities} />
       )}
 

@@ -14,6 +14,9 @@ export interface CopilotSource {
   authority_level: AuthorityLevel;
   excerpt: string;
   is_quarantine?: boolean;
+  /** Opens the actual file in a new tab. Absent for a locally-answered meta question or if
+   *  the vault record has no stored URL. */
+  vault_url?: string;
 }
 
 export interface ExtractedEntity {

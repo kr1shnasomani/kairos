@@ -611,7 +611,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onOpenSearch={() => setPalette(true)}
           onOpenCalendar={() => setCalendarOpen((open) => !open)}
           calendarOpen={calendarOpen}
-          onCreate={() => router.push("/assets/bootstrap")}
+          onCreate={() => router.push("/documents/ingest")}
           onOpenBriefs={() => router.push("/briefs")}
           onOpenUser={() => setAccountOpen((open) => !open)}
           userInitial={getUserInitials("Kairos user")}
@@ -621,7 +621,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onOpenSearch={() => setPalette(true)}
           onOpenCalendar={() => setCalendarOpen((open) => !open)}
           calendarOpen={calendarOpen}
-          onCreate={() => router.push("/assets/bootstrap")}
+          onCreate={() => router.push("/documents/ingest")}
           onOpenBriefs={() => router.push("/briefs")}
           onOpenUser={() => setAccountOpen((open) => !open)}
           userInitial={getUserInitials("Kairos user")}
