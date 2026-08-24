@@ -555,8 +555,15 @@ async def generate_rca_pack(
     embed_query = f"{payload.failure_code} {asset_class}".strip()
     query_vector = await llm.embed(embed_query, task="retrieval.query")
 
+    # `kairos_documents`, not `kairos_knowledge`: the ingestion pipeline only ever writes the
+    # former (`document_pipeline.py`), so the knowledge collection is created by init_qdrant and
+    # then stays empty — measured 2026-08-24, 0 points against 114. RCA was retrieving from it
+    # and logging `evidence_count=0` on every call, which the model then answered honestly with
+    # weight 0.0 on every hypothesis and no sources. That rendered as zero-width bars and read as
+    # a broken chart rather than as "no evidence was found". Same payload shape (`asset_id`,
+    # `authority_level`, `document_id`, `text`, `is_quarantine`), so only the name changes.
     evidence_hits = await vector_store.search(
-        collection=settings.QDRANT_COLLECTION_KNOWLEDGE,
+        collection=settings.QDRANT_COLLECTION_DOCUMENTS,
         query_vector=query_vector,
         limit=10,
         asset_id=payload.asset_id,
