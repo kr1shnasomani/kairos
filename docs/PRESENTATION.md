@@ -14,21 +14,21 @@ Every beat says which of those it is buying.
 
 ## 1. Timing — pick your version
 
-Measured, not guessed: **1,267 spoken words + ~63 s of clicking and loading.**
+Measured, not guessed: **1,281 spoken words + ~63 s of clicking and loading.**
 
 Four passages in [§4](#4-the-script) are tagged **⟨CUT FOR 8:00⟩**. They are the four cheapest things
 to lose, in the order to lose them. Skipping all four saves **61 seconds**.
 
 | Your slot | What to present | Lands at |
 |---|---|---|
-| **Hard 8:00 bell** | Cuts **1–8** from the [cut ladder](#12-cut-ladder) — the four tagged ⟨CUT FOR 8:00⟩ **plus cuts 5–8**. Strike them out on your printout before you go up | **7:50** |
-| **8:00 + grace** (most likely) | Cuts **1–4** only — the four tagged passages | **8:27** |
-| **Confirmed 10:00** | Everything as written, **minus cut #4**, plus **Module B** from [§11](#11-optional-modules) | **9:55** |
+| **Hard 8:00 bell** | Cuts **1–8** from the [cut ladder](#12-cut-ladder) — the four tagged ⟨CUT FOR 8:00⟩ **plus cuts 5–8**. Strike them out on your printout before you go up | **7:56** |
+| **8:00 + grace** (most likely) | Cuts **1–4** only — the four tagged passages | **8:33** |
+| **Confirmed 10:00** | Cuts **3 and 4**, plus **Module B** from [§11](#11-optional-modules) | **9:49** |
 
-> **The full script with nothing cut is 9:28.** It does not fit a hard 8:00 bell, and it no longer
+> **The full script with nothing cut is 9:34.** It does not fit a hard 8:00 bell, and it no longer
 > fits 10:00 with an optional module bolted on — pick a row above rather than improvising.
 
-Those times assume 150 words a minute. At 140 you land at 10:05 for the full version, so if you are a
+Those times assume 150 words a minute. At 140 you land at 10:12 for the full version, so if you are a
 slow talker, present the 8:00 version even when you have grace.
 
 **Do not** add both optional modules. **Do not** improvise an extra screen. There is no room.
@@ -40,10 +40,11 @@ other way round means cutting under pressure, which is when people cut the wrong
 
 ## 2. Pre-flight — before you walk up
 
-**The one real risk is synthesis speed.** A Copilot answer takes about 32 seconds (p50), and can take
-66 (p95). One live question eats 12% of your slot watching a spinner. So **every model-backed screen
-is asked and answered before you present**, and left sitting on its tab. You switch tabs. You never
-wait.
+**Synthesis speed is no longer the main risk.** On the current run (2026-08-24) a Copilot answer is
+**p50 8.2 s, avg 16.9 s** — down from p50 32 s / p95 66 s on the 17-Aug run. **No p95 was recorded
+this run**, so the tail is unmeasured. Still **pre-ask every model-backed screen** and leave it on its
+tab — a spinner on stage costs nothing to avoid. But a live question during Q&A is now cheap, which is
+why the offer at the top of [§9](#9-qa-bank) is worth making.
 
 | # | Do this | Why |
 |---|---|---|
@@ -52,7 +53,7 @@ wait.
 | 3 | Ask Copilot **Q14** in Tab 5. Leave the answer and its sources on screen | Turns 32 s into a 0 s tab switch |
 | 4 | Ask the **hydrotest** question in Tab 6. Leave the refusal card on screen | Same reason |
 | 5 | Generate the RCA pack in Tab 7 (`EQ-101`, `SEAL-FAIL`, 15-Jul-2026) | Takes ~90 s live. Never run it live |
-| 6 | Do **one throwaway ingest** to warm Temporal and the model. Then reload Tab 2 and pick the file again — but **do not** upload it | Beat 3 is your only live moment. Warm it first |
+| 6 | Warm the pipeline by ingesting `dataset/demo-ingest/2-preflight/run4_eq102_bearing.pdf`. Then open Tab 2 and **pick** `dataset/demo-ingest/3-demo/oem_bulletin_fp_sb_2026_20.pdf` — **do not** upload it | Beat 3 is your only live moment. Warm on a *different* fresh file — ingest is idempotent, so the stage file must be one nothing has seen. See [§13](#13-demo-ingest-assets) |
 | 7 | Zoom the browser to 110–125%. Pick light or dark and stay there | The back row must be able to read the source chips |
 | 8 | Notifications off. Slack and mail closed. Laptop on mains. Sleep disabled | — |
 | 9 | Know that **Tab 1 is your backup deck** — the landing page carries the problem, the story, the architecture diagram and every number | If the stack dies, you keep going |
@@ -91,7 +92,7 @@ sidebar, they are seeing role-based access control without you claiming anything
 | Tab | Route | Logged in as | State before you start | Used in |
 |---|---|---|---|---|
 | **1** | `/` | not logged in | Scrolled to the top | Beats 1, 2, 11, 12, 13 |
-| **2** | `/documents/ingest` | admin | Degraded scan **picked, not uploaded** | Beat 3 |
+| **2** | `/documents/ingest` | admin | `3-demo/oem_bulletin_fp_sb_2026_20.pdf` **picked, not uploaded** ([§13](#13-demo-ingest-assets)) | Beat 3 |
 | **3** | `/documents/<pid-id>/topology` | admin | P&ID topology graph on screen | Beat 3 |
 | **4** | `/briefs/<eq101-brief-id>` | admin | EQ-101 brief open | Beat 4 |
 | **5** | `/copilot` | admin | **Q14 asked**, answer + source chips visible | Beat 5 |
@@ -118,7 +119,7 @@ the heading is when that beat **ends**.
 
 ---
 
-### Beat 1 · The problem · ends **0:52** *(Business Impact)*
+### Beat 1 · The problem · ends **0:53** *(Business Impact)*
 
 **SCREEN** — Tab 1, `/`, the top of the landing page.
 **DO** — Stand still. Do not click anything for the first two sentences. Then scroll down slowly to
@@ -162,21 +163,25 @@ the four problem numbers.
 
 ---
 
-### Beat 3 · Everything gets in · ends **2:27** *(Technical Excellence)*
+### Beat 3 · Everything gets in · ends **2:33** *(Technical Excellence)*
 
 **SCREEN** — Tab 2, `/documents/ingest`, then Tab 3, `/documents/<id>/topology`.
 **DO** — Click **Upload** as you start the first sentence. Keep talking while it runs. Point at the
 pipeline timeline when it turns green — that takes about 8 seconds. Then switch to Tab 3.
+**This is a native PDF on purpose** — it takes the `native_pdf` path, so there is no OCR gate to
+trip and the run completes. The degraded scans in the corpus *quarantine* by design; see
+[§13](#13-demo-ingest-assets) before you swap the file.
 
 **SAY:**
 
-> "First, everything has to get in. This is a **blurry scan** of a vendor bulletin — what is really in
-> a plant's archive, not what is in a demo. It is hashed, stored in a vault that never deletes, read
-> by OCR, and its entities go into the graph."
+> "First, everything has to get in. This is a **vendor bulletin issued last week** — nothing in this
+> system has ever seen it. It is hashed, stored in a vault that never deletes, read for entities, and
+> those entities go into the graph."
 
 *(point at the finished timeline)*
 
-> "Eight seconds. Same door for PDFs, spreadsheets, forms, handwritten shift logs and voice notes."
+> "Eight seconds. Same door for scans, spreadsheets, forms, handwritten shift logs and voice notes —
+> and a blurry scan the OCR cannot read with confidence is **held for a human**, not guessed at."
 
 *(switch to Tab 3)*
 
@@ -186,7 +191,7 @@ pipeline timeline when it turns green — that takes about 8 seconds. Then switc
 
 ---
 
-### Beat 4 · The brief nobody asked for · ends **3:11** *(Innovation · Business Impact)*
+### Beat 4 · The brief nobody asked for · ends **3:17** *(Innovation · Business Impact)*
 
 **SCREEN** — Tab 4, `/briefs/<eq101-brief-id>`.
 **DO** — Point at each of the three items as you say them. Point at the **unverified** label on the
@@ -207,7 +212,7 @@ third one and leave your hand there for a second.
 
 ---
 
-### Beat 5 · The answer, and where it came from · ends **3:56** *(UX · Technical Excellence)*
+### Beat 5 · The answer, and where it came from · ends **4:02** *(UX · Technical Excellence)*
 
 **SCREEN** — Tab 5, `/copilot`, answer already on screen.
 **DO** — Read the question off the screen so the room knows you did not pick it just now. Then point
@@ -229,7 +234,7 @@ at the source chips.
 
 ---
 
-### Beat 6 · The refusal · ends **4:56** *(Innovation — this is your peak)*
+### Beat 6 · The refusal · ends **5:02** *(Innovation — this is your peak)*
 
 **SCREEN** — Tab 6, `/copilot`, refusal card already on screen.
 **DO** — Slow right down. After "It could just multiply", **stop talking for two seconds** and let
@@ -256,7 +261,7 @@ them read the card. This is the beat they will remember you for.
 
 ---
 
-### Beat 7 · Root cause · ends **5:24** *(Business Impact)* · **⟨CUT FOR 8:00 — the whole beat⟩**
+### Beat 7 · Root cause · ends **5:30** *(Business Impact)* · **⟨CUT FOR 8:00 — the whole beat⟩**
 
 **SCREEN** — Tab 7, `/rca`, pack already generated.
 **DO** — Scroll once through the timeline, then stop on the ranked causes. Do not read them out.
@@ -273,7 +278,7 @@ straight to Tab 8.
 
 ---
 
-### Beat 8 · Knowledge that goes stale · ends **6:12** *(Innovation · Technical Excellence)*
+### Beat 8 · Knowledge that goes stale · ends **6:18** *(Innovation · Technical Excellence)*
 
 **SCREEN** — Tab 8, `/governance/moc/<id>`, blast radius visible.
 **DO** — Point at the six affected documents. Then point at the pending-MoC banner.
@@ -294,7 +299,7 @@ straight to Tab 8.
 
 ---
 
-### Beat 9 · The auditor's view · ends **6:42** *(Business Impact · Scalability)*
+### Beat 9 · The auditor's view · ends **6:48** *(Business Impact · Scalability)*
 
 **SCREEN** — Tab 9, `/compliance`, logged in as the compliance officer. Then one click to
 `/compliance/audit-pack`.
@@ -311,7 +316,7 @@ word "one click".
 
 ---
 
-### Beat 10 · The wrench, and the knowledge cliff · ends **7:17** *(UX)*
+### Beat 10 · The wrench, and the knowledge cliff · ends **7:23** *(UX)*
 
 **SCREEN** — Tab 10, `/field/voice` in the 390 px window, logged in as the field worker.
 **DO** — Bring the narrow window forward so the phone shape is obvious. Do not tap record.
@@ -327,7 +332,7 @@ word "one click".
 
 ---
 
-### Beat 11 · Under the hood · ends **7:50** *(Technical Excellence)*
+### Beat 11 · Under the hood · ends **7:56** *(Technical Excellence)*
 
 **SCREEN** — Tab 1, scrolled to the architecture diagram (`#system`).
 **DO** — Point at the diagram once. Do not walk through it. Thirty seconds, then move.
@@ -343,7 +348,7 @@ word "one click".
 
 ---
 
-### Beat 12 · Evidence · ends **8:37** *(Technical Excellence)*
+### Beat 12 · Evidence · ends **8:43** *(Technical Excellence)*
 
 **SCREEN** — Tab 1, the **Evals** section: the bar chart, then the coloured card under it.
 **DO** — Point at the card that says *"Fixed rules, never another model."* Do not read the bars out
@@ -356,16 +361,17 @@ one by one.
 > Thirty-seven expert questions, fifteen categories, graded" — *(point at the card)* — "**by fixed
 > rules. Never by another model marking its own homework.**
 >
-> **Retrieval, 37 of 37. Sources, 37 of 37** — every answer carried its sources. **Answer quality, 33
-> of 37** on our last full run.
+> **Retrieval, 37 of 37. Sources, 37 of 37** — every answer carried its sources. **Answer quality, 36
+> of 37.**
 >
-> ⟨CUT FOR 8:00 — this last paragraph⟩ And here is the honest part. Since that run we fixed the bugs
-> behind all four failures, and each one now answers correctly. That number is old, and old in our
-> favour. We still quote it, because **we do not quote a score we have not re-run.**"
+> ⟨CUT FOR 8:00 — this last paragraph⟩ And here is the honest part. That number was **33 of 37** eight
+> days ago. Our own harness found the cause — retrieval was ranking test noise alongside real evidence.
+> We fixed it, re-ran the whole sweep, and **published both runs side by side.** We do not quote a
+> score we have not re-run."
 
 ---
 
-### Beat 13 · Close · ends **9:28** *(Scalability · Business Impact)*
+### Beat 13 · Close · ends **9:34** *(Scalability · Business Impact)*
 
 **SCREEN** — Tab 1. Either the hero at the top, or hold on the architecture diagram.
 **DO** — Stop clicking. Face the room for the last three sentences.
@@ -396,22 +402,22 @@ Full version. **⚑** marks a ⟨CUT FOR 8:00⟩ passage.
 |---|---|---|---|---|
 | 1 The problem | Tab 1 top → stats | **0:53** | 121 | ⚑ one sentence |
 | 2 Search box | Tab 1 stats | **1:33** | 103 | |
-| 3 Ingest + P&ID | Tab 2 → Tab 3 | **2:27** | 100 | |
-| 4 Brief | Tab 4 | **3:11** | 100 | |
-| 5 Answer | Tab 5 | **3:56** | 102 | |
-| 6 **Refusal** | Tab 6 | **4:56** | 135 | |
-| 7 RCA | Tab 7 | **5:24** | 58 | ⚑ whole beat |
-| 8 Blast radius | Tab 8 | **6:12** | 111 | |
-| 9 Compliance | Tab 9 | **6:42** | 60 | ⚑ last two sentences |
-| 10 Field | Tab 10 | **7:17** | 74 | |
-| 11 Architecture | Tab 1 | **7:50** | 70 | |
-| 12 Evidence | Tab 1 | **8:37** | 105 | ⚑ last paragraph |
-| 13 Close | Tab 1 | **9:28** | 128 | |
+| 3 Ingest + P&ID | Tab 2 → Tab 3 | **2:33** | 114 | |
+| 4 Brief | Tab 4 | **3:17** | 100 | |
+| 5 Answer | Tab 5 | **4:02** | 102 | |
+| 6 **Refusal** | Tab 6 | **5:02** | 135 | |
+| 7 RCA | Tab 7 | **5:30** | 58 | ⚑ whole beat |
+| 8 Blast radius | Tab 8 | **6:18** | 111 | |
+| 9 Compliance | Tab 9 | **6:48** | 60 | ⚑ last two sentences |
+| 10 Field | Tab 10 | **7:23** | 74 | |
+| 11 Architecture | Tab 1 | **7:56** | 70 | |
+| 12 Evidence | Tab 1 | **8:43** | 105 | ⚑ last paragraph |
+| 13 Close | Tab 1 | **9:34** | 128 | |
 
-**With the four ⚑ cut (cuts 1–4), the clock runs:** 0:44 · 1:25 · 2:19 · 3:03 · 3:48 · 4:48 ·
-*(skip)* · 5:36 · 5:55 · 6:30 · 7:03 · 7:41 · **8:27**.
+**With the four ⚑ cut (cuts 1–4), the clock runs:** 0:44 · 1:25 · 2:25 · 3:09 · 3:54 · 4:54 ·
+*(skip)* · 5:42 · 6:01 · 6:36 · 7:09 · 7:47 · **8:33**.
 
-**For a hard 8:00 bell you need cuts 1–8**, which lands at **7:50**. Cuts 1–6 land at 8:11 — still
+**For a hard 8:00 bell you need cuts 1–8**, which lands at **7:56**. Cuts 1–6 land at 8:17 — still
 over. Do not talk faster to fix this; cut the ladder.
 
 **Two checkpoints. Only two.**
@@ -460,7 +466,7 @@ judge asks *"what else is in there?"*, you answer in one sentence instead of cli
 | Route | Beat | What it proves |
 |---|---|---|
 | `/` | 1, 2, 11, 12, 13 | Problem, story, architecture, all the numbers. Also the fallback deck |
-| `/documents/ingest` | 3 | Any format in, ~8 s, vault + OCR + entities + graph. Your only live moment |
+| `/documents/ingest` | 3 | Any format in, ~8 s, vault + entities + graph. Your only live moment ([§13](#13-demo-ingest-assets)) |
 | `/documents/<id>/topology` | 3 | Drawings read by a vision model; topology stays **candidate** until verified |
 | `/briefs/<id>` | 4 | Proactive brief with no query; unverified evidence labelled, not hidden |
 | `/copilot` (session 1) | 5 | Cited answer, ranked by authority |
@@ -520,11 +526,11 @@ are easy to say by accident when you are nervous.
 
 | Do not say | Say this instead |
 |---|---|
-| "Connected to a real plant" / "real refinery data" | "An authored corpus — 32 files, 24 documents in the vault. No historian, no EAM. It says so on our landing page" |
+| "Connected to a real plant" / "real refinery data" | "An authored corpus — 32 files, 21 documents in the vault. No historian, no EAM. It says so on our landing page" |
 | "It supports Hindi and Hinglish" | "Handwritten notes and blurry scans." Multilingual is deferred, not shipped |
 | "Memory is flat under load" | "No sign of a leak over a 60-minute run." That is the harness verdict, not a claim about memory |
 | "Hybrid search beats vector search" | "Hybrid matches the best single method, and adds authority ranking and a fallback if one store is down" |
-| "We're 89% accurate" *(said alone)* | "33 of 37 on our last full run — and that number is stale, see Beat 12" |
+| "We're 89% accurate" *(said alone)* | **Superseded.** The current run is **36 of 37 (97.3%), VALID**, re-run 2026-08-24. 89% was the 17-Aug run. Quote the new one and say when it was run |
 | "All four misses were safe refusals" | **Do not say this at all.** It was written down once and checked wrong on 23 August. Three of the four were never even eligible to be refused |
 | "The model gate blocks bad models" | "It scores them and reports. Blocking ships turned off, on purpose" |
 | "Multi-site" | Single site. This is an MVP boundary, not a bug |
@@ -549,8 +555,8 @@ are easy to say by accident when you are nervous.
 |---|---|
 | **"How is this different from ChatGPT over our documents?"** | A chatbot gives you text. We give you text plus where it came from, ranked by authority, and we refuse on safety questions when the evidence is thin. And our retrieval and citation scores are graded by fixed rules, not by another model. |
 | **"Is the data real?"** | It is authored, on purpose — 32 files modelling a petrochemical complex, with a canon file as the answer key. No historian, no EAM connection. It is written on our landing page, not hidden. That is the boundary of this MVP. |
-| **"Why is answer quality only 89%?"** | That is 33 of 37 from the sweep on 16 August. We have since fixed the bugs behind all four failures and checked each one individually — they all answer correctly now. We have not re-run the full sweep, so we still quote the old number. |
-| **"32 seconds for an answer — isn't that slow?"** | For a brief that arrives before you leave the workshop, no. It is 32 seconds at the median, with a 60-second cap on Llama 3.1 70B. A shorter cap gives a prettier number that is actually measuring the fallback model, not the one we ship. |
+| **"Why is answer quality only 89%?"** | It is not — that was the 17-Aug run. The current figure is **36 of 37 (97.3%), VALID**, re-run 2026-08-24 with retrieval at 37/37 and provenance at 37/37. The jump came from a real bug our own harness caught: `/search` was not filtering test-artifact noise out of results before ranking. Both runs are published in `benchmark/RESULTS.md` §2 — we did not delete the bad one. The single remaining miss is Q02 (causal); it retrieved correctly, so it is a synthesis-quality gap, not a retrieval gap. |
+| **"How fast is an answer?"** | **8.2 seconds at the median** on the current run, 16.9 s average, with a 60-second cap on Llama 3.1 70B. It was 32 s a week ago; the same fix that moved answer quality moved latency. **No p95 was recorded on this run**, so do not quote a tail figure. A shorter cap would give a prettier number that is actually measuring the fallback model, not the one we ship. |
 | **"What stops someone poisoning the knowledge base?"** | Four things. Low-confidence extractions cannot reach the graph without a human promoting them. Safety limits need a signed Management of Change. The vault never deletes, so the original always survives. And every promotion is written to the audit log. |
 | **"How do you know your own retrieval works?"** | Because our own baseline harness caught it failing. It measured vector search at **0 out of 37** one day — that is how we found a filter on an unindexed field silently erroring, which had quietly degraded the whole system to keyword search only. No unit test caught that. The benchmark did. |
 | **"Does it scale?"** | 2,275 requests with 0% errors, and the knee at 50 concurrent users. A 60-minute soak on cloud stores with no leak signal and 0.11% errors across 37,842 requests. What that does **not** prove is a ten-thousand-asset plant, and we say so on the page. |
@@ -578,7 +584,7 @@ Use this to check yourself, and to answer *"did you actually build all of it?"*
 
 | The problem statement asks for | Beat | What the judge actually sees |
 |---|---|---|
-| Universal document ingestion & knowledge graph agent | **3** | A blurry scan uploaded live → vault → OCR → entities → graph in ~8 s, and a P&ID turned into topology |
+| Universal document ingestion & knowledge graph agent | **3** | A vendor bulletin nothing has seen, uploaded live → vault → entities → graph in ~8 s, and a P&ID turned into topology |
 | Expert knowledge copilot | **5**, **10** | A cited answer ranked by authority; the same product running in a 390 px phone window |
 | Maintenance intelligence & RCA agent | **4**, **7** | A brief assembled from a work-order event with nobody asking; an RCA timeline with ranked causes |
 | Quality & regulatory compliance intelligence | **9** | OISD / PESO / Factories Act gap dashboard, and a one-click audit evidence pack |
@@ -615,8 +621,9 @@ Use this to check yourself, and to answer *"did you actually build all of it?"*
 
 ## 11. Optional modules
 
-**Only if you have been told you have ten minutes.** Insert after Beat 11. Pick **one** — the full
-script plus both modules is 10:30, which is over the wall.
+**Only if you have been told you have ten minutes.** Insert after Beat 11. Pick **one**, and take
+cuts 3 and 4 to pay for it — the full script *plus* a module is **10:09**, already over the wall.
+Module B with cuts 3–4 lands **9:49**; Module A with cuts 2–4 lands **9:46**. Never both modules.
 
 ### Module A · Governance is real, not a slide · **+45 s**
 
@@ -653,7 +660,7 @@ Savings are measured, not guessed.
 | # | Cut | Saves | What it costs you |
 |---|---|---|---|
 | **1** ⚑ | **Beat 7 (RCA) entirely.** Add one sentence to the end of Beat 6 instead, still on Tab 6: *"The same evidence also builds a root-cause pack — timeline, ranked causes, sources."* | **−28 s** | Medium. A problem-statement bullet leaves the screen. It survives in Q&A |
-| **2** ⚑ | **Beat 12** — the last paragraph about the stale number | **−13 s** | Low, but you lose a good honesty moment |
+| **2** ⚑ | **Beat 12** — the last paragraph, where the harness caught its own bug | **−13 s** | Low, but you lose a good honesty moment |
 | **3** ⚑ | **Beat 9** — the precision sentence. Keep the audit-pack click | **−12 s** | Low. The number is in the Q&A bank |
 | **4** ⚑ | **Beat 1** — the retirement sentence | **−8 s** | Low. Beat 10 raises the knowledge cliff again |
 | 5 | **Beat 11** — the datastore sentence. Keep the six properties | **−10 s** | Medium |
@@ -661,8 +668,8 @@ Savings are measured, not guessed.
 | 7 | **Beat 10** — the interview sentence. Keep the phone and the quarantine | **−10 s** | High. Drops the knowledge-cliff payoff |
 | 8 | **Beat 8** — the "we never delete" paragraph | **−11 s** | High. Drops time travel, one of your three best ideas |
 
-**Cuts 1–4 land you at 8:27** — that is the version for an 8:00 slot *with grace*.
-**Cuts 1–8 land at 7:50**, which is the only version that clears a hard 8:00 bell — and by cut 7 you
+**Cuts 1–4 land you at 8:33** — that is the version for an 8:00 slot *with grace*.
+**Cuts 1–8 land at 7:56**, which is the only version that clears a hard 8:00 bell — and by cut 7 you
 are into muscle, not fat. Rehearse whichever one matches your actual slot; do not rehearse the full
 script and hope to cut live.
 
@@ -671,7 +678,87 @@ script and hope to cut live.
 
 ---
 
-## 13. If the stack fails
+## 13. Demo-ingest assets
+
+Everything Beat 3 needs is in **`dataset/demo-ingest/`** (untracked — it is not in git). Created 2026-08-24.
+**Nothing here has been ingested.** Every upload is yours to make.
+
+### Why these files exist at all
+
+Two things would have broken Beat 3 as originally written:
+
+1. **`POST /documents/ingest` dedups on SHA-256.** Every file under `dataset/` is already in the
+   vault, so uploading one returns `{"status": "duplicate"}` **instantly** — no pipeline, no timeline,
+   no eight seconds. (`status.md` records this independently.)
+2. **The degraded scans quarantine by design.** `scanned_oem_bulletin_degraded.png` is
+   `DOC-ZCUGJE4ZAAT2`; on the D2 backfill it stopped at `run_ocr` with
+   `pipeline_stage: review_required` and *"OCR span-confidence gate: 4 span(s) below 0.7"*. It never
+   reaches the graph — so the old line *"its entities go into the graph"* was false for that file.
+
+> **These live under `dataset/demo-ingest/`, inside the golden-dataset folder.** That is safe:
+> `load_demo_dataset.py` ingests an **explicit file list** and only globs `event_*.json`, so nothing
+> here is picked up by `make load-dataset`. It also means the container can see them at
+> `/app/dataset/demo-ingest/` if you ever need to ingest from inside.
+
+### The five files — one per run
+
+**One file = one ingest.** `POST /documents/ingest` dedups on SHA-256, so a file is spent the
+moment you upload it. Never reuse one.
+
+| # | File | When |
+|---|---|---|
+| 1 | `1-tonight/run1_eq103_coupling.pdf` | Tonight, rehearsal 1 |
+| 2 | `1-tonight/run2_he301_cleaning.pdf` | Tonight, rehearsal 2 |
+| 3 | `1-tonight/run3_he302_gasket.pdf` | Tonight, rehearsal 3 |
+| 4 | `2-preflight/run4_eq102_bearing.pdf` | Tomorrow, warm-up before you go up |
+| 5 | `3-demo/oem_bulletin_fp_sb_2026_20.pdf` | **On stage.** Named plausibly — judges see the filename |
+
+Each is a vendor service bulletin dated 20-Aug-2026, stating **one fact nothing else in the corpus
+states**. After ingest, ask Copilot that fact back — the answer cites a document that did not exist
+ninety seconds earlier.
+
+| File | Ask Copilot | Expect |
+|---|---|---|
+| run1 | *"What alignment tolerance applies to EQ-103?"* | 0.05 mm parallel offset |
+| run2 | *"When is the HE-301 tube bundle due for cleaning?"* | 18 months |
+| run3 | *"What is the gasket replacement rule for HE-302?"* | every second opening |
+| run4 | *"How often should EQ-102 bearings be regreased?"* | 2,400 operating hours |
+| **demo** | *"What seal inspection interval does Fischer recommend for EQ-101 in thermal cycling service?"* | **5,000 operating hours** |
+
+Verified 2026-08-24: 5 distinct SHA-256s, none in the vault, all text-layer extractable with `fitz`,
+none caught by the corpus filter. Content is canon-consistent — every asset tag, person, OEM and ID
+convention comes from `00_KAIROS_CANON.md`, and each file's fact is unique, so no set can contradict
+canon or another set. **HE-3xx pressure is deliberately avoided** — that is the 18.5 → 16.2 bar
+blast-radius story behind Beat 8.
+
+`dataset/demo-ingest/spare/` holds 13 more (closeouts, inspection records, one extra bulletin) if you burn
+through the five.
+
+### Generating more — `backend/scripts/make_demo_docs.py`
+
+```bash
+docker exec kairos-backend-api python /app/scripts/make_demo_docs.py --out /tmp/demo --sets 6 && docker cp kairos-backend-api:/tmp/demo ./dataset/demo-ingest/new-batch
+```
+
+PDFs carry a creation timestamp, so **every run produces new SHA-256s even for identical text** —
+re-run any time for a fresh batch. Add entries to `SETS` in that file for more topics; the docstring
+states the safety rules content must follow.
+
+### Three rules that will bite you
+
+1. **One file, one run.** SHA-256 dedup means a file is spent after one ingest. Rehearsing burns a
+   file — that is why there are separate `rehearsal_*` and `warmup_*` copies.
+2. **Never name a demo file `test_*`, `tmp*`, `probe*`, `e2e_*` or `kairos_*`.** `services/corpus.py`
+   filters those on read: the document ingests fine and is then **invisible** in `/documents`, which
+   looks like a broken product. All names here were checked against that predicate.
+3. **Every ingest is a permanent cloud write.** Supabase, Neo4j, Qdrant and Elasticsearch — and the
+   vault never deletes. Three fresh documents join the golden corpus for good. They are
+   canon-consistent so nothing should break, but the published figures in `benchmark/RESULTS.md`
+   were measured on the corpus *as it is now*. Ingest after any benchmark re-run, not before.
+
+---
+
+## 14. If the stack fails
 
 Tab 1 alone tells the whole story: the problem, the one-pump scenario end to end, the architecture
 diagram, every benchmark number, and the honest-limits block in the FAQ.

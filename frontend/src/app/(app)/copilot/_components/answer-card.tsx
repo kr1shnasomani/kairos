@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { submitAnswerFeedback } from "@/lib/api";
+import { getArtifactUrl, submitAnswerFeedback } from "@/lib/api";
 import { META_MODEL, type CopilotAnswer } from "@/lib/copilot";
 import { AuthorityBadge, SourceChip, StatusBadge, ConfidenceMeter } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -21,6 +21,36 @@ export function Thinking() {
       </span>
       Assembling evidence…
     </div>
+  );
+}
+
+/** `vault_url` is Supabase's `/object/authenticated/` endpoint: a plain <a> click cannot send
+ *  the Authorization header it requires, so the browser gets a 400 ("headers must have required
+ *  property 'authorization'") rendered as a bare error page — confirmed live, not a real 404.
+ *  Fetch a short-lived signed URL instead — the token rides in the query string, so a plain
+ *  `window.open` works. Same contract as `documents-table.tsx`'s `DownloadCell` and
+ *  `documents/[id]/open-artifact.tsx`; this component used to link `vault_url` directly and
+ *  every "View file" click failed the same way every un-migrated Download link once did. */
+function ViewFileLink({ documentId }: { documentId: string }) {
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  return (
+    <button
+      type="button"
+      disabled={status === "loading"}
+      onClick={async () => {
+        setStatus("loading");
+        const url = await getArtifactUrl(documentId);
+        if (url) {
+          setStatus("idle");
+          window.open(url, "_blank", "noopener,noreferrer");
+        } else {
+          setStatus("error");
+        }
+      }}
+      className="text-label text-accent underline hover:no-underline disabled:opacity-60"
+    >
+      {status === "loading" ? "Opening…" : status === "error" ? "Retry" : "View file ↗"}
+    </button>
   );
 }
 
@@ -278,16 +308,7 @@ export function Answer({ data, query = "", streaming }: {
                 )}
                 <div className="flex flex-wrap items-center gap-2">
                   <SourceChip quarantine={s.is_quarantine}>{s.document_id}</SourceChip>
-                  {s.vault_url && (
-                    <a
-                      href={s.vault_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-label text-accent underline hover:no-underline"
-                    >
-                      View file ↗
-                    </a>
-                  )}
+                  {s.vault_url && <ViewFileLink documentId={s.document_id} />}
                 </div>
               </div>
             ))}

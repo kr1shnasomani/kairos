@@ -734,7 +734,12 @@ button:not(:disabled),
  * Dev-only element; the rule is inert in a production build.
  * Trade-off: this also hides the full-screen error overlay. Errors still reach
  * the browser console and `docker logs kairos-frontend`. */
-nextjs-portal,
-script[data-nextjs-dev-overlay] {
+/* Scoped to :not([data-devtools="show"]) rather than hiding unconditionally, so the overlay
+ * can be brought back to diagnose something without editing CSS:
+ *   localStorage.setItem("kairos-devtools", "show")  // then reload
+ *   localStorage.removeItem("kairos-devtools")       // hide again
+ * When shown no rule matches at all, so Next's own styles apply unchanged. */
+:root:not([data-devtools="show"]) nextjs-portal,
+:root:not([data-devtools="show"]) script[data-nextjs-dev-overlay] {
   display: none !important;
 }
